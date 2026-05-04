@@ -1,0 +1,70 @@
+#pragma once
+
+#include <QUndoCommand>
+#include <QVariant>
+#include <memory>
+
+#include "core/Workspace.h"
+
+namespace quewi::cues { class Cue; }
+
+namespace quewi::core {
+
+class CueList;
+
+class InsertCueCommand : public QUndoCommand {
+public:
+    InsertCueCommand(CueList *list, int row, std::unique_ptr<cues::Cue> cue,
+                     QUndoCommand *parent = nullptr);
+    void undo() override;
+    void redo() override;
+
+private:
+    CueList *m_list;
+    int m_row;
+    std::unique_ptr<cues::Cue> m_storage; // holds the cue while undone
+};
+
+class RemoveCueCommand : public QUndoCommand {
+public:
+    RemoveCueCommand(CueList *list, int row, QUndoCommand *parent = nullptr);
+    void undo() override;
+    void redo() override;
+
+private:
+    CueList *m_list;
+    int m_row;
+    std::unique_ptr<cues::Cue> m_storage;
+};
+
+// Generic field edit. The setter is invoked via cue->setField(name, value).
+class EditCueFieldCommand : public QUndoCommand {
+public:
+    EditCueFieldCommand(cues::Cue *cue, QString field,
+                        QVariant oldValue, QVariant newValue,
+                        QUndoCommand *parent = nullptr);
+    void undo() override;
+    void redo() override;
+    int  id() const override { return 1; }
+    bool mergeWith(const QUndoCommand *other) override;
+
+private:
+    cues::Cue *m_cue;
+    QString    m_field;
+    QVariant   m_old;
+    QVariant   m_new;
+};
+
+class RenameCueListCommand : public QUndoCommand {
+public:
+    RenameCueListCommand(CueList *list, QString newName, QUndoCommand *parent = nullptr);
+    void undo() override;
+    void redo() override;
+
+private:
+    CueList *m_list;
+    QString  m_old;
+    QString  m_new;
+};
+
+} // namespace quewi::core

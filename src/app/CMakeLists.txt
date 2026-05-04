@@ -12,7 +12,6 @@ set_target_properties(quewi PROPERTIES
 target_link_libraries(quewi PRIVATE
     Qt6::Widgets
     quewi_core
-    quewi_cues
     quewi_show
     quewi_ui
     quewi_audio

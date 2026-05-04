@@ -1,18 +1,56 @@
 #pragma once
 
 #include <QObject>
+#include <QString>
+#include <QUndoStack>
 #include <QUuid>
+#include <memory>
+#include <vector>
+
+namespace quewi::cues { class Cue; }
 
 namespace quewi::core {
 
 using CueId = QUuid;
+using CueListId = QUuid;
 
-// Owns CueLists, Patches, Settings. The root of the show document.
+class CueList;
+
+// Root of the show document. Owns CueLists, the undo stack, and
+// dirty-tracking. Edited via undo commands (see UndoCommands.h).
 class Workspace : public QObject {
     Q_OBJECT
 public:
     explicit Workspace(QObject *parent = nullptr);
     ~Workspace() override;
+
+    QString name() const { return m_name; }
+    void setName(QString name);
+
+    const std::vector<std::unique_ptr<CueList>> &cueLists() const { return m_cueLists; }
+    CueList *activeCueList() const { return m_activeCueList; }
+    void setActiveCueList(CueList *list);
+
+    // Used by ShowFile during load and by undo commands.
+    CueList *addCueList(std::unique_ptr<CueList> list);
+    std::unique_ptr<CueList> takeCueList(CueListId id);
+
+    QUndoStack *undoStack() { return &m_undoStack; }
+
+    bool isDirty() const { return m_undoStack.isClean() == false; }
+    void markClean() { m_undoStack.setClean(); }
+
+signals:
+    void nameChanged();
+    void cueListsChanged();
+    void activeCueListChanged();
+    void dirtyChanged();
+
+private:
+    QString m_name;
+    std::vector<std::unique_ptr<CueList>> m_cueLists;
+    CueList *m_activeCueList = nullptr;
+    QUndoStack m_undoStack;
 };
 
 } // namespace quewi::core

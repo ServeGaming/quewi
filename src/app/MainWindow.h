@@ -1,6 +1,14 @@
 #pragma once
 
 #include <QMainWindow>
+#include <QString>
+#include <memory>
+
+class QAction;
+class QSplitter;
+
+namespace quewi::core { class Workspace; class CueListModel; }
+namespace quewi::ui   { class CueListView; class Inspector; class TransportBar; }
 
 namespace quewi {
 
@@ -9,6 +17,43 @@ class MainWindow : public QMainWindow {
 public:
     explicit MainWindow(QWidget *parent = nullptr);
     ~MainWindow() override;
+
+protected:
+    void closeEvent(QCloseEvent *event) override;
+
+private slots:
+    void newShow();
+    void openShow();
+    bool saveShow();
+    bool saveShowAs();
+    void showPreferences();
+    void insertMemoCue();
+    void deleteSelectedCue();
+    void onSelectionChanged();
+    void updateTitle();
+    void onGoRequested();
+
+private:
+    void buildLayout();
+    void buildMenus();
+    void resetWorkspace();
+    void rebindModel();
+    bool maybeSaveChanges();
+    bool saveTo(const QString &path);
+
+    std::unique_ptr<core::Workspace>   m_workspace;
+    std::unique_ptr<core::CueListModel> m_model;
+
+    ui::CueListView *m_cueListView = nullptr;
+    ui::Inspector   *m_inspector   = nullptr;
+    ui::TransportBar *m_transport  = nullptr;
+    QSplitter       *m_mainSplitter = nullptr;
+
+    QAction *m_actUndo = nullptr;
+    QAction *m_actRedo = nullptr;
+    QAction *m_actSave = nullptr;
+
+    QString m_currentPath;
 };
 
 } // namespace quewi

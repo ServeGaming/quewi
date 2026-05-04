@@ -41,7 +41,6 @@ qt_standard_project_setup()
 enable_testing()
 
 add_subdirectory(src/core)
-add_subdirectory(src/cues)
 add_subdirectory(src/audio)
 add_subdirectory(src/video)
 add_subdirectory(src/lighting)

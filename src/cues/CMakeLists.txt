@@ -1,6 +1,3 @@
-add_library(quewi_cues STATIC
-    Cue.h
-    Cue.cpp
-)
-target_include_directories(quewi_cues PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/..)
-target_link_libraries(quewi_cues PUBLIC Qt6::Core quewi_core)
+# cues/ sources are compiled into quewi_core to avoid a circular
+# dependency between cues and core. This file is intentionally empty;
+# kept so the directory structure stays explicit. See src/core/CMakeLists.txt.
