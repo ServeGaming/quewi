@@ -25,8 +25,10 @@
 #include "ui/ActiveCuesPanel.h"
 #include "ui/AudioEditorWindow.h"
 #include "ui/CommandPalette.h"
+#include "ui/FindReplaceDialog.h"
 #include "ui/ShortcutManager.h"
 #include "ui/ShortcutsDialog.h"
+#include "ui/Theme.h"
 #include "ui/CueListView.h"
 #include "ui/PreflightDialog.h"
 #include "ui/Inspector.h"
@@ -35,6 +37,7 @@
 #include "ui/TransportBar.h"
 
 #include <QAction>
+#include <QApplication>
 #include <QCloseEvent>
 #include <QDragEnterEvent>
 #include <QDragMoveEvent>
@@ -48,8 +51,12 @@
 #include <QMenuBar>
 #include <QMessageBox>
 #include <QMimeData>
+#include <QDir>
 #include <QInputDialog>
 #include <QSplitter>
+#include <QStandardPaths>
+#include <QTimer>
+#include <QUuid>
 #include <QStatusBar>
 #include <QTabBar>
 #include <QUndoStack>
@@ -169,6 +176,9 @@ MainWindow::MainWindow(QWidget *parent)
 
     resetWorkspace();
     statusBar()->showMessage(tr("Ready"));
+
+    // Offer recovery after the main window is on screen.
+    QTimer::singleShot(0, this, &MainWindow::recoverFromJournalIfPresent);
 }
 
 MainWindow::~MainWindow() = default;
@@ -286,6 +296,27 @@ void MainWindow::buildMenus()
     m_actShowMode->setCheckable(true);
     connect(m_actShowMode, &QAction::triggered, this, &MainWindow::toggleShowMode);
 
+    auto *editMenuExt = menuBar()->actions().value(1) ? menuBar()->actions().at(1)->menu() : nullptr;
+    if (editMenuExt) {
+        editMenuExt->addSeparator();
+        editMenuExt->addAction(tr("&Find / Replace…"),
+                               QKeySequence(QStringLiteral("Ctrl+F")), this, [this] {
+            ui::FindReplaceDialog dlg(m_workspace.get(), this);
+            dlg.exec();
+        });
+    }
+
+    auto *viewMenu = menuBar()->addMenu(tr("&View"));
+    auto *themeMenu = viewMenu->addMenu(tr("&Theme"));
+    auto applyTheme = [](const QString &name) {
+        const auto qss = ui::Theme::load(name);
+        if (!qss.isEmpty()) qApp->setStyleSheet(qss);
+        QSettings s(QStringLiteral("ServeGaming"), QStringLiteral("quewi"));
+        s.setValue(QStringLiteral("ui/theme"), name);
+    };
+    themeMenu->addAction(tr("&Dark"),  this, [applyTheme]{ applyTheme(QStringLiteral("quewi-dark")); });
+    themeMenu->addAction(tr("&Light"), this, [applyTheme]{ applyTheme(QStringLiteral("quewi-light")); });
+
     auto *listMenu = menuBar()->addMenu(tr("&List"));
     listMenu->addAction(tr("&New cue list…"),    this, &MainWindow::addCueListTab);
     listMenu->addAction(tr("&Rename current…"),  this, &MainWindow::renameCueListTab);
@@ -329,6 +360,8 @@ void MainWindow::resetWorkspace()
     if (m_activePanel) m_activePanel->setWorkspace(m_workspace.get());
     if (m_goEngine)    m_goEngine->setWorkspace(m_workspace.get());
     rebuildListTabs();
+    connect(m_workspace->undoStack(), &QUndoStack::indexChanged,
+            this, [this](int){ scheduleJournal(); });
 
     if (m_actUndo) m_actUndo->disconnect();
     if (m_actRedo) m_actRedo->disconnect();
@@ -398,6 +431,8 @@ bool MainWindow::loadShowFromPath(const QString &path)
     if (m_activePanel) m_activePanel->setWorkspace(m_workspace.get());
     if (m_goEngine)    m_goEngine->setWorkspace(m_workspace.get());
     rebuildListTabs();
+    connect(m_workspace->undoStack(), &QUndoStack::indexChanged,
+            this, [this](int){ scheduleJournal(); });
 
     if (m_actUndo) m_actUndo->disconnect();
     if (m_actRedo) m_actRedo->disconnect();
@@ -427,6 +462,7 @@ bool MainWindow::saveTo(const QString &path)
     m_currentPath = path;
     updateTitle();
     statusBar()->showMessage(tr("Saved %1").arg(path), 3000);
+    clearJournal();
     return true;
 }
 
@@ -718,6 +754,84 @@ void MainWindow::deleteSelectedCue()
     if (!idx.isValid()) return;
     m_workspace->undoStack()->push(
         new core::RemoveCueCommand(list, idx.row()));
+}
+
+// ---------- Auto-save journal -------------------------------------------
+//
+// Strategy: every undo-stack change schedules a debounced write (1.5 s).
+// The journal is a full ShowFile snapshot in
+//   <AppDataLocation>/journals/<sessionId>.journal
+// On clean save, close, or load, we delete the journal. On startup we
+// scan that folder; any leftover journal means the previous session
+// died unexpectedly, and we offer to recover.
+
+void MainWindow::scheduleJournal()
+{
+    if (!m_journalTimer) {
+        m_journalTimer = new QTimer(this);
+        m_journalTimer->setSingleShot(true);
+        m_journalTimer->setInterval(1500);
+        connect(m_journalTimer, &QTimer::timeout, this, &MainWindow::writeJournal);
+    }
+    if (m_journalPath.isEmpty()) {
+        const auto dir = QStandardPaths::writableLocation(QStandardPaths::AppDataLocation)
+                            + QStringLiteral("/journals");
+        QDir().mkpath(dir);
+        m_journalPath = dir + QStringLiteral("/")
+                      + QUuid::createUuid().toString(QUuid::WithoutBraces)
+                      + QStringLiteral(".journal");
+    }
+    m_journalTimer->start();
+}
+
+void MainWindow::writeJournal()
+{
+    if (!m_workspace || m_journalPath.isEmpty()) return;
+    show::ShowFile::save(m_journalPath, *m_workspace);
+}
+
+void MainWindow::clearJournal()
+{
+    if (m_journalTimer) m_journalTimer->stop();
+    if (!m_journalPath.isEmpty()) {
+        QFile::remove(m_journalPath);
+        m_journalPath.clear();
+    }
+}
+
+void MainWindow::recoverFromJournalIfPresent()
+{
+    const auto dir = QStandardPaths::writableLocation(QStandardPaths::AppDataLocation)
+                        + QStringLiteral("/journals");
+    QDir d(dir);
+    const auto journals = d.entryList({QStringLiteral("*.journal")}, QDir::Files);
+    if (journals.isEmpty()) return;
+
+    // Newest first.
+    QStringList paths;
+    for (const auto &j : journals) paths << d.filePath(j);
+    std::sort(paths.begin(), paths.end(), [](const QString &a, const QString &b) {
+        return QFileInfo(a).lastModified() > QFileInfo(b).lastModified();
+    });
+
+    const auto answer = QMessageBox::question(this,
+        tr("Recover unsaved work?"),
+        tr("quewi found %1 unsaved show%2 from a previous session. Recover the most "
+           "recent? You can save it under a new name once it's open.")
+            .arg(paths.size()).arg(paths.size() == 1 ? QString() : QStringLiteral("s")),
+        QMessageBox::Yes | QMessageBox::No);
+
+    if (answer == QMessageBox::Yes) {
+        if (loadShowFromPath(paths.first())) {
+            m_currentPath.clear(); // force Save As; this isn't a real .quewi yet
+            updateTitle();
+            statusBar()->showMessage(tr("Recovered from journal"), 4000);
+        }
+    }
+
+    // Whether they recovered or not, clean every leftover journal so we
+    // don't ask again. (User declined → they're fine losing it.)
+    for (const auto &p : paths) QFile::remove(p);
 }
 
 void MainWindow::showPreflight()
@@ -1033,8 +1147,12 @@ static void legacy_dispatch_keep_diff_small() {
 
 void MainWindow::closeEvent(QCloseEvent *event)
 {
-    if (maybeSaveChanges()) event->accept();
-    else                    event->ignore();
+    if (maybeSaveChanges()) {
+        clearJournal();
+        event->accept();
+    } else {
+        event->ignore();
+    }
 }
 
 // ---------- Drag and drop ------------------------------------------------

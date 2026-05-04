@@ -2,5 +2,6 @@
 <RCC version="1.0">
     <qresource prefix="/">
         <file>themes/quewi-dark.qss</file>
+        <file>themes/quewi-light.qss</file>
     </qresource>
 </RCC>

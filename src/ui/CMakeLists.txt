@@ -25,6 +25,8 @@ add_library(quewi_ui STATIC
     ShortcutManager.cpp
     ShortcutsDialog.h
     ShortcutsDialog.cpp
+    FindReplaceDialog.h
+    FindReplaceDialog.cpp
 )
 target_include_directories(quewi_ui PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/..)
 target_link_libraries(quewi_ui PUBLIC Qt6::Widgets quewi_core quewi_osc quewi_audio quewi_lighting quewi_video quewi_midi)

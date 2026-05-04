@@ -10,6 +10,7 @@ class QDragEnterEvent;
 class QDragMoveEvent;
 class QDropEvent;
 class QTabBar;
+class QTimer;
 class QUrl;
 
 namespace quewi::core { class Workspace; class CueListModel; }
@@ -122,9 +123,15 @@ private:
     bool     m_showMode = false;
 
     QString m_currentPath;
+    QString m_journalPath;
+    QTimer *m_journalTimer = nullptr;
 
     void rebuildListTabs();
     void applyShowMode();
+    void scheduleJournal();
+    void writeJournal();
+    void clearJournal();
+    void recoverFromJournalIfPresent();
 };
 
 } // namespace quewi
