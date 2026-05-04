@@ -11,6 +11,8 @@
 #include "cues/WaitCue.h"
 #include "lighting/LightCue.h"
 #include "lighting/LightingEngine.h"
+#include "midi/MidiCue.h"
+#include "midi/MidiEngine.h"
 #include "osc/OscCue.h"
 #include "osc/OscEngine.h"
 #include "video/VideoCue.h"
@@ -208,6 +210,30 @@ void GoEngine::doFire(cues::Cue *cue)
         if (auto *target = findCue(gotoCue->targetId())) {
             emit gotoRequested(target->id());
             status(tr("Goto %1").arg(QString::number(target->number(), 'f', 2)));
+        }
+    } else if (auto *midiCue = qobject_cast<midi::MidiCue *>(cue)) {
+        if (m_midi) {
+            if (m_midi->sendRaw(midiCue->portName(), midiCue->bytes())) {
+                status(tr("MIDI → %1 (%2 bytes)")
+                    .arg(midiCue->portName().isEmpty() ? tr("(default)") : midiCue->portName())
+                    .arg(midiCue->bytes().size()));
+            } else {
+                status(tr("MIDI: %1").arg(m_midi->lastError()));
+            }
+        }
+    } else if (auto *mscCue = qobject_cast<midi::MscCue *>(cue)) {
+        if (m_midi) {
+            if (m_midi->sendMsc(mscCue->portName(),
+                                static_cast<quint8>(mscCue->deviceId()),
+                                static_cast<quint8>(mscCue->commandFormat()),
+                                static_cast<quint8>(mscCue->command()),
+                                mscCue->buildPayload())) {
+                status(tr("MSC → device %1, cmd 0x%2")
+                    .arg(mscCue->deviceId())
+                    .arg(mscCue->command(), 2, 16, QChar('0')));
+            } else {
+                status(tr("MSC: %1").arg(m_midi->lastError()));
+            }
         }
     } else if (auto *groupCue = qobject_cast<cues::GroupCue *>(cue)) {
         const auto kids = groupCue->childIds();

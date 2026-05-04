@@ -15,6 +15,8 @@
 #include "cues/WaitCue.h"
 #include "lighting/LightCue.h"
 #include "lighting/LightingEngine.h"
+#include "midi/MidiCue.h"
+#include "midi/MidiEngine.h"
 #include "osc/OscCue.h"
 #include "osc/OscEngine.h"
 #include "show/ShowFile.h"
@@ -88,12 +90,14 @@ MainWindow::MainWindow(QWidget *parent)
     }
     m_lightingEngine = std::make_unique<lighting::LightingEngine>(this);
     m_videoEngine    = std::make_unique<video::VideoEngine>(this);
+    m_midiEngine     = std::make_unique<midi::MidiEngine>(this);
 
     m_goEngine = std::make_unique<GoEngine>(this);
     m_goEngine->setAudioEngine(m_audioEngine.get());
     m_goEngine->setLightingEngine(m_lightingEngine.get());
     m_goEngine->setVideoEngine(m_videoEngine.get());
     m_goEngine->setOscEngine(m_oscEngine.get());
+    m_goEngine->setMidiEngine(m_midiEngine.get());
     connect(m_goEngine.get(), &GoEngine::statusMessage, this,
             [this](const QString &m) { statusBar()->showMessage(m, 2500); });
     connect(m_goEngine.get(), &GoEngine::gotoRequested, this,
@@ -219,6 +223,8 @@ void MainWindow::buildMenus()
     cueMenu->addAction(tr("New Sto&p"),  QKeySequence(QStringLiteral("Shift+X")),       this, &MainWindow::insertStopCue);
     cueMenu->addAction(tr("New &Goto"),  QKeySequence(QStringLiteral("Shift+G")),       this, &MainWindow::insertGotoCue);
     cueMenu->addAction(tr("New Gr&oup"), QKeySequence(QStringLiteral("Ctrl+G")),        this, &MainWindow::insertGroupCue);
+    cueMenu->addAction(tr("New &MIDI"),  QKeySequence(QStringLiteral("Shift+M")),       this, &MainWindow::insertMidiCue);
+    cueMenu->addAction(tr("New M&SC"),   QKeySequence(QStringLiteral("Ctrl+Shift+M")),  this, &MainWindow::insertMscCue);
     cueMenu->addSeparator();
     cueMenu->addAction(tr("&Delete"), QKeySequence::Delete, this, &MainWindow::deleteSelectedCue);
 }
@@ -582,6 +588,34 @@ void MainWindow::insertGroupCue()
     const int insertRow = idx.isValid() ? idx.row() + 1 : list->cueCount();
     auto cue = std::make_unique<cues::GroupCue>();
     cue->setField(QStringLiteral("name"), tr("Group"));
+    cue->setField(QStringLiteral("number"), static_cast<double>(insertRow + 1));
+    m_workspace->undoStack()->push(new core::InsertCueCommand(list, insertRow, std::move(cue)));
+    if (m_model->rowCount() > insertRow)
+        m_cueListView->setCurrentIndex(m_model->index(insertRow, 0));
+}
+
+void MainWindow::insertMidiCue()
+{
+    auto *list = m_workspace->activeCueList();
+    if (!list) return;
+    const auto idx = m_cueListView->currentIndex();
+    const int insertRow = idx.isValid() ? idx.row() + 1 : list->cueCount();
+    auto cue = std::make_unique<midi::MidiCue>();
+    cue->setField(QStringLiteral("name"), tr("MIDI"));
+    cue->setField(QStringLiteral("number"), static_cast<double>(insertRow + 1));
+    m_workspace->undoStack()->push(new core::InsertCueCommand(list, insertRow, std::move(cue)));
+    if (m_model->rowCount() > insertRow)
+        m_cueListView->setCurrentIndex(m_model->index(insertRow, 0));
+}
+
+void MainWindow::insertMscCue()
+{
+    auto *list = m_workspace->activeCueList();
+    if (!list) return;
+    const auto idx = m_cueListView->currentIndex();
+    const int insertRow = idx.isValid() ? idx.row() + 1 : list->cueCount();
+    auto cue = std::make_unique<midi::MscCue>();
+    cue->setField(QStringLiteral("name"), tr("MSC"));
     cue->setField(QStringLiteral("number"), static_cast<double>(insertRow + 1));
     m_workspace->undoStack()->push(new core::InsertCueCommand(list, insertRow, std::move(cue)));
     if (m_model->rowCount() > insertRow)

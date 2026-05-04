@@ -11,6 +11,8 @@
 #include "cues/GroupCue.h"
 #include "cues/TargetingCue.h"
 #include "cues/WaitCue.h"
+#include "midi/MidiCue.h"
+#include "midi/MidiEngine.h"
 #include "lighting/LightCue.h"
 #include "osc/OscCue.h"
 #include "ui/WaveformWidget.h"
@@ -154,6 +156,49 @@ Inspector::Inspector(QWidget *parent)
         f->addRow(tr("Cue"), m_targetCombo);
     }
     outer->addWidget(m_targetGroup);
+
+    // ---------------- MIDI ----------------
+    m_midiGroup = new QGroupBox(tr("MIDI"), this);
+    {
+        auto *f = new QFormLayout(m_midiGroup);
+        m_midiPort = new QComboBox(m_midiGroup);
+        m_midiPort->setEditable(true);
+        m_midiPort->setInsertPolicy(QComboBox::NoInsert);
+        f->addRow(tr("Port"), m_midiPort);
+        m_midiBytes = new QLineEdit(m_midiGroup);
+        m_midiBytes->setPlaceholderText(QStringLiteral("90 3C 7F  (hex bytes)"));
+        f->addRow(tr("Bytes"), m_midiBytes);
+    }
+    outer->addWidget(m_midiGroup);
+
+    // ---------------- MSC ----------------
+    m_mscGroup = new QGroupBox(tr("MSC"), this);
+    {
+        auto *f = new QFormLayout(m_mscGroup);
+        m_mscPort = new QComboBox(m_mscGroup);
+        m_mscPort->setEditable(true);
+        m_mscPort->setInsertPolicy(QComboBox::NoInsert);
+        f->addRow(tr("Port"), m_mscPort);
+        m_mscDeviceId = new QSpinBox(m_mscGroup); m_mscDeviceId->setRange(0, 127);
+        m_mscDeviceId->setToolTip(tr("0x7F (127) = all-call"));
+        f->addRow(tr("Device ID"), m_mscDeviceId);
+        m_mscFormat = new QSpinBox(m_mscGroup); m_mscFormat->setRange(0, 127);
+        m_mscFormat->setToolTip(tr("0x10 Lighting · 0x01 Sound · 0x40 Sound general"));
+        f->addRow(tr("Format"), m_mscFormat);
+        m_mscCommand = new QSpinBox(m_mscGroup); m_mscCommand->setRange(0, 127);
+        m_mscCommand->setToolTip(tr("0x01 GO · 0x02 STOP · 0x03 RESUME · 0x05 LOAD"));
+        f->addRow(tr("Command"), m_mscCommand);
+        m_mscQNumber = new QLineEdit(m_mscGroup);
+        m_mscQNumber->setPlaceholderText(QStringLiteral("Q_number e.g. 12"));
+        f->addRow(tr("Q number"), m_mscQNumber);
+        m_mscQList = new QLineEdit(m_mscGroup);
+        m_mscQList->setPlaceholderText(tr("Q_list (optional)"));
+        f->addRow(tr("Q list"), m_mscQList);
+        m_mscQPath = new QLineEdit(m_mscGroup);
+        m_mscQPath->setPlaceholderText(tr("Q_path (optional)"));
+        f->addRow(tr("Q path"), m_mscQPath);
+    }
+    outer->addWidget(m_mscGroup);
 
     // ---------------- Group cue ----------------
     m_groupGroup = new QGroupBox(tr("Group"), this);
@@ -519,6 +564,16 @@ Inspector::Inspector(QWidget *parent)
     connect(m_groupChildAdd,    &QPushButton::clicked, this, &Inspector::addGroupChild);
     connect(m_groupChildRemove, &QPushButton::clicked, this, &Inspector::removeGroupChild);
 
+    connect(m_midiPort,  &QComboBox::editTextChanged, this, [this](const QString &){ commitMidiPort(); });
+    connect(m_midiBytes, &QLineEdit::editingFinished, this, &Inspector::commitMidiBytes);
+    connect(m_mscPort,   &QComboBox::editTextChanged, this, [this](const QString &){ commitMscPort(); });
+    connect(m_mscDeviceId, &QSpinBox::editingFinished, this, &Inspector::commitMscField);
+    connect(m_mscFormat,   &QSpinBox::editingFinished, this, &Inspector::commitMscField);
+    connect(m_mscCommand,  &QSpinBox::editingFinished, this, &Inspector::commitMscField);
+    connect(m_mscQNumber, &QLineEdit::editingFinished, this, &Inspector::commitMscField);
+    connect(m_mscQList,   &QLineEdit::editingFinished, this, &Inspector::commitMscField);
+    connect(m_mscQPath,   &QLineEdit::editingFinished, this, &Inspector::commitMscField);
+
     connect(m_oscAddress, &QLineEdit::editingFinished,    this, &Inspector::commitOscAddress);
     connect(m_oscHost,    &QLineEdit::editingFinished,    this, &Inspector::commitOscHost);
     connect(m_oscPort,    &QSpinBox::editingFinished,     this, &Inspector::commitOscPort);
@@ -637,6 +692,8 @@ void Inspector::rebuild()
         m_waitGroup->setVisible(false);
         m_targetGroup->setVisible(false);
         m_groupGroup->setVisible(false);
+        m_midiGroup->setVisible(false);
+        m_mscGroup->setVisible(false);
         m_loading = false;
         return;
     }
@@ -653,6 +710,8 @@ void Inspector::rebuild()
     auto *waitCue   = qobject_cast<cues::WaitCue *>(m_cue.data());
     auto *targetCue = qobject_cast<cues::TargetingCue *>(m_cue.data());
     auto *groupCue  = qobject_cast<cues::GroupCue *>(m_cue.data());
+    auto *midiCue   = qobject_cast<midi::MidiCue *>(m_cue.data());
+    auto *mscCue    = qobject_cast<midi::MscCue *>(m_cue.data());
     auto *oscCue   = qobject_cast<osc::OscCue *>(m_cue.data());
     auto *audioCue = qobject_cast<audio::AudioCue *>(m_cue.data());
     auto *fadeCue  = qobject_cast<cues::FadeCue *>(m_cue.data());
@@ -672,6 +731,42 @@ void Inspector::rebuild()
     m_waitGroup->setVisible(waitCue != nullptr);
     m_targetGroup->setVisible(targetCue != nullptr);
     m_groupGroup->setVisible(groupCue != nullptr);
+    m_midiGroup->setVisible(midiCue != nullptr);
+    m_mscGroup->setVisible(mscCue != nullptr);
+
+    auto fillPorts = [](QComboBox *combo, const QString &current) {
+        const auto sigsBlocked = combo->blockSignals(true);
+        combo->clear();
+        combo->addItem(QStringLiteral("(default / first)"), QString());
+        midi::MidiEngine probe;
+        for (const auto &name : probe.outputPortNames()) combo->addItem(name, name);
+        // If current isn't in the enumeration, still show it.
+        if (!current.isEmpty()) {
+            int idx = combo->findData(current);
+            if (idx < 0) {
+                combo->addItem(current + QObject::tr(" (offline)"), current);
+                idx = combo->count() - 1;
+            }
+            combo->setCurrentIndex(idx);
+        } else {
+            combo->setCurrentIndex(0);
+        }
+        combo->blockSignals(sigsBlocked);
+    };
+
+    if (midiCue) {
+        fillPorts(m_midiPort, midiCue->portName());
+        m_midiBytes->setText(QString::fromLatin1(midiCue->bytes().toHex(' ')));
+    }
+    if (mscCue) {
+        fillPorts(m_mscPort, mscCue->portName());
+        m_mscDeviceId->setValue(mscCue->deviceId());
+        m_mscFormat->setValue(mscCue->commandFormat());
+        m_mscCommand->setValue(mscCue->command());
+        m_mscQNumber->setText(mscCue->qNumber());
+        m_mscQList->setText(mscCue->qList());
+        m_mscQPath->setText(mscCue->qPath());
+    }
 
     if (groupCue) {
         m_groupMode->setCurrentIndex(static_cast<int>(groupCue->mode()));
@@ -985,6 +1080,41 @@ void Inspector::addGroupChild()
     QStringList ids;
     for (const auto &k : kids) ids << k.toString();
     pushFieldEdit(QStringLiteral("childIds"), ids);
+}
+
+void Inspector::commitMidiPort()
+{
+    if (m_loading) return;
+    pushFieldEdit(QStringLiteral("portName"),
+        m_midiPort->currentData().isValid()
+            ? m_midiPort->currentData().toString()
+            : m_midiPort->currentText());
+}
+
+void Inspector::commitMidiBytes()
+{
+    if (m_loading) return;
+    pushFieldEdit(QStringLiteral("bytes"), m_midiBytes->text());
+}
+
+void Inspector::commitMscPort()
+{
+    if (m_loading) return;
+    pushFieldEdit(QStringLiteral("portName"),
+        m_mscPort->currentData().isValid()
+            ? m_mscPort->currentData().toString()
+            : m_mscPort->currentText());
+}
+
+void Inspector::commitMscField()
+{
+    if (m_loading) return;
+    pushFieldEdit(QStringLiteral("deviceId"),      m_mscDeviceId->value());
+    pushFieldEdit(QStringLiteral("commandFormat"), m_mscFormat->value());
+    pushFieldEdit(QStringLiteral("command"),       m_mscCommand->value());
+    pushFieldEdit(QStringLiteral("qNumber"),       m_mscQNumber->text());
+    pushFieldEdit(QStringLiteral("qList"),         m_mscQList->text());
+    pushFieldEdit(QStringLiteral("qPath"),         m_mscQPath->text());
 }
 
 void Inspector::removeGroupChild()

@@ -23,6 +23,7 @@ namespace quewi::osc  { class OscCue; }
 namespace quewi::audio { class AudioCue; class AudioEngine; }
 namespace quewi::lighting { class LightCue; class LightFadeCue; }
 namespace quewi::video { class VideoCue; class ImageCue; class TextCue; class VisualCue; }
+namespace quewi::midi  { class MidiCue; class MscCue; }
 class QTableWidget;
 
 namespace quewi::ui {
@@ -66,6 +67,12 @@ private slots:
     void commitGroupStepInterval();
     void addGroupChild();
     void removeGroupChild();
+
+    // MIDI / MSC
+    void commitMidiPort();
+    void commitMidiBytes();
+    void commitMscPort();
+    void commitMscField();
 
     // OSC
     void commitOscAddress();
@@ -149,6 +156,21 @@ private:
     QComboBox      *m_groupChildPicker = nullptr;
     QPushButton    *m_groupChildAdd    = nullptr;
     QPushButton    *m_groupChildRemove = nullptr;
+
+    // MIDI
+    QGroupBox      *m_midiGroup    = nullptr;
+    QComboBox      *m_midiPort     = nullptr;
+    QLineEdit      *m_midiBytes    = nullptr;
+
+    // MSC
+    QGroupBox      *m_mscGroup     = nullptr;
+    QComboBox      *m_mscPort      = nullptr;
+    QSpinBox       *m_mscDeviceId  = nullptr;
+    QSpinBox       *m_mscFormat    = nullptr;
+    QSpinBox       *m_mscCommand   = nullptr;
+    QLineEdit      *m_mscQNumber   = nullptr;
+    QLineEdit      *m_mscQList     = nullptr;
+    QLineEdit      *m_mscQPath     = nullptr;
 
     // OSC group
     QGroupBox      *m_oscGroup    = nullptr;

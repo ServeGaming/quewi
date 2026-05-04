@@ -39,6 +39,18 @@ find_package(Qt6 6.11 REQUIRED COMPONENTS
 
 qt_standard_project_setup()
 
+# RtMidi — single-file cross-platform MIDI device I/O. Header + impl, MIT.
+include(FetchContent)
+set(RTMIDI_BUILD_TESTING OFF CACHE BOOL "" FORCE)
+set(RTMIDI_BUILD_STATIC_LIBS ON CACHE BOOL "" FORCE)
+set(BUILD_SHARED_LIBS OFF)
+FetchContent_Declare(rtmidi
+    GIT_REPOSITORY https://github.com/thestk/rtmidi.git
+    GIT_TAG        6.0.0
+    GIT_SHALLOW    TRUE
+)
+FetchContent_MakeAvailable(rtmidi)
+
 enable_testing()
 
 add_subdirectory(src/core)
