@@ -19,14 +19,19 @@
 
 #include <QAction>
 #include <QCloseEvent>
+#include <QDragEnterEvent>
+#include <QDragMoveEvent>
+#include <QDropEvent>
 #include <QFileDialog>
 #include <QFileInfo>
 #include <QKeySequence>
 #include <QMenuBar>
 #include <QMessageBox>
+#include <QMimeData>
 #include <QSplitter>
 #include <QStatusBar>
 #include <QUndoStack>
+#include <QUrl>
 #include <QVBoxLayout>
 #include <QWidget>
 
@@ -36,6 +41,7 @@ MainWindow::MainWindow(QWidget *parent)
     : QMainWindow(parent)
 {
     resize(1280, 800);
+    setAcceptDrops(true);
     m_oscEngine = std::make_unique<osc::OscEngine>(this);
     connect(m_oscEngine.get(), &osc::OscEngine::sendError, this, [this](const QString &reason) {
         statusBar()->showMessage(tr("OSC: %1").arg(reason), 4000);
@@ -189,11 +195,15 @@ void MainWindow::openShow()
     const auto path = QFileDialog::getOpenFileName(this, tr("Open show"),
         QString(), tr("quewi shows (*.quewi);;All files (*.*)"));
     if (path.isEmpty()) return;
+    loadShowFromPath(path);
+}
 
+bool MainWindow::loadShowFromPath(const QString &path)
+{
     auto fresh = std::make_unique<core::Workspace>();
     if (!show::ShowFile::load(path, *fresh)) {
         QMessageBox::warning(this, tr("Open failed"), show::ShowFile::lastError());
-        return;
+        return false;
     }
     m_workspace = std::move(fresh);
     m_model = std::make_unique<core::CueListModel>();
@@ -215,6 +225,7 @@ void MainWindow::openShow()
     updateTitle();
     onSelectionChanged();
     statusBar()->showMessage(tr("Opened %1").arg(path), 3000);
+    return true;
 }
 
 bool MainWindow::saveTo(const QString &path)
@@ -448,6 +459,129 @@ void MainWindow::closeEvent(QCloseEvent *event)
 {
     if (maybeSaveChanges()) event->accept();
     else                    event->ignore();
+}
+
+// ---------- Drag and drop ------------------------------------------------
+
+void MainWindow::dragEnterEvent(QDragEnterEvent *event)
+{
+    if (event->mimeData()->hasUrls()) event->acceptProposedAction();
+}
+
+void MainWindow::dragMoveEvent(QDragMoveEvent *event)
+{
+    if (event->mimeData()->hasUrls()) event->acceptProposedAction();
+}
+
+void MainWindow::dropEvent(QDropEvent *event)
+{
+    const auto urls = event->mimeData()->urls();
+    if (urls.isEmpty()) return;
+
+    // Single .quewi file → open as show (with the usual save-changes prompt).
+    if (urls.size() == 1) {
+        const auto path = urls.first().toLocalFile();
+        if (path.endsWith(QStringLiteral(".quewi"), Qt::CaseInsensitive)) {
+            event->acceptProposedAction();
+            if (!maybeSaveChanges()) return;
+            loadShowFromPath(path);
+            return;
+        }
+    }
+
+    // Otherwise build cues from each URL.
+    const int created = insertCuesFromUrls(urls);
+    if (created > 0) {
+        statusBar()->showMessage(tr("Added %1 cue%2 from drop")
+            .arg(created).arg(created == 1 ? QString() : QStringLiteral("s")), 2500);
+    } else {
+        statusBar()->showMessage(tr("No supported file types in drop"), 2500);
+    }
+    event->acceptProposedAction();
+}
+
+int MainWindow::insertCuesFromUrls(const QList<QUrl> &urls)
+{
+    auto *list = m_workspace ? m_workspace->activeCueList() : nullptr;
+    if (!list) return 0;
+
+    const auto sel = m_cueListView->currentIndex();
+    int insertRow = sel.isValid() ? sel.row() + 1 : list->cueCount();
+    int created = 0;
+    int firstNewRow = -1;
+
+    for (const auto &url : urls) {
+        const auto path = url.toLocalFile();
+        if (path.isEmpty()) continue;
+
+        auto cue = cueFromFile(path);
+        if (!cue) continue;
+
+        cue->setField(QStringLiteral("number"), static_cast<double>(insertRow + 1));
+        // Capture as raw pointer — InsertCueCommand takes ownership but we
+        // want to call prepare() after the cue is parented to the list.
+        auto *raw = cue.get();
+        m_workspace->undoStack()->push(
+            new core::InsertCueCommand(list, insertRow, std::move(cue)));
+
+        if (auto *audioCue = qobject_cast<audio::AudioCue *>(raw)) {
+            audioCue->prepare();
+        }
+
+        if (firstNewRow < 0) firstNewRow = insertRow;
+        ++insertRow;
+        ++created;
+    }
+
+    if (firstNewRow >= 0 && firstNewRow < m_model->rowCount()) {
+        m_cueListView->setCurrentIndex(m_model->index(firstNewRow, 0));
+    }
+    return created;
+}
+
+std::unique_ptr<cues::Cue> MainWindow::cueFromFile(const QString &path)
+{
+    static const QStringList audioExts = {
+        QStringLiteral("wav"),  QStringLiteral("mp3"),  QStringLiteral("flac"),
+        QStringLiteral("aiff"), QStringLiteral("aif"),  QStringLiteral("ogg"),
+        QStringLiteral("m4a"),  QStringLiteral("opus"), QStringLiteral("aac"),
+        QStringLiteral("wma"),  QStringLiteral("oga"),
+    };
+    // Recognised but not yet implemented — flagged for the user so they
+    // know quewi *saw* the drop but the cue type isn't wired yet.
+    static const QStringList videoExts = {
+        QStringLiteral("mp4"), QStringLiteral("mov"), QStringLiteral("mkv"),
+        QStringLiteral("avi"), QStringLiteral("webm"), QStringLiteral("m4v"),
+    };
+    static const QStringList imageExts = {
+        QStringLiteral("png"),  QStringLiteral("jpg"), QStringLiteral("jpeg"),
+        QStringLiteral("gif"),  QStringLiteral("bmp"), QStringLiteral("tiff"),
+        QStringLiteral("webp"),
+    };
+
+    const QFileInfo info(path);
+    const QString ext = info.suffix().toLower();
+    const QString stem = info.completeBaseName();
+
+    if (audioExts.contains(ext)) {
+        auto cue = std::make_unique<audio::AudioCue>();
+        cue->setField(QStringLiteral("name"), stem);
+        cue->setField(QStringLiteral("filePath"), path);
+        return cue;
+    }
+
+    if (videoExts.contains(ext) || imageExts.contains(ext)) {
+        // Phase 5 lands real video/image cues. Drop a Memo with a note
+        // for now so the operator's intent isn't lost.
+        auto cue = std::make_unique<cues::MemoCue>();
+        cue->setField(QStringLiteral("name"), stem);
+        cue->setField(QStringLiteral("notes"),
+            tr("(%1 cue type lands in Phase 5; original path: %2)")
+                .arg(videoExts.contains(ext) ? tr("Video") : tr("Image"), path));
+        return cue;
+    }
+
+    return nullptr;
 }
 
 } // namespace quewi

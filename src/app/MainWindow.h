@@ -6,8 +6,13 @@
 
 class QAction;
 class QSplitter;
+class QDragEnterEvent;
+class QDragMoveEvent;
+class QDropEvent;
+class QUrl;
 
 namespace quewi::core { class Workspace; class CueListModel; }
+namespace quewi::cues { class Cue; }
 namespace quewi::ui   { class CueListView; class Inspector; class TransportBar; class OscMonitor; }
 namespace quewi::osc  { class OscEngine; }
 namespace quewi::audio { class AudioEngine; }
@@ -22,6 +27,9 @@ public:
 
 protected:
     void closeEvent(QCloseEvent *event) override;
+    void dragEnterEvent(QDragEnterEvent *event) override;
+    void dragMoveEvent(QDragMoveEvent *event) override;
+    void dropEvent(QDropEvent *event) override;
 
 private slots:
     void newShow();
@@ -46,6 +54,9 @@ private:
     void rebindModel();
     bool maybeSaveChanges();
     bool saveTo(const QString &path);
+    bool loadShowFromPath(const QString &path);
+    std::unique_ptr<cues::Cue> cueFromFile(const QString &path);
+    int  insertCuesFromUrls(const QList<QUrl> &urls);
 
     std::unique_ptr<core::Workspace>    m_workspace;
     std::unique_ptr<core::CueListModel> m_model;
