@@ -1,13 +1,13 @@
 #pragma once
 
+#include "core/CueList.h"
+
 #include <QAbstractItemModel>
 #include <QPointer>
 
 namespace quewi::cues { class Cue; }
 
 namespace quewi::core {
-
-class CueList;
 
 // Bridges a CueList to a QTreeView / QListView. Flat for now (no group
 // children); will become hierarchical when group cues land in Phase 6.

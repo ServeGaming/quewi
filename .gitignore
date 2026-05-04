@@ -93,3 +93,6 @@ out/
 Thumbs.db
 desktop.ini
 
+# Local-only helper scripts (paths hardcoded to one machine)
+scripts/
+
