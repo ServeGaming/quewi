@@ -9,6 +9,7 @@
 #include "core/UndoCommands.h"
 #include "core/Workspace.h"
 #include "cues/FadeCue.h"
+#include "cues/GroupCue.h"
 #include "cues/MemoCue.h"
 #include "cues/TargetingCue.h"
 #include "cues/WaitCue.h"
@@ -217,6 +218,7 @@ void MainWindow::buildMenus()
     cueMenu->addAction(tr("New S&tart"), QKeySequence(QStringLiteral("Shift+S")),       this, &MainWindow::insertStartCue);
     cueMenu->addAction(tr("New Sto&p"),  QKeySequence(QStringLiteral("Shift+X")),       this, &MainWindow::insertStopCue);
     cueMenu->addAction(tr("New &Goto"),  QKeySequence(QStringLiteral("Shift+G")),       this, &MainWindow::insertGotoCue);
+    cueMenu->addAction(tr("New Gr&oup"), QKeySequence(QStringLiteral("Ctrl+G")),        this, &MainWindow::insertGroupCue);
     cueMenu->addSeparator();
     cueMenu->addAction(tr("&Delete"), QKeySequence::Delete, this, &MainWindow::deleteSelectedCue);
 }
@@ -566,6 +568,20 @@ void MainWindow::insertGotoCue()
     const int insertRow = idx.isValid() ? idx.row() + 1 : list->cueCount();
     auto cue = std::make_unique<cues::GotoCue>();
     cue->setField(QStringLiteral("name"), tr("Goto"));
+    cue->setField(QStringLiteral("number"), static_cast<double>(insertRow + 1));
+    m_workspace->undoStack()->push(new core::InsertCueCommand(list, insertRow, std::move(cue)));
+    if (m_model->rowCount() > insertRow)
+        m_cueListView->setCurrentIndex(m_model->index(insertRow, 0));
+}
+
+void MainWindow::insertGroupCue()
+{
+    auto *list = m_workspace->activeCueList();
+    if (!list) return;
+    const auto idx = m_cueListView->currentIndex();
+    const int insertRow = idx.isValid() ? idx.row() + 1 : list->cueCount();
+    auto cue = std::make_unique<cues::GroupCue>();
+    cue->setField(QStringLiteral("name"), tr("Group"));
     cue->setField(QStringLiteral("number"), static_cast<double>(insertRow + 1));
     m_workspace->undoStack()->push(new core::InsertCueCommand(list, insertRow, std::move(cue)));
     if (m_model->rowCount() > insertRow)

@@ -6,6 +6,7 @@
 #include "core/Workspace.h"
 #include "cues/Cue.h"
 #include "cues/FadeCue.h"
+#include "cues/GroupCue.h"
 #include "cues/TargetingCue.h"
 #include "cues/WaitCue.h"
 #include "lighting/LightCue.h"
@@ -15,6 +16,7 @@
 #include "video/VideoCue.h"
 #include "video/VideoEngine.h"
 
+#include <QRandomGenerator>
 #include <QTimer>
 
 namespace quewi {
@@ -206,6 +208,80 @@ void GoEngine::doFire(cues::Cue *cue)
         if (auto *target = findCue(gotoCue->targetId())) {
             emit gotoRequested(target->id());
             status(tr("Goto %1").arg(QString::number(target->number(), 'f', 2)));
+        }
+    } else if (auto *groupCue = qobject_cast<cues::GroupCue *>(cue)) {
+        const auto kids = groupCue->childIds();
+        const auto offs = groupCue->childOffsets();
+        switch (groupCue->mode()) {
+        case cues::GroupCue::Mode::Parallel:
+            status(tr("Group ▶ %1 children (parallel)").arg(kids.size()));
+            for (const auto &id : kids) if (auto *c = findCue(id)) fire(c);
+            break;
+        case cues::GroupCue::Mode::Sequential: {
+            status(tr("Group ▶ %1 children (sequential)").arg(kids.size()));
+            double delay = 0.0;
+            const double step = std::max(0.0, groupCue->stepInterval());
+            for (const auto &id : kids) {
+                auto *child = findCue(id);
+                if (!child) continue;
+                if (delay <= 0.0) {
+                    fire(child);
+                } else {
+                    auto *t = new QTimer(this);
+                    t->setSingleShot(true);
+                    m_pending.append(t);
+                    QPointer<cues::Cue> guard(child);
+                    connect(t, &QTimer::timeout, this, [this, t, guard] {
+                        m_pending.removeAll(t);
+                        t->deleteLater();
+                        if (guard) fire(guard);
+                    });
+                    t->start(static_cast<int>(delay * 1000.0));
+                }
+                delay += step;
+            }
+            break;
+        }
+        case cues::GroupCue::Mode::StartFirst:
+            if (!kids.isEmpty()) {
+                if (auto *c = findCue(kids.first())) {
+                    status(tr("Group ▶ first child"));
+                    fire(c);
+                }
+            }
+            break;
+        case cues::GroupCue::Mode::StartRandom:
+            if (!kids.isEmpty()) {
+                const int idx = QRandomGenerator::global()->bounded(kids.size());
+                if (auto *c = findCue(kids[idx])) {
+                    status(tr("Group ▶ random child %1/%2").arg(idx + 1).arg(kids.size()));
+                    fire(c);
+                }
+            }
+            break;
+        case cues::GroupCue::Mode::Timeline: {
+            status(tr("Group ▶ %1 children (timeline)").arg(kids.size()));
+            for (int i = 0; i < kids.size(); ++i) {
+                auto *child = findCue(kids[i]);
+                if (!child) continue;
+                const double off = (i < offs.size()) ? std::max(0.0, offs[i]) : 0.0;
+                if (off <= 0.0) {
+                    fire(child);
+                } else {
+                    auto *t = new QTimer(this);
+                    t->setSingleShot(true);
+                    m_pending.append(t);
+                    QPointer<cues::Cue> guard(child);
+                    connect(t, &QTimer::timeout, this, [this, t, guard] {
+                        m_pending.removeAll(t);
+                        t->deleteLater();
+                        if (guard) fire(guard);
+                    });
+                    t->start(static_cast<int>(off * 1000.0));
+                }
+            }
+            break;
+        }
         }
     } else {
         status(tr("GO: %1 %2")

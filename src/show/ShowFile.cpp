@@ -5,6 +5,7 @@
 #include "audio/AudioCue.h"
 #include "cues/Cue.h"
 #include "cues/FadeCue.h"
+#include "cues/GroupCue.h"
 #include "cues/MemoCue.h"
 #include "cues/TargetingCue.h"
 #include "cues/WaitCue.h"
@@ -76,6 +77,7 @@ std::unique_ptr<cues::Cue> makeCue(const QString &type)
     if (type == QLatin1String("start"))      return std::make_unique<cues::StartCue>();
     if (type == QLatin1String("stop"))       return std::make_unique<cues::StopCue>();
     if (type == QLatin1String("goto"))       return std::make_unique<cues::GotoCue>();
+    if (type == QLatin1String("group"))      return std::make_unique<cues::GroupCue>();
     // Unknown type: load as a Memo so the user doesn't lose data, with a
     // note. Future cue types register here in Phase 6.
     auto memo = std::make_unique<cues::MemoCue>();

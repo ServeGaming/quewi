@@ -15,6 +15,7 @@ class QPushButton;
 class QCheckBox;
 class QFormLayout;
 class QButtonGroup;
+class QListWidget;
 
 namespace quewi::core { class Workspace; class CueList; }
 namespace quewi::cues { class Cue; class FadeCue; }
@@ -59,6 +60,12 @@ private slots:
 
     // Start/Stop/Goto target picker
     void commitTargetCue();
+
+    // Group
+    void commitGroupMode();
+    void commitGroupStepInterval();
+    void addGroupChild();
+    void removeGroupChild();
 
     // OSC
     void commitOscAddress();
@@ -133,6 +140,15 @@ private:
     // Start / Stop / Goto target picker (one shared widget)
     QGroupBox      *m_targetGroup = nullptr;
     QComboBox      *m_targetCombo = nullptr;
+
+    // Group
+    QGroupBox      *m_groupGroup       = nullptr;
+    QComboBox      *m_groupMode        = nullptr;
+    QDoubleSpinBox *m_groupStepInterval = nullptr;
+    QListWidget    *m_groupChildren    = nullptr;
+    QComboBox      *m_groupChildPicker = nullptr;
+    QPushButton    *m_groupChildAdd    = nullptr;
+    QPushButton    *m_groupChildRemove = nullptr;
 
     // OSC group
     QGroupBox      *m_oscGroup    = nullptr;

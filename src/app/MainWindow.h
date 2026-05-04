@@ -55,6 +55,7 @@ private slots:
     void insertStartCue();
     void insertStopCue();
     void insertGotoCue();
+    void insertGroupCue();
     void deleteSelectedCue();
     void onSelectionChanged();
     void updateTitle();

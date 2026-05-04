@@ -8,6 +8,7 @@
 #include "core/Workspace.h"
 #include "cues/Cue.h"
 #include "cues/FadeCue.h"
+#include "cues/GroupCue.h"
 #include "cues/TargetingCue.h"
 #include "cues/WaitCue.h"
 #include "lighting/LightCue.h"
@@ -20,6 +21,7 @@
 #include <QColorDialog>
 #include <QMediaDevices>
 #include <QHeaderView>
+#include <QListWidget>
 #include <QSlider>
 #include <QTableWidget>
 #include <QTableWidgetItem>
@@ -152,6 +154,38 @@ Inspector::Inspector(QWidget *parent)
         f->addRow(tr("Cue"), m_targetCombo);
     }
     outer->addWidget(m_targetGroup);
+
+    // ---------------- Group cue ----------------
+    m_groupGroup = new QGroupBox(tr("Group"), this);
+    {
+        auto *gv = new QVBoxLayout(m_groupGroup);
+        auto *f = new QFormLayout();
+        m_groupMode = new QComboBox(m_groupGroup);
+        m_groupMode->addItem(tr("Parallel"),     0);
+        m_groupMode->addItem(tr("Sequential"),   1);
+        m_groupMode->addItem(tr("Start First"),  2);
+        m_groupMode->addItem(tr("Start Random"), 3);
+        m_groupMode->addItem(tr("Timeline"),     4);
+        f->addRow(tr("Mode"), m_groupMode);
+        m_groupStepInterval = new QDoubleSpinBox(m_groupGroup);
+        m_groupStepInterval->setDecimals(2);
+        m_groupStepInterval->setRange(0.0, 600.0);
+        m_groupStepInterval->setSuffix(QStringLiteral(" s"));
+        f->addRow(tr("Step (sequential)"), m_groupStepInterval);
+        gv->addLayout(f);
+        m_groupChildren = new QListWidget(m_groupGroup);
+        m_groupChildren->setMinimumHeight(120);
+        gv->addWidget(m_groupChildren);
+        auto *picker = new QHBoxLayout();
+        m_groupChildPicker = new QComboBox(m_groupGroup);
+        m_groupChildAdd    = new QPushButton(tr("+ Add"), m_groupGroup);
+        m_groupChildRemove = new QPushButton(tr("Remove"), m_groupGroup);
+        picker->addWidget(m_groupChildPicker, 1);
+        picker->addWidget(m_groupChildAdd);
+        picker->addWidget(m_groupChildRemove);
+        gv->addLayout(picker);
+    }
+    outer->addWidget(m_groupGroup);
 
     // ---------------- OSC group ----------------
     m_oscGroup = new QGroupBox(tr("OSC"), this);
@@ -478,6 +512,12 @@ Inspector::Inspector(QWidget *parent)
             this, &Inspector::commitWaitDuration);
     connect(m_targetCombo, &QComboBox::currentIndexChanged,
             this, [this](int){ commitTargetCue(); });
+    connect(m_groupMode, &QComboBox::currentIndexChanged,
+            this, [this](int){ commitGroupMode(); });
+    connect(m_groupStepInterval, &QDoubleSpinBox::editingFinished,
+            this, &Inspector::commitGroupStepInterval);
+    connect(m_groupChildAdd,    &QPushButton::clicked, this, &Inspector::addGroupChild);
+    connect(m_groupChildRemove, &QPushButton::clicked, this, &Inspector::removeGroupChild);
 
     connect(m_oscAddress, &QLineEdit::editingFinished,    this, &Inspector::commitOscAddress);
     connect(m_oscHost,    &QLineEdit::editingFinished,    this, &Inspector::commitOscHost);
@@ -596,6 +636,7 @@ void Inspector::rebuild()
         m_visualGroup->setVisible(false);
         m_waitGroup->setVisible(false);
         m_targetGroup->setVisible(false);
+        m_groupGroup->setVisible(false);
         m_loading = false;
         return;
     }
@@ -611,6 +652,7 @@ void Inspector::rebuild()
 
     auto *waitCue   = qobject_cast<cues::WaitCue *>(m_cue.data());
     auto *targetCue = qobject_cast<cues::TargetingCue *>(m_cue.data());
+    auto *groupCue  = qobject_cast<cues::GroupCue *>(m_cue.data());
     auto *oscCue   = qobject_cast<osc::OscCue *>(m_cue.data());
     auto *audioCue = qobject_cast<audio::AudioCue *>(m_cue.data());
     auto *fadeCue  = qobject_cast<cues::FadeCue *>(m_cue.data());
@@ -629,6 +671,45 @@ void Inspector::rebuild()
     m_visualGroup->setVisible(visualCue != nullptr);
     m_waitGroup->setVisible(waitCue != nullptr);
     m_targetGroup->setVisible(targetCue != nullptr);
+    m_groupGroup->setVisible(groupCue != nullptr);
+
+    if (groupCue) {
+        m_groupMode->setCurrentIndex(static_cast<int>(groupCue->mode()));
+        m_groupStepInterval->setValue(groupCue->stepInterval());
+        m_groupChildren->clear();
+        m_groupChildPicker->clear();
+        m_groupChildPicker->addItem(tr("(pick a cue)"), QVariant::fromValue(QUuid()));
+        if (m_workspace) {
+            if (auto *list = m_workspace->activeCueList()) {
+                // List children with their cue line for context.
+                for (const auto &id : groupCue->childIds()) {
+                    QString label = id.toString();
+                    for (int row = 0; row < list->cueCount(); ++row) {
+                        if (auto *c = list->cueAt(row); c && c->id() == id) {
+                            label = QStringLiteral("%1  %2  [%3]")
+                                .arg(QString::number(c->number(), 'f', 2),
+                                     c->name().isEmpty() ? c->typeName() : c->name(),
+                                     c->typeName());
+                            break;
+                        }
+                    }
+                    auto *item = new QListWidgetItem(label, m_groupChildren);
+                    item->setData(Qt::UserRole, QVariant::fromValue(id));
+                }
+                // Fill the picker with all cues except self.
+                for (int row = 0; row < list->cueCount(); ++row) {
+                    auto *c = list->cueAt(row);
+                    if (!c || c == m_cue) continue;
+                    m_groupChildPicker->addItem(
+                        QStringLiteral("%1  %2  [%3]")
+                            .arg(QString::number(c->number(), 'f', 2),
+                                 c->name().isEmpty() ? c->typeName() : c->name(),
+                                 c->typeName()),
+                        QVariant::fromValue(c->id()));
+                }
+            }
+        }
+    }
 
     if (waitCue) {
         m_waitDuration->setValue(waitCue->durationSeconds());
@@ -877,6 +958,48 @@ void Inspector::commitTargetCue()
 {
     if (m_loading) return;
     pushFieldEdit(QStringLiteral("targetId"), m_targetCombo->currentData().toUuid());
+}
+
+void Inspector::commitGroupMode()
+{
+    if (m_loading) return;
+    pushFieldEdit(QStringLiteral("mode"), m_groupMode->currentData().toInt());
+}
+
+void Inspector::commitGroupStepInterval()
+{
+    if (m_loading) return;
+    pushFieldEdit(QStringLiteral("stepInterval"), m_groupStepInterval->value());
+}
+
+void Inspector::addGroupChild()
+{
+    if (m_loading) return;
+    auto *gc = qobject_cast<cues::GroupCue *>(m_cue.data());
+    if (!gc) return;
+    const auto id = m_groupChildPicker->currentData().toUuid();
+    if (id.isNull()) return;
+    auto kids = gc->childIds();
+    if (kids.contains(id)) return;
+    kids.append(id);
+    QStringList ids;
+    for (const auto &k : kids) ids << k.toString();
+    pushFieldEdit(QStringLiteral("childIds"), ids);
+}
+
+void Inspector::removeGroupChild()
+{
+    if (m_loading) return;
+    auto *gc = qobject_cast<cues::GroupCue *>(m_cue.data());
+    if (!gc) return;
+    auto *item = m_groupChildren->currentItem();
+    if (!item) return;
+    const auto id = item->data(Qt::UserRole).toUuid();
+    auto kids = gc->childIds();
+    kids.removeAll(id);
+    QStringList ids;
+    for (const auto &k : kids) ids << k.toString();
+    pushFieldEdit(QStringLiteral("childIds"), ids);
 }
 
 void Inspector::commitOscAddress() { if (!m_loading) pushFieldEdit(QStringLiteral("address"),  m_oscAddress->text()); }
