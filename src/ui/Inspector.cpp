@@ -12,8 +12,10 @@
 #include "ui/WaveformWidget.h"
 #include "video/VideoCue.h"
 
+#include <QButtonGroup>
 #include <QColorDialog>
 #include <QHeaderView>
+#include <QSlider>
 #include <QTableWidget>
 #include <QTableWidgetItem>
 
@@ -125,24 +127,69 @@ Inspector::Inspector(QWidget *parent)
     fileRow->addWidget(m_audioBrowse);
     audioOuter->addLayout(fileRow);
 
+    // Waveform + gain fader side-by-side.
+    auto *waveRow = new QHBoxLayout();
+    waveRow->setSpacing(12);
+
+    auto *waveColumn = new QVBoxLayout();
+    waveColumn->setSpacing(6);
     m_audioWaveform = new WaveformWidget(m_audioGroup);
-    m_audioWaveform->setMinimumHeight(96);
-    audioOuter->addWidget(m_audioWaveform);
+    m_audioWaveform->setMinimumHeight(140);
+    waveColumn->addWidget(m_audioWaveform);
+
+    // Mode toggle row: Trim | Fade
+    auto *modeRow = new QHBoxLayout();
+    m_audioModeTrim = new QPushButton(tr("Trim"), m_audioGroup);
+    m_audioModeFade = new QPushButton(tr("Fade"), m_audioGroup);
+    m_audioModeTrim->setObjectName(QStringLiteral("modeButton"));
+    m_audioModeFade->setObjectName(QStringLiteral("modeButton"));
+    m_audioModeTrim->setCheckable(true);
+    m_audioModeFade->setCheckable(true);
+    auto *modeGroup = new QButtonGroup(this);
+    modeGroup->setExclusive(false); // we want "deselect to disable mode"
+    modeGroup->addButton(m_audioModeTrim);
+    modeGroup->addButton(m_audioModeFade);
+    modeRow->addWidget(m_audioModeTrim);
+    modeRow->addWidget(m_audioModeFade);
+    modeRow->addStretch(1);
+    waveColumn->addLayout(modeRow);
 
     m_audioMeta = new QLabel(QStringLiteral(" "), m_audioGroup);
-    audioOuter->addWidget(m_audioMeta);
+    m_audioMeta->setObjectName(QStringLiteral("audioMeta"));
+    waveColumn->addWidget(m_audioMeta);
 
+    waveRow->addLayout(waveColumn, 1);
+
+    // Vertical gain fader column.
+    auto *gainColumn = new QVBoxLayout();
+    gainColumn->setSpacing(4);
+    auto *gainHeader = new QLabel(tr("Gain"), m_audioGroup);
+    gainHeader->setStyleSheet(QStringLiteral(
+        "color:#A8AEBA; font-size:10px; font-weight:600; "
+        "letter-spacing:0.04em;"));
+    gainHeader->setAlignment(Qt::AlignCenter);
+    gainColumn->addWidget(gainHeader);
+
+    m_audioGainSlider = new QSlider(Qt::Vertical, m_audioGroup);
+    m_audioGainSlider->setRange(-9000, 1200); // centi-dB → -90.00 .. +12.00 dB
+    m_audioGainSlider->setTickPosition(QSlider::TicksLeft);
+    m_audioGainSlider->setTickInterval(600);  // every 6 dB
+    m_audioGainSlider->setMinimumHeight(160);
+    gainColumn->addWidget(m_audioGainSlider, 1, Qt::AlignHCenter);
+
+    m_audioGainLabel = new QLabel(QStringLiteral("0.0 dB"), m_audioGroup);
+    m_audioGainLabel->setAlignment(Qt::AlignCenter);
+    m_audioGainLabel->setStyleSheet(QStringLiteral("font-weight:600;"));
+    gainColumn->addWidget(m_audioGainLabel);
+
+    waveRow->addLayout(gainColumn);
+    audioOuter->addLayout(waveRow);
+
+    // Numeric trim & fade spinboxes — synced live with the waveform handles.
     auto *audioForm = new QFormLayout();
     audioForm->setHorizontalSpacing(12);
     audioForm->setVerticalSpacing(8);
     audioForm->setLabelAlignment(Qt::AlignRight | Qt::AlignVCenter);
-
-    m_audioGain = new QDoubleSpinBox(m_audioGroup);
-    m_audioGain->setDecimals(2);
-    m_audioGain->setRange(-90.0, 12.0);
-    m_audioGain->setSingleStep(0.5);
-    m_audioGain->setSuffix(QStringLiteral(" dB"));
-    audioForm->addRow(tr("Gain"), m_audioGain);
 
     m_audioFadeIn = new QDoubleSpinBox(m_audioGroup);
     m_audioFadeIn->setDecimals(2);
@@ -169,11 +216,24 @@ Inspector::Inspector(QWidget *parent)
     m_audioTrimOut->setSpecialValueText(tr("(end)"));
     audioForm->addRow(tr("Trim out"), m_audioTrimOut);
 
-    m_audioPan = new QDoubleSpinBox(m_audioGroup);
-    m_audioPan->setDecimals(2);
-    m_audioPan->setRange(-1.0, 1.0);
-    m_audioPan->setSingleStep(0.1);
-    audioForm->addRow(tr("Pan (-1 L · 0 C · +1 R)"), m_audioPan);
+    // Horizontal pan fader with label.
+    auto *panRow = new QHBoxLayout();
+    auto *panL = new QLabel(QStringLiteral("L"), m_audioGroup);
+    auto *panR = new QLabel(QStringLiteral("R"), m_audioGroup);
+    panL->setStyleSheet(QStringLiteral("color:#A8AEBA;"));
+    panR->setStyleSheet(QStringLiteral("color:#A8AEBA;"));
+    m_audioPanSlider = new QSlider(Qt::Horizontal, m_audioGroup);
+    m_audioPanSlider->setRange(-100, 100); // hundredths
+    m_audioPanSlider->setTickPosition(QSlider::TicksBelow);
+    m_audioPanSlider->setTickInterval(50);
+    m_audioPanLabel = new QLabel(QStringLiteral("C"), m_audioGroup);
+    m_audioPanLabel->setMinimumWidth(40);
+    m_audioPanLabel->setAlignment(Qt::AlignCenter);
+    panRow->addWidget(panL);
+    panRow->addWidget(m_audioPanSlider, 1);
+    panRow->addWidget(panR);
+    panRow->addWidget(m_audioPanLabel);
+    audioForm->addRow(tr("Pan"), panRow);
 
     m_audioLoop = new QCheckBox(tr("Loop"), m_audioGroup);
     audioForm->addRow(QString(), m_audioLoop);
@@ -354,16 +414,43 @@ Inspector::Inspector(QWidget *parent)
     connect(m_oscPort,    &QSpinBox::editingFinished,     this, &Inspector::commitOscPort);
     connect(m_oscArgs,    &QLineEdit::editingFinished,    this, &Inspector::commitOscArgs);
 
-    connect(m_audioBrowse,    &QPushButton::clicked,            this, &Inspector::browseAudioFile);
-    connect(m_audioGain,      &QDoubleSpinBox::editingFinished, this, &Inspector::commitAudioGain);
-    connect(m_audioFadeIn,    &QDoubleSpinBox::editingFinished, this, &Inspector::commitAudioFadeIn);
-    connect(m_audioFadeOut,   &QDoubleSpinBox::editingFinished, this, &Inspector::commitAudioFadeOut);
-    connect(m_audioTrimIn,    &QDoubleSpinBox::editingFinished, this, &Inspector::commitAudioTrimIn);
-    connect(m_audioTrimOut,   &QDoubleSpinBox::editingFinished, this, &Inspector::commitAudioTrimOut);
-    connect(m_audioPan,       &QDoubleSpinBox::editingFinished, this, &Inspector::commitAudioPan);
-    connect(m_audioLoop,      &QCheckBox::toggled,              this, &Inspector::commitAudioLoop);
-    connect(m_audioNormalize, &QPushButton::clicked,            this, &Inspector::normalizeAudio);
-    connect(m_audioReverse,   &QPushButton::clicked,            this, &Inspector::reverseAudio);
+    connect(m_audioBrowse,     &QPushButton::clicked,            this, &Inspector::browseAudioFile);
+    connect(m_audioGainSlider, &QSlider::valueChanged,           this, &Inspector::onGainSliderChanged);
+    connect(m_audioPanSlider,  &QSlider::valueChanged,           this, &Inspector::onPanSliderChanged);
+    connect(m_audioFadeIn,     &QDoubleSpinBox::editingFinished, this, &Inspector::commitAudioFadeIn);
+    connect(m_audioFadeOut,    &QDoubleSpinBox::editingFinished, this, &Inspector::commitAudioFadeOut);
+    connect(m_audioTrimIn,     &QDoubleSpinBox::editingFinished, this, &Inspector::commitAudioTrimIn);
+    connect(m_audioTrimOut,    &QDoubleSpinBox::editingFinished, this, &Inspector::commitAudioTrimOut);
+    connect(m_audioLoop,       &QCheckBox::toggled,              this, &Inspector::commitAudioLoop);
+    connect(m_audioNormalize,  &QPushButton::clicked,            this, &Inspector::normalizeAudio);
+    connect(m_audioReverse,    &QPushButton::clicked,            this, &Inspector::reverseAudio);
+    connect(m_audioModeTrim,   &QPushButton::clicked,            this, &Inspector::setAudioModeTrim);
+    connect(m_audioModeFade,   &QPushButton::clicked,            this, &Inspector::setAudioModeFade);
+
+    // Waveform handles: drag updates the spinbox value live; release pushes
+    // a single undo step via the spinbox's editingFinished commit handlers.
+    connect(m_audioWaveform, &WaveformWidget::trimInChanged,  this, [this](double s) {
+        if (m_loading) return;
+        m_loading = true; m_audioTrimIn->setValue(s); m_loading = false;
+    });
+    connect(m_audioWaveform, &WaveformWidget::trimOutChanged, this, [this](double s) {
+        if (m_loading) return;
+        m_loading = true; m_audioTrimOut->setValue(s); m_loading = false;
+    });
+    connect(m_audioWaveform, &WaveformWidget::fadeInChanged,  this, [this](double s) {
+        if (m_loading) return;
+        m_loading = true; m_audioFadeIn->setValue(s); m_loading = false;
+    });
+    connect(m_audioWaveform, &WaveformWidget::fadeOutChanged, this, [this](double s) {
+        if (m_loading) return;
+        m_loading = true; m_audioFadeOut->setValue(s); m_loading = false;
+    });
+    connect(m_audioWaveform, &WaveformWidget::editingFinished, this, [this] {
+        commitAudioTrimIn();
+        commitAudioTrimOut();
+        commitAudioFadeIn();
+        commitAudioFadeOut();
+    });
 
     connect(m_colorChip,  &QPushButton::clicked, this, &Inspector::pickCueColor);
     connect(m_colorClear, &QPushButton::clicked, this, &Inspector::clearCueColor);
@@ -497,14 +584,25 @@ void Inspector::rebuild()
 
     if (audioCue) {
         m_audioPath->setText(audioCue->filePath());
-        m_audioGain->setValue(audioCue->gainDb());
+        m_audioGainSlider->setValue(static_cast<int>(audioCue->gainDb() * 100.0));
+        m_audioGainLabel->setText(QStringLiteral("%1 dB")
+            .arg(QString::number(audioCue->gainDb(), 'f', 1)));
+        m_audioPanSlider->setValue(static_cast<int>(audioCue->pan() * 100.0));
+        const double pv = audioCue->pan();
+        m_audioPanLabel->setText(qFuzzyIsNull(pv)
+            ? QStringLiteral("C")
+            : (pv < 0 ? QStringLiteral("L %1").arg(QString::number(std::abs(pv), 'f', 2))
+                      : QStringLiteral("R %1").arg(QString::number(pv, 'f', 2))));
         m_audioFadeIn->setValue(audioCue->fadeInSeconds());
         m_audioFadeOut->setValue(audioCue->fadeOutSeconds());
         m_audioTrimIn->setValue(audioCue->trimInSeconds());
         m_audioTrimOut->setValue(audioCue->trimOutSeconds());
-        m_audioPan->setValue(audioCue->pan());
         m_audioLoop->setChecked(audioCue->loop());
         m_audioWaveform->setAudioFile(audioCue->audioFile());
+        m_audioWaveform->setMarkers(audioCue->trimInSeconds(),
+                                    audioCue->trimOutSeconds(),
+                                    audioCue->fadeInSeconds(),
+                                    audioCue->fadeOutSeconds());
         if (auto file = audioCue->audioFile(); file && file->state() == audio::AudioFile::State::Loaded) {
             m_audioMeta->setText(tr("%1 Hz · %2 ch · %3 s")
                 .arg(file->sampleRate())
@@ -664,13 +762,48 @@ void Inspector::browseAudioFile()
     audioCue->prepare();
 }
 
-void Inspector::commitAudioGain()    { if (!m_loading) pushFieldEdit(QStringLiteral("gainDb"),         m_audioGain->value()); }
+void Inspector::onGainSliderChanged(int centiDb)
+{
+    const double db = centiDb / 100.0;
+    m_audioGainLabel->setText(QStringLiteral("%1 dB").arg(QString::number(db, 'f', 1)));
+    if (m_loading) return;
+    pushFieldEdit(QStringLiteral("gainDb"), db);
+}
+
+void Inspector::onPanSliderChanged(int hundredths)
+{
+    const double pv = hundredths / 100.0;
+    m_audioPanLabel->setText(qFuzzyIsNull(pv)
+        ? QStringLiteral("C")
+        : (pv < 0 ? QStringLiteral("L %1").arg(QString::number(std::abs(pv), 'f', 2))
+                  : QStringLiteral("R %1").arg(QString::number(pv, 'f', 2))));
+    if (m_loading) return;
+    pushFieldEdit(QStringLiteral("pan"), pv);
+}
+
 void Inspector::commitAudioFadeIn()  { if (!m_loading) pushFieldEdit(QStringLiteral("fadeInSeconds"),  m_audioFadeIn->value()); }
 void Inspector::commitAudioFadeOut() { if (!m_loading) pushFieldEdit(QStringLiteral("fadeOutSeconds"), m_audioFadeOut->value()); }
 void Inspector::commitAudioTrimIn()  { if (!m_loading) pushFieldEdit(QStringLiteral("trimInSeconds"),  m_audioTrimIn->value()); }
 void Inspector::commitAudioTrimOut() { if (!m_loading) pushFieldEdit(QStringLiteral("trimOutSeconds"), m_audioTrimOut->value()); }
-void Inspector::commitAudioPan()     { if (!m_loading) pushFieldEdit(QStringLiteral("pan"),            m_audioPan->value()); }
 void Inspector::commitAudioLoop()    { if (!m_loading) pushFieldEdit(QStringLiteral("loop"),           m_audioLoop->isChecked()); }
+
+void Inspector::setAudioModeTrim()
+{
+    const auto wantOn = !m_audioModeTrim->isChecked() ? false : true;
+    m_audioModeTrim->setChecked(wantOn);
+    if (wantOn) m_audioModeFade->setChecked(false);
+    m_audioWaveform->setEditMode(wantOn ? WaveformWidget::EditMode::Trim
+                                         : WaveformWidget::EditMode::None);
+}
+
+void Inspector::setAudioModeFade()
+{
+    const auto wantOn = !m_audioModeFade->isChecked() ? false : true;
+    m_audioModeFade->setChecked(wantOn);
+    if (wantOn) m_audioModeTrim->setChecked(false);
+    m_audioWaveform->setEditMode(wantOn ? WaveformWidget::EditMode::Fade
+                                         : WaveformWidget::EditMode::None);
+}
 
 void Inspector::normalizeAudio()
 {

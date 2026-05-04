@@ -34,10 +34,16 @@ TransportBar::TransportBar(QWidget *parent)
 
     layout->addLayout(nextStack, 1);
 
-    // Right: action buttons, escalating right-to-left
+    // Right: action buttons, escalating right-to-left.
+    // Order (left → right): Pause, Fade All, Panic, GO.
     m_pause = new QPushButton(tr("Pause"), this);
     m_pause->setObjectName(QStringLiteral("pauseButton"));
     m_pause->setMinimumHeight(36);
+
+    m_fadeAll = new QPushButton(tr("Fade All"), this);
+    m_fadeAll->setObjectName(QStringLiteral("fadeAllButton"));
+    m_fadeAll->setMinimumHeight(36);
+    m_fadeAll->setToolTip(tr("Fade every running cue out over 2 seconds"));
 
     m_panic = new QPushButton(tr("Panic"), this);
     m_panic->setObjectName(QStringLiteral("panicButton"));
@@ -49,12 +55,14 @@ TransportBar::TransportBar(QWidget *parent)
     m_goButton->setDefault(true);
 
     layout->addWidget(m_pause);
+    layout->addWidget(m_fadeAll);
     layout->addWidget(m_panic);
     layout->addWidget(m_goButton);
 
     connect(m_goButton, &QPushButton::clicked, this, &TransportBar::goPressed);
     connect(m_panic,    &QPushButton::clicked, this, &TransportBar::panicPressed);
     connect(m_pause,    &QPushButton::clicked, this, &TransportBar::pausePressed);
+    connect(m_fadeAll,  &QPushButton::clicked, this, &TransportBar::fadeAllPressed);
 }
 
 TransportBar::~TransportBar() = default;

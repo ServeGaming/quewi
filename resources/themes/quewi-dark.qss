@@ -253,6 +253,21 @@ QPushButton#goButton:disabled {
     border-color: #23262E;
 }
 
+QPushButton#fadeAllButton {
+    color: #F2C94C;
+    border: 1px solid #F2C94C;
+    background: transparent;
+}
+QPushButton#fadeAllButton:hover {
+    background: #F2C94C;
+    color: #0E0F12;
+}
+QPushButton#fadeAllButton:pressed {
+    background: #C99E2D;
+    color: #0E0F12;
+    border-color: #C99E2D;
+}
+
 QPushButton#panicButton {
     color: #FF5A5A;
     border: 1px solid #FF5A5A;
@@ -320,6 +335,61 @@ QPushButton#colorClear {
 }
 QPushButton#colorClear:hover { background: #1E2128; color: #FF5A5A; }
 QPushButton#colorClear:disabled { color: #4A4F5A; }
+
+QPushButton#modeButton {
+    background: #1E2128;
+    color: #A8AEBA;
+    border: 1px solid #33373F;
+    border-radius: 4px;
+    padding: 6px 18px;
+    font-weight: 600;
+}
+QPushButton#modeButton:hover { background: #262A33; color: #ECEEF3; }
+QPushButton#modeButton:checked {
+    background: #7AB8FF;
+    color: #0E0F12;
+    border-color: #7AB8FF;
+}
+
+QLabel#audioMeta {
+    color: #A8AEBA;
+    font-size: 11px;
+}
+
+/* ===================== Sliders (faders) ===================== */
+QSlider::groove:vertical {
+    background: #1E2128;
+    width: 6px;
+    border-radius: 3px;
+}
+QSlider::handle:vertical {
+    background: #ECEEF3;
+    border: 1px solid #33373F;
+    height: 18px;
+    margin: 0 -8px;
+    border-radius: 3px;
+}
+QSlider::handle:vertical:hover { background: #FFFFFF; border-color: #7AB8FF; }
+QSlider::handle:vertical:pressed { background: #7AB8FF; }
+QSlider::sub-page:vertical { background: #33373F; border-radius: 3px; }
+QSlider::add-page:vertical { background: #7AB8FF; border-radius: 3px; }
+
+QSlider::groove:horizontal {
+    background: #1E2128;
+    height: 6px;
+    border-radius: 3px;
+}
+QSlider::handle:horizontal {
+    background: #ECEEF3;
+    border: 1px solid #33373F;
+    width: 16px;
+    margin: -8px 0;
+    border-radius: 3px;
+}
+QSlider::handle:horizontal:hover { background: #FFFFFF; border-color: #7AB8FF; }
+QSlider::handle:horizontal:pressed { background: #7AB8FF; }
+QSlider::sub-page:horizontal { background: #7AB8FF; border-radius: 3px; }
+QSlider::add-page:horizontal { background: #33373F; border-radius: 3px; }
 
 /* ===================== Scrollbars ===================== */
 QScrollBar:vertical {

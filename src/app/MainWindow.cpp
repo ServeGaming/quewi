@@ -15,6 +15,7 @@
 #include "show/ShowFile.h"
 #include "video/VideoCue.h"
 #include "video/VideoEngine.h"
+#include "ui/AudioEditorWindow.h"
 #include "ui/CueListView.h"
 #include "ui/Inspector.h"
 #include "ui/OscMonitor.h"
@@ -103,6 +104,14 @@ void MainWindow::buildLayout()
             this, [this](cues::Cue *) { onSelectionChanged(); });
     connect(m_cueListView, &ui::CueListView::goRequested,
             this, &MainWindow::onGoRequested);
+    connect(m_cueListView, &ui::CueListView::cueDoubleClicked, this,
+        [this](cues::Cue *cue) {
+            if (auto *ac = qobject_cast<audio::AudioCue *>(cue)) {
+                ac->prepare();
+                auto *editor = new ui::AudioEditorWindow(ac, this);
+                editor->show();
+            }
+        });
     connect(m_transport,   &ui::TransportBar::goPressed,
             this, &MainWindow::onGoRequested);
     connect(m_transport,   &ui::TransportBar::panicPressed, this, [this] {
@@ -117,6 +126,14 @@ void MainWindow::buildLayout()
         // True pause (sample-accurate resume) lands with the GoEngine.
         m_audioEngine->stopAll(0.25);
         statusBar()->showMessage(tr("Pause: faded out (proper pause arrives in Phase 6)"), 2500);
+    });
+    connect(m_transport,   &ui::TransportBar::fadeAllPressed, this, [this] {
+        // 2 s graceful fade across every running cue. Lighting also
+        // fades — fadeChannels with empty target zeros everything in
+        // each active universe.
+        m_audioEngine->stopAll(2.0);
+        m_videoEngine->stopAll(); // video fade-out comes with the GoEngine
+        statusBar()->showMessage(tr("Fade All: 2 s fade-out across every voice"), 3000);
     });
 }
 
@@ -614,12 +631,15 @@ void MainWindow::onGoRequested()
             .arg(QString::number(cue->number(), 'f', 2), cue->name()), 2000);
     }
 
-    // Advance selection. Pre-load the (now) next audio cue eagerly so
-    // its file is ready when GO fires next.
+    // Advance selection one row forward (or wrap to end if already at the
+    // last cue). Pre-load the now-selected audio cue so its file is
+    // decoded by the time GO fires next.
     const auto idx = m_cueListView->currentIndex();
-    const int next = idx.isValid() ? idx.row() + 1 : 0;
-    if (next < m_model->rowCount())
-        m_cueListView->setCurrentIndex(m_model->index(next, 0));
+    const int curRow = idx.isValid() ? idx.row() : -1;
+    const int nextRow = curRow + 1;
+    if (nextRow < m_model->rowCount()) {
+        m_cueListView->setCurrentIndex(m_model->index(nextRow, 0));
+    }
     if (auto *upcoming = m_cueListView->nextCue()) {
         if (auto *ac = qobject_cast<audio::AudioCue *>(upcoming)) ac->prepare();
     }
@@ -871,16 +891,9 @@ void MainWindow::selectCueByNumber(double number)
 
 void MainWindow::fireCueByNumber(double number)
 {
+    // With QLab-style semantics (GO fires the selected cue), simply
+    // selecting and firing produces the right behaviour.
     selectCueByNumber(number);
-    // Step the selection back so onGoRequested fires the just-selected cue
-    // (its logic uses *next* cue from the current selection).
-    const auto idx = m_cueListView->currentIndex();
-    if (idx.isValid() && idx.row() > 0) {
-        m_cueListView->setCurrentIndex(m_model->index(idx.row() - 1, 0));
-    } else if (idx.isValid()) {
-        // Already at the top; just call go which will fire row 0.
-        m_cueListView->clearSelection();
-    }
     onGoRequested();
 }
 

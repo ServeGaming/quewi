@@ -6,6 +6,7 @@
 class QLabel;
 class QLineEdit;
 class QSpinBox;
+class QSlider;
 class QDoubleSpinBox;
 class QPlainTextEdit;
 class QGroupBox;
@@ -13,6 +14,7 @@ class QComboBox;
 class QPushButton;
 class QCheckBox;
 class QFormLayout;
+class QButtonGroup;
 
 namespace quewi::core { class Workspace; class CueList; }
 namespace quewi::cues { class Cue; class FadeCue; }
@@ -58,15 +60,17 @@ private slots:
 
     // Audio
     void browseAudioFile();
-    void commitAudioGain();
+    void onGainSliderChanged(int centiDb);
+    void onPanSliderChanged(int hundredths);
     void commitAudioFadeIn();
     void commitAudioFadeOut();
     void commitAudioTrimIn();
     void commitAudioTrimOut();
-    void commitAudioPan();
     void commitAudioLoop();
     void normalizeAudio();
     void reverseAudio();
+    void setAudioModeTrim();
+    void setAudioModeFade();
 
     // Fade
     void commitFadeTarget();
@@ -119,20 +123,24 @@ private:
     QLineEdit      *m_oscArgs     = nullptr;
 
     // Audio group
-    QGroupBox      *m_audioGroup    = nullptr;
-    QLineEdit      *m_audioPath     = nullptr;
-    QPushButton    *m_audioBrowse   = nullptr;
-    QDoubleSpinBox *m_audioGain     = nullptr;
-    QDoubleSpinBox *m_audioFadeIn   = nullptr;
-    QDoubleSpinBox *m_audioFadeOut  = nullptr;
-    QDoubleSpinBox *m_audioTrimIn   = nullptr;
-    QDoubleSpinBox *m_audioTrimOut  = nullptr;
-    QDoubleSpinBox *m_audioPan      = nullptr;
-    QCheckBox      *m_audioLoop     = nullptr;
+    QGroupBox      *m_audioGroup     = nullptr;
+    QLineEdit      *m_audioPath      = nullptr;
+    QPushButton    *m_audioBrowse    = nullptr;
+    QSlider        *m_audioGainSlider = nullptr;
+    QLabel         *m_audioGainLabel = nullptr;
+    QSlider        *m_audioPanSlider = nullptr;
+    QLabel         *m_audioPanLabel  = nullptr;
+    QDoubleSpinBox *m_audioFadeIn    = nullptr;
+    QDoubleSpinBox *m_audioFadeOut   = nullptr;
+    QDoubleSpinBox *m_audioTrimIn    = nullptr;
+    QDoubleSpinBox *m_audioTrimOut   = nullptr;
+    QCheckBox      *m_audioLoop      = nullptr;
     QPushButton    *m_audioNormalize = nullptr;
-    QPushButton    *m_audioReverse  = nullptr;
-    WaveformWidget *m_audioWaveform = nullptr;
-    QLabel         *m_audioMeta     = nullptr;
+    QPushButton    *m_audioReverse   = nullptr;
+    QPushButton    *m_audioModeTrim  = nullptr;
+    QPushButton    *m_audioModeFade  = nullptr;
+    WaveformWidget *m_audioWaveform  = nullptr;
+    QLabel         *m_audioMeta      = nullptr;
 
     // Fade group
     QGroupBox      *m_fadeGroup    = nullptr;

@@ -20,6 +20,12 @@ CueListView::CueListView(QWidget *parent)
     setEditTriggers(QAbstractItemView::EditKeyPressed);
     header()->setStretchLastSection(true);
     setFocusPolicy(Qt::StrongFocus);
+
+    connect(this, &QTreeView::doubleClicked, this, [this](const QModelIndex &idx) {
+        auto *m = qobject_cast<core::CueListModel *>(model());
+        if (!m) return;
+        if (auto *cue = m->cueAt(idx)) emit cueDoubleClicked(cue);
+    });
 }
 
 CueListView::~CueListView() = default;
@@ -52,11 +58,14 @@ cues::Cue *CueListView::currentCue() const
 
 cues::Cue *CueListView::nextCue() const
 {
+    // QLab semantics: "next" is the cue the playhead is on — i.e. the
+    // currently selected one. Pressing GO fires it and the caller is
+    // responsible for advancing selection to row+1.
     auto *m = qobject_cast<core::CueListModel *>(model());
-    if (!m) return nullptr;
-    auto idx = currentIndex();
-    int row = idx.isValid() ? idx.row() + 1 : 0;
-    if (row >= m->rowCount()) return nullptr;
+    if (!m || m->rowCount() == 0) return nullptr;
+    const auto idx = currentIndex();
+    const int row = idx.isValid() ? idx.row() : 0;
+    if (row < 0 || row >= m->rowCount()) return nullptr;
     return m->cueAt(m->index(row, 0));
 }
 

@@ -26,12 +26,14 @@ signals:
     void goPressed();
     void panicPressed();
     void pausePressed();
+    void fadeAllPressed();
 
 private:
     QPointer<cues::Cue> m_nextCue;
     QLabel      *m_nextLabel = nullptr;
     QPushButton *m_goButton  = nullptr;
     QPushButton *m_pause     = nullptr;
+    QPushButton *m_fadeAll   = nullptr;
     QPushButton *m_panic     = nullptr;
 };
 

@@ -26,6 +26,7 @@ public:
 signals:
     void currentCueChanged(quewi::cues::Cue *cue);
     void goRequested();
+    void cueDoubleClicked(quewi::cues::Cue *cue);
 
 protected:
     void keyPressEvent(QKeyEvent *event) override;
