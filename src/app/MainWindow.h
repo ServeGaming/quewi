@@ -5,6 +5,8 @@
 #include <memory>
 
 class QAction;
+class QHBoxLayout;
+class QLabel;
 class QSplitter;
 class QDragEnterEvent;
 class QDragMoveEvent;
@@ -121,6 +123,7 @@ private:
     ui::ShortcutManager *m_shortcuts = nullptr;
 
     QTabBar *m_listTabs = nullptr;
+    QWidget *m_showModeStrip = nullptr;
     bool     m_showMode = false;
 
     QString m_currentPath;

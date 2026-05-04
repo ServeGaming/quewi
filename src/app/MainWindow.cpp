@@ -48,6 +48,8 @@
 #include <QAudioDevice>
 #include <QFileDialog>
 #include <QFileInfo>
+#include <QHBoxLayout>
+#include <QLabel>
 #include <QMediaDevices>
 #include <QSettings>
 #include <QKeySequence>
@@ -192,6 +194,24 @@ void MainWindow::buildLayout()
     auto *outer = new QVBoxLayout(central);
     outer->setContentsMargins(0, 0, 0, 0);
     outer->setSpacing(0);
+
+    // Show Mode strip — stays hidden until Show Mode is toggled on. Sits
+    // above everything else as a 22 px accent band. Stylesheet selectors
+    // for #showModeStrip / #showModeStripLabel live in quewi-dark.qss.
+    m_showModeStrip = new QWidget(central);
+    m_showModeStrip->setObjectName(QStringLiteral("showModeStrip"));
+    {
+        auto *hb = new QHBoxLayout(m_showModeStrip);
+        hb->setContentsMargins(0, 0, 0, 0);
+        hb->setSpacing(0);
+        auto *lbl = new QLabel(tr("SHOW MODE   ·   OPERATOR CONTROLS ONLY"),
+                               m_showModeStrip);
+        lbl->setObjectName(QStringLiteral("showModeStripLabel"));
+        lbl->setAlignment(Qt::AlignCenter);
+        hb->addWidget(lbl);
+    }
+    m_showModeStrip->hide();
+    outer->addWidget(m_showModeStrip, 0);
 
     m_listTabs = new QTabBar(central);
     m_listTabs->setObjectName(QStringLiteral("cueListTabs"));
@@ -894,6 +914,7 @@ void MainWindow::applyShowMode()
         }
     }
     if (m_actShowMode) m_actShowMode->setEnabled(true); // always allow toggle
+    if (m_showModeStrip) m_showModeStrip->setVisible(m_showMode);
     updateTitle();
     statusBar()->showMessage(m_showMode ? tr("SHOW MODE — editing locked")
                                          : tr("Edit mode"), 2500);

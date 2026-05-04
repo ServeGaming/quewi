@@ -44,7 +44,7 @@ protected:
         p.setRenderHint(QPainter::Antialiasing, false);
         const int W = width(), H = height();
         const int barH = (H - 2) / 2;
-        p.fillRect(rect(), QColor(20, 22, 28));
+        p.fillRect(rect(), QColor(0x10, 0x14, 0x19)); // bgDeep
         auto draw = [&](int y, float disp, float hold) {
             const auto pos = [&](float lin) {
                 if (lin <= 0.001f) return 0;
@@ -56,15 +56,15 @@ protected:
             const int wDisp = pos(disp);
             for (int x = 0; x < wDisp; ++x) {
                 float t = float(x) / float(W - 2);
-                QColor c = (t < 0.7f) ? QColor(64,200,90)
-                          : (t < 0.9f) ? QColor(220,200,40)
-                                       : QColor(230,70,60);
+                QColor c = (t < 0.7f) ? QColor(0x60, 0xdf, 0x85)   // running
+                          : (t < 0.9f) ? QColor(0xff, 0xb8, 0x69)  // warn
+                                       : QColor(0xff, 0xb4, 0xab); // err
                 p.setPen(c);
                 p.drawLine(1 + x, y, 1 + x, y + barH - 1);
             }
             int wHold = pos(hold);
             if (wHold > 0) {
-                p.setPen(QColor(230, 230, 230));
+                p.setPen(QColor(0xe0, 0xe2, 0xeb)); // ink100 held-peak tick
                 p.drawLine(1 + wHold, y, 1 + wHold, y + barH - 1);
             }
         };
@@ -102,12 +102,12 @@ public:
         m_bar->setFixedHeight(8);
 
         m_time = new QLabel(QStringLiteral("0:00 / 0:00"), this);
-        m_time->setStyleSheet(QStringLiteral("color:#A8AEBA; font-size:11px;"));
+        m_time->setStyleSheet(QStringLiteral("color:#c0c7d4; font-size:11px;"));
         m_time->setMinimumWidth(86);
         m_time->setAlignment(Qt::AlignRight | Qt::AlignVCenter);
 
         m_meta = new QLabel(QStringLiteral(" "), this);
-        m_meta->setStyleSheet(QStringLiteral("color:#A8AEBA; font-size:11px;"));
+        m_meta->setStyleSheet(QStringLiteral("color:#c0c7d4; font-size:11px;"));
         m_meta->setMinimumWidth(96);
 
         m_meter = new PeakMeter(this);

@@ -5,6 +5,7 @@
 #include <QHBoxLayout>
 #include <QLabel>
 #include <QPushButton>
+#include <QStyle>
 #include <QVBoxLayout>
 
 namespace quewi::ui {
@@ -51,6 +52,9 @@ TransportBar::TransportBar(QWidget *parent)
 
     m_goButton = new QPushButton(tr("GO"), this);
     m_goButton->setObjectName(QStringLiteral("goButton"));
+    // Dynamic property drives QSS state colour: standby (blue) until a
+    // cue is queued, ready (green) when one is, disabled when none.
+    m_goButton->setProperty("state", "standby");
     // Shortcut handled by the rebindable QAction owned by MainWindow.
     m_goButton->setDefault(true);
 
@@ -70,6 +74,13 @@ TransportBar::~TransportBar() = default;
 void TransportBar::setNextCue(cues::Cue *cue)
 {
     m_nextCue = cue;
+    const char *state = cue ? "ready" : "standby";
+    if (m_goButton->property("state").toString() != QLatin1String(state)) {
+        m_goButton->setProperty("state", state);
+        // Re-polish so the QSS attribute selector picks up the change.
+        m_goButton->style()->unpolish(m_goButton);
+        m_goButton->style()->polish(m_goButton);
+    }
     if (!cue) {
         m_nextLabel->setText(tr("—"));
         return;

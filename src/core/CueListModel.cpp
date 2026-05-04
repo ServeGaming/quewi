@@ -305,12 +305,14 @@ QVariant CueListModel::data(const QModelIndex &index, int role) const
         if (index.column() == ColumnState) {
             const bool running = m_runningIds.contains(cue->id());
             const bool loaded  = m_loadedIds.contains(cue->id());
+            // Token values mirror Theme::tokens() so the dot stays in sync
+            // with the QSS palette without core depending on ui.
             QColor c;
-            if (running)              c = QColor(0x3F, 0xC1, 0x6B); // green
-            else if (loaded)          c = QColor(0x4A, 0x9E, 0xFF); // blue
+            if (running)              c = QColor(0x60, 0xdf, 0x85); // running
+            else if (loaded)          c = QColor(0x4a, 0x9e, 0xff); // loaded
             else if (cue->color().isValid()) c = cue->color();
-            else c = cue->isArmed() ? QColor(0xA8, 0xAE, 0xBA)
-                                     : QColor(0x4A, 0x4F, 0x5A);
+            else c = cue->isArmed() ? QColor(0xc0, 0xc7, 0xd4)      // ink60
+                                     : QColor(0x8a, 0x91, 0x9e);    // ink40
 
             QPixmap pm(14, 14);
             pm.fill(Qt::transparent);
