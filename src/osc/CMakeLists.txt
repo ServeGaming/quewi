@@ -4,6 +4,8 @@ add_library(quewi_osc STATIC
     OscCodec.cpp
     OscPattern.h
     OscPattern.cpp
+    OscSlip.h
+    OscSlip.cpp
     OscEngine.h
     OscEngine.cpp
     OscCue.h

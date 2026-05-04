@@ -10,6 +10,7 @@
 #include "show/ShowFile.h"
 #include "ui/CueListView.h"
 #include "ui/Inspector.h"
+#include "ui/OscMonitor.h"
 #include "ui/PreferencesDialog.h"
 #include "ui/TransportBar.h"
 
@@ -97,6 +98,11 @@ void MainWindow::buildMenus()
     m_actUndo->setShortcut(QKeySequence::Undo);
     m_actRedo = edit->addAction(tr("&Redo"));
     m_actRedo->setShortcut(QKeySequence::Redo);
+
+    auto *toolsMenu = menuBar()->addMenu(tr("&Tools"));
+    toolsMenu->addAction(tr("&OSC Monitor…"),
+                         QKeySequence(QStringLiteral("Ctrl+1")),
+                         this, &MainWindow::showOscMonitor);
 
     auto *cueMenu = menuBar()->addMenu(tr("&Cue"));
     cueMenu->addAction(tr("New &Memo"), QKeySequence(Qt::Key_M), this, &MainWindow::insertMemoCue);
@@ -227,6 +233,18 @@ void MainWindow::showPreferences()
 {
     ui::PreferencesDialog dlg(this);
     dlg.exec();
+}
+
+void MainWindow::showOscMonitor()
+{
+    if (!m_oscMonitor) {
+        // Independent top-level window — outlives any single show.
+        m_oscMonitor = new ui::OscMonitor(m_oscEngine.get());
+        m_oscMonitor->setAttribute(Qt::WA_DeleteOnClose, false);
+    }
+    m_oscMonitor->show();
+    m_oscMonitor->raise();
+    m_oscMonitor->activateWindow();
 }
 
 void MainWindow::insertMemoCue()

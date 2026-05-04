@@ -8,7 +8,7 @@ class QAction;
 class QSplitter;
 
 namespace quewi::core { class Workspace; class CueListModel; }
-namespace quewi::ui   { class CueListView; class Inspector; class TransportBar; }
+namespace quewi::ui   { class CueListView; class Inspector; class TransportBar; class OscMonitor; }
 namespace quewi::osc  { class OscEngine; }
 
 namespace quewi {
@@ -28,6 +28,7 @@ private slots:
     bool saveShow();
     bool saveShowAs();
     void showPreferences();
+    void showOscMonitor();
     void insertMemoCue();
     void insertOscCue();
     void deleteSelectedCue();
@@ -50,6 +51,7 @@ private:
     ui::CueListView *m_cueListView = nullptr;
     ui::Inspector   *m_inspector   = nullptr;
     ui::TransportBar *m_transport  = nullptr;
+    ui::OscMonitor   *m_oscMonitor = nullptr;
     QSplitter       *m_mainSplitter = nullptr;
 
     QAction *m_actUndo = nullptr;
