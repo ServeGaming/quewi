@@ -1,0 +1,56 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  build:
+    name: ${{ matrix.os }} / ${{ matrix.build_type }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, macos-latest, ubuntu-latest]
+        build_type: [Debug, Release]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Qt 6
+        uses: jurplel/install-qt-action@v4
+        with:
+          version: 6.11.0
+          modules: qtmultimedia qtwebsockets
+
+      - name: Install Ninja (Linux/macOS)
+        if: runner.os != 'Windows'
+        run: |
+          if [ "$RUNNER_OS" = "Linux" ]; then sudo apt-get update && sudo apt-get install -y ninja-build; fi
+          if [ "$RUNNER_OS" = "macOS" ]; then brew install ninja; fi
+        shell: bash
+
+      - name: Install Ninja (Windows)
+        if: runner.os == 'Windows'
+        run: choco install ninja -y
+
+      - name: Configure (Windows)
+        if: runner.os == 'Windows'
+        run: cmake --preset windows-${{ matrix.build_type == 'Debug' && 'debug' || 'release' }}
+
+      - name: Configure (macOS)
+        if: runner.os == 'macOS'
+        run: cmake --preset macos-${{ matrix.build_type == 'Debug' && 'debug' || 'release' }}
+
+      - name: Configure (Linux)
+        if: runner.os == 'Linux'
+        run: cmake --preset linux-${{ matrix.build_type == 'Debug' && 'debug' || 'release' }}
+
+      - name: Build
+        run: cmake --build --preset ${{ runner.os == 'Windows' && 'windows' || runner.os == 'macOS' && 'macos' || 'linux' }}-${{ matrix.build_type == 'Debug' && 'debug' || 'release' }}
+
+      - name: Test (Debug only)
+        if: matrix.build_type == 'Debug'
+        run: ctest --preset ${{ runner.os == 'Windows' && 'windows' || runner.os == 'macOS' && 'macos' || 'linux' }}-debug

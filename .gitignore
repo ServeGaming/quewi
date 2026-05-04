@@ -67,3 +67,29 @@ vcpkg_installed/
 # test output & cache
 Testing/
 .cache/
+
+# Qt
+*.user
+*.user.*
+moc_*.cpp
+moc_*.h
+qrc_*.cpp
+ui_*.h
+*.qmlc
+*.jsc
+
+# IDEs
+.vs/
+.vscode/
+.idea/
+*.sln.docstates
+*.suo
+
+# CMake build dirs (any depth)
+out/
+
+# OS junk
+.DS_Store
+Thumbs.db
+desktop.ini
+
