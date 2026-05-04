@@ -34,6 +34,7 @@
 #include <QLineEdit>
 #include <QPlainTextEdit>
 #include <QPushButton>
+#include <QScrollArea>
 #include <QSpinBox>
 #include <QUndoStack>
 #include <QVBoxLayout>
@@ -45,9 +46,29 @@ Inspector::Inspector(QWidget *parent)
 {
     setObjectName(QStringLiteral("inspectorPane"));
 
-    auto *outer = new QVBoxLayout(this);
+    // Top-level Inspector is a thin shell holding a scroll area so the
+    // pane can shrink to any height — important on laptops, in split
+    // monitor setups, and when the user resizes the main window down.
+    auto *root = new QVBoxLayout(this);
+    root->setContentsMargins(0, 0, 0, 0);
+    root->setSpacing(0);
+    auto *scroll = new QScrollArea(this);
+    scroll->setObjectName(QStringLiteral("inspectorScroll"));
+    scroll->setFrameShape(QFrame::NoFrame);
+    scroll->setWidgetResizable(true);
+    scroll->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+    auto *content = new QWidget(scroll);
+    content->setObjectName(QStringLiteral("inspectorContent"));
+    scroll->setWidget(content);
+    root->addWidget(scroll);
+
+    auto *outer = new QVBoxLayout(content);
     outer->setContentsMargins(20, 16, 20, 16);
     outer->setSpacing(12);
+
+    // Allow the pane to be squeezed below the natural sizeHint of its
+    // children — the scroll area takes over from there.
+    setMinimumWidth(280);
 
     auto *headerRow = new QHBoxLayout();
     headerRow->setContentsMargins(0, 0, 0, 0);

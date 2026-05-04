@@ -50,6 +50,7 @@ MainWindow::MainWindow(QWidget *parent)
     : QMainWindow(parent)
 {
     resize(1280, 800);
+    setMinimumSize(720, 480);
     setAcceptDrops(true);
     m_oscEngine = std::make_unique<osc::OscEngine>(this);
     connect(m_oscEngine.get(), &osc::OscEngine::sendError, this, [this](const QString &reason) {
@@ -100,6 +101,7 @@ void MainWindow::buildLayout()
     m_mainSplitter = new QSplitter(Qt::Horizontal, central);
 
     m_cueListView = new ui::CueListView(m_mainSplitter);
+    m_cueListView->setMinimumWidth(280);
     m_inspector   = new ui::Inspector(m_mainSplitter);
 
     m_mainSplitter->addWidget(m_cueListView);
@@ -107,6 +109,7 @@ void MainWindow::buildLayout()
     m_mainSplitter->setStretchFactor(0, 3);
     m_mainSplitter->setStretchFactor(1, 2);
     m_mainSplitter->setSizes({800, 480});
+    m_mainSplitter->setChildrenCollapsible(false);
 
     m_activePanel = new ui::ActiveCuesPanel(central);
     m_activePanel->setAudioEngine(m_audioEngine.get());
