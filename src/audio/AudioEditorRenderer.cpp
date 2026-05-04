@@ -78,35 +78,50 @@ bool AudioEditorRenderer::render(std::vector<float> &outStereo) {
                 region.sourceFile->state() != AudioFile::State::Loaded) continue;
 
             const auto &src = region.sourceFile->samples();
-            int srcCh = region.sourceFile->channelCount();
-            qint64 srcIn  = region.srcInSamples;
-            qint64 srcOut = (region.srcOutSamples < 0)
-                              ? region.sourceFile->frameCount()
-                              : region.srcOutSamples;
-            qint64 regionDur = srcOut - srcIn;
-            float  regionGain = std::pow(10.f, region.gainDb / 20.f) * trackGain;
-
-            qint64 tPos = region.timelinePosSamples;
+            const int    srcCh = region.sourceFile->channelCount();
+            const qint64 srcFrames = region.sourceFile->frameCount();
+            const int    srcSr = region.sourceFile->sampleRate();
+            const int    dstSr = m_model->sampleRate();
+            // Source-frame step per timeline-frame (linear-interp resampler).
+            const double rate = (srcSr > 0 && dstSr > 0)
+                                ? double(srcSr) / double(dstSr) : 1.0;
+            const qint64 srcIn  = region.srcInSamples;
+            const qint64 srcOut = (region.srcOutSamples < 0) ? srcFrames
+                                                              : region.srcOutSamples;
+            const qint64 srcDur = std::max<qint64>(0, srcOut - srcIn);
+            // Region length on the timeline grid after SRC.
+            const qint64 regionDur = (rate > 0.0)
+                ? qint64(double(srcDur) / rate) : srcDur;
+            const float  regionGain = std::pow(10.f, region.gainDb / 20.f) * trackGain;
+            const qint64 tPos = region.timelinePosSamples;
 
             for (qint64 f = 0; f < regionDur; ++f) {
-                qint64 tlFrame = tPos + f;
+                const qint64 tlFrame = tPos + f;
                 if (tlFrame < 0 || tlFrame >= totalFrames) continue;
 
-                qint64 srcFrame = srcIn + f;
-                float  l = 0.f, r = 0.f;
+                const double srcF = double(srcIn) + double(f) * rate;
+                const qint64 i0 = qint64(srcF);
+                const qint64 i1 = std::min<qint64>(i0 + 1, srcFrames - 1);
+                const float  frac = float(srcF - double(i0));
+                if (i0 < 0 || i0 >= srcFrames) continue;
+
+                float l = 0.f, r = 0.f;
                 if (srcCh >= 2) {
-                    l = src[srcFrame * srcCh + 0];
-                    r = src[srcFrame * srcCh + 1];
+                    const float l0 = src[i0 * srcCh + 0];
+                    const float l1 = src[i1 * srcCh + 0];
+                    const float r0 = src[i0 * srcCh + 1];
+                    const float r1 = src[i1 * srcCh + 1];
+                    l = l0 + frac * (l1 - l0);
+                    r = r0 + frac * (r1 - r0);
                 } else if (srcCh == 1) {
-                    l = r = src[srcFrame];
+                    const float s0 = src[i0];
+                    const float s1 = src[i1];
+                    l = r = s0 + frac * (s1 - s0);
                 }
 
-                float faded = applyFade(1.f, f, regionDur, region.fadeIn, region.fadeOut);
-                l *= faded * regionGain;
-                r *= faded * regionGain;
-
-                outStereo[tlFrame * 2]     += l;
-                outStereo[tlFrame * 2 + 1] += r;
+                const float faded = applyFade(1.f, f, regionDur, region.fadeIn, region.fadeOut);
+                outStereo[tlFrame * 2]     += l * faded * regionGain;
+                outStereo[tlFrame * 2 + 1] += r * faded * regionGain;
             }
 
             emit progress(int(100.0 * double(ti+1) / double(m_model->trackCount())));

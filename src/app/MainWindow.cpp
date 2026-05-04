@@ -218,6 +218,10 @@ void MainWindow::buildLayout()
     m_activePanel = new ui::ActiveCuesPanel(central);
     m_activePanel->setAudioEngine(m_audioEngine.get());
     m_activePanel->hide(); // shown when something starts playing
+    connect(m_activePanel, &ui::ActiveCuesPanel::runningCueIdsChanged,
+            this, [this](const QSet<QUuid> &ids) {
+                if (m_model) m_model->setRunningCueIds(ids);
+            });
 
     m_transport = new ui::TransportBar(central);
 

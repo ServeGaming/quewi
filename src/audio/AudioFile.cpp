@@ -189,6 +189,7 @@ void AudioFile::reverseSamples()
     }
     // Rebuild peaks from scratch.
     m_peaks.clear();
+    m_peaks.reserve(static_cast<size_t>((m_frameCount / kPeakBlock + 1) * m_channelCount));
     m_peakFramesProcessed = 0;
     buildPeaksIncrementally(m_frameCount);
     emit stateChanged(m_state);
@@ -206,6 +207,7 @@ void AudioFile::normaliseSamples(float targetPeak)
     const float gain = targetPeak / peak;
     for (float &v : m_samples) v *= gain;
     m_peaks.clear();
+    m_peaks.reserve(static_cast<size_t>((m_frameCount / kPeakBlock + 1) * m_channelCount));
     m_peakFramesProcessed = 0;
     buildPeaksIncrementally(m_frameCount);
     emit stateChanged(m_state);

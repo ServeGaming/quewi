@@ -7,14 +7,133 @@
 #include <QBuffer>
 #include <QDataStream>
 #include <QFont>
+#include <QHash>
 #include <QIODevice>
 #include <QSet>
 #include <QFontDatabase>
 #include <QMimeData>
 #include <QPainter>
+#include <QPainterPath>
 #include <QPixmap>
 
 namespace quewi::core {
+
+// 14×14 line icons for each cue type-key. Drawn into a cached pixmap on
+// first use. White ink on transparent background — Qt's icon mode tints
+// for selected/disabled rows.
+QPixmap CueListModel::iconForType(const QString &typeKey)
+{
+    static QHash<QString, QPixmap> cache;
+    if (auto it = cache.constFind(typeKey); it != cache.constEnd()) return it.value();
+
+    const int sz = 14;
+    QPixmap pm(sz, sz);
+    pm.fill(Qt::transparent);
+    QPainter p(&pm);
+    p.setRenderHint(QPainter::Antialiasing);
+    QColor ink(220, 226, 236);
+    QPen pen(ink); pen.setWidthF(1.4); pen.setCapStyle(Qt::RoundCap); pen.setJoinStyle(Qt::RoundJoin);
+    p.setPen(pen); p.setBrush(Qt::NoBrush);
+
+    auto family = [&](const QString &k) -> QChar { // category dispatch
+        if (k == QLatin1String("audio") || k == QLatin1String("mic")) return 'A';
+        if (k == QLatin1String("fade"))   return 'F';
+        if (k == QLatin1String("light") || k == QLatin1String("light-fade")) return 'L';
+        if (k == QLatin1String("video") || k == QLatin1String("image") || k == QLatin1String("text")) return 'V';
+        if (k == QLatin1String("osc"))    return 'O';
+        if (k == QLatin1String("midi") || k == QLatin1String("msc")) return 'M';
+        if (k == QLatin1String("wait"))   return 'W';
+        if (k == QLatin1String("group"))  return 'G';
+        if (k == QLatin1String("memo"))   return 'N';
+        if (k == QLatin1String("start") || k == QLatin1String("stop") || k == QLatin1String("goto")) return 'T';
+        return '?';
+    };
+
+    switch (family(typeKey).unicode()) {
+    case 'A': // speaker triangle + waves
+        p.drawLine(3, 6, 6, 6); p.drawLine(3, 8, 6, 8);
+        p.drawLine(6, 4, 8, 6); p.drawLine(6, 10, 8, 8); p.drawLine(8, 6, 8, 8);
+        p.drawArc(8, 4, 4, 6, 90 * 16, -180 * 16);
+        break;
+    case 'F': // diagonal ramp
+        p.drawLine(2, 11, 12, 3);
+        p.drawLine(2, 11, 12, 11);
+        break;
+    case 'L': // sun rays
+        p.drawEllipse(QPointF(7, 7), 2.0, 2.0);
+        for (int i = 0; i < 8; ++i) {
+            const double a = i * M_PI / 4.0;
+            const double cx = 7 + std::cos(a) * 4.0;
+            const double cy = 7 + std::sin(a) * 4.0;
+            const double cx2 = 7 + std::cos(a) * 6.0;
+            const double cy2 = 7 + std::sin(a) * 6.0;
+            p.drawLine(QPointF(cx, cy), QPointF(cx2, cy2));
+        }
+        break;
+    case 'V': // play triangle in box
+        p.drawRect(1, 2, 12, 10);
+        { QPainterPath pp; pp.moveTo(5, 5); pp.lineTo(10, 7); pp.lineTo(5, 9); pp.closeSubpath();
+          p.fillPath(pp, ink); }
+        break;
+    case 'O': // OSC: open circle with arrow
+        p.drawEllipse(2, 2, 10, 10);
+        p.drawLine(6, 7, 11, 7);
+        p.drawLine(9, 5, 11, 7); p.drawLine(9, 9, 11, 7);
+        break;
+    case 'M': // MIDI: 5-pin dots
+        p.drawEllipse(2, 4, 10, 8);
+        for (int i = 0; i < 5; ++i) {
+            const double a = M_PI + i * (M_PI / 4);
+            const double cx = 7 + std::cos(a) * 3.0;
+            const double cy = 8 + std::sin(a) * 2.5;
+            p.setBrush(ink); p.drawEllipse(QPointF(cx, cy), 0.9, 0.9); p.setBrush(Qt::NoBrush);
+        }
+        break;
+    case 'W': // clock
+        p.drawEllipse(2, 2, 10, 10);
+        p.drawLine(7, 7, 7, 4); p.drawLine(7, 7, 10, 7);
+        break;
+    case 'G': // stack
+        p.drawRect(2, 3, 10, 3);
+        p.drawRect(2, 8, 10, 3);
+        break;
+    case 'N': // memo: lined sheet
+        p.drawRect(3, 2, 8, 11);
+        p.drawLine(5, 5, 9, 5); p.drawLine(5, 7, 9, 7); p.drawLine(5, 9, 9, 9);
+        break;
+    case 'T': // control: target
+        p.drawEllipse(3, 3, 8, 8);
+        p.drawEllipse(QPointF(7, 7), 1.5, 1.5);
+        break;
+    default:  // unknown
+        p.drawEllipse(3, 3, 8, 8);
+        p.drawText(QRect(0,0,sz,sz), Qt::AlignCenter, QStringLiteral("?"));
+        break;
+    }
+    p.end();
+    cache.insert(typeKey, pm);
+    return cache.value(typeKey);
+}
+
+void CueListModel::setRunningCueIds(const QSet<QUuid> &running)
+{
+    if (m_runningIds == running) return;
+    m_runningIds = running;
+    if (m_list && m_list->cueCount() > 0)
+        emit dataChanged(index(0, ColumnState),
+                         index(m_list->cueCount() - 1, ColumnState),
+                         { Qt::DecorationRole, Qt::BackgroundRole });
+}
+
+void CueListModel::setLoadedCueIds(const QSet<QUuid> &loaded)
+{
+    if (m_loadedIds == loaded) return;
+    m_loadedIds = loaded;
+    if (m_list && m_list->cueCount() > 0)
+        emit dataChanged(index(0, ColumnState),
+                         index(m_list->cueCount() - 1, ColumnState),
+                         { Qt::DecorationRole });
+}
 
 CueListModel::CueListModel(QObject *parent)
     : QAbstractItemModel(parent)
@@ -177,33 +296,42 @@ QVariant CueListModel::data(const QModelIndex &index, int role) const
         const auto col = cue->color();
         if (col.isValid()) {
             QColor tint = col;
-            tint.setAlphaF(0.18); // subtle wash
+            tint.setAlphaF(0.18f); // subtle wash
             return QBrush(tint);
         }
     }
 
-    if (role == Qt::DecorationRole && index.column() == ColumnState) {
-        const auto col = cue->color();
-        if (col.isValid()) {
-            QPixmap pm(12, 12);
+    if (role == Qt::DecorationRole) {
+        if (index.column() == ColumnState) {
+            const bool running = m_runningIds.contains(cue->id());
+            const bool loaded  = m_loadedIds.contains(cue->id());
+            QColor c;
+            if (running)              c = QColor(0x3F, 0xC1, 0x6B); // green
+            else if (loaded)          c = QColor(0x4A, 0x9E, 0xFF); // blue
+            else if (cue->color().isValid()) c = cue->color();
+            else c = cue->isArmed() ? QColor(0xA8, 0xAE, 0xBA)
+                                     : QColor(0x4A, 0x4F, 0x5A);
+
+            QPixmap pm(14, 14);
             pm.fill(Qt::transparent);
             QPainter p(&pm);
             p.setRenderHint(QPainter::Antialiasing);
-            p.setBrush(col);
             p.setPen(Qt::NoPen);
-            p.drawEllipse(1, 1, 10, 10);
+            p.setBrush(c);
+            const int sz = (running || loaded) ? 12 : 8;
+            const int off = (14 - sz) / 2;
+            p.drawEllipse(off, off, sz, sz);
+            if (running) {
+                // Soft halo for running cues — easier to spot at a glance.
+                QColor halo = c; halo.setAlphaF(0.35f);
+                p.setBrush(halo);
+                p.drawEllipse(0, 0, 14, 14);
+            }
             return pm;
         }
-        // Default: armed = pale dot, disarmed = grey dot.
-        QPixmap pm(12, 12);
-        pm.fill(Qt::transparent);
-        QPainter p(&pm);
-        p.setRenderHint(QPainter::Antialiasing);
-        p.setBrush(cue->isArmed() ? QColor(0xA8, 0xAE, 0xBA)
-                                   : QColor(0x4A, 0x4F, 0x5A));
-        p.setPen(Qt::NoPen);
-        p.drawEllipse(3, 3, 6, 6);
-        return pm;
+        if (index.column() == ColumnType) {
+            return iconForType(cue->typeKey());
+        }
     }
 
     return {};

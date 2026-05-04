@@ -1,0 +1,101 @@
+# Performance gates. Build the release binary and assert hard caps from
+# docs/performance-budgets.md. Anything that drifts upward fails the run
+# so we notice before it ships, not after.
+name: perf-gates
+
+on:
+  pull_request:
+    paths:
+      - "src/**"
+      - "CMakeLists.txt"
+      - "src/**/CMakeLists.txt"
+      - ".github/workflows/perf.yml"
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  perf:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install system deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ninja-build libgl1-mesa-dev \
+            libxkbcommon-dev libdbus-1-dev libfontconfig1-dev \
+            libfreetype6-dev libegl1-mesa-dev libglu1-mesa-dev
+
+      - name: Install Qt
+        uses: jurplel/install-qt-action@v4
+        with:
+          version: '6.6.3'
+          modules: 'qtmultimedia qtwebsockets'
+          cache: true
+
+      - name: Configure (Release)
+        run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
+
+      - name: Build
+        run: cmake --build build --config Release -j 2
+
+      # ----- Binary size gate -----
+      # Budget: < 30 MB for the main executable (excl. shared libs).
+      - name: Check binary size
+        run: |
+          BIN=$(find build -maxdepth 4 -type f -name 'quewi' -executable | head -n 1)
+          echo "binary: $BIN"
+          test -n "$BIN"
+          BYTES=$(stat -c%s "$BIN")
+          MB=$(( BYTES / 1024 / 1024 ))
+          echo "size: ${BYTES} bytes (${MB} MB)"
+          if [ $BYTES -gt 31457280 ]; then
+            echo "::error::quewi binary is ${MB} MB, over 30 MB cap"
+            exit 1
+          fi
+
+      # ----- Cold-start gate (best-effort headless) -----
+      # We run the binary under xvfb-run with a self-test flag that quits
+      # after the main window shows. Budget: < 1500 ms in CI (real user
+      # target is 500 ms locally; CI is slower so the gate is looser).
+      - name: Cold-start gate
+        run: |
+          sudo apt-get install -y xvfb
+          BIN=$(find build -maxdepth 4 -type f -name 'quewi' -executable | head -n 1)
+          # The --selftest flag is interpreted by main.cpp: open the window,
+          # process events for 200 ms, exit 0. If unsupported, this step
+          # falls through with a warning rather than failing.
+          if "$BIN" --help 2>&1 | grep -q selftest; then
+            START=$(date +%s%3N)
+            xvfb-run -a "$BIN" --selftest
+            END=$(date +%s%3N)
+            ELAPSED=$((END - START))
+            echo "cold-start: ${ELAPSED} ms"
+            if [ $ELAPSED -gt 1500 ]; then
+              echo "::error::cold start ${ELAPSED} ms exceeds 1500 ms CI budget"
+              exit 1
+            fi
+          else
+            echo "::warning::binary does not support --selftest; skipping cold-start gate"
+          fi
+
+      # ----- Idle RSS gate (best-effort) -----
+      - name: Idle RSS gate
+        run: |
+          BIN=$(find build -maxdepth 4 -type f -name 'quewi' -executable | head -n 1)
+          if "$BIN" --help 2>&1 | grep -q selftest-idle; then
+            xvfb-run -a "$BIN" --selftest-idle &
+            PID=$!
+            sleep 2
+            RSS_KB=$(awk '/VmRSS/ {print $2}' /proc/$PID/status || echo 0)
+            kill $PID || true
+            RSS_MB=$(( RSS_KB / 1024 ))
+            echo "idle RSS: ${RSS_MB} MB"
+            if [ $RSS_MB -gt 250 ]; then
+              echo "::error::idle RSS ${RSS_MB} MB exceeds 250 MB CI budget"
+              exit 1
+            fi
+          else
+            echo "::warning::binary does not support --selftest-idle; skipping RSS gate"
+          fi

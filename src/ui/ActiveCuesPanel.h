@@ -2,6 +2,8 @@
 
 #include <QHash>
 #include <QPointer>
+#include <QSet>
+#include <QUuid>
 #include <QWidget>
 
 class QVBoxLayout;
@@ -26,6 +28,11 @@ public:
 
     void setAudioEngine(audio::AudioEngine *engine);
     void setWorkspace(core::Workspace *workspace);
+
+signals:
+    // Emitted on each refresh tick. The set lists the cues whose voices
+    // are currently sounding, so the cue list view can repaint state dots.
+    void runningCueIdsChanged(const QSet<QUuid> &ids);
 
 private slots:
     void refresh();

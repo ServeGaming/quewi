@@ -4,6 +4,8 @@
 
 #include <QAbstractItemModel>
 #include <QPointer>
+#include <QSet>
+#include <QUuid>
 
 namespace quewi::cues { class Cue; }
 
@@ -54,6 +56,15 @@ public:
     void setCueList(CueList *list);
     CueList *cueList() const { return m_list.data(); }
 
+    // Drives the state-color column. Cues whose ids are in `running` show
+    // a green indicator; in `loaded` show blue; otherwise the existing
+    // armed/disarmed grey is used. Call from the UI ~30 Hz.
+    void setRunningCueIds(const QSet<QUuid> &running);
+    void setLoadedCueIds(const QSet<QUuid> &loaded);
+
+    // Painted 14×14 icon for a cue type-key. Cached per type.
+    static QPixmap iconForType(const QString &typeKey);
+
     cues::Cue *cueAt(const QModelIndex &index) const;
     QModelIndex indexForCue(const cues::Cue *cue, int column = 0) const;
 
@@ -81,6 +92,8 @@ private:
     void disconnectList();
 
     QPointer<CueList> m_list;
+    QSet<QUuid>       m_runningIds;
+    QSet<QUuid>       m_loadedIds;
 };
 
 } // namespace quewi::core

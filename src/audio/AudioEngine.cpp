@@ -167,6 +167,8 @@ public:
             a.durationSeconds = (v.srcSampleRate > 0 && endFrame > 0)
                 ? static_cast<double>(endFrame) / v.srcSampleRate : 0.0;
             a.loop = v.loop;
+            a.peakLeft  = v.peakL.load(std::memory_order_relaxed);
+            a.peakRight = v.peakR.load(std::memory_order_relaxed);
             out.append(a);
         }
     }
@@ -195,6 +197,8 @@ private:
         std::atomic<double> currentGain{1.0};
         std::atomic<double> targetGain{1.0};
         std::atomic<double> pan{0.0};
+        std::atomic<float>  peakL{0.f};
+        std::atomic<float>  peakR{0.f};
         qint64   gainFadeSamples = 0;
         qint64   gainFadeCounter = 0;
         double   gainFadeFrom = 1.0;
@@ -233,6 +237,8 @@ private:
             currentGain.store(other.currentGain.load(std::memory_order_relaxed), std::memory_order_relaxed);
             targetGain.store(other.targetGain.load(std::memory_order_relaxed), std::memory_order_relaxed);
             pan.store(other.pan.load(std::memory_order_relaxed), std::memory_order_relaxed);
+            peakL.store(other.peakL.load(std::memory_order_relaxed), std::memory_order_relaxed);
+            peakR.store(other.peakR.load(std::memory_order_relaxed), std::memory_order_relaxed);
         }
         Voice &operator=(Voice &&other) noexcept {
             if (this == &other) return *this;
@@ -257,6 +263,8 @@ private:
             currentGain.store(other.currentGain.load(std::memory_order_relaxed), std::memory_order_relaxed);
             targetGain.store(other.targetGain.load(std::memory_order_relaxed), std::memory_order_relaxed);
             pan.store(other.pan.load(std::memory_order_relaxed), std::memory_order_relaxed);
+            peakL.store(other.peakL.load(std::memory_order_relaxed), std::memory_order_relaxed);
+            peakR.store(other.peakR.load(std::memory_order_relaxed), std::memory_order_relaxed);
             return *this;
         }
     };
@@ -301,11 +309,15 @@ qint64 AudioEngine::Mixer::readData(char *data, qint64 maxlen)
 
             // Pan read once per buffer — UI changes lag by buffer length but
             // that's perceptually fine and avoids per-sample atomic loads.
+            // Pre-multiply the +3 dB constant-power constant so the per-frame
+            // path is a single multiply per channel.
             const double curPan = v.pan.load(std::memory_order_relaxed);
             const double panT   = (curPan + 1.0) * 0.5;
-            const double leftG  = std::cos(panT * M_PI / 2.0);
-            const double rightG = std::sin(panT * M_PI / 2.0);
+            constexpr double kSqrt2 = 1.41421356237309504880;
+            const float leftPan  = float(std::cos(panT * M_PI / 2.0) * kSqrt2);
+            const float rightPan = float(std::sin(panT * M_PI / 2.0) * kSqrt2);
 
+            float bufPeakL = 0.f, bufPeakR = 0.f;
             for (qint64 f = 0; f < framesWanted; ++f) {
                 if (v.finished) break;
 
@@ -368,14 +380,22 @@ qint64 AudioEngine::Mixer::readData(char *data, qint64 maxlen)
                     const float s0 = sample(i0);
                     const float s1 = sample(i1);
                     const float s  = s0 + static_cast<float>(frac) * (s1 - s0);
-                    double panGain = 1.0;
+                    float panGain = 1.f;
                     if (outChans == 2) {
-                        panGain = (oc == 0) ? (leftG * std::sqrt(2.0))
-                                            : (rightG * std::sqrt(2.0));
+                        panGain = (oc == 0) ? leftPan : rightPan;
                     }
-                    out[f * outChans + oc] += static_cast<float>(s * finalGain * panGain);
+                    const float written = static_cast<float>(s * finalGain) * panGain;
+                    out[f * outChans + oc] += written;
+                    const float a = std::fabs(written);
+                    if (oc == 0) {
+                        if (a > bufPeakL) bufPeakL = a;
+                    } else if (oc == 1) {
+                        if (a > bufPeakR) bufPeakR = a;
+                    }
                 }
             }
+            v.peakL.store(bufPeakL, std::memory_order_relaxed);
+            v.peakR.store(bufPeakR, std::memory_order_relaxed);
 
             const qint64 advanced = static_cast<qint64>(framesWanted * rate);
             v.readPos += advanced;

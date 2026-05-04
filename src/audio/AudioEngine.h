@@ -45,6 +45,11 @@ struct ActiveVoice {
     double     positionSeconds = 0.0;
     double     durationSeconds = 0.0;   // 0 if unknown / loop
     bool       loop            = false;
+    // Linear (0..1) peak magnitude over the most recent mixer buffer.
+    // Polled at ~30 Hz by the active-cues panel; UI decays the displayed
+    // value so brief peaks remain visible.
+    float      peakLeft        = 0.f;
+    float      peakRight       = 0.f;
 };
 
 // The engine owns one or more output devices and any number of active

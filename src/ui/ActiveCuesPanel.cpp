@@ -8,6 +8,7 @@
 
 #include <QHBoxLayout>
 #include <QLabel>
+#include <QPainter>
 #include <QProgressBar>
 #include <QPushButton>
 #include <QSet>
@@ -16,6 +17,67 @@
 
 #include <algorithm>
 #include <cmath>
+
+namespace {
+// Small two-channel peak meter with held-peak decay. Linear input (0..1+),
+// drawn on a dB-mapped (-60..0 dBFS) gradient: green → yellow → red.
+class PeakMeter : public QWidget {
+public:
+    explicit PeakMeter(QWidget *parent = nullptr) : QWidget(parent)
+    {
+        setFixedSize(48, 18);
+    }
+    void setPeaks(float l, float r) {
+        m_targetL = l; m_targetR = r;
+        // Smooth attack (snap up), slow release.
+        if (m_dispL < l) m_dispL = l; else m_dispL = std::max(l, m_dispL * 0.85f);
+        if (m_dispR < r) m_dispR = r; else m_dispR = std::max(r, m_dispR * 0.85f);
+        if (l >= m_holdL) { m_holdL = l; m_holdAgeL = 0; }
+        else if (++m_holdAgeL > 8) m_holdL = std::max(m_dispL, m_holdL * 0.92f);
+        if (r >= m_holdR) { m_holdR = r; m_holdAgeR = 0; }
+        else if (++m_holdAgeR > 8) m_holdR = std::max(m_dispR, m_holdR * 0.92f);
+        update();
+    }
+protected:
+    void paintEvent(QPaintEvent *) override {
+        QPainter p(this);
+        p.setRenderHint(QPainter::Antialiasing, false);
+        const int W = width(), H = height();
+        const int barH = (H - 2) / 2;
+        p.fillRect(rect(), QColor(20, 22, 28));
+        auto draw = [&](int y, float disp, float hold) {
+            const auto pos = [&](float lin) {
+                if (lin <= 0.001f) return 0;
+                float db = 20.f * std::log10(lin);
+                if (db < -60.f) db = -60.f;
+                if (db > 0.f) db = 0.f;
+                return int((db + 60.f) / 60.f * (W - 2));
+            };
+            const int wDisp = pos(disp);
+            for (int x = 0; x < wDisp; ++x) {
+                float t = float(x) / float(W - 2);
+                QColor c = (t < 0.7f) ? QColor(64,200,90)
+                          : (t < 0.9f) ? QColor(220,200,40)
+                                       : QColor(230,70,60);
+                p.setPen(c);
+                p.drawLine(1 + x, y, 1 + x, y + barH - 1);
+            }
+            int wHold = pos(hold);
+            if (wHold > 0) {
+                p.setPen(QColor(230, 230, 230));
+                p.drawLine(1 + wHold, y, 1 + wHold, y + barH - 1);
+            }
+        };
+        draw(1,           m_dispL, m_holdL);
+        draw(2 + barH,    m_dispR, m_holdR);
+    }
+private:
+    float m_targetL = 0, m_targetR = 0;
+    float m_dispL = 0, m_dispR = 0;
+    float m_holdL = 0, m_holdR = 0;
+    int   m_holdAgeL = 0, m_holdAgeR = 0;
+};
+} // namespace
 
 namespace quewi::ui {
 
@@ -48,6 +110,8 @@ public:
         m_meta->setStyleSheet(QStringLiteral("color:#A8AEBA; font-size:11px;"));
         m_meta->setMinimumWidth(96);
 
+        m_meter = new PeakMeter(this);
+
         m_stop = new QPushButton(tr("Stop"), this);
         m_stop->setObjectName(QStringLiteral("activeStopButton"));
         m_stop->setFixedWidth(64);
@@ -58,6 +122,7 @@ public:
         lay->addWidget(m_name, 1);
         lay->addWidget(m_bar, 2);
         lay->addWidget(m_time);
+        lay->addWidget(m_meter);
         lay->addWidget(m_meta);
         lay->addWidget(m_stop);
     }
@@ -79,6 +144,7 @@ public:
         m_meta->setText(QStringLiteral("%1 dB · %2")
             .arg(QString::number(v.gainDb, 'f', 1),
                  panLabel(v.pan)));
+        if (m_meter) m_meter->setPeaks(v.peakLeft, v.peakRight);
     }
 
     quint64 voiceId() const { return m_voiceId; }
@@ -104,6 +170,7 @@ private:
     QProgressBar *m_bar  = nullptr;
     QLabel       *m_time = nullptr;
     QLabel       *m_meta = nullptr;
+    PeakMeter    *m_meter = nullptr;
     QPushButton  *m_stop = nullptr;
 };
 
@@ -126,7 +193,7 @@ ActiveCuesPanel::ActiveCuesPanel(QWidget *parent)
     outer->addStretch(1);
 
     m_timer = new QTimer(this);
-    m_timer->setInterval(250);
+    m_timer->setInterval(33); // ~30 Hz so peak meters animate smoothly
     connect(m_timer, &QTimer::timeout, this, &ActiveCuesPanel::refresh);
     m_timer->start();
 
@@ -178,11 +245,27 @@ void ActiveCuesPanel::refresh()
     const auto voices = m_engine->activeVoices();
 
     QSet<quint64> live;
+    QSet<QUuid>   runningCueIds;
     for (const auto &v : voices) {
         live.insert(v.id);
         auto *row = findOrCreateRow(v.id);
         row->update(v, cueLabelForVoice(v.id));
+        // Map voice → cue id for the cue-list state column.
+        if (m_workspace) {
+            auto *list = m_workspace->activeCueList();
+            if (list) {
+                for (int i = 0; i < list->cueCount(); ++i) {
+                    if (auto *ac = qobject_cast<audio::AudioCue *>(list->cueAt(i))) {
+                        if (ac->currentVoiceId() == v.id) {
+                            runningCueIds.insert(ac->id());
+                            break;
+                        }
+                    }
+                }
+            }
+        }
     }
+    emit runningCueIdsChanged(runningCueIds);
 
     // Remove rows whose voices have ended.
     QList<quint64> toDrop;

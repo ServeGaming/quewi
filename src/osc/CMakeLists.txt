@@ -8,6 +8,10 @@ add_library(quewi_osc STATIC
     OscSlip.cpp
     OscEngine.h
     OscEngine.cpp
+    OscDictionary.h
+    OscDictionary.cpp
+    OscQueryServer.h
+    OscQueryServer.cpp
     OscCue.h
     OscCue.cpp
 )
