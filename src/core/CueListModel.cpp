@@ -4,8 +4,13 @@
 #include "cues/Cue.h"
 
 #include <QBrush>
+#include <QBuffer>
+#include <QDataStream>
 #include <QFont>
+#include <QIODevice>
+#include <QSet>
 #include <QFontDatabase>
+#include <QMimeData>
 #include <QPainter>
 #include <QPixmap>
 
@@ -186,8 +191,29 @@ QVariant CueListModel::headerData(int section, Qt::Orientation orientation, int 
 
 Qt::ItemFlags CueListModel::flags(const QModelIndex &index) const
 {
-    if (!index.isValid()) return Qt::NoItemFlags;
-    return Qt::ItemIsEnabled | Qt::ItemIsSelectable;
+    Qt::ItemFlags base = Qt::ItemIsDropEnabled; // dropping above/below rows
+    if (!index.isValid()) return base;
+    return base | Qt::ItemIsEnabled | Qt::ItemIsSelectable | Qt::ItemIsDragEnabled;
+}
+
+QStringList CueListModel::mimeTypes() const
+{
+    return { QStringLiteral("application/x-quewi-cue-row") };
+}
+
+QMimeData *CueListModel::mimeData(const QModelIndexList &indexes) const
+{
+    auto *m = new QMimeData;
+    QByteArray payload;
+    QDataStream ds(&payload, QIODevice::WriteOnly);
+    QSet<int> rows;
+    for (const auto &idx : indexes) if (idx.isValid()) rows.insert(idx.row());
+    QList<int> sorted(rows.begin(), rows.end());
+    std::sort(sorted.begin(), sorted.end());
+    ds << static_cast<qint32>(sorted.size());
+    for (int r : sorted) ds << static_cast<qint32>(r);
+    m->setData(QStringLiteral("application/x-quewi-cue-row"), payload);
+    return m;
 }
 
 void CueListModel::onAboutToInsert(int row) { beginInsertRows({}, row, row); }

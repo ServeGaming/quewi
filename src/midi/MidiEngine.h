@@ -1,6 +1,7 @@
 #pragma once
 
 #include <QByteArray>
+#include <QElapsedTimer>
 #include <QObject>
 #include <QString>
 #include <QStringList>
@@ -20,8 +21,11 @@ public:
     explicit MidiEngine(QObject *parent = nullptr);
     ~MidiEngine() override;
 
-    // Snapshot of every output port name visible to the OS. Cheap.
+    // Snapshot of every output port name visible to the OS. Cached for
+    // 5 s — opening RtMidiOut on Windows hits WinMM and is too slow to
+    // call from every Inspector rebuild. Use refreshPorts() to force.
     QStringList outputPortNames() const;
+    void        refreshPorts() const;
 
     // Send raw MIDI bytes to a port. Empty portName = first available
     // port. Returns false on enumeration failure or if the port can't
@@ -45,6 +49,9 @@ private:
     std::unique_ptr<RtMidiOut> m_out;   // current open port
     QString                    m_openPortName;
     QString                    m_lastError;
+
+    mutable QStringList        m_cachedPorts;
+    mutable QElapsedTimer      m_cacheTimer;
 };
 
 } // namespace quewi::midi

@@ -159,6 +159,14 @@ void MainWindow::buildLayout()
             this, [this](cues::Cue *) { onSelectionChanged(); });
     connect(m_cueListView, &ui::CueListView::goRequested,
             this, &MainWindow::onGoRequested);
+    connect(m_cueListView, &ui::CueListView::filesDropped, this,
+            [this](const QList<QUrl> &urls, int insertRow) {
+                const int created = insertCuesFromUrls(urls, insertRow);
+                if (created > 0) {
+                    statusBar()->showMessage(tr("Added %1 cue%2 from drop")
+                        .arg(created).arg(created == 1 ? QString() : QStringLiteral("s")), 2500);
+                }
+            });
     connect(m_cueListView, &ui::CueListView::cueDoubleClicked, this,
         [this](cues::Cue *cue) {
             if (auto *ac = qobject_cast<audio::AudioCue *>(cue)) {
@@ -241,6 +249,7 @@ void MainWindow::resetWorkspace()
 
     m_inspector->setWorkspace(m_workspace.get());
     m_inspector->setAudioEngine(m_audioEngine.get());
+    m_inspector->setMidiEngine(m_midiEngine.get());
     if (m_activePanel) m_activePanel->setWorkspace(m_workspace.get());
     if (m_goEngine)    m_goEngine->setWorkspace(m_workspace.get());
 
@@ -308,6 +317,7 @@ bool MainWindow::loadShowFromPath(const QString &path)
     rebindModel();
     m_inspector->setWorkspace(m_workspace.get());
     m_inspector->setAudioEngine(m_audioEngine.get());
+    m_inspector->setMidiEngine(m_midiEngine.get());
     if (m_activePanel) m_activePanel->setWorkspace(m_workspace.get());
     if (m_goEngine)    m_goEngine->setWorkspace(m_workspace.get());
 
@@ -866,13 +876,18 @@ void MainWindow::dropEvent(QDropEvent *event)
     event->acceptProposedAction();
 }
 
-int MainWindow::insertCuesFromUrls(const QList<QUrl> &urls)
+int MainWindow::insertCuesFromUrls(const QList<QUrl> &urls, int startRow)
 {
     auto *list = m_workspace ? m_workspace->activeCueList() : nullptr;
     if (!list) return 0;
 
-    const auto sel = m_cueListView->currentIndex();
-    int insertRow = sel.isValid() ? sel.row() + 1 : list->cueCount();
+    int insertRow;
+    if (startRow >= 0) {
+        insertRow = std::min(startRow, list->cueCount());
+    } else {
+        const auto sel = m_cueListView->currentIndex();
+        insertRow = sel.isValid() ? sel.row() + 1 : list->cueCount();
+    }
     int created = 0;
     int firstNewRow = -1;
 

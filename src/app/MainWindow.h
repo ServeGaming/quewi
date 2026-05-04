@@ -73,7 +73,7 @@ private:
     bool saveTo(const QString &path);
     bool loadShowFromPath(const QString &path);
     std::unique_ptr<cues::Cue> cueFromFile(const QString &path);
-    int  insertCuesFromUrls(const QList<QUrl> &urls);
+    int  insertCuesFromUrls(const QList<QUrl> &urls, int startRow = -1);
 
     void registerOscRemoteHandlers();
     void selectCueByNumber(double number);

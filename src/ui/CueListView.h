@@ -1,7 +1,9 @@
 #pragma once
 
+#include <QList>
 #include <QPointer>
 #include <QTreeView>
+#include <QUrl>
 
 namespace quewi::core { class CueListModel; class Workspace; }
 namespace quewi::cues { class Cue; }
@@ -27,10 +29,14 @@ signals:
     void currentCueChanged(quewi::cues::Cue *cue);
     void goRequested();
     void cueDoubleClicked(quewi::cues::Cue *cue);
+    // External drop with file URLs onto the list — MainWindow turns these
+    // into the appropriate cue type at the requested row.
+    void filesDropped(const QList<QUrl> &urls, int insertRow);
 
 protected:
     void keyPressEvent(QKeyEvent *event) override;
     void currentChanged(const QModelIndex &current, const QModelIndex &previous) override;
+    void dropEvent(QDropEvent *event) override;
 
 private:
     QPointer<core::Workspace> m_workspace;

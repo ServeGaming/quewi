@@ -21,7 +21,9 @@
 #include <QAudioDevice>
 #include <QButtonGroup>
 #include <QColorDialog>
+#include <QGuiApplication>
 #include <QMediaDevices>
+#include <QScreen>
 #include <QHeaderView>
 #include <QListWidget>
 #include <QSlider>
@@ -485,8 +487,23 @@ Inspector::Inspector(QWidget *parent)
     visualForm->setVerticalSpacing(8);
     visualForm->setLabelAlignment(Qt::AlignRight | Qt::AlignVCenter);
 
-    m_visualScreen = new QSpinBox(m_visualGroup);
-    m_visualScreen->setRange(0, 31);
+    m_visualScreen = new QComboBox(m_visualGroup);
+    {
+        const auto screens = QGuiApplication::screens();
+        for (int i = 0; i < screens.size(); ++i) {
+            auto *s = screens[i];
+            const auto geom = s->geometry();
+            m_visualScreen->addItem(
+                QStringLiteral("%1 — %2 (%3×%4)")
+                    .arg(i)
+                    .arg(s->name().isEmpty() ? tr("Display") : s->name())
+                    .arg(geom.width()).arg(geom.height()),
+                i);
+        }
+        if (m_visualScreen->count() == 0) {
+            m_visualScreen->addItem(tr("0 — (no displays detected)"), 0);
+        }
+    }
     visualForm->addRow(tr("Screen"), m_visualScreen);
 
     auto makePctSpinner = [&](QWidget *p) {
@@ -636,7 +653,8 @@ Inspector::Inspector(QWidget *parent)
     connect(m_lightFadeDuration, &QDoubleSpinBox::editingFinished, this, &Inspector::commitLightFadeDuration);
 
     connect(m_visualBrowse,  &QPushButton::clicked,            this, &Inspector::browseVisualFile);
-    connect(m_visualScreen,  &QSpinBox::editingFinished,       this, &Inspector::commitVisualScreen);
+    connect(m_visualScreen,  &QComboBox::currentIndexChanged,
+            this, [this](int){ commitVisualScreen(); });
     for (auto *s : {m_visualX, m_visualY, m_visualW, m_visualH, m_visualOpacity}) {
         connect(s, &QDoubleSpinBox::editingFinished, this, &Inspector::commitVisualGeometry);
     }
@@ -653,6 +671,8 @@ Inspector::~Inspector() = default;
 void Inspector::setWorkspace(core::Workspace *workspace) { m_workspace = workspace; }
 
 void Inspector::setAudioEngine(audio::AudioEngine *engine) { m_audioEngine = engine; }
+
+void Inspector::setMidiEngine(midi::MidiEngine *engine) { m_midiEngine = engine; }
 
 void Inspector::setCue(cues::Cue *cue)
 {
@@ -734,12 +754,14 @@ void Inspector::rebuild()
     m_midiGroup->setVisible(midiCue != nullptr);
     m_mscGroup->setVisible(mscCue != nullptr);
 
-    auto fillPorts = [](QComboBox *combo, const QString &current) {
+    auto fillPorts = [this](QComboBox *combo, const QString &current) {
         const auto sigsBlocked = combo->blockSignals(true);
         combo->clear();
         combo->addItem(QStringLiteral("(default / first)"), QString());
-        midi::MidiEngine probe;
-        for (const auto &name : probe.outputPortNames()) combo->addItem(name, name);
+        if (m_midiEngine) {
+            for (const auto &name : m_midiEngine->outputPortNames())
+                combo->addItem(name, name);
+        }
         // If current isn't in the enumeration, still show it.
         if (!current.isEmpty()) {
             int idx = combo->findData(current);
@@ -854,7 +876,14 @@ void Inspector::rebuild()
             m_textString->setText(textCue->text());
             m_textSize->setValue(textCue->fontPixelSize());
         }
-        m_visualScreen->setValue(visualCue->screenIndex());
+        {
+            const int want = visualCue->screenIndex();
+            int row = 0;
+            for (int i = 0; i < m_visualScreen->count(); ++i) {
+                if (m_visualScreen->itemData(i).toInt() == want) { row = i; break; }
+            }
+            m_visualScreen->setCurrentIndex(row);
+        }
         m_visualX->setValue(visualCue->posX());
         m_visualY->setValue(visualCue->posY());
         m_visualW->setValue(visualCue->posW());
@@ -1362,7 +1391,8 @@ void Inspector::browseVisualFile()
 
 void Inspector::commitVisualScreen()
 {
-    if (!m_loading) pushFieldEdit(QStringLiteral("screenIndex"), m_visualScreen->value());
+    if (!m_loading) pushFieldEdit(QStringLiteral("screenIndex"),
+                                  m_visualScreen->currentData().toInt());
 }
 
 void Inspector::commitVisualGeometry()

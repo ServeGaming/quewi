@@ -23,7 +23,7 @@ namespace quewi::osc  { class OscCue; }
 namespace quewi::audio { class AudioCue; class AudioEngine; }
 namespace quewi::lighting { class LightCue; class LightFadeCue; }
 namespace quewi::video { class VideoCue; class ImageCue; class TextCue; class VisualCue; }
-namespace quewi::midi  { class MidiCue; class MscCue; }
+namespace quewi::midi  { class MidiCue; class MscCue; class MidiEngine; }
 class QTableWidget;
 
 namespace quewi::ui {
@@ -41,6 +41,7 @@ public:
 
     void setWorkspace(core::Workspace *workspace);
     void setAudioEngine(audio::AudioEngine *engine);
+    void setMidiEngine(midi::MidiEngine *engine);
 
 public slots:
     void setCue(quewi::cues::Cue *cue);
@@ -129,6 +130,7 @@ private:
     QPointer<core::Workspace>   m_workspace;
     QPointer<cues::Cue>         m_cue;
     QPointer<audio::AudioEngine> m_audioEngine;
+    midi::MidiEngine            *m_midiEngine = nullptr;
 
     QLabel         *m_typeLabel = nullptr;
     QPushButton    *m_colorChip = nullptr;
@@ -223,7 +225,7 @@ private:
     QGroupBox      *m_visualGroup       = nullptr;
     QLineEdit      *m_visualPath        = nullptr;
     QPushButton    *m_visualBrowse      = nullptr;
-    QSpinBox       *m_visualScreen      = nullptr;
+    QComboBox      *m_visualScreen      = nullptr;
     QDoubleSpinBox *m_visualX           = nullptr;
     QDoubleSpinBox *m_visualY           = nullptr;
     QDoubleSpinBox *m_visualW           = nullptr;

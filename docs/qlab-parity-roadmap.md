@@ -45,7 +45,7 @@ The list below is **everything** QLab does. Items already done are checked. Item
 - [ ] **Fade cue (video target)** — animate geometry/opacity on a target video cue
 - [ ] Multi-output mapping (one cue → multiple screens)
 - [ ] Spout / Syphon / NDI dispatch (optional, runtime-loaded)
-- [ ] Edge blending and projection mapping (corner pin, mesh warp) — *QLab Pro*
+- [ ] Edge blending and projection mapping — see dedicated section below
 
 #### Lighting
 - [ ] **Light cue** — DMX scene snapshot or delta over patched universes
@@ -219,6 +219,43 @@ The list below is **everything** QLab does. Items already done are checked. Item
 - [ ] **User manual** in docs/ — covers every cue type and workflow
 - [ ] **Migration guide from QLab** — workspace import would be ideal but is a rabbit hole
 
+### Projection mapping (Phase 11)
+
+A first-class differentiator: bring projection-mapping primitives into quewi
+itself rather than requiring a separate Resolume / MadMapper pipeline.
+
+- [ ] **Surface editor** — define an output region as a polygon, mesh, or
+      cylinder/dome primitive. Per surface: source crop, destination geometry,
+      blend mask, gamma + brightness curve.
+- [ ] **Corner pin** — drag the four corners of a quad to fit any flat plane.
+- [ ] **Mesh warp** — N×M control grid (default 5×5, configurable up to 32×32),
+      bilinear interpolation between control points, real-time preview.
+- [ ] **Edge blend** — per-edge feather curve + black-level lift for multi-projector
+      arrays. Blend zones overlap two surfaces.
+- [ ] **Soft-edge mask** — paint a luminance mask on top of any surface (PNG
+      alpha-channel import + in-app brush editor).
+- [ ] **Calibration grid** — toggleable test pattern (grid, dots, color bars,
+      MTF chart) per output for projector alignment.
+- [ ] **Live re-warp during a show** — surface tweaks apply immediately to
+      currently-running cues without restart.
+- [ ] **Per-cue surface routing** — a video cue picks one or more surfaces;
+      cue inspector shows a thumbnail of each routed surface.
+- [ ] **Render path** — Qt RHI compute shader or fragment shader that warps
+      the source texture onto the surface mesh in one pass; falls back to
+      CPU mesh for older GPUs.
+- [ ] **Persistence** — surfaces saved alongside the show with full
+      control-point precision; portable across machines (resolution-relative).
+- [ ] **Spout / Syphon / NDI input** — accept frames from another app
+      (Resolume, OBS, etc.) as a video source you can map.
+- [ ] **Projector blueprint exporter** — print a PDF cheatsheet with each
+      projector's lens shift, throw distance, and warp values for the
+      install crew.
+
+Phase 11 lands after the 1.0 distribution work in Phase 8, so there's a
+stable base to build the visual editor against. The data model (surfaces,
+control points, masks) is plumbed into the show file in Phase 6.5 so future
+versions can read older shows.
+
 ### Beyond QLab (differentiators)
 
 - [ ] **Cross-platform** — Windows + Linux out of the box (QLab is Mac-only)
@@ -250,7 +287,8 @@ The original 9-week phased plan still applies. Updated with what's done:
 | **7** | Polish: pre-flight, Show Mode lock, command palette, find/replace, themes (high-contrast, color-blind safe, light), cart view, multi-list tabs, active-cues panel, journal/recovery, performance gates in CI | ⬜ |
 | **8** | Distribution: installers, auto-update, crash reporter, user manual, version 1.0 release | ⬜ |
 | **9** | **Full Audio Editor** (Audacity-like): multi-track timeline, sample-buffer editing with undo, effects rack (EQ/comp/reverb/delay), spectral view, export | ⬜ |
-| **10+** | Post-1.0: networked multi-operator, web remote, plugin API, Lua scripting, timecode (MTC/LTC), legacy QLab workspace import | ⬜ |
+| **10** | Post-1.0: networked multi-operator, web remote, plugin API, Lua scripting, timecode (MTC/LTC), legacy QLab workspace import | ⬜ |
+| **11** | **Projection mapping**: surface editor, corner pin, mesh warp, edge blend, masks, calibration grid, live re-warp, Spout/Syphon/NDI input | ⬜ |
 
 Each phase is one to two weeks of focused work. Order is dependency-driven: GoEngine in phase 6 needs the cue type catalogue from earlier phases; lighting and video can run somewhat in parallel after audio because they share the patch model but otherwise touch different output subsystems.
 

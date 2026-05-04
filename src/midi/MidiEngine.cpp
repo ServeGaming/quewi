@@ -9,19 +9,28 @@ namespace quewi::midi {
 MidiEngine::MidiEngine(QObject *parent) : QObject(parent) {}
 MidiEngine::~MidiEngine() = default;
 
-QStringList MidiEngine::outputPortNames() const
+void MidiEngine::refreshPorts() const
 {
-    QStringList out;
+    m_cachedPorts.clear();
     try {
         RtMidiOut probe(RtMidi::UNSPECIFIED, "quewi");
         const auto n = probe.getPortCount();
         for (unsigned i = 0; i < n; ++i) {
-            out << QString::fromStdString(probe.getPortName(i));
+            m_cachedPorts << QString::fromStdString(probe.getPortName(i));
         }
     } catch (const RtMidiError &) {
-        // Return whatever we collected; engine fall-back will report.
+        // Leave m_cachedPorts as it is.
     }
-    return out;
+    m_cacheTimer.start();
+}
+
+QStringList MidiEngine::outputPortNames() const
+{
+    constexpr qint64 kCacheTtlMs = 5000;
+    if (!m_cacheTimer.isValid() || m_cacheTimer.elapsed() > kCacheTtlMs) {
+        refreshPorts();
+    }
+    return m_cachedPorts;
 }
 
 RtMidiOut *MidiEngine::openOrGetPort(const QString &portName)

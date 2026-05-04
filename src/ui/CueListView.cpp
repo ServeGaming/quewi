@@ -1,10 +1,15 @@
 #include "ui/CueListView.h"
 
 #include "core/CueListModel.h"
+#include "core/UndoCommands.h"
 #include "core/Workspace.h"
 
+#include <QDataStream>
+#include <QDropEvent>
 #include <QHeaderView>
 #include <QKeyEvent>
+#include <QMimeData>
+#include <QUndoStack>
 
 namespace quewi::ui {
 
@@ -20,6 +25,12 @@ CueListView::CueListView(QWidget *parent)
     setEditTriggers(QAbstractItemView::EditKeyPressed);
     header()->setStretchLastSection(true);
     setFocusPolicy(Qt::StrongFocus);
+
+    setDragEnabled(true);
+    setAcceptDrops(true);
+    setDropIndicatorShown(true);
+    setDragDropMode(QAbstractItemView::InternalMove);
+    setDefaultDropAction(Qt::MoveAction);
 
     connect(this, &QTreeView::doubleClicked, this, [this](const QModelIndex &idx) {
         auto *m = qobject_cast<core::CueListModel *>(model());
@@ -77,6 +88,85 @@ void CueListView::keyPressEvent(QKeyEvent *event)
         return;
     }
     QTreeView::keyPressEvent(event);
+}
+
+void CueListView::dropEvent(QDropEvent *event)
+{
+    // Internal-only: only accept our MIME type. External drops fall through
+    // to the QTreeView default (which the MainWindow upgrades into "create
+    // cues from files" for non-row drops).
+    auto *data = event->mimeData();
+    if (data->hasUrls() && event->source() != this) {
+        // External file drop — punt to MainWindow which knows how to
+        // turn URLs into cues. Compute the target row from the indicator.
+        int dest = indexAt(event->position().toPoint()).row();
+        const auto pos = dropIndicatorPosition();
+        if (dest < 0) dest = model() ? model()->rowCount() : 0;
+        else if (pos == BelowItem) dest += 1;
+        emit filesDropped(data->urls(), dest);
+        event->acceptProposedAction();
+        return;
+    }
+    if (event->source() != this
+        || !data->hasFormat(QStringLiteral("application/x-quewi-cue-row"))) {
+        QTreeView::dropEvent(event);
+        return;
+    }
+
+    QDataStream ds(data->data(QStringLiteral("application/x-quewi-cue-row")));
+    qint32 count = 0;
+    ds >> count;
+    if (count <= 0) { event->ignore(); return; }
+    QList<int> rows;
+    rows.reserve(count);
+    for (qint32 i = 0; i < count; ++i) {
+        qint32 r = -1; ds >> r; if (r >= 0) rows.append(r);
+    }
+    if (rows.isEmpty()) { event->ignore(); return; }
+
+    auto *m = qobject_cast<core::CueListModel *>(model());
+    if (!m || !m_workspace) { event->ignore(); return; }
+    auto *list = m->cueList();
+    if (!list) { event->ignore(); return; }
+
+    // Compute target row from drop position + indicator.
+    int dest = indexAt(event->position().toPoint()).row();
+    const auto pos = dropIndicatorPosition();
+    if (dest < 0) {
+        dest = m->rowCount(); // dropped past end
+    } else if (pos == BelowItem) {
+        dest += 1;
+    }
+    // pos == OnItem: drop *onto* a row — treat as "before that row".
+
+    // Move rows in source order, top-to-bottom. Issue one undoable
+    // command per moved row so the user can ctrl-Z each step (or undo
+    // the whole batch if we wrap them into a macro — done below).
+    auto *stack = m_workspace->undoStack();
+    stack->beginMacro(QObject::tr("Reorder cues"));
+    for (int row : rows) {
+        if (row == dest || row + 1 == dest) {
+            // No-op move (dropping a row on itself)
+            continue;
+        }
+        stack->push(new core::MoveCueCommand(list, row, dest));
+        // After moving row → dest, subsequent rows in the source list
+        // shift if they were below dest.
+        if (row > dest) {
+            // Rows numerically greater than the *original* row that we
+            // captured shift up by one if they were between dest..row-1,
+            // but our snapshot rows were already collected pre-move.
+            // The simplest correct behaviour for multi-row drag is to
+            // recompute on the fly: increment dest so the next moved row
+            // lands right after the previous one.
+            dest += 1;
+        }
+        // For row < dest case the source got pulled out from below dest,
+        // so dest itself shifted down; the destRowAfterTake() in the
+        // command already handles that.
+    }
+    stack->endMacro();
+    event->acceptProposedAction();
 }
 
 void CueListView::currentChanged(const QModelIndex &current, const QModelIndex &previous)

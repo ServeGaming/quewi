@@ -479,7 +479,11 @@ AudioEngine::DeviceContext *AudioEngine::ensureContextForDevice(const QAudioDevi
     ctx->mixer->configure(fmt.sampleRate(), fmt.channelCount());
     ctx->mixer->open(QIODevice::ReadOnly);
     ctx->sink = std::make_unique<QAudioSink>(device, fmt, this);
-    ctx->sink->setBufferSize(32768);
+    // 128 KB ≈ 340 ms at 48k stereo float. Generous so Windows context
+    // switches when the user opens another window or alt-tabs out don't
+    // starve the audio callback. The Phase-7 GoEngine will tighten this
+    // once we have sample-accurate scheduling.
+    ctx->sink->setBufferSize(131072);
 
     auto *ctxPtr = ctx.get();
     connect(ctx->sink.get(), &QAudioSink::stateChanged, this,

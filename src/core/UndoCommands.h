@@ -55,6 +55,21 @@ private:
     QVariant   m_new;
 };
 
+// Move a cue from one row to another. Uses takeCue + insertCue so the
+// model already routes the right inserted/removed signals.
+class MoveCueCommand : public QUndoCommand {
+public:
+    MoveCueCommand(CueList *list, int from, int to, QUndoCommand *parent = nullptr);
+    void undo() override;
+    void redo() override;
+
+private:
+    int destRowAfterTake() const;
+    CueList *m_list;
+    int m_from;
+    int m_to;
+};
+
 class RenameCueListCommand : public QUndoCommand {
 public:
     RenameCueListCommand(CueList *list, QString newName, QUndoCommand *parent = nullptr);

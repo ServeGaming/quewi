@@ -69,6 +69,33 @@ bool EditCueFieldCommand::mergeWith(const QUndoCommand *other)
     return true;
 }
 
+MoveCueCommand::MoveCueCommand(CueList *list, int from, int to, QUndoCommand *parent)
+    : QUndoCommand(parent), m_list(list), m_from(from), m_to(to)
+{
+    setText(QObject::tr("Move cue"));
+}
+
+int MoveCueCommand::destRowAfterTake() const
+{
+    // After takeCue(from), every row above shifts down by one, so a
+    // requested target index past the source becomes target-1.
+    return (m_to > m_from) ? m_to - 1 : m_to;
+}
+
+void MoveCueCommand::redo()
+{
+    auto cue = m_list->takeCue(m_from);
+    if (!cue) return;
+    m_list->insertCue(destRowAfterTake(), std::move(cue));
+}
+
+void MoveCueCommand::undo()
+{
+    auto cue = m_list->takeCue(destRowAfterTake());
+    if (!cue) return;
+    m_list->insertCue(m_from, std::move(cue));
+}
+
 RenameCueListCommand::RenameCueListCommand(CueList *list, QString newName, QUndoCommand *parent)
     : QUndoCommand(parent)
     , m_list(list)
