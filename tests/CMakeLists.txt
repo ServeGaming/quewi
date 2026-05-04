@@ -18,9 +18,13 @@ qt_add_executable(test_osc_loopback test_osc_loopback.cpp)
 target_link_libraries(test_osc_loopback PRIVATE Qt6::Test Qt6::Network quewi_osc)
 add_test(NAME osc_loopback COMMAND test_osc_loopback)
 
+qt_add_executable(test_audio_smoke test_audio_smoke.cpp)
+target_link_libraries(test_audio_smoke PRIVATE Qt6::Test Qt6::Multimedia quewi_audio)
+add_test(NAME audio_smoke COMMAND test_audio_smoke)
+
 # On Windows, Qt's DLLs need to be reachable via PATH at test runtime.
 if(WIN32)
-    foreach(name smoke osc_codec osc_pattern osc_slip osc_loopback)
+    foreach(name smoke osc_codec osc_pattern osc_slip osc_loopback audio_smoke)
         set_tests_properties(${name} PROPERTIES
             ENVIRONMENT_MODIFICATION
                 "PATH=path_list_prepend:$<TARGET_FILE_DIR:Qt6::Core>"

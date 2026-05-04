@@ -13,6 +13,7 @@ set_target_properties(quewi PROPERTIES
 target_link_libraries(quewi PRIVATE
     Qt6::Widgets
     Qt6::Network
+    Qt6::Multimedia
     quewi_core
     quewi_show
     quewi_ui

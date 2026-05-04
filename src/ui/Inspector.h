@@ -10,19 +10,22 @@ class QDoubleSpinBox;
 class QPlainTextEdit;
 class QGroupBox;
 class QComboBox;
+class QPushButton;
+class QCheckBox;
+class QFormLayout;
 
-namespace quewi::core { class Workspace; }
-namespace quewi::cues { class Cue; }
+namespace quewi::core { class Workspace; class CueList; }
+namespace quewi::cues { class Cue; class FadeCue; }
 namespace quewi::osc  { class OscCue; }
+namespace quewi::audio { class AudioCue; }
 
 namespace quewi::ui {
 
+class WaveformWidget;
+
 // Right-pane editor for the currently-selected cue. Common header
-// (number, name, pre/post wait, notes) for all types; type-specific
-// groups appear below for cue types we recognise (currently OSC).
-//
-// Edits are routed through EditCueFieldCommand on the workspace's
-// undo stack so they're undoable.
+// (number, name, pre/post wait, notes) for every type, plus
+// type-specific groups that show only for the matching cue type.
 class Inspector : public QWidget {
     Q_OBJECT
 public:
@@ -42,14 +45,28 @@ private slots:
     void commitPostWait();
     void commitNotes();
 
-    // OSC-specific field commits (only used when current cue is an OscCue)
+    // OSC
     void commitOscAddress();
     void commitOscHost();
     void commitOscPort();
     void commitOscArgs();
 
+    // Audio
+    void browseAudioFile();
+    void commitAudioGain();
+    void commitAudioFadeIn();
+    void commitAudioFadeOut();
+    void commitAudioLoop();
+
+    // Fade
+    void commitFadeTarget();
+    void commitFadeParameter();
+    void commitFadeTargetValue();
+    void commitFadeDuration();
+
 private:
     void rebuild();
+    void rebuildFadeTargets();
     void pushFieldEdit(const QString &field, const QVariant &newValue);
 
     QPointer<core::Workspace> m_workspace;
@@ -62,11 +79,30 @@ private:
     QDoubleSpinBox *m_postWait  = nullptr;
     QPlainTextEdit *m_notes     = nullptr;
 
+    // OSC group
     QGroupBox      *m_oscGroup    = nullptr;
     QLineEdit      *m_oscAddress  = nullptr;
     QLineEdit      *m_oscHost     = nullptr;
     QSpinBox       *m_oscPort     = nullptr;
     QLineEdit      *m_oscArgs     = nullptr;
+
+    // Audio group
+    QGroupBox      *m_audioGroup    = nullptr;
+    QLineEdit      *m_audioPath     = nullptr;
+    QPushButton    *m_audioBrowse   = nullptr;
+    QDoubleSpinBox *m_audioGain     = nullptr;
+    QDoubleSpinBox *m_audioFadeIn   = nullptr;
+    QDoubleSpinBox *m_audioFadeOut  = nullptr;
+    QCheckBox      *m_audioLoop     = nullptr;
+    WaveformWidget *m_audioWaveform = nullptr;
+    QLabel         *m_audioMeta     = nullptr;
+
+    // Fade group
+    QGroupBox      *m_fadeGroup    = nullptr;
+    QComboBox      *m_fadeTarget   = nullptr;
+    QComboBox      *m_fadeParam    = nullptr;
+    QDoubleSpinBox *m_fadeValue    = nullptr;
+    QDoubleSpinBox *m_fadeDuration = nullptr;
 
     bool m_loading = false;
 };

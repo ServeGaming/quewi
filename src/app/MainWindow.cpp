@@ -1,9 +1,12 @@
 #include "MainWindow.h"
 
+#include "audio/AudioCue.h"
+#include "audio/AudioEngine.h"
 #include "core/CueList.h"
 #include "core/CueListModel.h"
 #include "core/UndoCommands.h"
 #include "core/Workspace.h"
+#include "cues/FadeCue.h"
 #include "cues/MemoCue.h"
 #include "osc/OscCue.h"
 #include "osc/OscEngine.h"
@@ -37,6 +40,7 @@ MainWindow::MainWindow(QWidget *parent)
     connect(m_oscEngine.get(), &osc::OscEngine::sendError, this, [this](const QString &reason) {
         statusBar()->showMessage(tr("OSC: %1").arg(reason), 4000);
     });
+    m_audioEngine = std::make_unique<audio::AudioEngine>(this);
     buildLayout();
     buildMenus();
     resetWorkspace();
@@ -78,6 +82,17 @@ void MainWindow::buildLayout()
             this, &MainWindow::onGoRequested);
     connect(m_transport,   &ui::TransportBar::goPressed,
             this, &MainWindow::onGoRequested);
+    connect(m_transport,   &ui::TransportBar::panicPressed, this, [this] {
+        // Hard stop with a 50 ms fade so the speakers don't click.
+        m_audioEngine->stopAll(0.05);
+        statusBar()->showMessage(tr("PANIC: all audio stopped"), 2000);
+    });
+    connect(m_transport,   &ui::TransportBar::pausePressed, this, [this] {
+        // No real pause yet — fade out everything as a Phase-3 stand-in.
+        // True pause (sample-accurate resume) lands with the GoEngine.
+        m_audioEngine->stopAll(0.25);
+        statusBar()->showMessage(tr("Pause: faded out (proper pause arrives in Phase 6)"), 2500);
+    });
 }
 
 void MainWindow::buildMenus()
@@ -105,8 +120,10 @@ void MainWindow::buildMenus()
                          this, &MainWindow::showOscMonitor);
 
     auto *cueMenu = menuBar()->addMenu(tr("&Cue"));
-    cueMenu->addAction(tr("New &Memo"), QKeySequence(Qt::Key_M), this, &MainWindow::insertMemoCue);
-    cueMenu->addAction(tr("New &OSC"),  QKeySequence(Qt::Key_O), this, &MainWindow::insertOscCue);
+    cueMenu->addAction(tr("New &Memo"),  QKeySequence(Qt::Key_M), this, &MainWindow::insertMemoCue);
+    cueMenu->addAction(tr("New &OSC"),   QKeySequence(Qt::Key_O), this, &MainWindow::insertOscCue);
+    cueMenu->addAction(tr("New &Audio"), QKeySequence(Qt::Key_A), this, &MainWindow::insertAudioCue);
+    cueMenu->addAction(tr("New &Fade"),  QKeySequence(Qt::Key_F), this, &MainWindow::insertFadeCue);
     cueMenu->addSeparator();
     cueMenu->addAction(tr("&Delete"), QKeySequence::Delete, this, &MainWindow::deleteSelectedCue);
 }
@@ -231,7 +248,7 @@ bool MainWindow::saveShowAs()
 
 void MainWindow::showPreferences()
 {
-    ui::PreferencesDialog dlg(this);
+    ui::PreferencesDialog dlg(m_audioEngine.get(), this);
     dlg.exec();
 }
 
@@ -274,6 +291,42 @@ void MainWindow::insertOscCue()
 
     auto cue = std::make_unique<osc::OscCue>();
     cue->setField(QStringLiteral("name"), tr("OSC"));
+    cue->setField(QStringLiteral("number"), static_cast<double>(insertRow + 1));
+
+    m_workspace->undoStack()->push(
+        new core::InsertCueCommand(list, insertRow, std::move(cue)));
+
+    if (m_model->rowCount() > insertRow)
+        m_cueListView->setCurrentIndex(m_model->index(insertRow, 0));
+}
+
+void MainWindow::insertAudioCue()
+{
+    auto *list = m_workspace->activeCueList();
+    if (!list) return;
+    const auto idx = m_cueListView->currentIndex();
+    const int insertRow = idx.isValid() ? idx.row() + 1 : list->cueCount();
+
+    auto cue = std::make_unique<audio::AudioCue>();
+    cue->setField(QStringLiteral("name"), tr("Audio"));
+    cue->setField(QStringLiteral("number"), static_cast<double>(insertRow + 1));
+
+    m_workspace->undoStack()->push(
+        new core::InsertCueCommand(list, insertRow, std::move(cue)));
+
+    if (m_model->rowCount() > insertRow)
+        m_cueListView->setCurrentIndex(m_model->index(insertRow, 0));
+}
+
+void MainWindow::insertFadeCue()
+{
+    auto *list = m_workspace->activeCueList();
+    if (!list) return;
+    const auto idx = m_cueListView->currentIndex();
+    const int insertRow = idx.isValid() ? idx.row() + 1 : list->cueCount();
+
+    auto cue = std::make_unique<cues::FadeCue>();
+    cue->setField(QStringLiteral("name"), tr("Fade"));
     cue->setField(QStringLiteral("number"), static_cast<double>(insertRow + 1));
 
     m_workspace->undoStack()->push(
@@ -331,16 +384,64 @@ void MainWindow::onGoRequested()
                      oscCue->field(QStringLiteral("address")).toString()),
                 2000);
         }
+    } else if (auto *audioCue = qobject_cast<audio::AudioCue *>(cue)) {
+        audioCue->prepare(); // idempotent; loads file if not already
+        auto file = audioCue->audioFile();
+        if (!file || file->state() != audio::AudioFile::State::Loaded) {
+            statusBar()->showMessage(tr("GO: audio not ready (%1)")
+                .arg(file ? tr("loading") : tr("no file")), 2000);
+        } else {
+            audio::VoiceParams p;
+            p.gainDb = audioCue->gainDb();
+            p.fadeInSeconds = audioCue->fadeInSeconds();
+            p.fadeOutSeconds = audioCue->fadeOutSeconds();
+            p.loop = audioCue->loop();
+            const auto vid = m_audioEngine->fire(file, p);
+            audioCue->setCurrentVoiceId(vid);
+            statusBar()->showMessage(tr("GO: ▶ %1 (%2 s)")
+                .arg(cue->name().isEmpty() ? cue->typeName() : cue->name(),
+                     QString::number(file->durationSeconds(), 'f', 2)),
+                2000);
+        }
+    } else if (auto *fadeCue = qobject_cast<cues::FadeCue *>(cue)) {
+        // Resolve target: must be an AudioCue in the active list.
+        auto *list = m_workspace->activeCueList();
+        audio::AudioCue *target = nullptr;
+        if (list) {
+            for (int row = 0; row < list->cueCount(); ++row) {
+                auto *c = list->cueAt(row);
+                if (c && c->id() == fadeCue->targetId()) {
+                    target = qobject_cast<audio::AudioCue *>(c);
+                    break;
+                }
+            }
+        }
+        if (!target) {
+            statusBar()->showMessage(tr("Fade: target not found"), 2000);
+        } else if (target->currentVoiceId() == 0) {
+            statusBar()->showMessage(tr("Fade: target not playing"), 2000);
+        } else if (fadeCue->parameter() == QLatin1String("gainDb")) {
+            m_audioEngine->fadeGain(target->currentVoiceId(),
+                                    fadeCue->targetValue(),
+                                    fadeCue->durationSeconds());
+            statusBar()->showMessage(tr("Fade: → %1 dB over %2 s")
+                .arg(fadeCue->targetValue())
+                .arg(fadeCue->durationSeconds()), 2000);
+        }
     } else {
         statusBar()->showMessage(tr("GO: %1 %2")
             .arg(QString::number(cue->number(), 'f', 2), cue->name()), 2000);
     }
 
-    // Advance selection.
+    // Advance selection. Pre-load the (now) next audio cue eagerly so
+    // its file is ready when GO fires next.
     const auto idx = m_cueListView->currentIndex();
     const int next = idx.isValid() ? idx.row() + 1 : 0;
     if (next < m_model->rowCount())
         m_cueListView->setCurrentIndex(m_model->index(next, 0));
+    if (auto *upcoming = m_cueListView->nextCue()) {
+        if (auto *ac = qobject_cast<audio::AudioCue *>(upcoming)) ac->prepare();
+    }
 }
 
 void MainWindow::closeEvent(QCloseEvent *event)

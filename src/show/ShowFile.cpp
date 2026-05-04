@@ -2,7 +2,9 @@
 
 #include "core/CueList.h"
 #include "core/Workspace.h"
+#include "audio/AudioCue.h"
 #include "cues/Cue.h"
+#include "cues/FadeCue.h"
 #include "cues/MemoCue.h"
 #include "osc/OscCue.h"
 
@@ -57,8 +59,10 @@ void setError(const QString &what, const QSqlError &e)
 
 std::unique_ptr<cues::Cue> makeCue(const QString &type)
 {
-    if (type == QLatin1String("memo")) return std::make_unique<cues::MemoCue>();
-    if (type == QLatin1String("osc"))  return std::make_unique<osc::OscCue>();
+    if (type == QLatin1String("memo"))  return std::make_unique<cues::MemoCue>();
+    if (type == QLatin1String("osc"))   return std::make_unique<osc::OscCue>();
+    if (type == QLatin1String("audio")) return std::make_unique<audio::AudioCue>();
+    if (type == QLatin1String("fade"))  return std::make_unique<cues::FadeCue>();
     // Unknown type: load as a Memo so the user doesn't lose data, with a
     // note. Future cue types register here in Phase 6.
     auto memo = std::make_unique<cues::MemoCue>();

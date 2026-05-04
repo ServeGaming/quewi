@@ -2,15 +2,17 @@
 
 #include <QDialog>
 
+namespace quewi::audio { class AudioEngine; }
+
 namespace quewi::ui {
 
-// Skeleton — just the shell. Real preference categories (Audio, OSC,
-// MIDI, Lighting, Theme, Show Mode) populate as their subsystems
-// come online in Phase 2-7.
+// Application-level preferences. Phase 3 has a working Audio page;
+// other categories show placeholders until their subsystem lands.
 class PreferencesDialog : public QDialog {
     Q_OBJECT
 public:
-    explicit PreferencesDialog(QWidget *parent = nullptr);
+    explicit PreferencesDialog(audio::AudioEngine *audioEngine,
+                               QWidget *parent = nullptr);
     ~PreferencesDialog() override;
 };
 

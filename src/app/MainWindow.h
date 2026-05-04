@@ -10,6 +10,7 @@ class QSplitter;
 namespace quewi::core { class Workspace; class CueListModel; }
 namespace quewi::ui   { class CueListView; class Inspector; class TransportBar; class OscMonitor; }
 namespace quewi::osc  { class OscEngine; }
+namespace quewi::audio { class AudioEngine; }
 
 namespace quewi {
 
@@ -31,6 +32,8 @@ private slots:
     void showOscMonitor();
     void insertMemoCue();
     void insertOscCue();
+    void insertAudioCue();
+    void insertFadeCue();
     void deleteSelectedCue();
     void onSelectionChanged();
     void updateTitle();
@@ -47,6 +50,7 @@ private:
     std::unique_ptr<core::Workspace>    m_workspace;
     std::unique_ptr<core::CueListModel> m_model;
     std::unique_ptr<osc::OscEngine>     m_oscEngine;
+    std::unique_ptr<audio::AudioEngine> m_audioEngine;
 
     ui::CueListView *m_cueListView = nullptr;
     ui::Inspector   *m_inspector   = nullptr;
