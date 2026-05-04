@@ -203,6 +203,12 @@ void AudioEditorModel::setDirty() {
     if (!m_dirty) { m_dirty = true; emit dirtyChanged(true); }
 }
 
+void AudioEditorModel::setSampleRate(int sr) {
+    if (sr <= 0 || sr == m_sampleRate) return;
+    m_sampleRate = sr;
+    emit tracksChanged(); // trigger UI refresh of ruler / scaling
+}
+
 AudioEditorTrack *AudioEditorModel::track(int i) const {
     if (i < 0 || i >= int(m_tracks.size())) return nullptr;
     return m_tracks[i].get();

@@ -13,8 +13,21 @@ namespace quewi::audio {
 class EqEffect : public AudioEffect {
     Q_OBJECT
 public:
+    static constexpr int kNumBands = 3;
+
     explicit EqEffect(QObject *parent = nullptr);
     ~EqEffect() override = default;
+
+    // Direct access for the visual editor — read-only.
+    struct BandSnapshot { float freq; float gainDb; float Q; bool enabled; };
+    BandSnapshot bandSnapshot(int i) const;
+    void         setBand(int i, float freq, float gainDb, float Q);
+
+    // Combined magnitude response of all bands at a given frequency, in dB.
+    float responseDb(float frequencyHz) const;
+    // Per-band magnitude response, dB.
+    float bandResponseDb(int bandIdx, float frequencyHz) const;
+    int   sampleRate() const { return m_sampleRate; }
 
     Type    type() const override { return Type::Eq; }
     QString name() const override { return QStringLiteral("Parametric EQ"); }
@@ -51,7 +64,7 @@ private:
 
     void rebuildCoeffs(int bandIdx);
 
-    static constexpr int kBands = 3;
+    static constexpr int kBands = kNumBands;
     std::array<Band,   kBands>    m_bands;
     std::array<Biquad, kBands>    m_filtersL;
     std::array<Biquad, kBands>    m_filtersR;

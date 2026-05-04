@@ -19,6 +19,8 @@ add_library(quewi_ui STATIC
     TimelineCanvas.cpp
     EffectsRackWidget.h
     EffectsRackWidget.cpp
+    ParametricEqDialog.h
+    ParametricEqDialog.cpp
     SpectrogramWidget.h
     SpectrogramWidget.cpp
     ActiveCuesPanel.h

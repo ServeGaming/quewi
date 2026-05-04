@@ -20,6 +20,11 @@ public:
     void setSource(std::shared_ptr<audio::AudioFile> file, qint64 inSample, qint64 outSample);
     void clear();
 
+    // The owner toggles this when the user shows/hides the Spectrogram tab.
+    // While inactive, source changes are buffered but no FFT runs — keeps
+    // region-selection click latency at zero.
+    void setActive(bool active);
+
 protected:
     void paintEvent(QPaintEvent *) override;
     void resizeEvent(QResizeEvent *) override;
@@ -32,6 +37,7 @@ private:
     std::shared_ptr<audio::AudioFile> m_file;
     qint64 m_inSample  = 0;
     qint64 m_outSample = 0;
+    bool   m_active    = false;
 
     static constexpr int kFftSize = 2048;
 

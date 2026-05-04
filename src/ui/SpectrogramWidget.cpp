@@ -19,7 +19,14 @@ void SpectrogramWidget::setSource(std::shared_ptr<audio::AudioFile> file,
     m_inSample = in;
     m_outSample = (out < 0 && file) ? file->frameCount() : out;
     m_dirty    = true;
-    update();
+    m_cache    = QImage();
+    if (m_active) update();
+}
+
+void SpectrogramWidget::setActive(bool active) {
+    if (m_active == active) return;
+    m_active = active;
+    if (active) update();
 }
 
 void SpectrogramWidget::clear() {
@@ -67,9 +74,14 @@ void SpectrogramWidget::buildSpectrogram() {
     qint64 dur  = outF - inF;
     if (dur <= 0) return;
 
-    const int hop     = kFftSize / 4;
-    int       numCols = int((dur - kFftSize) / hop);
-    if (numCols <= 0) numCols = 1;
+    // Cap the number of FFT columns so the build stays under ~50ms even
+    // for hour-long files. We adapt the hop size to the duration.
+    constexpr int kMaxCols = 1024;
+    int hop = kFftSize / 4;
+    if ((dur - kFftSize) / hop > kMaxCols)
+        hop = int((dur - kFftSize) / kMaxCols);
+    int numCols = int((dur - kFftSize) / std::max(1, hop));
+    numCols = std::clamp(numCols, 1, kMaxCols);
 
     int numBins = kFftSize / 2 + 1;
     m_spec.resize(size_t(numCols * numBins), 0.f);
@@ -117,6 +129,11 @@ void SpectrogramWidget::paintEvent(QPaintEvent *) {
     if (!m_file) {
         p.setPen(QColor(80, 90, 110));
         p.drawText(rect(), Qt::AlignCenter, tr("No audio selected"));
+        return;
+    }
+    if (!m_active) {
+        p.setPen(QColor(80, 90, 110));
+        p.drawText(rect(), Qt::AlignCenter, tr("Spectrogram (open this tab to compute)"));
         return;
     }
 

@@ -10,6 +10,7 @@
 #include <QFileDialog>
 #include <QFileInfo>
 #include <QHBoxLayout>
+#include <QKeyEvent>
 #include <QLabel>
 #include <QMediaDevices>
 #include <QMessageBox>
@@ -39,6 +40,29 @@ AudioEditorWindow::AudioEditorWindow(audio::AudioCue *cue, QWidget *parent)
     QString filePath = cue ? cue->filePath() : QString();
     m_model->initFromFile(filePath, 48000);
 
+    // Adopt the source file's sample rate once it finishes loading, so the
+    // ruler/timeline measure time correctly and playback isn't sped-up.
+    if (m_model->trackCount() > 0 && !m_model->track(0)->regions().empty()) {
+        auto file = m_model->track(0)->regions().front().sourceFile;
+        if (file) {
+            auto syncRate = [this, file]() {
+                if (file->state() == audio::AudioFile::State::Loaded
+                    && file->sampleRate() > 0)
+                {
+                    m_model->setSampleRate(file->sampleRate());
+                    statusBar()->showMessage(
+                        tr("%1   ·   %2 Hz   ·   %3 ch")
+                            .arg(QFileInfo(file->path()).fileName())
+                            .arg(file->sampleRate())
+                            .arg(file->channelCount()));
+                }
+            };
+            syncRate();
+            connect(file.get(), &audio::AudioFile::stateChanged, this,
+                    [syncRate](audio::AudioFile::State){ syncRate(); });
+        }
+    }
+
     connect(&m_playTimer, &QTimer::timeout, this, &AudioEditorWindow::onPlaybackTick);
     connect(m_renderer.get(), &audio::AudioEditorRenderer::progress, this, [this](int pct){
         statusBar()->showMessage(tr("Rendering… %1%").arg(pct));
@@ -49,6 +73,11 @@ AudioEditorWindow::AudioEditorWindow(audio::AudioCue *cue, QWidget *parent)
     buildBottomPanel();
 
     statusBar()->showMessage(filePath.isEmpty() ? tr("New session") : QFileInfo(filePath).fileName());
+
+    // Fit timeline to content once the view has a real size and the audio
+    // file has loaded enough metadata for totalDurationSamples() to be
+    // non-zero. Defer to the next event-loop tick.
+    QTimer::singleShot(150, this, &AudioEditorWindow::zoomFit);
 }
 
 AudioEditorWindow::~AudioEditorWindow() = default;
@@ -149,6 +178,13 @@ void AudioEditorWindow::buildBottomPanel() {
 
     m_spectrogram = new SpectrogramWidget(tabs);
     tabs->addTab(m_spectrogram, tr("Spectrogram"));
+
+    // Only run FFT while the spectrogram tab is active — otherwise selection
+    // clicks are instant.
+    connect(tabs, &QTabWidget::currentChanged, this, [this, tabs](int idx){
+        m_spectrogram->setActive(tabs->widget(idx) == m_spectrogram);
+    });
+    m_spectrogram->setActive(false);
 
     // Attach via a dock-like bottom widget
     auto *central = centralWidget();
@@ -316,6 +352,22 @@ void AudioEditorWindow::closeEvent(QCloseEvent *e) {
     stopPlayback();
     if (!promptSaveIfDirty()) { e->ignore(); return; }
     e->accept();
+}
+
+void AudioEditorWindow::keyPressEvent(QKeyEvent *e) {
+    // Consume Space locally so the main window's GO never fires while the
+    // editor is focused. Space here toggles play/stop on the editor mix.
+    if (e->key() == Qt::Key_Space && e->modifiers() == Qt::NoModifier) {
+        onPlay();
+        e->accept();
+        return;
+    }
+    if (e->key() == Qt::Key_Escape) {
+        stopPlayback();
+        e->accept();
+        return;
+    }
+    QMainWindow::keyPressEvent(e);
 }
 
 } // namespace quewi::ui

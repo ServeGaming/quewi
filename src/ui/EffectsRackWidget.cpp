@@ -1,5 +1,7 @@
 #include "ui/EffectsRackWidget.h"
 #include "audio/AudioEffect.h"
+#include "audio/effects/EqEffect.h"
+#include "ui/ParametricEqDialog.h"
 
 #include <QCheckBox>
 #include <QComboBox>
@@ -79,6 +81,17 @@ QWidget *EffectsRackWidget::buildEffectRow(audio::AudioEffect *fx, int index) {
     enableCheck->setChecked(fx->isEnabled());
     connect(enableCheck, &QCheckBox::toggled, fx, &audio::AudioEffect::setEnabled);
     hl->addWidget(enableCheck, 1);
+
+    // EQ gets a visual editor button
+    if (fx->type() == audio::AudioEffect::Type::Eq) {
+        auto *editBtn = new QPushButton(tr("Edit…"), hdr);
+        editBtn->setFixedHeight(22);
+        connect(editBtn, &QPushButton::clicked, this, [this, fx]{
+            auto *dlg = new ParametricEqDialog(static_cast<audio::EqEffect*>(fx), this->window());
+            dlg->show();
+        });
+        hl->addWidget(editBtn);
+    }
 
     auto *removeBtn = new QToolButton(hdr);
     removeBtn->setText(QStringLiteral("✕"));

@@ -133,7 +133,7 @@ MainWindow::MainWindow(QWidget *parent)
     // cue list has focus regardless of the global shortcut).
     m_actGo = new QAction(tr("GO"), this);
     addAction(m_actGo);
-    m_actGo->setShortcutContext(Qt::ApplicationShortcut);
+    m_actGo->setShortcutContext(Qt::WindowShortcut);
     connect(m_actGo, &QAction::triggered, this, &MainWindow::onGoRequested);
 
     m_actPanic = new QAction(tr("Panic"), this);

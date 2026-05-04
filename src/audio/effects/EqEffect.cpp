@@ -117,4 +117,50 @@ int EqEffect::parameterDecimals(const QString &id) const {
     return 1;
 }
 
+EqEffect::BandSnapshot EqEffect::bandSnapshot(int i) const {
+    if (i < 0 || i >= kBands) return {1000.f, 0.f, 0.707f, false};
+    return {m_bands[i].freq, m_bands[i].gainDb, m_bands[i].Q, m_enabled};
+}
+
+void EqEffect::setBand(int i, float freq, float gainDb, float Q) {
+    if (i < 0 || i >= kBands) return;
+    m_bands[i].freq   = freq;
+    m_bands[i].gainDb = gainDb;
+    m_bands[i].Q      = Q;
+    rebuildCoeffs(i);
+    emit parameterChanged(QStringLiteral("eq%1_freq").arg(i+1), freq);
+    emit parameterChanged(QStringLiteral("eq%1_gain").arg(i+1), gainDb);
+    emit parameterChanged(QStringLiteral("eq%1_q").arg(i+1),    Q);
+}
+
+// Magnitude response of one biquad at angular frequency w.
+// |H(e^{jw})|^2 = |B(e^{jw})|^2 / |A(e^{jw})|^2 with B,A from the biquad.
+static float biquadMagDb(const float b0, const float b1, const float b2,
+                         const float a1, const float a2, float w)
+{
+    float cosW = std::cos(w), cos2W = std::cos(2.f*w);
+    float sinW = std::sin(w), sin2W = std::sin(2.f*w);
+    float numRe = b0 + b1*cosW + b2*cos2W;
+    float numIm =      -b1*sinW - b2*sin2W;
+    float denRe = 1.f + a1*cosW + a2*cos2W;
+    float denIm =      -a1*sinW - a2*sin2W;
+    float numMag2 = numRe*numRe + numIm*numIm;
+    float denMag2 = denRe*denRe + denIm*denIm;
+    if (denMag2 < 1e-20f) return 0.f;
+    return 10.f * std::log10(numMag2 / denMag2);
+}
+
+float EqEffect::bandResponseDb(int idx, float freq) const {
+    if (idx < 0 || idx >= kBands) return 0.f;
+    const auto &f = m_filtersL[idx];
+    float w = 2.f * M_PIf * freq / float(m_sampleRate);
+    return biquadMagDb(f.b0, f.b1, f.b2, f.a1, f.a2, w);
+}
+
+float EqEffect::responseDb(float freq) const {
+    float total = 0.f;
+    for (int i = 0; i < kBands; ++i) total += bandResponseDb(i, freq);
+    return total;
+}
+
 } // namespace quewi::audio

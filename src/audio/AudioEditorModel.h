@@ -104,6 +104,7 @@ public:
     void        fromJson(const QJsonObject &);
 
     int  sampleRate()       const { return m_sampleRate; }
+    void setSampleRate(int sr);
     bool isDirty()          const { return m_dirty; }
     void markClean()              { m_dirty = false; }
 
