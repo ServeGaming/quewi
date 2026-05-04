@@ -10,6 +10,7 @@
 #include <QLabel>
 #include <QListWidget>
 #include <QMediaDevices>
+#include <QSettings>
 #include <QSplitter>
 #include <QStackedWidget>
 #include <QVBoxLayout>
@@ -34,7 +35,7 @@ QWidget *makeAudioPage(audio::AudioEngine *engine, QWidget *parent)
         deviceCombo->addItem(dev.description(), QVariant::fromValue(dev.id()));
     }
     if (engine) {
-        const auto current = engine->outputDevice().id();
+        const auto current = engine->defaultOutputDevice().id();
         for (int i = 0; i < deviceCombo->count(); ++i) {
             if (deviceCombo->itemData(i).toByteArray() == current) {
                 deviceCombo->setCurrentIndex(i);
@@ -55,8 +56,11 @@ QWidget *makeAudioPage(audio::AudioEngine *engine, QWidget *parent)
             if (!engine) return;
             const auto id = deviceCombo->itemData(idx).toByteArray();
             for (const auto &dev : QMediaDevices::audioOutputs()) {
-                if (dev.id() == id) { engine->setOutputDevice(dev); break; }
+                if (dev.id() == id) { engine->setDefaultOutputDevice(dev); break; }
             }
+            // Persist so the choice survives across launches.
+            QSettings s(QStringLiteral("ServeGaming"), QStringLiteral("quewi"));
+            s.setValue(QStringLiteral("audio/defaultOutputDeviceId"), id);
         });
 
     outer->addWidget(deviceGroup);

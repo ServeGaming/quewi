@@ -13,7 +13,7 @@ class QUrl;
 
 namespace quewi::core { class Workspace; class CueListModel; }
 namespace quewi::cues { class Cue; }
-namespace quewi::ui   { class CueListView; class Inspector; class TransportBar; class OscMonitor; }
+namespace quewi::ui   { class ActiveCuesPanel; class CueListView; class Inspector; class TransportBar; class OscMonitor; }
 namespace quewi::osc  { class OscEngine; }
 namespace quewi::audio { class AudioEngine; }
 namespace quewi::lighting { class LightingEngine; }
@@ -79,6 +79,7 @@ private:
     ui::CueListView *m_cueListView = nullptr;
     ui::Inspector   *m_inspector   = nullptr;
     ui::TransportBar *m_transport  = nullptr;
+    ui::ActiveCuesPanel *m_activePanel = nullptr;
     ui::OscMonitor   *m_oscMonitor = nullptr;
     QSplitter       *m_mainSplitter = nullptr;
 

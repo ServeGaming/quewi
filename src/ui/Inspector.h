@@ -19,7 +19,7 @@ class QButtonGroup;
 namespace quewi::core { class Workspace; class CueList; }
 namespace quewi::cues { class Cue; class FadeCue; }
 namespace quewi::osc  { class OscCue; }
-namespace quewi::audio { class AudioCue; }
+namespace quewi::audio { class AudioCue; class AudioEngine; }
 namespace quewi::lighting { class LightCue; class LightFadeCue; }
 namespace quewi::video { class VideoCue; class ImageCue; class TextCue; class VisualCue; }
 class QTableWidget;
@@ -38,6 +38,7 @@ public:
     ~Inspector() override;
 
     void setWorkspace(core::Workspace *workspace);
+    void setAudioEngine(audio::AudioEngine *engine);
 
 public slots:
     void setCue(quewi::cues::Cue *cue);
@@ -71,6 +72,7 @@ private slots:
     void reverseAudio();
     void setAudioModeTrim();
     void setAudioModeFade();
+    void commitAudioOutputDevice();
 
     // Fade
     void commitFadeTarget();
@@ -103,8 +105,9 @@ private:
     void rebuildFadeTargets();
     void pushFieldEdit(const QString &field, const QVariant &newValue);
 
-    QPointer<core::Workspace> m_workspace;
-    QPointer<cues::Cue>       m_cue;
+    QPointer<core::Workspace>   m_workspace;
+    QPointer<cues::Cue>         m_cue;
+    QPointer<audio::AudioEngine> m_audioEngine;
 
     QLabel         *m_typeLabel = nullptr;
     QPushButton    *m_colorChip = nullptr;
@@ -141,6 +144,7 @@ private:
     QPushButton    *m_audioModeFade  = nullptr;
     WaveformWidget *m_audioWaveform  = nullptr;
     QLabel         *m_audioMeta      = nullptr;
+    QComboBox      *m_audioOutputDevice = nullptr;
 
     // Fade group
     QGroupBox      *m_fadeGroup    = nullptr;

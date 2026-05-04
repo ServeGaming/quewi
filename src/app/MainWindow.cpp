@@ -15,6 +15,7 @@
 #include "show/ShowFile.h"
 #include "video/VideoCue.h"
 #include "video/VideoEngine.h"
+#include "ui/ActiveCuesPanel.h"
 #include "ui/AudioEditorWindow.h"
 #include "ui/CueListView.h"
 #include "ui/Inspector.h"
@@ -27,8 +28,11 @@
 #include <QDragEnterEvent>
 #include <QDragMoveEvent>
 #include <QDropEvent>
+#include <QAudioDevice>
 #include <QFileDialog>
 #include <QFileInfo>
+#include <QMediaDevices>
+#include <QSettings>
 #include <QKeySequence>
 #include <QMenuBar>
 #include <QMessageBox>
@@ -63,6 +67,19 @@ MainWindow::MainWindow(QWidget *parent)
             [this](const QString &reason) {
                 statusBar()->showMessage(tr("Audio: %1").arg(reason), 5000);
             });
+    {
+        QSettings s(QStringLiteral("ServeGaming"), QStringLiteral("quewi"));
+        const auto savedId = s.value(QStringLiteral("audio/defaultOutputDeviceId"))
+                              .toByteArray();
+        if (!savedId.isEmpty()) {
+            for (const auto &dev : QMediaDevices::audioOutputs()) {
+                if (dev.id() == savedId) {
+                    m_audioEngine->setDefaultOutputDevice(dev);
+                    break;
+                }
+            }
+        }
+    }
     m_lightingEngine = std::make_unique<lighting::LightingEngine>(this);
     m_videoEngine    = std::make_unique<video::VideoEngine>(this);
     buildLayout();
@@ -91,9 +108,14 @@ void MainWindow::buildLayout()
     m_mainSplitter->setStretchFactor(1, 2);
     m_mainSplitter->setSizes({800, 480});
 
+    m_activePanel = new ui::ActiveCuesPanel(central);
+    m_activePanel->setAudioEngine(m_audioEngine.get());
+    m_activePanel->hide(); // shown when something starts playing
+
     m_transport = new ui::TransportBar(central);
 
     outer->addWidget(m_mainSplitter, 1);
+    outer->addWidget(m_activePanel, 0);
     outer->addWidget(m_transport, 0);
 
     setCentralWidget(central);
@@ -186,6 +208,8 @@ void MainWindow::resetWorkspace()
     rebindModel();
 
     m_inspector->setWorkspace(m_workspace.get());
+    m_inspector->setAudioEngine(m_audioEngine.get());
+    if (m_activePanel) m_activePanel->setWorkspace(m_workspace.get());
 
     if (m_actUndo) m_actUndo->disconnect();
     if (m_actRedo) m_actRedo->disconnect();
@@ -250,6 +274,8 @@ bool MainWindow::loadShowFromPath(const QString &path)
     m_model = std::make_unique<core::CueListModel>();
     rebindModel();
     m_inspector->setWorkspace(m_workspace.get());
+    m_inspector->setAudioEngine(m_audioEngine.get());
+    if (m_activePanel) m_activePanel->setWorkspace(m_workspace.get());
 
     if (m_actUndo) m_actUndo->disconnect();
     if (m_actRedo) m_actRedo->disconnect();
@@ -530,6 +556,7 @@ void MainWindow::onGoRequested()
             p.trimOutSeconds = audioCue->trimOutSeconds();
             p.pan            = audioCue->pan();
             p.loop = audioCue->loop();
+            p.outputDeviceId = audioCue->outputDeviceId();
             const auto vid = m_audioEngine->fire(file, p);
             audioCue->setCurrentVoiceId(vid);
             if (vid == 0) {

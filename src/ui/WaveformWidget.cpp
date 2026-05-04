@@ -161,36 +161,47 @@ void WaveformWidget::paintEvent(QPaintEvent *)
         p.drawLine(x, h / 2 - half, x, h / 2 + half);
     }
 
-    // Trim mode overlay
-    if (m_mode == EditMode::Trim) {
-        QColor scrim(0x0E, 0x0F, 0x12, 160);
-        p.fillRect(QRect(0, 0, trimXIn, h), scrim);
-        p.fillRect(QRect(trimXOut, 0, w - trimXOut, h), scrim);
+    // Trim overlay — full strength when active, ghosted otherwise.
+    {
+        const bool active = (m_mode == EditMode::Trim);
+        const int alpha   = active ? 255 : 90;
+        QColor bar = kTrimBar;     bar.setAlpha(alpha);
+        QColor grip = kTrimBar;    grip.setAlpha(active ? 255 : 70);
 
-        p.setPen(QPen(kTrimBar, kHandleWidth));
+        if (active) {
+            QColor scrim(0x0E, 0x0F, 0x12, 160);
+            p.fillRect(QRect(0, 0, trimXIn, h), scrim);
+            p.fillRect(QRect(trimXOut, 0, w - trimXOut, h), scrim);
+        }
+        p.setPen(QPen(bar, kHandleWidth));
         p.drawLine(trimXIn,  0, trimXIn,  h);
         p.drawLine(trimXOut, 0, trimXOut, h);
-
-        // Grip handles
-        p.setBrush(kTrimBar);
+        p.setBrush(grip);
         p.setPen(Qt::NoPen);
         p.drawRect(trimXIn  - 4, h / 2 - 14, 8, 28);
         p.drawRect(trimXOut - 4, h / 2 - 14, 8, 28);
     }
 
-    // Fade mode overlay
-    if (m_mode == EditMode::Fade) {
+    // Fade overlay — full strength when active, ghosted otherwise.
+    {
+        const bool active = (m_mode == EditMode::Fade);
         const int xFadeIn  = secondsToPixel(m_fadeIn);
         const int xFadeOut = secondsToPixel(dur - m_fadeOut);
 
+        QColor fill = kFadeFill;
+        QColor edge = kFadeEdge;
+        if (!active) {
+            fill.setAlpha(40);
+            edge.setAlpha(110);
+        }
+
         QPainterPath inPath;
         inPath.moveTo(0, h);
-        inPath.lineTo(0, h);
         inPath.lineTo(xFadeIn, 0);
         inPath.lineTo(xFadeIn, h);
         inPath.closeSubpath();
-        p.fillPath(inPath, kFadeFill);
-        p.setPen(QPen(kFadeEdge, kHandleWidth));
+        p.fillPath(inPath, fill);
+        p.setPen(QPen(edge, kHandleWidth));
         p.drawLine(0, h, xFadeIn, 0);
         p.drawLine(xFadeIn, 0, xFadeIn, h);
 
@@ -198,14 +209,14 @@ void WaveformWidget::paintEvent(QPaintEvent *)
         outPath.moveTo(xFadeOut, h);
         outPath.lineTo(xFadeOut, 0);
         outPath.lineTo(w, h);
-        outPath.lineTo(xFadeOut, h);
         outPath.closeSubpath();
-        p.fillPath(outPath, kFadeFill);
+        p.fillPath(outPath, fill);
         p.drawLine(xFadeOut, 0, w, h);
         p.drawLine(xFadeOut, 0, xFadeOut, h);
 
-        // Grip handles on the inside edge of each fade.
-        p.setBrush(kFadeEdge);
+        QColor grip = kFadeEdge;
+        grip.setAlpha(active ? 255 : 80);
+        p.setBrush(grip);
         p.setPen(Qt::NoPen);
         p.drawRect(xFadeIn  - 4, h / 2 - 14, 8, 28);
         p.drawRect(xFadeOut - 4, h / 2 - 14, 8, 28);

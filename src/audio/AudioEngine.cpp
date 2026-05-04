@@ -20,6 +20,11 @@ double dbToLinear(double db) {
     return std::pow(10.0, db / 20.0);
 }
 
+double linearToDb(double lin) {
+    if (lin <= 1e-9) return -90.0;
+    return 20.0 * std::log10(lin);
+}
+
 } // namespace
 
 // ---------------------------------------------------------------------
@@ -37,27 +42,31 @@ public:
         m_outputChannels = outputChannels;
     }
 
-    VoiceId addVoice(std::shared_ptr<const AudioFile> file, const VoiceParams &params)
+    VoiceId addVoice(VoiceId id,
+                     std::shared_ptr<const AudioFile> file,
+                     const VoiceParams &params,
+                     const QByteArray &deviceId)
     {
         if (!file) return 0;
 
         Voice v;
-        v.id = ++m_nextId;
+        v.id = id;
+        v.deviceId = deviceId;
         const double srcSr = file->sampleRate();
         v.file = std::move(file);
         v.gain.store(dbToLinear(params.gainDb), std::memory_order_relaxed);
         v.currentGain.store(dbToLinear(params.gainDb), std::memory_order_relaxed);
         v.targetGain.store(dbToLinear(params.gainDb), std::memory_order_relaxed);
+        v.pan.store(std::clamp(params.pan, -1.0, 1.0), std::memory_order_relaxed);
         v.fadeInSamples = static_cast<qint64>(params.fadeInSeconds  * m_outputSampleRate);
         v.fadeOutOnStop = static_cast<qint64>(params.fadeOutSeconds * m_outputSampleRate);
         v.loop = params.loop;
-        v.pan = std::clamp(params.pan, -1.0, 1.0);
 
-        // Trim is in source-frame coordinates so resampling math stays simple.
         v.readPos = static_cast<qint64>(params.trimInSeconds * srcSr);
         if (params.trimOutSeconds > 0.0) {
             v.endFrame = static_cast<qint64>(params.trimOutSeconds * srcSr);
         }
+        v.srcSampleRate = srcSr;
 
         std::lock_guard<std::mutex> lock(m_mutex);
         m_voices.push_back(std::move(v));
@@ -106,6 +115,62 @@ public:
         }
     }
 
+    bool setVoiceGain(VoiceId id, double gainDb)
+    {
+        std::lock_guard<std::mutex> lock(m_mutex);
+        for (auto &v : m_voices) {
+            if (v.id == id) {
+                const double lin = dbToLinear(gainDb);
+                v.gain.store(lin, std::memory_order_relaxed);
+                v.targetGain.store(lin, std::memory_order_relaxed);
+                v.gainFadeSamples = 0; // cancel any fade
+                v.gainFadeCounter = 0;
+                return true;
+            }
+        }
+        return false;
+    }
+
+    bool setVoicePan(VoiceId id, double pan)
+    {
+        std::lock_guard<std::mutex> lock(m_mutex);
+        for (auto &v : m_voices) {
+            if (v.id == id) {
+                v.pan.store(std::clamp(pan, -1.0, 1.0), std::memory_order_relaxed);
+                return true;
+            }
+        }
+        return false;
+    }
+
+    bool hasVoice(VoiceId id) const
+    {
+        std::lock_guard<std::mutex> lock(m_mutex);
+        for (const auto &v : m_voices) if (v.id == id) return true;
+        return false;
+    }
+
+    void appendActiveVoices(QList<ActiveVoice> &out) const
+    {
+        std::lock_guard<std::mutex> lock(m_mutex);
+        for (const auto &v : m_voices) {
+            if (!v.file) continue;
+            ActiveVoice a;
+            a.id = v.id;
+            a.deviceId = v.deviceId;
+            a.gainDb = linearToDb(v.gain.load(std::memory_order_relaxed));
+            a.pan    = v.pan.load(std::memory_order_relaxed);
+            a.positionSeconds = (v.srcSampleRate > 0)
+                ? static_cast<double>(v.readPos) / v.srcSampleRate : 0.0;
+            const qint64 endFrame = (v.endFrame > 0) ? v.endFrame
+                                                     : v.file->frameCount();
+            a.durationSeconds = (v.srcSampleRate > 0 && endFrame > 0)
+                ? static_cast<double>(endFrame) / v.srcSampleRate : 0.0;
+            a.loop = v.loop;
+            out.append(a);
+        }
+    }
+
     int activeCount() const
     {
         std::lock_guard<std::mutex> lock(m_mutex);
@@ -121,12 +186,15 @@ public:
 private:
     struct Voice {
         VoiceId  id = 0;
+        QByteArray deviceId;
         std::shared_ptr<const AudioFile> file;
-        qint64   readPos = 0;          // frames into the file
-        qint64   endFrame = 0;         // 0 = play to file end (trim out)
-        std::atomic<double> gain{1.0}; // user target gain (linear)
-        std::atomic<double> currentGain{1.0}; // smoothed actual gain
-        std::atomic<double> targetGain{1.0};  // for fade
+        qint64   readPos = 0;
+        qint64   endFrame = 0;
+        double   srcSampleRate = 0.0;
+        std::atomic<double> gain{1.0};
+        std::atomic<double> currentGain{1.0};
+        std::atomic<double> targetGain{1.0};
+        std::atomic<double> pan{0.0};
         qint64   gainFadeSamples = 0;
         qint64   gainFadeCounter = 0;
         double   gainFadeFrom = 1.0;
@@ -136,20 +204,19 @@ private:
         qint64   fadeOutSamples = 0;
         qint64   fadeOutCounter = 0;
         double   fadeOutFromGain = 1.0;
-        double   pan = 0.0;            // -1..+1
         bool     loop = false;
         bool     finished = false;
 
-        // Voices are not copyable — atomics — but we move them around in
-        // the vector when erasing. Custom move ctor.
         Voice() = default;
         Voice(const Voice &) = delete;
         Voice &operator=(const Voice &) = delete;
         Voice(Voice &&other) noexcept
             : id(other.id)
+            , deviceId(std::move(other.deviceId))
             , file(std::move(other.file))
             , readPos(other.readPos)
             , endFrame(other.endFrame)
+            , srcSampleRate(other.srcSampleRate)
             , gainFadeSamples(other.gainFadeSamples)
             , gainFadeCounter(other.gainFadeCounter)
             , gainFadeFrom(other.gainFadeFrom)
@@ -159,20 +226,22 @@ private:
             , fadeOutSamples(other.fadeOutSamples)
             , fadeOutCounter(other.fadeOutCounter)
             , fadeOutFromGain(other.fadeOutFromGain)
-            , pan(other.pan)
             , loop(other.loop)
             , finished(other.finished)
         {
             gain.store(other.gain.load(std::memory_order_relaxed), std::memory_order_relaxed);
             currentGain.store(other.currentGain.load(std::memory_order_relaxed), std::memory_order_relaxed);
             targetGain.store(other.targetGain.load(std::memory_order_relaxed), std::memory_order_relaxed);
+            pan.store(other.pan.load(std::memory_order_relaxed), std::memory_order_relaxed);
         }
         Voice &operator=(Voice &&other) noexcept {
             if (this == &other) return *this;
             id = other.id;
+            deviceId = std::move(other.deviceId);
             file = std::move(other.file);
             readPos = other.readPos;
             endFrame = other.endFrame;
+            srcSampleRate = other.srcSampleRate;
             gainFadeSamples = other.gainFadeSamples;
             gainFadeCounter = other.gainFadeCounter;
             gainFadeFrom = other.gainFadeFrom;
@@ -182,12 +251,12 @@ private:
             fadeOutSamples = other.fadeOutSamples;
             fadeOutCounter = other.fadeOutCounter;
             fadeOutFromGain = other.fadeOutFromGain;
-            pan = other.pan;
             loop = other.loop;
             finished = other.finished;
             gain.store(other.gain.load(std::memory_order_relaxed), std::memory_order_relaxed);
             currentGain.store(other.currentGain.load(std::memory_order_relaxed), std::memory_order_relaxed);
             targetGain.store(other.targetGain.load(std::memory_order_relaxed), std::memory_order_relaxed);
+            pan.store(other.pan.load(std::memory_order_relaxed), std::memory_order_relaxed);
             return *this;
         }
     };
@@ -198,7 +267,6 @@ private:
 
     mutable std::mutex m_mutex;
     std::vector<Voice> m_voices;
-    std::atomic<VoiceId> m_nextId{0};
 };
 
 qint64 AudioEngine::Mixer::readData(char *data, qint64 maxlen)
@@ -227,17 +295,20 @@ qint64 AudioEngine::Mixer::readData(char *data, qint64 maxlen)
             const qint64 effectiveEnd = (v.endFrame > 0)
                 ? std::min(v.endFrame, totalFrames) : totalFrames;
 
-            // Sample-rate mismatch: simple constant-stride resample with
-            // linear interpolation. Adequate for v1; phase 7 polish can
-            // upgrade to a band-limited filter.
             const double srcSr = v.file->sampleRate();
             const double dstSr = m_outputSampleRate;
             const double rate  = srcSr / dstSr;
 
+            // Pan read once per buffer — UI changes lag by buffer length but
+            // that's perceptually fine and avoids per-sample atomic loads.
+            const double curPan = v.pan.load(std::memory_order_relaxed);
+            const double panT   = (curPan + 1.0) * 0.5;
+            const double leftG  = std::cos(panT * M_PI / 2.0);
+            const double rightG = std::sin(panT * M_PI / 2.0);
+
             for (qint64 f = 0; f < framesWanted; ++f) {
                 if (v.finished) break;
 
-                // Source position in fractional frames.
                 const double srcF = static_cast<double>(v.readPos) + f * rate;
                 const qint64 i0 = static_cast<qint64>(srcF);
                 const double frac = srcF - static_cast<double>(i0);
@@ -249,15 +320,12 @@ qint64 AudioEngine::Mixer::readData(char *data, qint64 maxlen)
                     i1 = effectiveEnd - 1;
                 }
                 if (i0 >= effectiveEnd) {
-                    if (v.loop) {
-                        // Loop: wrap. (Already handled below as readPos modulo at end.)
-                    } else {
+                    if (!v.loop) {
                         v.finished = true;
                         break;
                     }
                 }
 
-                // Compute envelope gain.
                 double envGain = 1.0;
                 const qint64 absSamp = v.readPos + f * static_cast<qint64>(rate);
                 if (v.fadeInSamples > 0 && absSamp < v.fadeInSamples) {
@@ -272,7 +340,6 @@ qint64 AudioEngine::Mixer::readData(char *data, qint64 maxlen)
                     }
                 }
 
-                // Smooth gain fade.
                 double cur = v.currentGain.load(std::memory_order_relaxed);
                 if (v.gainFadeSamples > 0 && v.gainFadeCounter < v.gainFadeSamples) {
                     const double t = static_cast<double>(v.gainFadeCounter) / v.gainFadeSamples;
@@ -284,19 +351,7 @@ qint64 AudioEngine::Mixer::readData(char *data, qint64 maxlen)
                     v.currentGain.store(cur, std::memory_order_relaxed);
                 }
 
-                const double total = cur * envGain * v.fadeOutFromGain
-                                     / (v.fadeOutFromGain == 0.0 ? 1.0 : v.fadeOutFromGain);
-                // The line above intentionally cancels: we kept fadeOutFromGain
-                // for documentation but the multiplication factor is already in
-                // envGain via the linear ramp. Real factor:
                 const double finalGain = cur * envGain;
-
-                // Equal-power pan (-1..+1) for stereo output. For non-stereo
-                // outputs the pan is ignored and channels are routed 1:1
-                // (matrix mixer comes later; revisit when patches land).
-                const double panT  = (v.pan + 1.0) * 0.5; // 0..1
-                const double leftG  = std::cos(panT * M_PI / 2.0);
-                const double rightG = std::sin(panT * M_PI / 2.0);
 
                 for (int oc = 0; oc < outChans; ++oc) {
                     int srcCh;
@@ -320,11 +375,8 @@ qint64 AudioEngine::Mixer::readData(char *data, qint64 maxlen)
                     }
                     out[f * outChans + oc] += static_cast<float>(s * finalGain * panGain);
                 }
-
-                (void)total; // silence unused-variable warning
             }
 
-            // Advance read position by the resampled amount.
             const qint64 advanced = static_cast<qint64>(framesWanted * rate);
             v.readPos += advanced;
             if (v.loop && effectiveEnd > 0) v.readPos %= effectiveEnd;
@@ -335,14 +387,12 @@ qint64 AudioEngine::Mixer::readData(char *data, qint64 maxlen)
             if (v.finished) finished.push_back(v.id);
         }
 
-        // Drop finished voices.
         if (!finished.empty()) {
             m_voices.erase(std::remove_if(m_voices.begin(), m_voices.end(),
                 [&](const Voice &v) { return v.finished; }), m_voices.end());
         }
     }
 
-    // Notify on the main thread.
     for (auto id : finished) {
         QMetaObject::invokeMethod(m_engine, "onMixerVoiceFinished",
             Qt::QueuedConnection, Q_ARG(quewi::audio::VoiceId, id));
@@ -355,136 +405,205 @@ qint64 AudioEngine::Mixer::readData(char *data, qint64 maxlen)
 // AudioEngine
 // ---------------------------------------------------------------------
 
+namespace {
+std::atomic<VoiceId> s_globalNextVoiceId{0};
+}
+
 AudioEngine::AudioEngine(QObject *parent)
     : QObject(parent)
-    , m_outputDevice(QMediaDevices::defaultAudioOutput())
+    , m_defaultDevice(QMediaDevices::defaultAudioOutput())
 {
     qRegisterMetaType<quewi::audio::VoiceId>("quewi::audio::VoiceId");
 }
 
 AudioEngine::~AudioEngine() = default;
 
-void AudioEngine::setOutputDevice(const QAudioDevice &device)
+void AudioEngine::setDefaultOutputDevice(const QAudioDevice &device)
 {
-    if (device.id() == m_outputDevice.id()) return;
-    m_outputDevice = device;
-    if (m_running.load()) {
-        shutdown();
-        ensureRunning();
-    }
+    if (device.id() == m_defaultDevice.id()) return;
+    m_defaultDevice = device;
+    // If the previous default has an open context, leave it for any voices
+    // still running. Future fire()s with empty deviceId will pick up the
+    // new default lazily.
 }
 
-bool AudioEngine::ensureRunning()
+QAudioDevice AudioEngine::resolveDevice(const QByteArray &deviceId) const
 {
-    if (m_running.load()) return true;
-    m_lastError.clear();
-
-    if (m_outputDevice.isNull()) {
-        m_outputDevice = QMediaDevices::defaultAudioOutput();
+    if (deviceId.isEmpty()) return m_defaultDevice;
+    for (const auto &dev : QMediaDevices::audioOutputs()) {
+        if (dev.id() == deviceId) return dev;
     }
-    if (m_outputDevice.isNull()) {
+    return m_defaultDevice; // fallback if device went away
+}
+
+AudioEngine::DeviceContext *AudioEngine::contextForDeviceId(const QByteArray &deviceId)
+{
+    for (auto &ctx : m_contexts) {
+        if (ctx->device.id() == deviceId) return ctx.get();
+    }
+    return nullptr;
+}
+
+AudioEngine::DeviceContext *AudioEngine::ensureContextForDevice(const QAudioDevice &device)
+{
+    if (device.isNull()) {
         m_lastError = tr("No audio output device available");
         emit engineError(m_lastError);
-        return false;
+        return nullptr;
     }
+
+    const QByteArray key = device.id();
+    if (auto *existing = contextForDeviceId(key)) return existing;
 
     QAudioFormat fmt;
     fmt.setSampleFormat(QAudioFormat::Float);
     fmt.setSampleRate(48000);
     fmt.setChannelCount(2);
-
-    if (!m_outputDevice.isFormatSupported(fmt)) {
-        // Fall back to whatever the device prefers.
-        fmt = m_outputDevice.preferredFormat();
+    if (!device.isFormatSupported(fmt)) {
+        fmt = device.preferredFormat();
         if (fmt.sampleFormat() != QAudioFormat::Float) {
             fmt.setSampleFormat(QAudioFormat::Float);
         }
     }
-
-    if (!m_outputDevice.isFormatSupported(fmt)) {
-        m_lastError = tr("Device '%1' rejects float32 format").arg(m_outputDevice.description());
+    if (!device.isFormatSupported(fmt)) {
+        m_lastError = tr("Device '%1' rejects float32 format").arg(device.description());
         emit engineError(m_lastError);
-        return false;
+        return nullptr;
     }
 
-    m_outputSampleRate.store(fmt.sampleRate());
-    m_outputChannels.store(fmt.channelCount());
+    auto ctx = std::make_unique<DeviceContext>();
+    ctx->device = device;
+    ctx->sampleRate = fmt.sampleRate();
+    ctx->channels   = fmt.channelCount();
+    ctx->mixer = std::make_unique<Mixer>(this);
+    ctx->mixer->configure(fmt.sampleRate(), fmt.channelCount());
+    ctx->mixer->open(QIODevice::ReadOnly);
+    ctx->sink = std::make_unique<QAudioSink>(device, fmt, this);
+    ctx->sink->setBufferSize(32768);
 
-    m_mixer = std::make_unique<Mixer>(this);
-    m_mixer->configure(fmt.sampleRate(), fmt.channelCount());
-    m_mixer->open(QIODevice::ReadOnly);
-
-    m_sink = std::make_unique<QAudioSink>(m_outputDevice, fmt, this);
-    // 32 KB ≈ 85 ms at 48k stereo float. Plenty of headroom; the GoEngine
-    // can tighten this when sample-accurate scheduling lands.
-    m_sink->setBufferSize(32768);
-
-    connect(m_sink.get(), &QAudioSink::stateChanged, this,
-        [this](QAudio::State s) {
-            if (s == QAudio::StoppedState) {
-                const auto err = m_sink->error();
+    auto *ctxPtr = ctx.get();
+    connect(ctx->sink.get(), &QAudioSink::stateChanged, this,
+        [this, ctxPtr](QAudio::State s) {
+            if (s == QAudio::StoppedState && ctxPtr->sink) {
+                const auto err = ctxPtr->sink->error();
                 if (err != QAudio::NoError) {
-                    m_lastError = tr("Audio sink error: %1").arg(static_cast<int>(err));
+                    m_lastError = tr("Audio sink error on '%1': %2")
+                        .arg(ctxPtr->device.description())
+                        .arg(static_cast<int>(err));
                     emit engineError(m_lastError);
                 }
             }
         });
 
-    m_sink->start(m_mixer.get());
-
-    if (m_sink->error() != QAudio::NoError) {
-        m_lastError = tr("Failed to start audio sink (error %1) for device '%2'")
-                          .arg(static_cast<int>(m_sink->error()))
-                          .arg(m_outputDevice.description());
+    ctx->sink->start(ctx->mixer.get());
+    if (ctx->sink->error() != QAudio::NoError) {
+        m_lastError = tr("Failed to start audio sink for '%1' (error %2)")
+            .arg(device.description())
+            .arg(static_cast<int>(ctx->sink->error()));
         emit engineError(m_lastError);
-        return false;
+        return nullptr;
     }
 
-    m_running.store(true);
-    emit runningChanged(true);
-    return true;
+    m_contexts.push_back(std::move(ctx));
+    (void)key;
+
+    if (!m_running.load()) {
+        m_running.store(true);
+        emit runningChanged(true);
+    }
+    return ctxPtr;
+}
+
+bool AudioEngine::ensureRunning()
+{
+    m_lastError.clear();
+    if (m_defaultDevice.isNull()) m_defaultDevice = QMediaDevices::defaultAudioOutput();
+    return ensureContextForDevice(m_defaultDevice) != nullptr;
 }
 
 void AudioEngine::shutdown()
 {
-    if (!m_running.load()) return;
-    if (m_sink) m_sink->stop();
-    m_sink.reset();
-    if (m_mixer) m_mixer->close();
-    m_mixer.reset();
-    m_running.store(false);
-    emit runningChanged(false);
+    for (auto &ctx : m_contexts) {
+        if (ctx->sink) ctx->sink->stop();
+        ctx->sink.reset();
+        if (ctx->mixer) ctx->mixer->close();
+        ctx->mixer.reset();
+    }
+    m_contexts.clear();
+    if (m_running.load()) {
+        m_running.store(false);
+        emit runningChanged(false);
+    }
 }
 
 VoiceId AudioEngine::fire(const std::shared_ptr<const AudioFile> &file,
                           const VoiceParams &params)
 {
-    if (!ensureRunning()) return 0;
     if (!file || file->state() != AudioFile::State::Loaded) return 0;
-    return m_mixer->addVoice(file, params);
+
+    const QAudioDevice dev = resolveDevice(params.outputDeviceId);
+    auto *ctx = ensureContextForDevice(dev);
+    if (!ctx) return 0;
+
+    const VoiceId id = ++s_globalNextVoiceId;
+    return ctx->mixer->addVoice(id, file, params, dev.id());
 }
 
 void AudioEngine::stop(VoiceId id, double fadeOutSeconds)
 {
-    if (!m_mixer) return;
-    m_mixer->stopVoice(id, fadeOutSeconds);
+    for (auto &ctx : m_contexts) {
+        if (ctx->mixer && ctx->mixer->hasVoice(id)) {
+            ctx->mixer->stopVoice(id, fadeOutSeconds);
+            return;
+        }
+    }
 }
 
 void AudioEngine::stopAll(double fadeOutSeconds)
 {
-    if (!m_mixer) return;
-    m_mixer->stopAll(fadeOutSeconds);
+    for (auto &ctx : m_contexts) {
+        if (ctx->mixer) ctx->mixer->stopAll(fadeOutSeconds);
+    }
 }
 
 void AudioEngine::fadeGain(VoiceId id, double targetDb, double durationSeconds)
 {
-    if (!m_mixer) return;
-    m_mixer->fadeGain(id, targetDb, durationSeconds);
+    for (auto &ctx : m_contexts) {
+        if (ctx->mixer && ctx->mixer->hasVoice(id)) {
+            ctx->mixer->fadeGain(id, targetDb, durationSeconds);
+            return;
+        }
+    }
+}
+
+void AudioEngine::setVoiceGain(VoiceId id, double gainDb)
+{
+    for (auto &ctx : m_contexts) {
+        if (ctx->mixer && ctx->mixer->setVoiceGain(id, gainDb)) return;
+    }
+}
+
+void AudioEngine::setVoicePan(VoiceId id, double pan)
+{
+    for (auto &ctx : m_contexts) {
+        if (ctx->mixer && ctx->mixer->setVoicePan(id, pan)) return;
+    }
+}
+
+QList<ActiveVoice> AudioEngine::activeVoices() const
+{
+    QList<ActiveVoice> out;
+    for (const auto &ctx : m_contexts) {
+        if (ctx->mixer) ctx->mixer->appendActiveVoices(out);
+    }
+    return out;
 }
 
 int AudioEngine::activeVoiceCount() const
 {
-    return m_mixer ? m_mixer->activeCount() : 0;
+    int n = 0;
+    for (const auto &ctx : m_contexts) if (ctx->mixer) n += ctx->mixer->activeCount();
+    return n;
 }
 
 void AudioEngine::onMixerVoiceFinished(VoiceId id)

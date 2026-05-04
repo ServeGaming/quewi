@@ -1,6 +1,7 @@
 #include "ui/Inspector.h"
 
 #include "audio/AudioCue.h"
+#include "audio/AudioEngine.h"
 #include "audio/AudioFile.h"
 #include "core/CueList.h"
 #include "core/UndoCommands.h"
@@ -12,8 +13,10 @@
 #include "ui/WaveformWidget.h"
 #include "video/VideoCue.h"
 
+#include <QAudioDevice>
 #include <QButtonGroup>
 #include <QColorDialog>
+#include <QMediaDevices>
 #include <QHeaderView>
 #include <QSlider>
 #include <QTableWidget>
@@ -238,6 +241,13 @@ Inspector::Inspector(QWidget *parent)
     m_audioLoop = new QCheckBox(tr("Loop"), m_audioGroup);
     audioForm->addRow(QString(), m_audioLoop);
 
+    m_audioOutputDevice = new QComboBox(m_audioGroup);
+    m_audioOutputDevice->addItem(tr("(default)"), QByteArray());
+    for (const auto &dev : QMediaDevices::audioOutputs()) {
+        m_audioOutputDevice->addItem(dev.description(), dev.id());
+    }
+    audioForm->addRow(tr("Output"), m_audioOutputDevice);
+
     auto *quickRow = new QHBoxLayout();
     m_audioNormalize = new QPushButton(tr("Normalize"), m_audioGroup);
     m_audioReverse   = new QPushButton(tr("Reverse"),   m_audioGroup);
@@ -426,6 +436,8 @@ Inspector::Inspector(QWidget *parent)
     connect(m_audioReverse,    &QPushButton::clicked,            this, &Inspector::reverseAudio);
     connect(m_audioModeTrim,   &QPushButton::clicked,            this, &Inspector::setAudioModeTrim);
     connect(m_audioModeFade,   &QPushButton::clicked,            this, &Inspector::setAudioModeFade);
+    connect(m_audioOutputDevice, &QComboBox::currentIndexChanged,
+            this, [this](int){ commitAudioOutputDevice(); });
 
     // Waveform handles: drag updates the spinbox value live; release pushes
     // a single undo step via the spinbox's editingFinished commit handlers.
@@ -484,6 +496,8 @@ Inspector::Inspector(QWidget *parent)
 Inspector::~Inspector() = default;
 
 void Inspector::setWorkspace(core::Workspace *workspace) { m_workspace = workspace; }
+
+void Inspector::setAudioEngine(audio::AudioEngine *engine) { m_audioEngine = engine; }
 
 void Inspector::setCue(cues::Cue *cue)
 {
@@ -598,6 +612,15 @@ void Inspector::rebuild()
         m_audioTrimIn->setValue(audioCue->trimInSeconds());
         m_audioTrimOut->setValue(audioCue->trimOutSeconds());
         m_audioLoop->setChecked(audioCue->loop());
+        const QByteArray devId = audioCue->outputDeviceId();
+        int devIdx = 0;
+        for (int i = 0; i < m_audioOutputDevice->count(); ++i) {
+            if (m_audioOutputDevice->itemData(i).toByteArray() == devId) {
+                devIdx = i;
+                break;
+            }
+        }
+        m_audioOutputDevice->setCurrentIndex(devIdx);
         m_audioWaveform->setAudioFile(audioCue->audioFile());
         m_audioWaveform->setMarkers(audioCue->trimInSeconds(),
                                     audioCue->trimOutSeconds(),
@@ -768,6 +791,13 @@ void Inspector::onGainSliderChanged(int centiDb)
     m_audioGainLabel->setText(QStringLiteral("%1 dB").arg(QString::number(db, 'f', 1)));
     if (m_loading) return;
     pushFieldEdit(QStringLiteral("gainDb"), db);
+    // Live-apply to the playing voice (if any) so the change is audible
+    // immediately, not just stored on the cue for next fire.
+    if (m_audioEngine) {
+        if (auto *ac = qobject_cast<audio::AudioCue *>(m_cue.data())) {
+            if (auto vid = ac->currentVoiceId()) m_audioEngine->setVoiceGain(vid, db);
+        }
+    }
 }
 
 void Inspector::onPanSliderChanged(int hundredths)
@@ -779,6 +809,11 @@ void Inspector::onPanSliderChanged(int hundredths)
                   : QStringLiteral("R %1").arg(QString::number(pv, 'f', 2))));
     if (m_loading) return;
     pushFieldEdit(QStringLiteral("pan"), pv);
+    if (m_audioEngine) {
+        if (auto *ac = qobject_cast<audio::AudioCue *>(m_cue.data())) {
+            if (auto vid = ac->currentVoiceId()) m_audioEngine->setVoicePan(vid, pv);
+        }
+    }
 }
 
 void Inspector::commitAudioFadeIn()  { if (!m_loading) pushFieldEdit(QStringLiteral("fadeInSeconds"),  m_audioFadeIn->value()); }
@@ -786,6 +821,13 @@ void Inspector::commitAudioFadeOut() { if (!m_loading) pushFieldEdit(QStringLite
 void Inspector::commitAudioTrimIn()  { if (!m_loading) pushFieldEdit(QStringLiteral("trimInSeconds"),  m_audioTrimIn->value()); }
 void Inspector::commitAudioTrimOut() { if (!m_loading) pushFieldEdit(QStringLiteral("trimOutSeconds"), m_audioTrimOut->value()); }
 void Inspector::commitAudioLoop()    { if (!m_loading) pushFieldEdit(QStringLiteral("loop"),           m_audioLoop->isChecked()); }
+
+void Inspector::commitAudioOutputDevice()
+{
+    if (m_loading) return;
+    pushFieldEdit(QStringLiteral("outputDeviceId"),
+                  m_audioOutputDevice->currentData().toByteArray());
+}
 
 void Inspector::setAudioModeTrim()
 {

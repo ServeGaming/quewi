@@ -455,6 +455,46 @@ QListWidget::item:selected {
     color: #ECEEF3;
 }
 
+/* ===================== Active cues panel ===================== */
+QWidget#activeCuesPanel {
+    background: #131519;
+    border-top: 1px solid #23262E;
+}
+QLabel#activeCuesHeader {
+    color: #A8AEBA;
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    padding-bottom: 4px;
+}
+QWidget#activeCueRow {
+    background: #1A1D23;
+    border-radius: 4px;
+}
+QPushButton#activeStopButton {
+    background: transparent;
+    color: #FF8888;
+    border: 1px solid #4A2424;
+    border-radius: 3px;
+    padding: 2px 8px;
+    font-size: 11px;
+    font-weight: 600;
+}
+QPushButton#activeStopButton:hover {
+    background: #FF5A5A;
+    color: #0E0F12;
+    border-color: #FF5A5A;
+}
+QProgressBar {
+    background: #0E0F12;
+    border: none;
+    border-radius: 3px;
+}
+QProgressBar::chunk {
+    background: #62B4FF;
+    border-radius: 3px;
+}
+
 /* ===================== Dialog button box ===================== */
 QDialogButtonBox {
     button-layout: 0; /* Win style ordering */

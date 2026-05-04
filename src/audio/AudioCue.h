@@ -46,6 +46,7 @@ public:
     double  trimOutSeconds() const { return m_trimOutSeconds; }
     double  pan()            const { return m_pan; }
     bool    loop()           const { return m_loop; }
+    QByteArray outputDeviceId() const { return m_outputDeviceId; }
 
     std::shared_ptr<AudioFile> audioFile() const { return m_file; }
 
@@ -61,6 +62,7 @@ private:
     double  m_trimOutSeconds = 0.0;
     double  m_pan            = 0.0;
     bool    m_loop           = false;
+    QByteArray m_outputDeviceId;   // empty = use AudioEngine default
 
     std::shared_ptr<AudioFile> m_file;
     quint64                    m_currentVoiceId = 0;

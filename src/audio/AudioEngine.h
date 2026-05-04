@@ -1,9 +1,10 @@
 #pragma once
 
 #include <QAudioDevice>
+#include <QByteArray>
 #include <QIODevice>
+#include <QList>
 #include <QObject>
-#include <QPointer>
 #include <atomic>
 #include <memory>
 #include <mutex>
@@ -19,50 +20,69 @@ using VoiceId = quint64;
 
 // What the engine plays. Owned by the engine. Read by the mixer thread
 // via mutex-guarded snapshot taken at the top of each readData() call —
-// inside the callback, only atomic gain and the immutable AudioFile
+// inside the callback, only atomic gain/pan and the immutable AudioFile
 // samples are touched.
 struct VoiceParams {
-    double gainDb        = 0.0;
+    double gainDb         = 0.0;
     double fadeInSeconds  = 0.0;
     double fadeOutSeconds = 0.0;
     double trimInSeconds  = 0.0;   // start playback this far into the file
     double trimOutSeconds = 0.0;   // 0 = play to end of file
-    double pan             = 0.0;  // -1 = full L, 0 = centre, +1 = full R
+    double pan            = 0.0;   // -1 = full L, 0 = centre, +1 = full R
     bool   loop           = false;
+
+    // Empty = use the current default output device.
+    QByteArray outputDeviceId;
 };
 
-// The engine owns one output device and any number of active voices.
-// Devices are opened lazily — the first fire() call brings the audio
-// hardware up; idle quewi keeps the audio thread silent.
+// Snapshot of a currently-playing voice — surfaced to the UI so the
+// active-cues panel can show meters, position, and a stop button.
+struct ActiveVoice {
+    VoiceId    id              = 0;
+    QByteArray deviceId;
+    double     gainDb          = 0.0;
+    double     pan             = 0.0;
+    double     positionSeconds = 0.0;
+    double     durationSeconds = 0.0;   // 0 if unknown / loop
+    bool       loop            = false;
+};
+
+// The engine owns one or more output devices and any number of active
+// voices. Each voice is bound to a specific device; voices on different
+// devices play simultaneously through their own QAudioSink. Devices are
+// opened lazily — the first fire() call brings the relevant hardware up;
+// idle quewi keeps the audio threads silent.
 class AudioEngine : public QObject {
     Q_OBJECT
 public:
     explicit AudioEngine(QObject *parent = nullptr);
     ~AudioEngine() override;
 
-    // Pick the output device. Defaults to the system default. Must be
-    // called before the device is opened, OR triggers a stop+restart.
-    void setOutputDevice(const QAudioDevice &device);
-    QAudioDevice outputDevice() const { return m_outputDevice; }
+    // The default device is used by voices with an empty outputDeviceId.
+    void setDefaultOutputDevice(const QAudioDevice &device);
+    QAudioDevice defaultOutputDevice() const { return m_defaultDevice; }
 
-    // Spin up the device explicitly (otherwise lazy at first fire()).
+    // Spin up the default device explicitly (otherwise lazy at first fire()).
     bool ensureRunning();
     void shutdown();
 
-    // Start a new voice playing the given file. Returns 0 on failure.
     VoiceId fire(const std::shared_ptr<const AudioFile> &file,
                  const VoiceParams &params);
 
     // Active voice control.
     void stop(VoiceId id, double fadeOutSeconds = 0.05);
     void stopAll(double fadeOutSeconds = 0.05);
-
-    // Adjust a voice's gain over time (used by Fade cues).
     void fadeGain(VoiceId id, double targetDb, double durationSeconds);
 
+    // Real-time live changes — applied immediately, no fade. Used by the
+    // inspector when the user nudges a slider on a playing cue.
+    void setVoiceGain(VoiceId id, double gainDb);
+    void setVoicePan(VoiceId id, double pan);
+
+    // For the active-cues panel. Cheap snapshot, safe to call at 4 Hz.
+    QList<ActiveVoice> activeVoices() const;
+
     bool isRunning() const { return m_running.load(); }
-    int  outputSampleRate() const { return m_outputSampleRate.load(); }
-    int  outputChannels()   const { return m_outputChannels.load(); }
     int  activeVoiceCount() const;
 
     QString lastError() const { return m_lastError; }
@@ -75,15 +95,24 @@ signals:
 private:
     class Mixer;
 
+    struct DeviceContext {
+        QAudioDevice                  device;
+        std::unique_ptr<QAudioSink>   sink;
+        std::unique_ptr<Mixer>        mixer;
+        int                           sampleRate = 48000;
+        int                           channels   = 2;
+    };
+
+    DeviceContext *ensureContextForDevice(const QAudioDevice &device);
+    DeviceContext *contextForDeviceId(const QByteArray &deviceId);
+    QAudioDevice   resolveDevice(const QByteArray &deviceId) const;
+
     void onMixerVoiceFinished(VoiceId id);
 
-    QAudioDevice                  m_outputDevice;
-    std::unique_ptr<QAudioSink>   m_sink;
-    std::unique_ptr<Mixer>        m_mixer;
-    std::atomic<bool>             m_running{false};
-    std::atomic<int>              m_outputSampleRate{0};
-    std::atomic<int>              m_outputChannels{0};
-    QString                       m_lastError;
+    QAudioDevice                                m_defaultDevice;
+    std::vector<std::unique_ptr<DeviceContext>> m_contexts;
+    std::atomic<bool>                           m_running{false};
+    QString                                     m_lastError;
 };
 
 } // namespace quewi::audio

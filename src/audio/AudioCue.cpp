@@ -17,6 +17,7 @@ QVariant AudioCue::field(const QString &key) const
     if (key == QLatin1String("trimOutSeconds")) return m_trimOutSeconds;
     if (key == QLatin1String("pan"))            return m_pan;
     if (key == QLatin1String("loop"))           return m_loop;
+    if (key == QLatin1String("outputDeviceId")) return m_outputDeviceId;
     return cues::Cue::field(key);
 }
 
@@ -48,6 +49,13 @@ void AudioCue::setField(const QString &key, const QVariant &value)
         emitChanged();
         return;
     }
+    if (key == QLatin1String("outputDeviceId")) {
+        const auto v = value.toByteArray();
+        if (m_outputDeviceId == v) return;
+        m_outputDeviceId = v;
+        emitChanged();
+        return;
+    }
     cues::Cue::setField(key, value);
 }
 
@@ -62,6 +70,7 @@ QJsonObject AudioCue::toPayload() const
     o.insert(QStringLiteral("trimOutSeconds"), m_trimOutSeconds);
     o.insert(QStringLiteral("pan"),            m_pan);
     o.insert(QStringLiteral("loop"),           m_loop);
+    o.insert(QStringLiteral("outputDeviceId"), QString::fromLatin1(m_outputDeviceId));
     return o;
 }
 
@@ -76,6 +85,7 @@ void AudioCue::fromPayload(const QJsonObject &payload)
     m_trimOutSeconds = payload.value(QStringLiteral("trimOutSeconds")).toDouble();
     m_pan            = payload.value(QStringLiteral("pan")).toDouble();
     m_loop           = payload.value(QStringLiteral("loop")).toBool();
+    m_outputDeviceId = payload.value(QStringLiteral("outputDeviceId")).toString().toLatin1();
     m_file.reset();
 }
 
