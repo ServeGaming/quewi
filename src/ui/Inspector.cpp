@@ -10,7 +10,9 @@
 #include "lighting/LightCue.h"
 #include "osc/OscCue.h"
 #include "ui/WaveformWidget.h"
+#include "video/VideoCue.h"
 
+#include <QColorDialog>
 #include <QHeaderView>
 #include <QTableWidget>
 #include <QTableWidgetItem>
@@ -219,6 +221,86 @@ Inspector::Inspector(QWidget *parent)
     lfForm->addRow(tr("Duration"), m_lightFadeDuration);
     outer->addWidget(m_lightFadeGroup);
 
+    // ---------------- Visual (video/image/text) group ----------------
+    m_visualGroup = new QGroupBox(tr("Visual"), this);
+    auto *visualOuter = new QVBoxLayout(m_visualGroup);
+
+    auto *visualFileRow = new QHBoxLayout();
+    m_visualPath   = new QLineEdit(m_visualGroup);
+    m_visualPath->setReadOnly(true);
+    m_visualPath->setPlaceholderText(tr("(no file)"));
+    m_visualBrowse = new QPushButton(tr("Browse…"), m_visualGroup);
+    visualFileRow->addWidget(m_visualPath, 1);
+    visualFileRow->addWidget(m_visualBrowse);
+    visualOuter->addLayout(visualFileRow);
+
+    m_textString = new QLineEdit(m_visualGroup);
+    m_textString->setPlaceholderText(tr("Text to display"));
+    visualOuter->addWidget(m_textString);
+
+    auto *visualForm = new QFormLayout();
+    visualForm->setHorizontalSpacing(12);
+    visualForm->setVerticalSpacing(8);
+    visualForm->setLabelAlignment(Qt::AlignRight | Qt::AlignVCenter);
+
+    m_visualScreen = new QSpinBox(m_visualGroup);
+    m_visualScreen->setRange(0, 31);
+    visualForm->addRow(tr("Screen"), m_visualScreen);
+
+    auto makePctSpinner = [&](QWidget *p) {
+        auto *s = new QDoubleSpinBox(p);
+        s->setDecimals(3);
+        s->setRange(0.0, 1.0);
+        s->setSingleStep(0.05);
+        return s;
+    };
+    m_visualX = makePctSpinner(m_visualGroup);
+    m_visualY = makePctSpinner(m_visualGroup);
+    m_visualW = makePctSpinner(m_visualGroup);
+    m_visualH = makePctSpinner(m_visualGroup);
+    m_visualW->setValue(1.0);
+    m_visualH->setValue(1.0);
+    auto *posRow = new QHBoxLayout();
+    posRow->addWidget(new QLabel(QStringLiteral("x"), m_visualGroup));
+    posRow->addWidget(m_visualX);
+    posRow->addWidget(new QLabel(QStringLiteral("y"), m_visualGroup));
+    posRow->addWidget(m_visualY);
+    auto *posWrap = new QWidget(m_visualGroup);
+    posWrap->setLayout(posRow);
+    posRow->setContentsMargins(0, 0, 0, 0);
+    visualForm->addRow(tr("Position"), posWrap);
+
+    auto *sizeRow = new QHBoxLayout();
+    sizeRow->addWidget(new QLabel(QStringLiteral("w"), m_visualGroup));
+    sizeRow->addWidget(m_visualW);
+    sizeRow->addWidget(new QLabel(QStringLiteral("h"), m_visualGroup));
+    sizeRow->addWidget(m_visualH);
+    auto *sizeWrap = new QWidget(m_visualGroup);
+    sizeWrap->setLayout(sizeRow);
+    sizeRow->setContentsMargins(0, 0, 0, 0);
+    visualForm->addRow(tr("Size"), sizeWrap);
+
+    m_visualOpacity = new QDoubleSpinBox(m_visualGroup);
+    m_visualOpacity->setDecimals(2);
+    m_visualOpacity->setRange(0.0, 1.0);
+    m_visualOpacity->setSingleStep(0.05);
+    m_visualOpacity->setValue(1.0);
+    visualForm->addRow(tr("Opacity"), m_visualOpacity);
+
+    m_videoLoop = new QCheckBox(tr("Loop"), m_visualGroup);
+    visualForm->addRow(QString(), m_videoLoop);
+
+    m_textSize = new QSpinBox(m_visualGroup);
+    m_textSize->setRange(8, 600);
+    m_textSize->setSuffix(QStringLiteral(" px"));
+    visualForm->addRow(tr("Text size"), m_textSize);
+
+    m_textColorBtn = new QPushButton(tr("Pick text color…"), m_visualGroup);
+    visualForm->addRow(QString(), m_textColorBtn);
+
+    visualOuter->addLayout(visualForm);
+    outer->addWidget(m_visualGroup);
+
     outer->addStretch(1);
 
     // ---------------- Connect ----------------
@@ -251,6 +333,16 @@ Inspector::Inspector(QWidget *parent)
 
     connect(m_lightFadeTarget,   &QComboBox::currentIndexChanged,  this, [this](int){ commitLightFadeTarget(); });
     connect(m_lightFadeDuration, &QDoubleSpinBox::editingFinished, this, &Inspector::commitLightFadeDuration);
+
+    connect(m_visualBrowse,  &QPushButton::clicked,            this, &Inspector::browseVisualFile);
+    connect(m_visualScreen,  &QSpinBox::editingFinished,       this, &Inspector::commitVisualScreen);
+    for (auto *s : {m_visualX, m_visualY, m_visualW, m_visualH, m_visualOpacity}) {
+        connect(s, &QDoubleSpinBox::editingFinished, this, &Inspector::commitVisualGeometry);
+    }
+    connect(m_videoLoop,     &QCheckBox::toggled,              this, &Inspector::commitVideoLoop);
+    connect(m_textString,    &QLineEdit::editingFinished,      this, &Inspector::commitTextString);
+    connect(m_textSize,      &QSpinBox::editingFinished,       this, &Inspector::commitTextSize);
+    connect(m_textColorBtn,  &QPushButton::clicked,            this, &Inspector::pickTextColor);
 
     setCue(nullptr);
 }
@@ -292,6 +384,7 @@ void Inspector::rebuild()
         m_fadeGroup->setVisible(false);
         m_lightGroup->setVisible(false);
         m_lightFadeGroup->setVisible(false);
+        m_visualGroup->setVisible(false);
         m_loading = false;
         return;
     }
@@ -309,12 +402,44 @@ void Inspector::rebuild()
     auto *fadeCue  = qobject_cast<cues::FadeCue *>(m_cue.data());
     auto *lightCue = qobject_cast<lighting::LightCue *>(m_cue.data());
     auto *lfadeCue = qobject_cast<lighting::LightFadeCue *>(m_cue.data());
+    auto *visualCue = qobject_cast<video::VisualCue *>(m_cue.data());
+    auto *videoCue  = qobject_cast<video::VideoCue *>(m_cue.data());
+    auto *imageCue  = qobject_cast<video::ImageCue *>(m_cue.data());
+    auto *textCue   = qobject_cast<video::TextCue  *>(m_cue.data());
 
     m_oscGroup->setVisible(oscCue != nullptr);
     m_audioGroup->setVisible(audioCue != nullptr);
     m_fadeGroup->setVisible(fadeCue != nullptr);
     m_lightGroup->setVisible(lightCue != nullptr);
     m_lightFadeGroup->setVisible(lfadeCue != nullptr);
+    m_visualGroup->setVisible(visualCue != nullptr);
+
+    if (visualCue) {
+        // File path field is for video/image; hidden for text.
+        const bool hasFile = (videoCue != nullptr) || (imageCue != nullptr);
+        m_visualPath->setVisible(hasFile);
+        m_visualBrowse->setVisible(hasFile);
+        m_textString->setVisible(textCue != nullptr);
+        m_videoLoop->setVisible(videoCue != nullptr);
+        m_textSize->setVisible(textCue != nullptr);
+        m_textColorBtn->setVisible(textCue != nullptr);
+
+        if (videoCue) {
+            m_visualPath->setText(videoCue->filePath());
+            m_videoLoop->setChecked(videoCue->loop());
+        } else if (imageCue) {
+            m_visualPath->setText(imageCue->filePath());
+        } else if (textCue) {
+            m_textString->setText(textCue->text());
+            m_textSize->setValue(textCue->fontPixelSize());
+        }
+        m_visualScreen->setValue(visualCue->screenIndex());
+        m_visualX->setValue(visualCue->posX());
+        m_visualY->setValue(visualCue->posY());
+        m_visualW->setValue(visualCue->posW());
+        m_visualH->setValue(visualCue->posH());
+        m_visualOpacity->setValue(visualCue->opacity());
+    }
 
     if (oscCue) {
         m_oscAddress->setText(oscCue->field(QStringLiteral("address")).toString());
@@ -569,6 +694,62 @@ void Inspector::commitLightFadeTarget()
 void Inspector::commitLightFadeDuration()
 {
     if (!m_loading) pushFieldEdit(QStringLiteral("durationSeconds"), m_lightFadeDuration->value());
+}
+
+void Inspector::browseVisualFile()
+{
+    if (!m_cue) return;
+    const auto path = QFileDialog::getOpenFileName(this, tr("Pick file"),
+        QFileInfo(m_visualPath->text()).absolutePath(),
+        tr("Media (*.mp4 *.mov *.mkv *.avi *.webm *.m4v *.png *.jpg *.jpeg *.gif *.bmp *.tiff *.webp);;All files (*.*)"));
+    if (path.isEmpty()) return;
+    m_visualPath->setText(path);
+    pushFieldEdit(QStringLiteral("filePath"), path);
+}
+
+void Inspector::commitVisualScreen()
+{
+    if (!m_loading) pushFieldEdit(QStringLiteral("screenIndex"), m_visualScreen->value());
+}
+
+void Inspector::commitVisualGeometry()
+{
+    if (m_loading) return;
+    pushFieldEdit(QStringLiteral("posX"),    m_visualX->value());
+    pushFieldEdit(QStringLiteral("posY"),    m_visualY->value());
+    pushFieldEdit(QStringLiteral("posW"),    m_visualW->value());
+    pushFieldEdit(QStringLiteral("posH"),    m_visualH->value());
+    pushFieldEdit(QStringLiteral("opacity"), m_visualOpacity->value());
+}
+
+void Inspector::commitVisualOpacity()
+{
+    if (!m_loading) pushFieldEdit(QStringLiteral("opacity"), m_visualOpacity->value());
+}
+
+void Inspector::commitVideoLoop()
+{
+    if (!m_loading) pushFieldEdit(QStringLiteral("loop"), m_videoLoop->isChecked());
+}
+
+void Inspector::commitTextString()
+{
+    if (!m_loading) pushFieldEdit(QStringLiteral("text"), m_textString->text());
+}
+
+void Inspector::commitTextSize()
+{
+    if (!m_loading) pushFieldEdit(QStringLiteral("fontPixelSize"), m_textSize->value());
+}
+
+void Inspector::pickTextColor()
+{
+    auto *textCue = qobject_cast<video::TextCue *>(m_cue.data());
+    if (!textCue) return;
+    const auto col = QColorDialog::getColor(textCue->textColor(), this, tr("Text colour"),
+        QColorDialog::ShowAlphaChannel);
+    if (!col.isValid()) return;
+    pushFieldEdit(QStringLiteral("textColor"), col);
 }
 
 } // namespace quewi::ui

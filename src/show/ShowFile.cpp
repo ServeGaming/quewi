@@ -8,6 +8,7 @@
 #include "cues/MemoCue.h"
 #include "lighting/LightCue.h"
 #include "osc/OscCue.h"
+#include "video/VideoCue.h"
 
 #include <QFile>
 #include <QJsonDocument>
@@ -66,6 +67,9 @@ std::unique_ptr<cues::Cue> makeCue(const QString &type)
     if (type == QLatin1String("fade"))       return std::make_unique<cues::FadeCue>();
     if (type == QLatin1String("light"))      return std::make_unique<lighting::LightCue>();
     if (type == QLatin1String("light-fade")) return std::make_unique<lighting::LightFadeCue>();
+    if (type == QLatin1String("video"))      return std::make_unique<video::VideoCue>();
+    if (type == QLatin1String("image"))      return std::make_unique<video::ImageCue>();
+    if (type == QLatin1String("text"))       return std::make_unique<video::TextCue>();
     // Unknown type: load as a Memo so the user doesn't lose data, with a
     // note. Future cue types register here in Phase 6.
     auto memo = std::make_unique<cues::MemoCue>();

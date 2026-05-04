@@ -32,6 +32,7 @@ find_package(Qt6 6.11 REQUIRED COMPONENTS
     Network
     Sql
     Multimedia
+    MultimediaWidgets
     WebSockets
     Test
 )

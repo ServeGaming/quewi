@@ -13,6 +13,8 @@
 #include "osc/OscCue.h"
 #include "osc/OscEngine.h"
 #include "show/ShowFile.h"
+#include "video/VideoCue.h"
+#include "video/VideoEngine.h"
 #include "ui/CueListView.h"
 #include "ui/Inspector.h"
 #include "ui/OscMonitor.h"
@@ -50,6 +52,7 @@ MainWindow::MainWindow(QWidget *parent)
     });
     m_audioEngine = std::make_unique<audio::AudioEngine>(this);
     m_lightingEngine = std::make_unique<lighting::LightingEngine>(this);
+    m_videoEngine    = std::make_unique<video::VideoEngine>(this);
     buildLayout();
     buildMenus();
     resetWorkspace();
@@ -95,6 +98,7 @@ void MainWindow::buildLayout()
         // Hard stop with a 50 ms fade so the speakers don't click.
         m_audioEngine->stopAll(0.05);
         m_lightingEngine->blackout();
+        m_videoEngine->stopAll();
         statusBar()->showMessage(tr("PANIC: all output stopped"), 2000);
     });
     connect(m_transport,   &ui::TransportBar::pausePressed, this, [this] {
@@ -136,6 +140,9 @@ void MainWindow::buildMenus()
     cueMenu->addAction(tr("New &Fade"),       QKeySequence(Qt::Key_F), this, &MainWindow::insertFadeCue);
     cueMenu->addAction(tr("New &Light"),      QKeySequence(Qt::Key_L), this, &MainWindow::insertLightCue);
     cueMenu->addAction(tr("New Light Fa&de"), QKeySequence(QStringLiteral("Shift+L")), this, &MainWindow::insertLightFadeCue);
+    cueMenu->addAction(tr("New &Video"),      QKeySequence(Qt::Key_V), this, &MainWindow::insertVideoCue);
+    cueMenu->addAction(tr("New &Image"),      QKeySequence(Qt::Key_I), this, &MainWindow::insertImageCue);
+    cueMenu->addAction(tr("New &Text"),       QKeySequence(Qt::Key_T), this, &MainWindow::insertTextCue);
     cueMenu->addSeparator();
     cueMenu->addAction(tr("&Delete"), QKeySequence::Delete, this, &MainWindow::deleteSelectedCue);
 }
@@ -383,6 +390,52 @@ void MainWindow::insertLightFadeCue()
         m_cueListView->setCurrentIndex(m_model->index(insertRow, 0));
 }
 
+void MainWindow::insertVideoCue()
+{
+    auto *list = m_workspace->activeCueList();
+    if (!list) return;
+    const auto idx = m_cueListView->currentIndex();
+    const int insertRow = idx.isValid() ? idx.row() + 1 : list->cueCount();
+    auto cue = std::make_unique<video::VideoCue>();
+    cue->setField(QStringLiteral("name"), tr("Video"));
+    cue->setField(QStringLiteral("number"), static_cast<double>(insertRow + 1));
+    m_workspace->undoStack()->push(
+        new core::InsertCueCommand(list, insertRow, std::move(cue)));
+    if (m_model->rowCount() > insertRow)
+        m_cueListView->setCurrentIndex(m_model->index(insertRow, 0));
+}
+
+void MainWindow::insertImageCue()
+{
+    auto *list = m_workspace->activeCueList();
+    if (!list) return;
+    const auto idx = m_cueListView->currentIndex();
+    const int insertRow = idx.isValid() ? idx.row() + 1 : list->cueCount();
+    auto cue = std::make_unique<video::ImageCue>();
+    cue->setField(QStringLiteral("name"), tr("Image"));
+    cue->setField(QStringLiteral("number"), static_cast<double>(insertRow + 1));
+    m_workspace->undoStack()->push(
+        new core::InsertCueCommand(list, insertRow, std::move(cue)));
+    if (m_model->rowCount() > insertRow)
+        m_cueListView->setCurrentIndex(m_model->index(insertRow, 0));
+}
+
+void MainWindow::insertTextCue()
+{
+    auto *list = m_workspace->activeCueList();
+    if (!list) return;
+    const auto idx = m_cueListView->currentIndex();
+    const int insertRow = idx.isValid() ? idx.row() + 1 : list->cueCount();
+    auto cue = std::make_unique<video::TextCue>();
+    cue->setField(QStringLiteral("name"), tr("Text"));
+    cue->setField(QStringLiteral("number"), static_cast<double>(insertRow + 1));
+    cue->setField(QStringLiteral("text"), tr("Title"));
+    m_workspace->undoStack()->push(
+        new core::InsertCueCommand(list, insertRow, std::move(cue)));
+    if (m_model->rowCount() > insertRow)
+        m_cueListView->setCurrentIndex(m_model->index(insertRow, 0));
+}
+
 void MainWindow::deleteSelectedCue()
 {
     auto *list = m_workspace->activeCueList();
@@ -486,6 +539,29 @@ void MainWindow::onGoRequested()
                 .arg(target->universe()).arg(values.size())
                 .arg(lfadeCue->durationSeconds()), 2000);
         }
+    } else if (auto *visualCue = qobject_cast<video::VisualCue *>(cue)) {
+        video::VideoVoiceParams p;
+        p.screenIndex = visualCue->screenIndex();
+        p.geometry = QRectF(visualCue->posX(), visualCue->posY(),
+                            visualCue->posW(), visualCue->posH());
+        p.opacity = visualCue->opacity();
+        if (auto *vc = qobject_cast<video::VideoCue *>(cue)) {
+            p.kind = video::VideoVoiceParams::Video;
+            p.filePath = vc->filePath();
+            p.loop = vc->loop();
+        } else if (auto *ic = qobject_cast<video::ImageCue *>(cue)) {
+            p.kind = video::VideoVoiceParams::Image;
+            p.filePath = ic->filePath();
+        } else if (auto *tc = qobject_cast<video::TextCue *>(cue)) {
+            p.kind = video::VideoVoiceParams::Text;
+            p.text = tc->text();
+            p.fontPixelSize = tc->fontPixelSize();
+            p.textColor = tc->textColor();
+        }
+        m_videoEngine->fire(p);
+        statusBar()->showMessage(tr("GO: ▶ %1 on screen %2")
+            .arg(cue->name().isEmpty() ? cue->typeName() : cue->name())
+            .arg(visualCue->screenIndex()), 2000);
     } else if (auto *fadeCue = qobject_cast<cues::FadeCue *>(cue)) {
         // Resolve target: must be an AudioCue in the active list.
         auto *list = m_workspace->activeCueList();
@@ -642,14 +718,16 @@ std::unique_ptr<cues::Cue> MainWindow::cueFromFile(const QString &path)
         return cue;
     }
 
-    if (videoExts.contains(ext) || imageExts.contains(ext)) {
-        // Phase 5 lands real video/image cues. Drop a Memo with a note
-        // for now so the operator's intent isn't lost.
-        auto cue = std::make_unique<cues::MemoCue>();
+    if (videoExts.contains(ext)) {
+        auto cue = std::make_unique<video::VideoCue>();
         cue->setField(QStringLiteral("name"), stem);
-        cue->setField(QStringLiteral("notes"),
-            tr("(%1 cue type lands in Phase 5; original path: %2)")
-                .arg(videoExts.contains(ext) ? tr("Video") : tr("Image"), path));
+        cue->setField(QStringLiteral("filePath"), path);
+        return cue;
+    }
+    if (imageExts.contains(ext)) {
+        auto cue = std::make_unique<video::ImageCue>();
+        cue->setField(QStringLiteral("name"), stem);
+        cue->setField(QStringLiteral("filePath"), path);
         return cue;
     }
 

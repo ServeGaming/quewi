@@ -14,6 +14,7 @@ target_link_libraries(quewi PRIVATE
     Qt6::Widgets
     Qt6::Network
     Qt6::Multimedia
+    Qt6::MultimediaWidgets
     quewi_core
     quewi_show
     quewi_ui

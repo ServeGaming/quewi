@@ -17,6 +17,7 @@ namespace quewi::ui   { class CueListView; class Inspector; class TransportBar; 
 namespace quewi::osc  { class OscEngine; }
 namespace quewi::audio { class AudioEngine; }
 namespace quewi::lighting { class LightingEngine; }
+namespace quewi::video { class VideoEngine; }
 
 namespace quewi {
 
@@ -45,6 +46,9 @@ private slots:
     void insertFadeCue();
     void insertLightCue();
     void insertLightFadeCue();
+    void insertVideoCue();
+    void insertImageCue();
+    void insertTextCue();
     void deleteSelectedCue();
     void onSelectionChanged();
     void updateTitle();
@@ -66,6 +70,7 @@ private:
     std::unique_ptr<osc::OscEngine>     m_oscEngine;
     std::unique_ptr<audio::AudioEngine> m_audioEngine;
     std::unique_ptr<lighting::LightingEngine> m_lightingEngine;
+    std::unique_ptr<video::VideoEngine>       m_videoEngine;
 
     ui::CueListView *m_cueListView = nullptr;
     ui::Inspector   *m_inspector   = nullptr;

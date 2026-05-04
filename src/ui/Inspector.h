@@ -19,6 +19,7 @@ namespace quewi::cues { class Cue; class FadeCue; }
 namespace quewi::osc  { class OscCue; }
 namespace quewi::audio { class AudioCue; }
 namespace quewi::lighting { class LightCue; class LightFadeCue; }
+namespace quewi::video { class VideoCue; class ImageCue; class TextCue; class VisualCue; }
 class QTableWidget;
 
 namespace quewi::ui {
@@ -76,6 +77,16 @@ private slots:
     void commitLightFadeTarget();
     void commitLightFadeDuration();
 
+    // Visual (video/image/text shared geometry/screen/opacity)
+    void browseVisualFile();
+    void commitVisualScreen();
+    void commitVisualGeometry();
+    void commitVisualOpacity();
+    void commitVideoLoop();
+    void commitTextString();
+    void commitTextSize();
+    void pickTextColor();
+
 private:
     void rebuild();
     void rebuildFadeTargets();
@@ -127,6 +138,21 @@ private:
     QGroupBox      *m_lightFadeGroup    = nullptr;
     QComboBox      *m_lightFadeTarget   = nullptr;
     QDoubleSpinBox *m_lightFadeDuration = nullptr;
+
+    // Visual (video/image/text)
+    QGroupBox      *m_visualGroup       = nullptr;
+    QLineEdit      *m_visualPath        = nullptr;
+    QPushButton    *m_visualBrowse      = nullptr;
+    QSpinBox       *m_visualScreen      = nullptr;
+    QDoubleSpinBox *m_visualX           = nullptr;
+    QDoubleSpinBox *m_visualY           = nullptr;
+    QDoubleSpinBox *m_visualW           = nullptr;
+    QDoubleSpinBox *m_visualH           = nullptr;
+    QDoubleSpinBox *m_visualOpacity     = nullptr;
+    QCheckBox      *m_videoLoop         = nullptr;
+    QLineEdit      *m_textString        = nullptr;
+    QSpinBox       *m_textSize          = nullptr;
+    QPushButton    *m_textColorBtn      = nullptr;
 
     bool m_loading = false;
 };
