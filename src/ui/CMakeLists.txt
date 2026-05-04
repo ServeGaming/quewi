@@ -15,6 +15,12 @@ add_library(quewi_ui STATIC
     WaveformWidget.cpp
     AudioEditorWindow.h
     AudioEditorWindow.cpp
+    TimelineCanvas.h
+    TimelineCanvas.cpp
+    EffectsRackWidget.h
+    EffectsRackWidget.cpp
+    SpectrogramWidget.h
+    SpectrogramWidget.cpp
     ActiveCuesPanel.h
     ActiveCuesPanel.cpp
     PreflightDialog.h
