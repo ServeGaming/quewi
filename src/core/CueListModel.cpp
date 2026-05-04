@@ -3,6 +3,9 @@
 #include "core/CueList.h"
 #include "cues/Cue.h"
 
+#include <QFont>
+#include <QFontDatabase>
+
 namespace quewi::core {
 
 CueListModel::CueListModel(QObject *parent)
@@ -86,15 +89,44 @@ QVariant CueListModel::data(const QModelIndex &index, int role) const
 
     if (role == Qt::DisplayRole || role == Qt::EditRole) {
         switch (index.column()) {
-        case ColumnNumber:    return cue->number();
+        case ColumnNumber:    return QString::number(cue->number(), 'f', 2);
         case ColumnType:      return cue->typeName();
         case ColumnName:      return cue->name();
-        case ColumnPreWait:   return cue->preWait();
-        case ColumnPostWait:  return cue->postWait();
+        case ColumnPreWait:   return cue->preWait() > 0
+                                  ? QString::number(cue->preWait(), 'f', 2)
+                                  : QStringLiteral("—");
+        case ColumnPostWait:  return cue->postWait() > 0
+                                  ? QString::number(cue->postWait(), 'f', 2)
+                                  : QStringLiteral("—");
         case ColumnNotes:     return cue->notes();
         default:              return {};
         }
     }
+
+    if (role == Qt::TextAlignmentRole) {
+        switch (index.column()) {
+        case ColumnNumber:
+        case ColumnPreWait:
+        case ColumnPostWait:  return int(Qt::AlignRight | Qt::AlignVCenter);
+        case ColumnType:      return int(Qt::AlignCenter);
+        default:              return int(Qt::AlignLeft | Qt::AlignVCenter);
+        }
+    }
+
+    if (role == Qt::FontRole) {
+        if (index.column() == ColumnNumber
+            || index.column() == ColumnPreWait
+            || index.column() == ColumnPostWait) {
+            QFont f = QFontDatabase::systemFont(QFontDatabase::FixedFont);
+            f.setStyleHint(QFont::Monospace);
+            if (index.column() == ColumnNumber) {
+                f.setBold(true);
+                f.setPointSizeF(f.pointSizeF() + 1.0);
+            }
+            return f;
+        }
+    }
+
     return {};
 }
 

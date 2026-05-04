@@ -5,39 +5,48 @@
 #include <QHBoxLayout>
 #include <QLabel>
 #include <QPushButton>
+#include <QVBoxLayout>
 
 namespace quewi::ui {
 
 TransportBar::TransportBar(QWidget *parent)
     : QWidget(parent)
 {
-    setMinimumHeight(72);
+    setObjectName(QStringLiteral("transportBar"));
+    setMinimumHeight(96);
 
     auto *layout = new QHBoxLayout(this);
-    layout->setContentsMargins(12, 8, 12, 8);
+    layout->setContentsMargins(20, 12, 20, 12);
+    layout->setSpacing(16);
+
+    // Left: NEXT label stack
+    auto *nextStack = new QVBoxLayout();
+    nextStack->setSpacing(2);
+    nextStack->setContentsMargins(0, 0, 0, 0);
 
     auto *nextHeader = new QLabel(tr("NEXT"), this);
-    auto headerFont = nextHeader->font();
-    headerFont.setBold(true);
-    nextHeader->setFont(headerFont);
-    layout->addWidget(nextHeader);
+    nextHeader->setObjectName(QStringLiteral("nextHeader"));
+    nextStack->addWidget(nextHeader);
 
     m_nextLabel = new QLabel(tr("—"), this);
-    auto nextFont = m_nextLabel->font();
-    nextFont.setPointSizeF(nextFont.pointSizeF() + 6.0);
-    nextFont.setBold(true);
-    m_nextLabel->setFont(nextFont);
-    layout->addWidget(m_nextLabel, 1);
+    m_nextLabel->setObjectName(QStringLiteral("nextLabel"));
+    nextStack->addWidget(m_nextLabel);
 
+    layout->addLayout(nextStack, 1);
+
+    // Right: action buttons, escalating right-to-left
     m_pause = new QPushButton(tr("Pause"), this);
+    m_pause->setObjectName(QStringLiteral("pauseButton"));
+    m_pause->setMinimumHeight(36);
+
     m_panic = new QPushButton(tr("Panic"), this);
+    m_panic->setObjectName(QStringLiteral("panicButton"));
+    m_panic->setMinimumHeight(36);
+
     m_goButton = new QPushButton(tr("GO"), this);
-    m_goButton->setMinimumSize(160, 56);
-    auto goFont = m_goButton->font();
-    goFont.setPointSizeF(goFont.pointSizeF() + 8.0);
-    goFont.setBold(true);
-    m_goButton->setFont(goFont);
+    m_goButton->setObjectName(QStringLiteral("goButton"));
     m_goButton->setShortcut(Qt::Key_Space);
+    m_goButton->setDefault(true);
 
     layout->addWidget(m_pause);
     layout->addWidget(m_panic);

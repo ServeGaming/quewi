@@ -20,18 +20,22 @@ namespace quewi::ui {
 Inspector::Inspector(QWidget *parent)
     : QWidget(parent)
 {
+    setObjectName(QStringLiteral("inspectorPane"));
+
     auto *outer = new QVBoxLayout(this);
-    outer->setContentsMargins(8, 8, 8, 8);
+    outer->setContentsMargins(20, 16, 20, 16);
+    outer->setSpacing(12);
 
     m_typeLabel = new QLabel(tr("No cue selected"), this);
-    auto font = m_typeLabel->font();
-    font.setBold(true);
-    font.setPointSizeF(font.pointSizeF() + 1.0);
-    m_typeLabel->setFont(font);
+    m_typeLabel->setObjectName(QStringLiteral("typeLabel"));
     outer->addWidget(m_typeLabel);
 
     auto *form = new QFormLayout();
-    form->setContentsMargins(0, 8, 0, 0);
+    form->setContentsMargins(0, 4, 0, 0);
+    form->setHorizontalSpacing(12);
+    form->setVerticalSpacing(8);
+    form->setLabelAlignment(Qt::AlignRight | Qt::AlignVCenter);
+    form->setFieldGrowthPolicy(QFormLayout::ExpandingFieldsGrow);
 
     m_number = new QDoubleSpinBox(this);
     m_number->setDecimals(2);

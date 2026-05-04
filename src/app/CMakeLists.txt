@@ -2,6 +2,7 @@ qt_add_executable(quewi
     main.cpp
     MainWindow.cpp
     MainWindow.h
+    ${CMAKE_SOURCE_DIR}/resources/resources.qrc
 )
 
 set_target_properties(quewi PROPERTIES
