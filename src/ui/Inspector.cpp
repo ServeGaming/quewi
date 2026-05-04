@@ -7,8 +7,13 @@
 #include "core/Workspace.h"
 #include "cues/Cue.h"
 #include "cues/FadeCue.h"
+#include "lighting/LightCue.h"
 #include "osc/OscCue.h"
 #include "ui/WaveformWidget.h"
+
+#include <QHeaderView>
+#include <QTableWidget>
+#include <QTableWidgetItem>
 
 #include <QCheckBox>
 #include <QComboBox>
@@ -169,6 +174,51 @@ Inspector::Inspector(QWidget *parent)
     fadeForm->addRow(tr("Duration"), m_fadeDuration);
 
     outer->addWidget(m_fadeGroup);
+
+    // ---------------- Light group ----------------
+    m_lightGroup = new QGroupBox(tr("Light"), this);
+    auto *lightOuter = new QVBoxLayout(m_lightGroup);
+
+    auto *uniRow = new QHBoxLayout();
+    uniRow->addWidget(new QLabel(tr("Universe"), m_lightGroup));
+    m_lightUniverse = new QSpinBox(m_lightGroup);
+    m_lightUniverse->setRange(1, 63999);
+    uniRow->addWidget(m_lightUniverse);
+    uniRow->addStretch(1);
+    lightOuter->addLayout(uniRow);
+
+    m_lightTable = new QTableWidget(0, 2, m_lightGroup);
+    m_lightTable->setHorizontalHeaderLabels({tr("Channel"), tr("Value")});
+    m_lightTable->horizontalHeader()->setStretchLastSection(true);
+    m_lightTable->verticalHeader()->setVisible(false);
+    m_lightTable->setSelectionBehavior(QAbstractItemView::SelectRows);
+    m_lightTable->setSelectionMode(QAbstractItemView::ExtendedSelection);
+    m_lightTable->setMinimumHeight(160);
+    lightOuter->addWidget(m_lightTable);
+
+    auto *lightBtns = new QHBoxLayout();
+    m_lightAdd    = new QPushButton(tr("+ Channel"), m_lightGroup);
+    m_lightRemove = new QPushButton(tr("Remove"),    m_lightGroup);
+    lightBtns->addWidget(m_lightAdd);
+    lightBtns->addWidget(m_lightRemove);
+    lightBtns->addStretch(1);
+    lightOuter->addLayout(lightBtns);
+
+    outer->addWidget(m_lightGroup);
+
+    // ---------------- Light Fade group ----------------
+    m_lightFadeGroup = new QGroupBox(tr("Light Fade"), this);
+    auto *lfForm = new QFormLayout(m_lightFadeGroup);
+    m_lightFadeTarget = new QComboBox(m_lightFadeGroup);
+    lfForm->addRow(tr("Target light cue"), m_lightFadeTarget);
+    m_lightFadeDuration = new QDoubleSpinBox(m_lightFadeGroup);
+    m_lightFadeDuration->setDecimals(2);
+    m_lightFadeDuration->setRange(0.0, 600.0);
+    m_lightFadeDuration->setValue(3.0);
+    m_lightFadeDuration->setSuffix(QStringLiteral(" s"));
+    lfForm->addRow(tr("Duration"), m_lightFadeDuration);
+    outer->addWidget(m_lightFadeGroup);
+
     outer->addStretch(1);
 
     // ---------------- Connect ----------------
@@ -193,6 +243,14 @@ Inspector::Inspector(QWidget *parent)
     connect(m_fadeParam,  &QComboBox::currentIndexChanged,  this, [this](int){ commitFadeParameter(); });
     connect(m_fadeValue,  &QDoubleSpinBox::editingFinished, this, &Inspector::commitFadeTargetValue);
     connect(m_fadeDuration, &QDoubleSpinBox::editingFinished, this, &Inspector::commitFadeDuration);
+
+    connect(m_lightUniverse, &QSpinBox::editingFinished, this, &Inspector::commitLightUniverse);
+    connect(m_lightAdd,      &QPushButton::clicked,      this, &Inspector::addLightChannel);
+    connect(m_lightRemove,   &QPushButton::clicked,      this, &Inspector::removeLightChannel);
+    connect(m_lightTable,    &QTableWidget::itemChanged, this, [this](QTableWidgetItem *){ commitLightChannels(); });
+
+    connect(m_lightFadeTarget,   &QComboBox::currentIndexChanged,  this, [this](int){ commitLightFadeTarget(); });
+    connect(m_lightFadeDuration, &QDoubleSpinBox::editingFinished, this, &Inspector::commitLightFadeDuration);
 
     setCue(nullptr);
 }
@@ -232,6 +290,8 @@ void Inspector::rebuild()
         m_oscGroup->setVisible(false);
         m_audioGroup->setVisible(false);
         m_fadeGroup->setVisible(false);
+        m_lightGroup->setVisible(false);
+        m_lightFadeGroup->setVisible(false);
         m_loading = false;
         return;
     }
@@ -247,10 +307,14 @@ void Inspector::rebuild()
     auto *oscCue   = qobject_cast<osc::OscCue *>(m_cue.data());
     auto *audioCue = qobject_cast<audio::AudioCue *>(m_cue.data());
     auto *fadeCue  = qobject_cast<cues::FadeCue *>(m_cue.data());
+    auto *lightCue = qobject_cast<lighting::LightCue *>(m_cue.data());
+    auto *lfadeCue = qobject_cast<lighting::LightFadeCue *>(m_cue.data());
 
     m_oscGroup->setVisible(oscCue != nullptr);
     m_audioGroup->setVisible(audioCue != nullptr);
     m_fadeGroup->setVisible(fadeCue != nullptr);
+    m_lightGroup->setVisible(lightCue != nullptr);
+    m_lightFadeGroup->setVisible(lfadeCue != nullptr);
 
     if (oscCue) {
         m_oscAddress->setText(oscCue->field(QStringLiteral("address")).toString());
@@ -274,6 +338,51 @@ void Inspector::rebuild()
         } else {
             m_audioMeta->setText(QStringLiteral(" "));
         }
+    }
+
+    if (lightCue) {
+        m_lightUniverse->setValue(lightCue->universe());
+        m_lightTable->setRowCount(0);
+        const auto &channels = lightCue->channels();
+        QList<int> keys = channels.keys();
+        std::sort(keys.begin(), keys.end());
+        for (int ch : keys) {
+            const int row = m_lightTable->rowCount();
+            m_lightTable->insertRow(row);
+            auto *chItem  = new QTableWidgetItem(QString::number(ch));
+            auto *valItem = new QTableWidgetItem(QString::number(channels.value(ch)));
+            chItem->setTextAlignment(Qt::AlignRight | Qt::AlignVCenter);
+            valItem->setTextAlignment(Qt::AlignRight | Qt::AlignVCenter);
+            m_lightTable->setItem(row, 0, chItem);
+            m_lightTable->setItem(row, 1, valItem);
+        }
+    }
+
+    if (lfadeCue) {
+        // Populate target combo with Light cues only.
+        m_lightFadeTarget->clear();
+        m_lightFadeTarget->addItem(tr("(no target)"), QVariant::fromValue(QUuid()));
+        if (m_workspace) {
+            if (auto *list = m_workspace->activeCueList()) {
+                for (int row = 0; row < list->cueCount(); ++row) {
+                    auto *c = list->cueAt(row);
+                    if (!c || c == m_cue) continue;
+                    if (qobject_cast<lighting::LightCue *>(c) == nullptr) continue;
+                    m_lightFadeTarget->addItem(
+                        QStringLiteral("%1  %2")
+                            .arg(QString::number(c->number(), 'f', 2),
+                                 c->name().isEmpty() ? c->typeName() : c->name()),
+                        QVariant::fromValue(c->id()));
+                }
+            }
+        }
+        for (int i = 0; i < m_lightFadeTarget->count(); ++i) {
+            if (m_lightFadeTarget->itemData(i).toUuid() == lfadeCue->targetId()) {
+                m_lightFadeTarget->setCurrentIndex(i);
+                break;
+            }
+        }
+        m_lightFadeDuration->setValue(lfadeCue->durationSeconds());
     }
 
     if (fadeCue) {
@@ -385,6 +494,81 @@ void Inspector::commitFadeTargetValue()
 void Inspector::commitFadeDuration()
 {
     if (!m_loading) pushFieldEdit(QStringLiteral("durationSeconds"), m_fadeDuration->value());
+}
+
+void Inspector::commitLightUniverse()
+{
+    if (!m_loading) pushFieldEdit(QStringLiteral("universe"), m_lightUniverse->value());
+}
+
+void Inspector::addLightChannel()
+{
+    if (m_loading || !qobject_cast<lighting::LightCue *>(m_cue.data())) return;
+
+    // Pick the next free channel after the highest currently in the table.
+    int next = 1;
+    for (int row = 0; row < m_lightTable->rowCount(); ++row) {
+        if (auto *it = m_lightTable->item(row, 0)) {
+            const int ch = it->text().toInt();
+            if (ch + 1 > next) next = ch + 1;
+        }
+    }
+    if (next > 512) next = 512;
+
+    m_lightTable->blockSignals(true);
+    const int row = m_lightTable->rowCount();
+    m_lightTable->insertRow(row);
+    auto *chItem  = new QTableWidgetItem(QString::number(next));
+    auto *valItem = new QTableWidgetItem(QStringLiteral("0"));
+    chItem->setTextAlignment(Qt::AlignRight | Qt::AlignVCenter);
+    valItem->setTextAlignment(Qt::AlignRight | Qt::AlignVCenter);
+    m_lightTable->setItem(row, 0, chItem);
+    m_lightTable->setItem(row, 1, valItem);
+    m_lightTable->blockSignals(false);
+    commitLightChannels();
+}
+
+void Inspector::removeLightChannel()
+{
+    if (m_loading) return;
+    const auto sel = m_lightTable->selectionModel()->selectedRows();
+    if (sel.isEmpty()) return;
+    QList<int> rows;
+    for (const auto &idx : sel) rows.append(idx.row());
+    std::sort(rows.begin(), rows.end(), std::greater<int>());
+    m_lightTable->blockSignals(true);
+    for (int r : rows) m_lightTable->removeRow(r);
+    m_lightTable->blockSignals(false);
+    commitLightChannels();
+}
+
+void Inspector::commitLightChannels()
+{
+    if (m_loading) return;
+    QVariantMap map;
+    for (int row = 0; row < m_lightTable->rowCount(); ++row) {
+        auto *chItem  = m_lightTable->item(row, 0);
+        auto *valItem = m_lightTable->item(row, 1);
+        if (!chItem || !valItem) continue;
+        bool ok1 = false, ok2 = false;
+        const int ch  = chItem->text().toInt(&ok1);
+        const int val = valItem->text().toInt(&ok2);
+        if (!ok1 || !ok2) continue;
+        if (ch < 1 || ch > 512) continue;
+        map.insert(QString::number(ch), std::clamp(val, 0, 255));
+    }
+    pushFieldEdit(QStringLiteral("channels"), map);
+}
+
+void Inspector::commitLightFadeTarget()
+{
+    if (m_loading) return;
+    pushFieldEdit(QStringLiteral("targetId"), m_lightFadeTarget->currentData().toUuid());
+}
+
+void Inspector::commitLightFadeDuration()
+{
+    if (!m_loading) pushFieldEdit(QStringLiteral("durationSeconds"), m_lightFadeDuration->value());
 }
 
 } // namespace quewi::ui

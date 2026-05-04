@@ -6,6 +6,7 @@
 #include "cues/Cue.h"
 #include "cues/FadeCue.h"
 #include "cues/MemoCue.h"
+#include "lighting/LightCue.h"
 #include "osc/OscCue.h"
 
 #include <QFile>
@@ -59,10 +60,12 @@ void setError(const QString &what, const QSqlError &e)
 
 std::unique_ptr<cues::Cue> makeCue(const QString &type)
 {
-    if (type == QLatin1String("memo"))  return std::make_unique<cues::MemoCue>();
-    if (type == QLatin1String("osc"))   return std::make_unique<osc::OscCue>();
-    if (type == QLatin1String("audio")) return std::make_unique<audio::AudioCue>();
-    if (type == QLatin1String("fade"))  return std::make_unique<cues::FadeCue>();
+    if (type == QLatin1String("memo"))       return std::make_unique<cues::MemoCue>();
+    if (type == QLatin1String("osc"))        return std::make_unique<osc::OscCue>();
+    if (type == QLatin1String("audio"))      return std::make_unique<audio::AudioCue>();
+    if (type == QLatin1String("fade"))       return std::make_unique<cues::FadeCue>();
+    if (type == QLatin1String("light"))      return std::make_unique<lighting::LightCue>();
+    if (type == QLatin1String("light-fade")) return std::make_unique<lighting::LightFadeCue>();
     // Unknown type: load as a Memo so the user doesn't lose data, with a
     // note. Future cue types register here in Phase 6.
     auto memo = std::make_unique<cues::MemoCue>();

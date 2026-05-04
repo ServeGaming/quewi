@@ -8,6 +8,8 @@
 #include "core/Workspace.h"
 #include "cues/FadeCue.h"
 #include "cues/MemoCue.h"
+#include "lighting/LightCue.h"
+#include "lighting/LightingEngine.h"
 #include "osc/OscCue.h"
 #include "osc/OscEngine.h"
 #include "show/ShowFile.h"
@@ -47,6 +49,7 @@ MainWindow::MainWindow(QWidget *parent)
         statusBar()->showMessage(tr("OSC: %1").arg(reason), 4000);
     });
     m_audioEngine = std::make_unique<audio::AudioEngine>(this);
+    m_lightingEngine = std::make_unique<lighting::LightingEngine>(this);
     buildLayout();
     buildMenus();
     resetWorkspace();
@@ -91,7 +94,8 @@ void MainWindow::buildLayout()
     connect(m_transport,   &ui::TransportBar::panicPressed, this, [this] {
         // Hard stop with a 50 ms fade so the speakers don't click.
         m_audioEngine->stopAll(0.05);
-        statusBar()->showMessage(tr("PANIC: all audio stopped"), 2000);
+        m_lightingEngine->blackout();
+        statusBar()->showMessage(tr("PANIC: all output stopped"), 2000);
     });
     connect(m_transport,   &ui::TransportBar::pausePressed, this, [this] {
         // No real pause yet — fade out everything as a Phase-3 stand-in.
@@ -126,10 +130,12 @@ void MainWindow::buildMenus()
                          this, &MainWindow::showOscMonitor);
 
     auto *cueMenu = menuBar()->addMenu(tr("&Cue"));
-    cueMenu->addAction(tr("New &Memo"),  QKeySequence(Qt::Key_M), this, &MainWindow::insertMemoCue);
-    cueMenu->addAction(tr("New &OSC"),   QKeySequence(Qt::Key_O), this, &MainWindow::insertOscCue);
-    cueMenu->addAction(tr("New &Audio"), QKeySequence(Qt::Key_A), this, &MainWindow::insertAudioCue);
-    cueMenu->addAction(tr("New &Fade"),  QKeySequence(Qt::Key_F), this, &MainWindow::insertFadeCue);
+    cueMenu->addAction(tr("New &Memo"),       QKeySequence(Qt::Key_M), this, &MainWindow::insertMemoCue);
+    cueMenu->addAction(tr("New &OSC"),        QKeySequence(Qt::Key_O), this, &MainWindow::insertOscCue);
+    cueMenu->addAction(tr("New &Audio"),      QKeySequence(Qt::Key_A), this, &MainWindow::insertAudioCue);
+    cueMenu->addAction(tr("New &Fade"),       QKeySequence(Qt::Key_F), this, &MainWindow::insertFadeCue);
+    cueMenu->addAction(tr("New &Light"),      QKeySequence(Qt::Key_L), this, &MainWindow::insertLightCue);
+    cueMenu->addAction(tr("New Light Fa&de"), QKeySequence(QStringLiteral("Shift+L")), this, &MainWindow::insertLightFadeCue);
     cueMenu->addSeparator();
     cueMenu->addAction(tr("&Delete"), QKeySequence::Delete, this, &MainWindow::deleteSelectedCue);
 }
@@ -347,6 +353,36 @@ void MainWindow::insertFadeCue()
         m_cueListView->setCurrentIndex(m_model->index(insertRow, 0));
 }
 
+void MainWindow::insertLightCue()
+{
+    auto *list = m_workspace->activeCueList();
+    if (!list) return;
+    const auto idx = m_cueListView->currentIndex();
+    const int insertRow = idx.isValid() ? idx.row() + 1 : list->cueCount();
+    auto cue = std::make_unique<lighting::LightCue>();
+    cue->setField(QStringLiteral("name"), tr("Light"));
+    cue->setField(QStringLiteral("number"), static_cast<double>(insertRow + 1));
+    m_workspace->undoStack()->push(
+        new core::InsertCueCommand(list, insertRow, std::move(cue)));
+    if (m_model->rowCount() > insertRow)
+        m_cueListView->setCurrentIndex(m_model->index(insertRow, 0));
+}
+
+void MainWindow::insertLightFadeCue()
+{
+    auto *list = m_workspace->activeCueList();
+    if (!list) return;
+    const auto idx = m_cueListView->currentIndex();
+    const int insertRow = idx.isValid() ? idx.row() + 1 : list->cueCount();
+    auto cue = std::make_unique<lighting::LightFadeCue>();
+    cue->setField(QStringLiteral("name"), tr("Light Fade"));
+    cue->setField(QStringLiteral("number"), static_cast<double>(insertRow + 1));
+    m_workspace->undoStack()->push(
+        new core::InsertCueCommand(list, insertRow, std::move(cue)));
+    if (m_model->rowCount() > insertRow)
+        m_cueListView->setCurrentIndex(m_model->index(insertRow, 0));
+}
+
 void MainWindow::deleteSelectedCue()
 {
     auto *list = m_workspace->activeCueList();
@@ -413,6 +449,42 @@ void MainWindow::onGoRequested()
                 .arg(cue->name().isEmpty() ? cue->typeName() : cue->name(),
                      QString::number(file->durationSeconds(), 'f', 2)),
                 2000);
+        }
+    } else if (auto *lightCue = qobject_cast<lighting::LightCue *>(cue)) {
+        QHash<int, int> values;
+        const auto &chs = lightCue->channels();
+        for (auto it = chs.constBegin(); it != chs.constEnd(); ++it) {
+            values.insert(it.key(), it.value());
+        }
+        m_lightingEngine->applyChannels(lightCue->universe(), values);
+        statusBar()->showMessage(tr("GO: ⚡ Light U%1 (%2 channels)")
+            .arg(lightCue->universe()).arg(values.size()), 2000);
+    } else if (auto *lfadeCue = qobject_cast<lighting::LightFadeCue *>(cue)) {
+        // Resolve target Light cue.
+        auto *list = m_workspace->activeCueList();
+        lighting::LightCue *target = nullptr;
+        if (list) {
+            for (int row = 0; row < list->cueCount(); ++row) {
+                auto *c = list->cueAt(row);
+                if (c && c->id() == lfadeCue->targetId()) {
+                    target = qobject_cast<lighting::LightCue *>(c);
+                    break;
+                }
+            }
+        }
+        if (!target) {
+            statusBar()->showMessage(tr("Light Fade: target not found"), 2000);
+        } else {
+            QHash<int, int> values;
+            const auto &chs = target->channels();
+            for (auto it = chs.constBegin(); it != chs.constEnd(); ++it) {
+                values.insert(it.key(), it.value());
+            }
+            m_lightingEngine->fadeChannels(target->universe(), values,
+                                           lfadeCue->durationSeconds());
+            statusBar()->showMessage(tr("Light Fade: U%1 → %2 channels over %3 s")
+                .arg(target->universe()).arg(values.size())
+                .arg(lfadeCue->durationSeconds()), 2000);
         }
     } else if (auto *fadeCue = qobject_cast<cues::FadeCue *>(cue)) {
         // Resolve target: must be an AudioCue in the active list.

@@ -18,6 +18,8 @@ namespace quewi::core { class Workspace; class CueList; }
 namespace quewi::cues { class Cue; class FadeCue; }
 namespace quewi::osc  { class OscCue; }
 namespace quewi::audio { class AudioCue; }
+namespace quewi::lighting { class LightCue; class LightFadeCue; }
+class QTableWidget;
 
 namespace quewi::ui {
 
@@ -64,6 +66,16 @@ private slots:
     void commitFadeTargetValue();
     void commitFadeDuration();
 
+    // Light
+    void commitLightUniverse();
+    void addLightChannel();
+    void removeLightChannel();
+    void commitLightChannels();
+
+    // Light Fade
+    void commitLightFadeTarget();
+    void commitLightFadeDuration();
+
 private:
     void rebuild();
     void rebuildFadeTargets();
@@ -103,6 +115,18 @@ private:
     QComboBox      *m_fadeParam    = nullptr;
     QDoubleSpinBox *m_fadeValue    = nullptr;
     QDoubleSpinBox *m_fadeDuration = nullptr;
+
+    // Light group
+    QGroupBox      *m_lightGroup    = nullptr;
+    QSpinBox       *m_lightUniverse = nullptr;
+    QTableWidget   *m_lightTable    = nullptr;
+    QPushButton    *m_lightAdd      = nullptr;
+    QPushButton    *m_lightRemove   = nullptr;
+
+    // Light Fade group
+    QGroupBox      *m_lightFadeGroup    = nullptr;
+    QComboBox      *m_lightFadeTarget   = nullptr;
+    QDoubleSpinBox *m_lightFadeDuration = nullptr;
 
     bool m_loading = false;
 };
