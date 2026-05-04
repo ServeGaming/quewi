@@ -1,6 +1,6 @@
 # quewi — Code Structure
 
-This is the architecture/code-structure doc. Companion: [`design.md`](design.md) for product/UX.
+This is the architecture/code-structure doc. Companion: [`UX.md`](UX.md) for product/UX.
 
 ---
 
@@ -12,7 +12,7 @@ quewi/
 ├── CMakePresets.json        Per-platform configure/build presets
 ├── LICENSE                  AGPL-3.0
 ├── README.md
-├── design.md                Product/UX design
+├── UX.md                Product/UX design
 ├── structure.md             This file
 ├── .gitignore
 ├── .gitattributes
@@ -240,7 +240,7 @@ In Phase 0–7, these registries exist but only built-in types use them.
 - **Integration tests:** spin up an OSC server in-process, fire an OSC cue, assert bytes on the wire.
 - **Soak tests:** play a 200-cue show through, check for memory leaks (Valgrind on Linux CI).
 - **UI smoke tests:** Qt Test's GUI mode runs scripted user flows headless on CI.
-- **Performance gates:** the cold-start and idle-RAM budgets from `design.md §2` are asserted in CI on a fixed reference machine. Failure blocks merge.
+- **Performance gates:** the cold-start and idle-RAM budgets from `UX.md §2` are asserted in CI on a fixed reference machine. Failure blocks merge.
 
 ---
 

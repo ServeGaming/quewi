@@ -1,6 +1,6 @@
 # Performance Budgets
 
-quewi must feel fast. These budgets are first-class design properties (see `design.md §2`) and are asserted in CI where automatable.
+quewi must feel fast. These budgets are first-class design properties (see `UX.md §2`) and are asserted in CI where automatable.
 
 ## Reference machine
 

@@ -54,5 +54,5 @@ Legend: ✅ implemented · 🚧 in progress · ⬜ planned
 ## Known gaps
 
 - **Inbound dispatch.** Pattern matching is implemented but no listener routes incoming packets to subscribers yet; landing in the OSC monitor commit.
-- **Args UI.** OscCue's `rawArgs` is a single comma-separated text field that auto-types each token. The richer typed-arg editor with explicit type pickers (sketched in design.md §8) is deferred until the OSC monitor lands so we can share widget code with the monitor's decoded view.
+- **Args UI.** OscCue's `rawArgs` is a single comma-separated text field that auto-types each token. The richer typed-arg editor with explicit type pickers (sketched in UX.md §8) is deferred until the OSC monitor lands so we can share widget code with the monitor's decoded view.
 - **Shared destinations / patch.** Each OscCue currently carries its own host/port. A shared destinations patch (so one `Eos console` definition is reused across cues) lands when patches generally are introduced (Phase 4 lighting needs them too).

@@ -10,7 +10,7 @@ namespace quewi::osc {
 //
 // Phase 2 keeps the args UX deliberately simple: a comma-separated text
 // field where each token is auto-typed as int / float / string / bool /
-// nil. A richer typed-arg editor (like the one sketched in design.md §8)
+// nil. A richer typed-arg editor (like the one sketched in UX.md §8)
 // lands when the OSC monitor and `learn` mode arrive.
 class OscCue : public cues::Cue {
     Q_OBJECT

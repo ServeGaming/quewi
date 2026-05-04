@@ -2,7 +2,7 @@
 
 > Theatre cueing software. Sound, light, projection. Every OSC feature in the spec. A UI that doesn't fight you.
 
-**Status:** pre-alpha — scaffolding only. See [`design.md`](design.md) and [`structure.md`](structure.md) for what we're building.
+**Status:** pre-alpha — scaffolding only. See [`UX.md`](UX.md) and [`structure.md`](structure.md) for what we're building.
 
 ## What it is
 
@@ -16,7 +16,7 @@ quewi is a cross-platform theatre cueing application in the spirit of QLab — a
 
 ## Building
 
-> Currently the source tree is a skeleton — it configures and builds an empty Qt window. Real functionality lands in Phase 1+ (see [`design.md`](design.md) for the roadmap).
+> Currently the source tree is a skeleton — it configures and builds an empty Qt window. Real functionality lands in Phase 1+ (see [`UX.md`](UX.md) for the roadmap).
 
 **Prerequisites:**
 - CMake ≥ 3.24
@@ -42,4 +42,4 @@ This means: nobody — including the original author — can ship a closed-sourc
 
 ## Contributing
 
-Phase 0 just landed. Issues and PRs welcome once the architecture stabilizes (Phase 1). For now, read [`design.md`](design.md) and [`structure.md`](structure.md) and open issues for design feedback.
+Phase 0 just landed. Issues and PRs welcome once the architecture stabilizes (Phase 1). For now, read [`UX.md`](UX.md) and [`structure.md`](structure.md) and open issues for design feedback.

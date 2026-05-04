@@ -1,6 +1,6 @@
 # Cue Types
 
-Each cue type's parameters and behavior. See `design.md §8` for inspector sketches.
+Each cue type's parameters and behavior. See `UX.md §8` for inspector sketches.
 
 ## Playback cues
 
