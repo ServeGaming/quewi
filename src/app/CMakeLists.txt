@@ -11,6 +11,7 @@ set_target_properties(quewi PROPERTIES
 
 target_link_libraries(quewi PRIVATE
     Qt6::Widgets
+    Qt6::Network
     quewi_core
     quewi_show
     quewi_ui

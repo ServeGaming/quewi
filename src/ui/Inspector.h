@@ -5,18 +5,21 @@
 
 class QLabel;
 class QLineEdit;
+class QSpinBox;
 class QDoubleSpinBox;
 class QPlainTextEdit;
-class QFormLayout;
+class QGroupBox;
+class QComboBox;
 
 namespace quewi::core { class Workspace; }
 namespace quewi::cues { class Cue; }
+namespace quewi::osc  { class OscCue; }
 
 namespace quewi::ui {
 
 // Right-pane editor for the currently-selected cue. Common header
 // (number, name, pre/post wait, notes) for all types; type-specific
-// tabs land as cue types do in later phases.
+// groups appear below for cue types we recognise (currently OSC).
 //
 // Edits are routed through EditCueFieldCommand on the workspace's
 // undo stack so they're undoable.
@@ -39,6 +42,12 @@ private slots:
     void commitPostWait();
     void commitNotes();
 
+    // OSC-specific field commits (only used when current cue is an OscCue)
+    void commitOscAddress();
+    void commitOscHost();
+    void commitOscPort();
+    void commitOscArgs();
+
 private:
     void rebuild();
     void pushFieldEdit(const QString &field, const QVariant &newValue);
@@ -52,6 +61,12 @@ private:
     QDoubleSpinBox *m_preWait   = nullptr;
     QDoubleSpinBox *m_postWait  = nullptr;
     QPlainTextEdit *m_notes     = nullptr;
+
+    QGroupBox      *m_oscGroup    = nullptr;
+    QLineEdit      *m_oscAddress  = nullptr;
+    QLineEdit      *m_oscHost     = nullptr;
+    QSpinBox       *m_oscPort     = nullptr;
+    QLineEdit      *m_oscArgs     = nullptr;
 
     bool m_loading = false;
 };

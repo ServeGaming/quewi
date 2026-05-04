@@ -4,6 +4,7 @@
 #include "core/Workspace.h"
 #include "cues/Cue.h"
 #include "cues/MemoCue.h"
+#include "osc/OscCue.h"
 
 #include <QFile>
 #include <QJsonDocument>
@@ -57,6 +58,7 @@ void setError(const QString &what, const QSqlError &e)
 std::unique_ptr<cues::Cue> makeCue(const QString &type)
 {
     if (type == QLatin1String("memo")) return std::make_unique<cues::MemoCue>();
+    if (type == QLatin1String("osc"))  return std::make_unique<osc::OscCue>();
     // Unknown type: load as a Memo so the user doesn't lose data, with a
     // note. Future cue types register here in Phase 6.
     auto memo = std::make_unique<cues::MemoCue>();

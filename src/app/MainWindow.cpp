@@ -5,6 +5,8 @@
 #include "core/UndoCommands.h"
 #include "core/Workspace.h"
 #include "cues/MemoCue.h"
+#include "osc/OscCue.h"
+#include "osc/OscEngine.h"
 #include "show/ShowFile.h"
 #include "ui/CueListView.h"
 #include "ui/Inspector.h"
@@ -30,6 +32,10 @@ MainWindow::MainWindow(QWidget *parent)
     : QMainWindow(parent)
 {
     resize(1280, 800);
+    m_oscEngine = std::make_unique<osc::OscEngine>(this);
+    connect(m_oscEngine.get(), &osc::OscEngine::sendError, this, [this](const QString &reason) {
+        statusBar()->showMessage(tr("OSC: %1").arg(reason), 4000);
+    });
     buildLayout();
     buildMenus();
     resetWorkspace();
@@ -94,6 +100,7 @@ void MainWindow::buildMenus()
 
     auto *cueMenu = menuBar()->addMenu(tr("&Cue"));
     cueMenu->addAction(tr("New &Memo"), QKeySequence(Qt::Key_M), this, &MainWindow::insertMemoCue);
+    cueMenu->addAction(tr("New &OSC"),  QKeySequence(Qt::Key_O), this, &MainWindow::insertOscCue);
     cueMenu->addSeparator();
     cueMenu->addAction(tr("&Delete"), QKeySequence::Delete, this, &MainWindow::deleteSelectedCue);
 }
@@ -240,6 +247,24 @@ void MainWindow::insertMemoCue()
         m_cueListView->setCurrentIndex(m_model->index(insertRow, 0));
 }
 
+void MainWindow::insertOscCue()
+{
+    auto *list = m_workspace->activeCueList();
+    if (!list) return;
+    const auto idx = m_cueListView->currentIndex();
+    const int insertRow = idx.isValid() ? idx.row() + 1 : list->cueCount();
+
+    auto cue = std::make_unique<osc::OscCue>();
+    cue->setField(QStringLiteral("name"), tr("OSC"));
+    cue->setField(QStringLiteral("number"), static_cast<double>(insertRow + 1));
+
+    m_workspace->undoStack()->push(
+        new core::InsertCueCommand(list, insertRow, std::move(cue)));
+
+    if (m_model->rowCount() > insertRow)
+        m_cueListView->setCurrentIndex(m_model->index(insertRow, 0));
+}
+
 void MainWindow::deleteSelectedCue()
 {
     auto *list = m_workspace->activeCueList();
@@ -267,14 +292,31 @@ void MainWindow::updateTitle()
 
 void MainWindow::onGoRequested()
 {
-    // Placeholder for Phase 2+ — log intent and advance the next-cue marker.
     auto *cue = m_cueListView->nextCue();
     if (!cue) {
         statusBar()->showMessage(tr("No cue to fire"), 2000);
         return;
     }
-    statusBar()->showMessage(tr("GO: %1 %2")
-        .arg(QString::number(cue->number(), 'f', 2), cue->name()), 2000);
+
+    // Fire by type. As more cue types come online they'll plug in here
+    // (Phase 6 will replace this dispatch with a proper GoEngine).
+    if (auto *oscCue = qobject_cast<osc::OscCue *>(cue)) {
+        const auto dv = oscCue->destination();
+        osc::Destination dest{
+            dv.id, dv.name, dv.host, dv.port,
+            static_cast<osc::Destination::Transport>(dv.transport)
+        };
+        if (m_oscEngine->send(dest, oscCue->buildMessage())) {
+            statusBar()->showMessage(tr("GO: %1 → %2:%3 %4")
+                .arg(QString::number(cue->number(), 'f', 2),
+                     dest.host, QString::number(dest.port),
+                     oscCue->field(QStringLiteral("address")).toString()),
+                2000);
+        }
+    } else {
+        statusBar()->showMessage(tr("GO: %1 %2")
+            .arg(QString::number(cue->number(), 'f', 2), cue->name()), 2000);
+    }
 
     // Advance selection.
     const auto idx = m_cueListView->currentIndex();

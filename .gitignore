@@ -96,3 +96,6 @@ desktop.ini
 # Local-only helper scripts (paths hardcoded to one machine)
 scripts/
 
+
+# Claude Code per-project local settings
+.claude/
