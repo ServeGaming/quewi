@@ -6,6 +6,8 @@
 #include "cues/Cue.h"
 #include "cues/FadeCue.h"
 #include "cues/MemoCue.h"
+#include "cues/TargetingCue.h"
+#include "cues/WaitCue.h"
 #include "lighting/LightCue.h"
 #include "osc/OscCue.h"
 #include "video/VideoCue.h"
@@ -70,6 +72,10 @@ std::unique_ptr<cues::Cue> makeCue(const QString &type)
     if (type == QLatin1String("video"))      return std::make_unique<video::VideoCue>();
     if (type == QLatin1String("image"))      return std::make_unique<video::ImageCue>();
     if (type == QLatin1String("text"))       return std::make_unique<video::TextCue>();
+    if (type == QLatin1String("wait"))       return std::make_unique<cues::WaitCue>();
+    if (type == QLatin1String("start"))      return std::make_unique<cues::StartCue>();
+    if (type == QLatin1String("stop"))       return std::make_unique<cues::StopCue>();
+    if (type == QLatin1String("goto"))       return std::make_unique<cues::GotoCue>();
     // Unknown type: load as a Memo so the user doesn't lose data, with a
     // note. Future cue types register here in Phase 6.
     auto memo = std::make_unique<cues::MemoCue>();

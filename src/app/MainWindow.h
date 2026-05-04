@@ -21,6 +21,8 @@ namespace quewi::video { class VideoEngine; }
 
 namespace quewi {
 
+class GoEngine;
+
 class MainWindow : public QMainWindow {
     Q_OBJECT
 public:
@@ -49,6 +51,10 @@ private slots:
     void insertVideoCue();
     void insertImageCue();
     void insertTextCue();
+    void insertWaitCue();
+    void insertStartCue();
+    void insertStopCue();
+    void insertGotoCue();
     void deleteSelectedCue();
     void onSelectionChanged();
     void updateTitle();
@@ -75,6 +81,7 @@ private:
     std::unique_ptr<audio::AudioEngine> m_audioEngine;
     std::unique_ptr<lighting::LightingEngine> m_lightingEngine;
     std::unique_ptr<video::VideoEngine>       m_videoEngine;
+    std::unique_ptr<GoEngine>                 m_goEngine;
 
     ui::CueListView *m_cueListView = nullptr;
     ui::Inspector   *m_inspector   = nullptr;

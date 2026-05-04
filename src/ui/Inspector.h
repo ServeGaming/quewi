@@ -50,8 +50,15 @@ private slots:
     void commitPreWait();
     void commitPostWait();
     void commitNotes();
+    void commitContinueMode();
     void pickCueColor();
     void clearCueColor();
+
+    // Wait
+    void commitWaitDuration();
+
+    // Start/Stop/Goto target picker
+    void commitTargetCue();
 
     // OSC
     void commitOscAddress();
@@ -116,7 +123,16 @@ private:
     QLineEdit      *m_name      = nullptr;
     QDoubleSpinBox *m_preWait   = nullptr;
     QDoubleSpinBox *m_postWait  = nullptr;
+    QComboBox      *m_continueMode = nullptr;
     QPlainTextEdit *m_notes     = nullptr;
+
+    // Wait
+    QGroupBox      *m_waitGroup    = nullptr;
+    QDoubleSpinBox *m_waitDuration = nullptr;
+
+    // Start / Stop / Goto target picker (one shared widget)
+    QGroupBox      *m_targetGroup = nullptr;
+    QComboBox      *m_targetCombo = nullptr;
 
     // OSC group
     QGroupBox      *m_oscGroup    = nullptr;

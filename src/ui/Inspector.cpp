@@ -8,6 +8,8 @@
 #include "core/Workspace.h"
 #include "cues/Cue.h"
 #include "cues/FadeCue.h"
+#include "cues/TargetingCue.h"
+#include "cues/WaitCue.h"
 #include "lighting/LightCue.h"
 #include "osc/OscCue.h"
 #include "ui/WaveformWidget.h"
@@ -114,11 +116,42 @@ Inspector::Inspector(QWidget *parent)
     m_postWait->setSuffix(QStringLiteral(" s"));
     form->addRow(tr("Post-wait"), m_postWait);
 
+    m_continueMode = new QComboBox(this);
+    m_continueMode->addItem(tr("Don't continue"), 0);
+    m_continueMode->addItem(tr("Auto-continue"),  1);
+    m_continueMode->addItem(tr("Auto-follow"),    2);
+    m_continueMode->setToolTip(tr(
+        "Don't continue: stop here.\n"
+        "Auto-continue: fire next cue after post-wait.\n"
+        "Auto-follow: fire next cue immediately on start."));
+    form->addRow(tr("Continue"), m_continueMode);
+
     m_notes = new QPlainTextEdit(this);
     m_notes->setMaximumBlockCount(0);
     form->addRow(tr("Notes"), m_notes);
 
     outer->addLayout(form);
+
+    // ---------------- Wait group ----------------
+    m_waitGroup = new QGroupBox(tr("Wait"), this);
+    {
+        auto *f = new QFormLayout(m_waitGroup);
+        m_waitDuration = new QDoubleSpinBox(m_waitGroup);
+        m_waitDuration->setDecimals(2);
+        m_waitDuration->setRange(0.0, 86400.0);
+        m_waitDuration->setSuffix(QStringLiteral(" s"));
+        f->addRow(tr("Duration"), m_waitDuration);
+    }
+    outer->addWidget(m_waitGroup);
+
+    // ---------------- Target picker (Start/Stop/Goto) ----------------
+    m_targetGroup = new QGroupBox(tr("Target"), this);
+    {
+        auto *f = new QFormLayout(m_targetGroup);
+        m_targetCombo = new QComboBox(m_targetGroup);
+        f->addRow(tr("Cue"), m_targetCombo);
+    }
+    outer->addWidget(m_targetGroup);
 
     // ---------------- OSC group ----------------
     m_oscGroup = new QGroupBox(tr("OSC"), this);
@@ -439,6 +472,12 @@ Inspector::Inspector(QWidget *parent)
     connect(m_preWait,  &QDoubleSpinBox::editingFinished, this, &Inspector::commitPreWait);
     connect(m_postWait, &QDoubleSpinBox::editingFinished, this, &Inspector::commitPostWait);
     connect(m_notes,    &QPlainTextEdit::textChanged,     this, &Inspector::commitNotes);
+    connect(m_continueMode, &QComboBox::currentIndexChanged,
+            this, [this](int){ commitContinueMode(); });
+    connect(m_waitDuration, &QDoubleSpinBox::editingFinished,
+            this, &Inspector::commitWaitDuration);
+    connect(m_targetCombo, &QComboBox::currentIndexChanged,
+            this, [this](int){ commitTargetCue(); });
 
     connect(m_oscAddress, &QLineEdit::editingFinished,    this, &Inspector::commitOscAddress);
     connect(m_oscHost,    &QLineEdit::editingFinished,    this, &Inspector::commitOscHost);
@@ -547,6 +586,7 @@ void Inspector::rebuild()
         m_name->clear();
         m_preWait->setValue(0.0);
         m_postWait->setValue(0.0);
+        m_continueMode->setCurrentIndex(0);
         m_notes->clear();
         m_oscGroup->setVisible(false);
         m_audioGroup->setVisible(false);
@@ -554,6 +594,8 @@ void Inspector::rebuild()
         m_lightGroup->setVisible(false);
         m_lightFadeGroup->setVisible(false);
         m_visualGroup->setVisible(false);
+        m_waitGroup->setVisible(false);
+        m_targetGroup->setVisible(false);
         m_loading = false;
         return;
     }
@@ -563,9 +605,12 @@ void Inspector::rebuild()
     m_name->setText(m_cue->name());
     m_preWait->setValue(m_cue->preWait());
     m_postWait->setValue(m_cue->postWait());
+    m_continueMode->setCurrentIndex(static_cast<int>(m_cue->continueMode()));
     if (m_notes->toPlainText() != m_cue->notes())
         m_notes->setPlainText(m_cue->notes());
 
+    auto *waitCue   = qobject_cast<cues::WaitCue *>(m_cue.data());
+    auto *targetCue = qobject_cast<cues::TargetingCue *>(m_cue.data());
     auto *oscCue   = qobject_cast<osc::OscCue *>(m_cue.data());
     auto *audioCue = qobject_cast<audio::AudioCue *>(m_cue.data());
     auto *fadeCue  = qobject_cast<cues::FadeCue *>(m_cue.data());
@@ -582,6 +627,37 @@ void Inspector::rebuild()
     m_lightGroup->setVisible(lightCue != nullptr);
     m_lightFadeGroup->setVisible(lfadeCue != nullptr);
     m_visualGroup->setVisible(visualCue != nullptr);
+    m_waitGroup->setVisible(waitCue != nullptr);
+    m_targetGroup->setVisible(targetCue != nullptr);
+
+    if (waitCue) {
+        m_waitDuration->setValue(waitCue->durationSeconds());
+    }
+    if (targetCue) {
+        m_targetCombo->clear();
+        m_targetCombo->addItem(tr("(none)"), QVariant::fromValue(QUuid()));
+        if (m_workspace) {
+            if (auto *list = m_workspace->activeCueList()) {
+                for (int row = 0; row < list->cueCount(); ++row) {
+                    auto *c = list->cueAt(row);
+                    if (!c || c == m_cue) continue;
+                    m_targetCombo->addItem(
+                        QStringLiteral("%1  %2  [%3]")
+                            .arg(QString::number(c->number(), 'f', 2),
+                                 c->name().isEmpty() ? c->typeName() : c->name(),
+                                 c->typeName()),
+                        QVariant::fromValue(c->id()));
+                }
+            }
+        }
+        const auto tid = targetCue->targetId();
+        for (int i = 0; i < m_targetCombo->count(); ++i) {
+            if (m_targetCombo->itemData(i).toUuid() == tid) {
+                m_targetCombo->setCurrentIndex(i);
+                break;
+            }
+        }
+    }
 
     if (visualCue) {
         // File path field is for video/image; hidden for text.
@@ -783,6 +859,24 @@ void Inspector::commitNotes()
 {
     if (m_loading) return;
     pushFieldEdit(QStringLiteral("notes"), m_notes->toPlainText());
+}
+
+void Inspector::commitContinueMode()
+{
+    if (m_loading) return;
+    pushFieldEdit(QStringLiteral("continueMode"), m_continueMode->currentData().toInt());
+}
+
+void Inspector::commitWaitDuration()
+{
+    if (m_loading) return;
+    pushFieldEdit(QStringLiteral("durationSeconds"), m_waitDuration->value());
+}
+
+void Inspector::commitTargetCue()
+{
+    if (m_loading) return;
+    pushFieldEdit(QStringLiteral("targetId"), m_targetCombo->currentData().toUuid());
 }
 
 void Inspector::commitOscAddress() { if (!m_loading) pushFieldEdit(QStringLiteral("address"),  m_oscAddress->text()); }

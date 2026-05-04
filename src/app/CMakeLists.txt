@@ -2,6 +2,8 @@ qt_add_executable(quewi
     main.cpp
     MainWindow.cpp
     MainWindow.h
+    GoEngine.cpp
+    GoEngine.h
     ${CMAKE_SOURCE_DIR}/resources/resources.qrc
 )
 

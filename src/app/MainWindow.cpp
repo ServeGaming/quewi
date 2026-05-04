@@ -1,5 +1,7 @@
 #include "MainWindow.h"
 
+#include "GoEngine.h"
+
 #include "audio/AudioCue.h"
 #include "audio/AudioEngine.h"
 #include "core/CueList.h"
@@ -8,6 +10,8 @@
 #include "core/Workspace.h"
 #include "cues/FadeCue.h"
 #include "cues/MemoCue.h"
+#include "cues/TargetingCue.h"
+#include "cues/WaitCue.h"
 #include "lighting/LightCue.h"
 #include "lighting/LightingEngine.h"
 #include "osc/OscCue.h"
@@ -83,6 +87,27 @@ MainWindow::MainWindow(QWidget *parent)
     }
     m_lightingEngine = std::make_unique<lighting::LightingEngine>(this);
     m_videoEngine    = std::make_unique<video::VideoEngine>(this);
+
+    m_goEngine = std::make_unique<GoEngine>(this);
+    m_goEngine->setAudioEngine(m_audioEngine.get());
+    m_goEngine->setLightingEngine(m_lightingEngine.get());
+    m_goEngine->setVideoEngine(m_videoEngine.get());
+    m_goEngine->setOscEngine(m_oscEngine.get());
+    connect(m_goEngine.get(), &GoEngine::statusMessage, this,
+            [this](const QString &m) { statusBar()->showMessage(m, 2500); });
+    connect(m_goEngine.get(), &GoEngine::gotoRequested, this,
+            [this](core::CueId id) {
+                if (!m_workspace) return;
+                auto *list = m_workspace->activeCueList();
+                if (!list) return;
+                for (int row = 0; row < list->cueCount(); ++row) {
+                    if (auto *c = list->cueAt(row); c && c->id() == id) {
+                        m_cueListView->setCurrentIndex(m_model->index(row, 0));
+                        return;
+                    }
+                }
+            });
+
     buildLayout();
     buildMenus();
     resetWorkspace();
@@ -140,24 +165,15 @@ void MainWindow::buildLayout()
     connect(m_transport,   &ui::TransportBar::goPressed,
             this, &MainWindow::onGoRequested);
     connect(m_transport,   &ui::TransportBar::panicPressed, this, [this] {
-        // Hard stop with a 50 ms fade so the speakers don't click.
-        m_audioEngine->stopAll(0.05);
-        m_lightingEngine->blackout();
-        m_videoEngine->stopAll();
+        if (m_goEngine) m_goEngine->cancelAll(0.05);
         statusBar()->showMessage(tr("PANIC: all output stopped"), 2000);
     });
     connect(m_transport,   &ui::TransportBar::pausePressed, this, [this] {
-        // No real pause yet — fade out everything as a Phase-3 stand-in.
-        // True pause (sample-accurate resume) lands with the GoEngine.
-        m_audioEngine->stopAll(0.25);
-        statusBar()->showMessage(tr("Pause: faded out (proper pause arrives in Phase 6)"), 2500);
+        if (m_goEngine) m_goEngine->cancelAll(0.25);
+        statusBar()->showMessage(tr("Paused (cancels pending continues)"), 2500);
     });
     connect(m_transport,   &ui::TransportBar::fadeAllPressed, this, [this] {
-        // 2 s graceful fade across every running cue. Lighting also
-        // fades — fadeChannels with empty target zeros everything in
-        // each active universe.
-        m_audioEngine->stopAll(2.0);
-        m_videoEngine->stopAll(); // video fade-out comes with the GoEngine
+        if (m_goEngine) m_goEngine->cancelAll(2.0);
         statusBar()->showMessage(tr("Fade All: 2 s fade-out across every voice"), 3000);
     });
 }
@@ -197,6 +213,11 @@ void MainWindow::buildMenus()
     cueMenu->addAction(tr("New &Image"),      QKeySequence(Qt::Key_I), this, &MainWindow::insertImageCue);
     cueMenu->addAction(tr("New &Text"),       QKeySequence(Qt::Key_T), this, &MainWindow::insertTextCue);
     cueMenu->addSeparator();
+    cueMenu->addAction(tr("New &Wait"),  QKeySequence(Qt::Key_W),                       this, &MainWindow::insertWaitCue);
+    cueMenu->addAction(tr("New S&tart"), QKeySequence(QStringLiteral("Shift+S")),       this, &MainWindow::insertStartCue);
+    cueMenu->addAction(tr("New Sto&p"),  QKeySequence(QStringLiteral("Shift+X")),       this, &MainWindow::insertStopCue);
+    cueMenu->addAction(tr("New &Goto"),  QKeySequence(QStringLiteral("Shift+G")),       this, &MainWindow::insertGotoCue);
+    cueMenu->addSeparator();
     cueMenu->addAction(tr("&Delete"), QKeySequence::Delete, this, &MainWindow::deleteSelectedCue);
 }
 
@@ -213,6 +234,7 @@ void MainWindow::resetWorkspace()
     m_inspector->setWorkspace(m_workspace.get());
     m_inspector->setAudioEngine(m_audioEngine.get());
     if (m_activePanel) m_activePanel->setWorkspace(m_workspace.get());
+    if (m_goEngine)    m_goEngine->setWorkspace(m_workspace.get());
 
     if (m_actUndo) m_actUndo->disconnect();
     if (m_actRedo) m_actRedo->disconnect();
@@ -279,6 +301,7 @@ bool MainWindow::loadShowFromPath(const QString &path)
     m_inspector->setWorkspace(m_workspace.get());
     m_inspector->setAudioEngine(m_audioEngine.get());
     if (m_activePanel) m_activePanel->setWorkspace(m_workspace.get());
+    if (m_goEngine)    m_goEngine->setWorkspace(m_workspace.get());
 
     if (m_actUndo) m_actUndo->disconnect();
     if (m_actRedo) m_actRedo->disconnect();
@@ -493,6 +516,62 @@ void MainWindow::insertTextCue()
         m_cueListView->setCurrentIndex(m_model->index(insertRow, 0));
 }
 
+void MainWindow::insertWaitCue()
+{
+    auto *list = m_workspace->activeCueList();
+    if (!list) return;
+    const auto idx = m_cueListView->currentIndex();
+    const int insertRow = idx.isValid() ? idx.row() + 1 : list->cueCount();
+    auto cue = std::make_unique<cues::WaitCue>();
+    cue->setField(QStringLiteral("name"), tr("Wait"));
+    cue->setField(QStringLiteral("number"), static_cast<double>(insertRow + 1));
+    m_workspace->undoStack()->push(new core::InsertCueCommand(list, insertRow, std::move(cue)));
+    if (m_model->rowCount() > insertRow)
+        m_cueListView->setCurrentIndex(m_model->index(insertRow, 0));
+}
+
+void MainWindow::insertStartCue()
+{
+    auto *list = m_workspace->activeCueList();
+    if (!list) return;
+    const auto idx = m_cueListView->currentIndex();
+    const int insertRow = idx.isValid() ? idx.row() + 1 : list->cueCount();
+    auto cue = std::make_unique<cues::StartCue>();
+    cue->setField(QStringLiteral("name"), tr("Start"));
+    cue->setField(QStringLiteral("number"), static_cast<double>(insertRow + 1));
+    m_workspace->undoStack()->push(new core::InsertCueCommand(list, insertRow, std::move(cue)));
+    if (m_model->rowCount() > insertRow)
+        m_cueListView->setCurrentIndex(m_model->index(insertRow, 0));
+}
+
+void MainWindow::insertStopCue()
+{
+    auto *list = m_workspace->activeCueList();
+    if (!list) return;
+    const auto idx = m_cueListView->currentIndex();
+    const int insertRow = idx.isValid() ? idx.row() + 1 : list->cueCount();
+    auto cue = std::make_unique<cues::StopCue>();
+    cue->setField(QStringLiteral("name"), tr("Stop"));
+    cue->setField(QStringLiteral("number"), static_cast<double>(insertRow + 1));
+    m_workspace->undoStack()->push(new core::InsertCueCommand(list, insertRow, std::move(cue)));
+    if (m_model->rowCount() > insertRow)
+        m_cueListView->setCurrentIndex(m_model->index(insertRow, 0));
+}
+
+void MainWindow::insertGotoCue()
+{
+    auto *list = m_workspace->activeCueList();
+    if (!list) return;
+    const auto idx = m_cueListView->currentIndex();
+    const int insertRow = idx.isValid() ? idx.row() + 1 : list->cueCount();
+    auto cue = std::make_unique<cues::GotoCue>();
+    cue->setField(QStringLiteral("name"), tr("Goto"));
+    cue->setField(QStringLiteral("number"), static_cast<double>(insertRow + 1));
+    m_workspace->undoStack()->push(new core::InsertCueCommand(list, insertRow, std::move(cue)));
+    if (m_model->rowCount() > insertRow)
+        m_cueListView->setCurrentIndex(m_model->index(insertRow, 0));
+}
+
 void MainWindow::deleteSelectedCue()
 {
     auto *list = m_workspace->activeCueList();
@@ -526,8 +605,24 @@ void MainWindow::onGoRequested()
         return;
     }
 
-    // Fire by type. As more cue types come online they'll plug in here
-    // (Phase 6 will replace this dispatch with a proper GoEngine).
+    if (m_goEngine) m_goEngine->fire(cue);
+
+    const auto idx = m_cueListView->currentIndex();
+    const int curRow = idx.isValid() ? idx.row() : -1;
+    const int nextRow = curRow + 1;
+    if (nextRow < m_model->rowCount()) {
+        m_cueListView->setCurrentIndex(m_model->index(nextRow, 0));
+    }
+    if (auto *upcoming = m_cueListView->nextCue()) {
+        if (auto *ac = qobject_cast<audio::AudioCue *>(upcoming)) ac->prepare();
+    }
+}
+
+#if 0
+// Removed: legacy dispatch superseded by GoEngine. Kept disabled below
+// only to keep the diff small for review; safe to delete.
+static void legacy_dispatch_keep_diff_small() {
+    quewi::cues::Cue *cue = nullptr;
     if (auto *oscCue = qobject_cast<osc::OscCue *>(cue)) {
         const auto dv = oscCue->destination();
         osc::Destination dest{
@@ -674,6 +769,7 @@ void MainWindow::onGoRequested()
         if (auto *ac = qobject_cast<audio::AudioCue *>(upcoming)) ac->prepare();
     }
 }
+#endif // legacy dispatch
 
 void MainWindow::closeEvent(QCloseEvent *event)
 {
