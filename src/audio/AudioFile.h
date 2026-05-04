@@ -54,6 +54,12 @@ public:
     // Size == ceil(frameCount / kPeakBlock) * channelCount.
     const std::vector<float> &peaks() const { return m_peaks; }
 
+    // In-memory edits — non-destructive against the original file (a
+    // re-load via load(path) restores the source). Phase 9's full audio
+    // editor adds undo, multi-track, and effects on top of these.
+    void reverseSamples();
+    void normaliseSamples(float targetPeak = 0.891f); // -1 dBFS
+
 signals:
     void stateChanged(State s);
 

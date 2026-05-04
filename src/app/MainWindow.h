@@ -65,6 +65,10 @@ private:
     std::unique_ptr<cues::Cue> cueFromFile(const QString &path);
     int  insertCuesFromUrls(const QList<QUrl> &urls);
 
+    void registerOscRemoteHandlers();
+    void selectCueByNumber(double number);
+    void fireCueByNumber(double number);
+
     std::unique_ptr<core::Workspace>    m_workspace;
     std::unique_ptr<core::CueListModel> m_model;
     std::unique_ptr<osc::OscEngine>     m_oscEngine;

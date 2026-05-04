@@ -43,11 +43,21 @@ public:
 
         Voice v;
         v.id = ++m_nextId;
+        const double srcSr = file->sampleRate();
         v.file = std::move(file);
         v.gain.store(dbToLinear(params.gainDb), std::memory_order_relaxed);
+        v.currentGain.store(dbToLinear(params.gainDb), std::memory_order_relaxed);
+        v.targetGain.store(dbToLinear(params.gainDb), std::memory_order_relaxed);
         v.fadeInSamples = static_cast<qint64>(params.fadeInSeconds  * m_outputSampleRate);
         v.fadeOutOnStop = static_cast<qint64>(params.fadeOutSeconds * m_outputSampleRate);
         v.loop = params.loop;
+        v.pan = std::clamp(params.pan, -1.0, 1.0);
+
+        // Trim is in source-frame coordinates so resampling math stays simple.
+        v.readPos = static_cast<qint64>(params.trimInSeconds * srcSr);
+        if (params.trimOutSeconds > 0.0) {
+            v.endFrame = static_cast<qint64>(params.trimOutSeconds * srcSr);
+        }
 
         std::lock_guard<std::mutex> lock(m_mutex);
         m_voices.push_back(std::move(v));
@@ -113,6 +123,7 @@ private:
         VoiceId  id = 0;
         std::shared_ptr<const AudioFile> file;
         qint64   readPos = 0;          // frames into the file
+        qint64   endFrame = 0;         // 0 = play to file end (trim out)
         std::atomic<double> gain{1.0}; // user target gain (linear)
         std::atomic<double> currentGain{1.0}; // smoothed actual gain
         std::atomic<double> targetGain{1.0};  // for fade
@@ -125,6 +136,7 @@ private:
         qint64   fadeOutSamples = 0;
         qint64   fadeOutCounter = 0;
         double   fadeOutFromGain = 1.0;
+        double   pan = 0.0;            // -1..+1
         bool     loop = false;
         bool     finished = false;
 
@@ -137,6 +149,7 @@ private:
             : id(other.id)
             , file(std::move(other.file))
             , readPos(other.readPos)
+            , endFrame(other.endFrame)
             , gainFadeSamples(other.gainFadeSamples)
             , gainFadeCounter(other.gainFadeCounter)
             , gainFadeFrom(other.gainFadeFrom)
@@ -146,6 +159,7 @@ private:
             , fadeOutSamples(other.fadeOutSamples)
             , fadeOutCounter(other.fadeOutCounter)
             , fadeOutFromGain(other.fadeOutFromGain)
+            , pan(other.pan)
             , loop(other.loop)
             , finished(other.finished)
         {
@@ -158,6 +172,7 @@ private:
             id = other.id;
             file = std::move(other.file);
             readPos = other.readPos;
+            endFrame = other.endFrame;
             gainFadeSamples = other.gainFadeSamples;
             gainFadeCounter = other.gainFadeCounter;
             gainFadeFrom = other.gainFadeFrom;
@@ -167,6 +182,7 @@ private:
             fadeOutSamples = other.fadeOutSamples;
             fadeOutCounter = other.fadeOutCounter;
             fadeOutFromGain = other.fadeOutFromGain;
+            pan = other.pan;
             loop = other.loop;
             finished = other.finished;
             gain.store(other.gain.load(std::memory_order_relaxed), std::memory_order_relaxed);
@@ -208,6 +224,8 @@ qint64 AudioEngine::Mixer::readData(char *data, qint64 maxlen)
             const int   inChans  = v.file->channelCount();
             const qint64 totalFrames = v.file->frameCount();
             if (inChans <= 0 || totalFrames <= 0) continue;
+            const qint64 effectiveEnd = (v.endFrame > 0)
+                ? std::min(v.endFrame, totalFrames) : totalFrames;
 
             // Sample-rate mismatch: simple constant-stride resample with
             // linear interpolation. Adequate for v1; phase 7 polish can
@@ -226,11 +244,11 @@ qint64 AudioEngine::Mixer::readData(char *data, qint64 maxlen)
                 qint64 i1 = i0 + 1;
 
                 if (v.loop) {
-                    if (i1 >= totalFrames) i1 -= totalFrames;
-                } else if (i1 >= totalFrames) {
-                    i1 = totalFrames - 1;
+                    if (i1 >= effectiveEnd) i1 -= effectiveEnd;
+                } else if (i1 >= effectiveEnd) {
+                    i1 = effectiveEnd - 1;
                 }
-                if (i0 >= totalFrames) {
+                if (i0 >= effectiveEnd) {
                     if (v.loop) {
                         // Loop: wrap. (Already handled below as readPos modulo at end.)
                     } else {
@@ -273,10 +291,13 @@ qint64 AudioEngine::Mixer::readData(char *data, qint64 maxlen)
                 // envGain via the linear ramp. Real factor:
                 const double finalGain = cur * envGain;
 
-                // Mix into output, channel-mapping:
-                //   - source mono → fan to all output channels
-                //   - source stereo → first two output channels; extras silent
-                //   - matching channel count → 1:1
+                // Equal-power pan (-1..+1) for stereo output. For non-stereo
+                // outputs the pan is ignored and channels are routed 1:1
+                // (matrix mixer comes later; revisit when patches land).
+                const double panT  = (v.pan + 1.0) * 0.5; // 0..1
+                const double leftG  = std::cos(panT * M_PI / 2.0);
+                const double rightG = std::sin(panT * M_PI / 2.0);
+
                 for (int oc = 0; oc < outChans; ++oc) {
                     int srcCh;
                     if (inChans == 1)               srcCh = 0;
@@ -292,7 +313,12 @@ qint64 AudioEngine::Mixer::readData(char *data, qint64 maxlen)
                     const float s0 = sample(i0);
                     const float s1 = sample(i1);
                     const float s  = s0 + static_cast<float>(frac) * (s1 - s0);
-                    out[f * outChans + oc] += static_cast<float>(s * finalGain);
+                    double panGain = 1.0;
+                    if (outChans == 2) {
+                        panGain = (oc == 0) ? (leftG * std::sqrt(2.0))
+                                            : (rightG * std::sqrt(2.0));
+                    }
+                    out[f * outChans + oc] += static_cast<float>(s * finalGain * panGain);
                 }
 
                 (void)total; // silence unused-variable warning
@@ -301,8 +327,8 @@ qint64 AudioEngine::Mixer::readData(char *data, qint64 maxlen)
             // Advance read position by the resampled amount.
             const qint64 advanced = static_cast<qint64>(framesWanted * rate);
             v.readPos += advanced;
-            if (v.loop && totalFrames > 0) v.readPos %= totalFrames;
-            else if (v.readPos >= totalFrames) v.finished = true;
+            if (v.loop && effectiveEnd > 0) v.readPos %= effectiveEnd;
+            else if (v.readPos >= effectiveEnd) v.finished = true;
 
             if (v.stopRequested) v.fadeOutCounter += framesWanted;
 
@@ -351,6 +377,16 @@ void AudioEngine::setOutputDevice(const QAudioDevice &device)
 bool AudioEngine::ensureRunning()
 {
     if (m_running.load()) return true;
+    m_lastError.clear();
+
+    if (m_outputDevice.isNull()) {
+        m_outputDevice = QMediaDevices::defaultAudioOutput();
+    }
+    if (m_outputDevice.isNull()) {
+        m_lastError = tr("No audio output device available");
+        emit engineError(m_lastError);
+        return false;
+    }
 
     QAudioFormat fmt;
     fmt.setSampleFormat(QAudioFormat::Float);
@@ -365,6 +401,12 @@ bool AudioEngine::ensureRunning()
         }
     }
 
+    if (!m_outputDevice.isFormatSupported(fmt)) {
+        m_lastError = tr("Device '%1' rejects float32 format").arg(m_outputDevice.description());
+        emit engineError(m_lastError);
+        return false;
+    }
+
     m_outputSampleRate.store(fmt.sampleRate());
     m_outputChannels.store(fmt.channelCount());
 
@@ -373,8 +415,30 @@ bool AudioEngine::ensureRunning()
     m_mixer->open(QIODevice::ReadOnly);
 
     m_sink = std::make_unique<QAudioSink>(m_outputDevice, fmt, this);
-    m_sink->setBufferSize(4096); // ~85 ms at 48k stereo float; tighten later
+    // 32 KB ≈ 85 ms at 48k stereo float. Plenty of headroom; the GoEngine
+    // can tighten this when sample-accurate scheduling lands.
+    m_sink->setBufferSize(32768);
+
+    connect(m_sink.get(), &QAudioSink::stateChanged, this,
+        [this](QAudio::State s) {
+            if (s == QAudio::StoppedState) {
+                const auto err = m_sink->error();
+                if (err != QAudio::NoError) {
+                    m_lastError = tr("Audio sink error: %1").arg(static_cast<int>(err));
+                    emit engineError(m_lastError);
+                }
+            }
+        });
+
     m_sink->start(m_mixer.get());
+
+    if (m_sink->error() != QAudio::NoError) {
+        m_lastError = tr("Failed to start audio sink (error %1) for device '%2'")
+                          .arg(static_cast<int>(m_sink->error()))
+                          .arg(m_outputDevice.description());
+        emit engineError(m_lastError);
+        return false;
+    }
 
     m_running.store(true);
     emit runningChanged(true);

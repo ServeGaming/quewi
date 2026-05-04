@@ -97,14 +97,17 @@ QTreeView {
     show-decoration-selected: 1;
 }
 QTreeView::item {
-    padding: 6px 8px;
+    padding: 4px 8px;
     border: none;
+    border-left: 2px solid transparent;
 }
 QTreeView::item:selected {
     background: #262A33;
+    border-left: 2px solid #7AB8FF;
 }
 QTreeView::item:selected:active {
     background: #2D3340;
+    border-left: 2px solid #62B4FF;
 }
 QTreeView::item:focus {
     outline: 0;
@@ -298,6 +301,25 @@ QLabel#typeLabel {
 QWidget#inspectorPane {
     background: #0E0F12;
 }
+
+QPushButton#colorChip {
+    background: #262A33;
+    color: #A8AEBA;
+    border: 1px solid #33373F;
+    border-radius: 4px;
+    padding: 4px 8px;
+    font-size: 11px;
+    font-weight: 600;
+}
+QPushButton#colorClear {
+    background: transparent;
+    color: #A8AEBA;
+    border: 1px solid #33373F;
+    border-radius: 4px;
+    font-weight: 700;
+}
+QPushButton#colorClear:hover { background: #1E2128; color: #FF5A5A; }
+QPushButton#colorClear:disabled { color: #4A4F5A; }
 
 /* ===================== Scrollbars ===================== */
 QScrollBar:vertical {

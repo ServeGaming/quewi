@@ -15,7 +15,8 @@ class CueListModel : public QAbstractItemModel {
     Q_OBJECT
 public:
     enum Column {
-        ColumnNumber = 0,
+        ColumnState = 0,    // colored dot (cue color, or armed indicator)
+        ColumnNumber,
         ColumnType,
         ColumnName,
         ColumnPreWait,

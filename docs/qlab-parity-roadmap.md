@@ -240,14 +240,17 @@ The original 9-week phased plan still applies. Updated with what's done:
 | **0** | Scaffold (CMake, docs, CI) | ✅ done |
 | **1** | App boots, document model, SQLite save/load | ✅ done |
 | **2** | OSC engine (codec + pattern matcher + UDP send + OscCue) | ✅ done |
-| **2.5** | OSC depth: TCP/SLIP, WebSocket, inbound dispatcher, monitor window | 🚧 next |
-| **3** | Audio engine + Audio cue + Fade cue + waveform display | ⬜ |
-| **4** | Lighting (sACN + Art-Net + DMX-USB) + Light/Light Fade cues + universe patch | ⬜ |
-| **5** | Video / Projection (FFmpeg + Qt RHI) + Video/Image/Text/Title cues + Spout/Syphon/NDI | ⬜ |
-| **6** | MIDI + MSC + control-flow cues (Start/Stop/Pause/Load/Reset/Devamp/Goto/Target/Arm/Wait) + **GoEngine** + Group cue (all 5 modes) + Inspector type registry | ⬜ |
-| **7** | Polish: pre-flight, Show Mode lock, command palette, find/replace, themes (high-contrast, color-blind safe, light), drag-from-filesystem, cart view, multi-list tabs, active-cues panel, journal/recovery, performance gates in CI | ⬜ |
+| **2.5** | OSC depth: TCP/SLIP, WebSocket, inbound dispatcher, monitor window | ✅ done |
+| **3** | Audio engine + Audio cue + Fade cue + waveform display | ✅ done |
+| **3.5** | Audio polish: trim, pan, normalize, reverse, error reporting | ✅ done |
+| **4** | Lighting (sACN) + Light/Light Fade cues | ✅ done — Art-Net + DMX-USB follow-up |
+| **5** | Video + Image + Text cues with output windows | ✅ done — Spout/Syphon/NDI follow-up |
+| **5.5** | Cue colours + state column + drag-and-drop + OSC remote API | ✅ done |
+| **6** | MIDI + MSC + control-flow cues (Start/Stop/Pause/Load/Reset/Devamp/Goto/Target/Arm/Wait) + **GoEngine** + Group cue (all 5 modes) + Inspector type registry | 🚧 next |
+| **7** | Polish: pre-flight, Show Mode lock, command palette, find/replace, themes (high-contrast, color-blind safe, light), cart view, multi-list tabs, active-cues panel, journal/recovery, performance gates in CI | ⬜ |
 | **8** | Distribution: installers, auto-update, crash reporter, user manual, version 1.0 release | ⬜ |
-| **9+** | Post-1.0: networked multi-operator, web remote, plugin API, Lua scripting, timecode (MTC/LTC), legacy QLab workspace import | ⬜ |
+| **9** | **Full Audio Editor** (Audacity-like): multi-track timeline, sample-buffer editing with undo, effects rack (EQ/comp/reverb/delay), spectral view, export | ⬜ |
+| **10+** | Post-1.0: networked multi-operator, web remote, plugin API, Lua scripting, timecode (MTC/LTC), legacy QLab workspace import | ⬜ |
 
 Each phase is one to two weeks of focused work. Order is dependency-driven: GoEngine in phase 6 needs the cue type catalogue from earlier phases; lighting and video can run somewhat in parallel after audio because they share the patch model but otherwise touch different output subsystems.
 

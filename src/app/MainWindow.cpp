@@ -50,7 +50,18 @@ MainWindow::MainWindow(QWidget *parent)
     connect(m_oscEngine.get(), &osc::OscEngine::sendError, this, [this](const QString &reason) {
         statusBar()->showMessage(tr("OSC: %1").arg(reason), 4000);
     });
+    registerOscRemoteHandlers();
+    // Default remote-control port. Documented in docs/osc-remote-api.md.
+    constexpr quint16 kDefaultRemotePort = 53535;
+    if (m_oscEngine->listenUdp(kDefaultRemotePort)) {
+        statusBar()->showMessage(tr("OSC remote listening on UDP %1")
+            .arg(kDefaultRemotePort), 3000);
+    }
     m_audioEngine = std::make_unique<audio::AudioEngine>(this);
+    connect(m_audioEngine.get(), &audio::AudioEngine::engineError, this,
+            [this](const QString &reason) {
+                statusBar()->showMessage(tr("Audio: %1").arg(reason), 5000);
+            });
     m_lightingEngine = std::make_unique<lighting::LightingEngine>(this);
     m_videoEngine    = std::make_unique<video::VideoEngine>(this);
     buildLayout();
@@ -487,21 +498,32 @@ void MainWindow::onGoRequested()
     } else if (auto *audioCue = qobject_cast<audio::AudioCue *>(cue)) {
         audioCue->prepare(); // idempotent; loads file if not already
         auto file = audioCue->audioFile();
-        if (!file || file->state() != audio::AudioFile::State::Loaded) {
-            statusBar()->showMessage(tr("GO: audio not ready (%1)")
-                .arg(file ? tr("loading") : tr("no file")), 2000);
+        if (!file) {
+            statusBar()->showMessage(tr("GO: no file selected"), 3000);
+        } else if (file->state() == audio::AudioFile::State::Failed) {
+            statusBar()->showMessage(tr("GO: decode failed — %1").arg(file->errorString()), 6000);
+        } else if (file->state() != audio::AudioFile::State::Loaded) {
+            statusBar()->showMessage(tr("GO: audio still decoding — try again in a moment"), 3000);
         } else {
             audio::VoiceParams p;
             p.gainDb = audioCue->gainDb();
-            p.fadeInSeconds = audioCue->fadeInSeconds();
+            p.fadeInSeconds  = audioCue->fadeInSeconds();
             p.fadeOutSeconds = audioCue->fadeOutSeconds();
+            p.trimInSeconds  = audioCue->trimInSeconds();
+            p.trimOutSeconds = audioCue->trimOutSeconds();
+            p.pan            = audioCue->pan();
             p.loop = audioCue->loop();
             const auto vid = m_audioEngine->fire(file, p);
             audioCue->setCurrentVoiceId(vid);
-            statusBar()->showMessage(tr("GO: ▶ %1 (%2 s)")
-                .arg(cue->name().isEmpty() ? cue->typeName() : cue->name(),
-                     QString::number(file->durationSeconds(), 'f', 2)),
-                2000);
+            if (vid == 0) {
+                statusBar()->showMessage(tr("GO: audio engine failed — %1")
+                    .arg(m_audioEngine->lastError()), 5000);
+            } else {
+                statusBar()->showMessage(tr("GO: ▶ %1 (%2 s)")
+                    .arg(cue->name().isEmpty() ? cue->typeName() : cue->name(),
+                         QString::number(file->durationSeconds(), 'f', 2)),
+                    2000);
+            }
         }
     } else if (auto *lightCue = qobject_cast<lighting::LightCue *>(cue)) {
         QHash<int, int> values;
@@ -732,6 +754,134 @@ std::unique_ptr<cues::Cue> MainWindow::cueFromFile(const QString &path)
     }
 
     return nullptr;
+}
+
+// ---------- OSC remote API -----------------------------------------------
+//
+// Public addresses (full spec in docs/osc-remote-api.md):
+//
+//   /quewi/go               (no args)            — fire next cue (= space)
+//   /quewi/panic            (no args)            — stop everything
+//   /quewi/stop             (no args)            — alias for panic
+//   /quewi/pause            (no args)            — soft pause
+//   /quewi/cue/select <num> (float)              — select cue by number
+//   /quewi/cue/start  <num> (float)              — fire that specific cue
+//   /quewi/cue/stop   <num> (float)              — stop the engine voice
+//                                                  bound to that cue
+//   /quewi/heartbeat        (no args)            — no-op, useful for
+//                                                  remote connection check
+
+void MainWindow::registerOscRemoteHandlers()
+{
+    auto sub = [this](const QString &pattern, auto &&fn) {
+        m_oscEngine->subscribe(pattern, std::forward<decltype(fn)>(fn));
+    };
+
+    sub("/quewi/go", [this](const osc::Message &) {
+        QMetaObject::invokeMethod(this, [this]{ onGoRequested(); }, Qt::QueuedConnection);
+    });
+    sub("/quewi/panic", [this](const osc::Message &) {
+        QMetaObject::invokeMethod(this, [this]{
+            m_audioEngine->stopAll(0.05);
+            m_lightingEngine->blackout();
+            m_videoEngine->stopAll();
+            statusBar()->showMessage(tr("PANIC: remote OSC"), 2000);
+        }, Qt::QueuedConnection);
+    });
+    sub("/quewi/stop", [this](const osc::Message &) {
+        QMetaObject::invokeMethod(this, [this]{
+            m_audioEngine->stopAll(0.05);
+            m_lightingEngine->blackout();
+            m_videoEngine->stopAll();
+        }, Qt::QueuedConnection);
+    });
+    sub("/quewi/pause", [this](const osc::Message &) {
+        QMetaObject::invokeMethod(this, [this]{
+            m_audioEngine->stopAll(0.25);
+            statusBar()->showMessage(tr("Paused via OSC"), 2000);
+        }, Qt::QueuedConnection);
+    });
+    sub("/quewi/cue/select", [this](const osc::Message &m) {
+        if (m.args.empty()) return;
+        double num = 0.0;
+        const auto &a = m.args.front();
+        switch (a.tag) {
+        case osc::Argument::Tag::Int32:   num = std::get<qint32>(a.value); break;
+        case osc::Argument::Tag::Float32: num = std::get<float>(a.value);  break;
+        case osc::Argument::Tag::Int64:   num = static_cast<double>(std::get<qint64>(a.value)); break;
+        case osc::Argument::Tag::Double:  num = std::get<double>(a.value); break;
+        default: return;
+        }
+        QMetaObject::invokeMethod(this, [this, num]{ selectCueByNumber(num); },
+                                  Qt::QueuedConnection);
+    });
+    sub("/quewi/cue/start", [this](const osc::Message &m) {
+        if (m.args.empty()) return;
+        double num = 0.0;
+        const auto &a = m.args.front();
+        switch (a.tag) {
+        case osc::Argument::Tag::Int32:   num = std::get<qint32>(a.value); break;
+        case osc::Argument::Tag::Float32: num = std::get<float>(a.value);  break;
+        case osc::Argument::Tag::Int64:   num = static_cast<double>(std::get<qint64>(a.value)); break;
+        case osc::Argument::Tag::Double:  num = std::get<double>(a.value); break;
+        default: return;
+        }
+        QMetaObject::invokeMethod(this, [this, num]{ fireCueByNumber(num); },
+                                  Qt::QueuedConnection);
+    });
+    sub("/quewi/cue/stop", [this](const osc::Message &m) {
+        if (m.args.empty()) return;
+        double num = 0.0;
+        const auto &a = m.args.front();
+        switch (a.tag) {
+        case osc::Argument::Tag::Int32:   num = std::get<qint32>(a.value); break;
+        case osc::Argument::Tag::Float32: num = std::get<float>(a.value);  break;
+        case osc::Argument::Tag::Int64:   num = static_cast<double>(std::get<qint64>(a.value)); break;
+        case osc::Argument::Tag::Double:  num = std::get<double>(a.value); break;
+        default: return;
+        }
+        QMetaObject::invokeMethod(this, [this, num]{
+            auto *list = m_workspace ? m_workspace->activeCueList() : nullptr;
+            if (!list) return;
+            for (int row = 0; row < list->cueCount(); ++row) {
+                if (auto *c = list->cueAt(row); c && qFuzzyCompare(c->number(), num)) {
+                    if (auto *ac = qobject_cast<audio::AudioCue *>(c); ac && ac->currentVoiceId()) {
+                        m_audioEngine->stop(ac->currentVoiceId());
+                    }
+                    break;
+                }
+            }
+        }, Qt::QueuedConnection);
+    });
+    sub("/quewi/heartbeat", [](const osc::Message &) {});
+}
+
+void MainWindow::selectCueByNumber(double number)
+{
+    auto *list = m_workspace ? m_workspace->activeCueList() : nullptr;
+    if (!list) return;
+    for (int row = 0; row < list->cueCount(); ++row) {
+        auto *c = list->cueAt(row);
+        if (c && qFuzzyCompare(c->number(), number)) {
+            m_cueListView->setCurrentIndex(m_model->index(row, 0));
+            return;
+        }
+    }
+}
+
+void MainWindow::fireCueByNumber(double number)
+{
+    selectCueByNumber(number);
+    // Step the selection back so onGoRequested fires the just-selected cue
+    // (its logic uses *next* cue from the current selection).
+    const auto idx = m_cueListView->currentIndex();
+    if (idx.isValid() && idx.row() > 0) {
+        m_cueListView->setCurrentIndex(m_model->index(idx.row() - 1, 0));
+    } else if (idx.isValid()) {
+        // Already at the top; just call go which will fire row 0.
+        m_cueListView->clearSelection();
+    }
+    onGoRequested();
 }
 
 } // namespace quewi

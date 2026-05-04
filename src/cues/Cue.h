@@ -2,6 +2,7 @@
 
 #include "core/Workspace.h"
 
+#include <QColor>
 #include <QJsonObject>
 #include <QObject>
 #include <QString>
@@ -41,6 +42,7 @@ public:
     ContinueMode continueMode() const { return m_continueMode; }
     QString notes() const          { return m_notes; }
     bool    isArmed() const        { return m_armed; }
+    QColor  color() const          { return m_color; } // invalid = no tint
 
     // Generic accessor — returns invalid QVariant for unknown fields.
     virtual QVariant field(const QString &key) const;
@@ -67,6 +69,7 @@ private:
     ContinueMode m_continueMode = ContinueMode::DoNotContinue;
     QString      m_notes;
     bool         m_armed = true;
+    QColor       m_color;        // invalid by default → no tint
 };
 
 } // namespace quewi::cues

@@ -3,8 +3,11 @@
 #include "core/CueList.h"
 #include "cues/Cue.h"
 
+#include <QBrush>
 #include <QFont>
 #include <QFontDatabase>
+#include <QPainter>
+#include <QPixmap>
 
 namespace quewi::core {
 
@@ -89,6 +92,7 @@ QVariant CueListModel::data(const QModelIndex &index, int role) const
 
     if (role == Qt::DisplayRole || role == Qt::EditRole) {
         switch (index.column()) {
+        case ColumnState:     return QString();   // dot drawn by delegate via DecorationRole
         case ColumnNumber:    return QString::number(cue->number(), 'f', 2);
         case ColumnType:      return cue->typeName();
         case ColumnName:      return cue->name();
@@ -105,6 +109,7 @@ QVariant CueListModel::data(const QModelIndex &index, int role) const
 
     if (role == Qt::TextAlignmentRole) {
         switch (index.column()) {
+        case ColumnState:     return int(Qt::AlignCenter);
         case ColumnNumber:
         case ColumnPreWait:
         case ColumnPostWait:  return int(Qt::AlignRight | Qt::AlignVCenter);
@@ -127,6 +132,40 @@ QVariant CueListModel::data(const QModelIndex &index, int role) const
         }
     }
 
+    if (role == Qt::BackgroundRole) {
+        // Tint every column of the row by the cue's chosen color (if any).
+        const auto col = cue->color();
+        if (col.isValid()) {
+            QColor tint = col;
+            tint.setAlphaF(0.18); // subtle wash
+            return QBrush(tint);
+        }
+    }
+
+    if (role == Qt::DecorationRole && index.column() == ColumnState) {
+        const auto col = cue->color();
+        if (col.isValid()) {
+            QPixmap pm(12, 12);
+            pm.fill(Qt::transparent);
+            QPainter p(&pm);
+            p.setRenderHint(QPainter::Antialiasing);
+            p.setBrush(col);
+            p.setPen(Qt::NoPen);
+            p.drawEllipse(1, 1, 10, 10);
+            return pm;
+        }
+        // Default: armed = pale dot, disarmed = grey dot.
+        QPixmap pm(12, 12);
+        pm.fill(Qt::transparent);
+        QPainter p(&pm);
+        p.setRenderHint(QPainter::Antialiasing);
+        p.setBrush(cue->isArmed() ? QColor(0xA8, 0xAE, 0xBA)
+                                   : QColor(0x4A, 0x4F, 0x5A));
+        p.setPen(Qt::NoPen);
+        p.drawEllipse(3, 3, 6, 6);
+        return pm;
+    }
+
     return {};
 }
 
@@ -134,6 +173,7 @@ QVariant CueListModel::headerData(int section, Qt::Orientation orientation, int 
 {
     if (orientation != Qt::Horizontal || role != Qt::DisplayRole) return {};
     switch (section) {
+    case ColumnState:     return QString();
     case ColumnNumber:    return tr("#");
     case ColumnType:      return tr("Type");
     case ColumnName:      return tr("Name");

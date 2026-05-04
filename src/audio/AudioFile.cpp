@@ -173,6 +173,44 @@ void AudioFile::onError()
     setState(State::Failed);
 }
 
+void AudioFile::reverseSamples()
+{
+    if (m_state != State::Loaded || m_channelCount <= 0 || m_frameCount <= 0) return;
+    // Reverse frame-by-frame so per-channel order within each frame
+    // stays intact (left stays left, right stays right).
+    const int chans = m_channelCount;
+    const qint64 frames = m_frameCount;
+    for (qint64 i = 0, j = frames - 1; i < j; ++i, --j) {
+        for (int c = 0; c < chans; ++c) {
+            std::swap(
+                m_samples[static_cast<size_t>(i) * chans + c],
+                m_samples[static_cast<size_t>(j) * chans + c]);
+        }
+    }
+    // Rebuild peaks from scratch.
+    m_peaks.clear();
+    m_peakFramesProcessed = 0;
+    buildPeaksIncrementally(m_frameCount);
+    emit stateChanged(m_state);
+}
+
+void AudioFile::normaliseSamples(float targetPeak)
+{
+    if (m_state != State::Loaded) return;
+    float peak = 0.0f;
+    for (float v : m_samples) {
+        const float a = std::fabs(v);
+        if (a > peak) peak = a;
+    }
+    if (peak <= 0.0001f) return;
+    const float gain = targetPeak / peak;
+    for (float &v : m_samples) v *= gain;
+    m_peaks.clear();
+    m_peakFramesProcessed = 0;
+    buildPeaksIncrementally(m_frameCount);
+    emit stateChanged(m_state);
+}
+
 void AudioFile::setState(State s)
 {
     if (m_state == s) return;

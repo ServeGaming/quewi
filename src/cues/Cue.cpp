@@ -21,6 +21,7 @@ QVariant Cue::field(const QString &key) const
     if (key == QLatin1String("continueMode")) return static_cast<int>(m_continueMode);
     if (key == QLatin1String("notes"))        return m_notes;
     if (key == QLatin1String("armed"))        return m_armed;
+    if (key == QLatin1String("color"))        return m_color;
     return {};
 }
 
@@ -33,13 +34,14 @@ void Cue::setField(const QString &key, const QVariant &value)
     else if (key == QLatin1String("continueMode")) m_continueMode = static_cast<ContinueMode>(value.toInt());
     else if (key == QLatin1String("notes"))        m_notes = value.toString();
     else if (key == QLatin1String("armed"))        m_armed = value.toBool();
+    else if (key == QLatin1String("color"))        m_color = value.value<QColor>();
     else return;
     emitChanged();
 }
 
 QJsonObject Cue::toPayload() const
 {
-    return {
+    QJsonObject o {
         { QStringLiteral("number"),       m_number },
         { QStringLiteral("name"),         m_name },
         { QStringLiteral("preWait"),      m_preWait },
@@ -48,6 +50,10 @@ QJsonObject Cue::toPayload() const
         { QStringLiteral("notes"),        m_notes },
         { QStringLiteral("armed"),        m_armed },
     };
+    if (m_color.isValid()) {
+        o.insert(QStringLiteral("color"), m_color.name(QColor::HexArgb));
+    }
+    return o;
 }
 
 void Cue::fromPayload(const QJsonObject &payload)
@@ -59,6 +65,8 @@ void Cue::fromPayload(const QJsonObject &payload)
     m_continueMode = static_cast<ContinueMode>(payload.value(QStringLiteral("continueMode")).toInt());
     m_notes        = payload.value(QStringLiteral("notes")).toString();
     m_armed        = payload.value(QStringLiteral("armed")).toBool(true);
+    const auto colName = payload.value(QStringLiteral("color")).toString();
+    m_color = colName.isEmpty() ? QColor() : QColor(colName);
 }
 
 void Cue::emitChanged()

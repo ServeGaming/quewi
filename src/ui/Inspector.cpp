@@ -44,9 +44,21 @@ Inspector::Inspector(QWidget *parent)
     outer->setContentsMargins(20, 16, 20, 16);
     outer->setSpacing(12);
 
+    auto *headerRow = new QHBoxLayout();
+    headerRow->setContentsMargins(0, 0, 0, 0);
     m_typeLabel = new QLabel(tr("No cue selected"), this);
     m_typeLabel->setObjectName(QStringLiteral("typeLabel"));
-    outer->addWidget(m_typeLabel);
+    headerRow->addWidget(m_typeLabel, 1);
+    m_colorChip = new QPushButton(tr("Color…"), this);
+    m_colorChip->setObjectName(QStringLiteral("colorChip"));
+    m_colorChip->setFixedWidth(96);
+    m_colorClear = new QPushButton(tr("✕"), this);
+    m_colorClear->setObjectName(QStringLiteral("colorClear"));
+    m_colorClear->setFixedSize(28, 28);
+    m_colorClear->setToolTip(tr("Clear color"));
+    headerRow->addWidget(m_colorChip);
+    headerRow->addWidget(m_colorClear);
+    outer->addLayout(headerRow);
 
     auto *form = new QFormLayout();
     form->setContentsMargins(0, 4, 0, 0);
@@ -144,10 +156,37 @@ Inspector::Inspector(QWidget *parent)
     m_audioFadeOut->setSuffix(QStringLiteral(" s"));
     audioForm->addRow(tr("Fade out"), m_audioFadeOut);
 
+    m_audioTrimIn = new QDoubleSpinBox(m_audioGroup);
+    m_audioTrimIn->setDecimals(3);
+    m_audioTrimIn->setRange(0.0, 86400.0);
+    m_audioTrimIn->setSuffix(QStringLiteral(" s"));
+    audioForm->addRow(tr("Trim in"), m_audioTrimIn);
+
+    m_audioTrimOut = new QDoubleSpinBox(m_audioGroup);
+    m_audioTrimOut->setDecimals(3);
+    m_audioTrimOut->setRange(0.0, 86400.0);
+    m_audioTrimOut->setSuffix(QStringLiteral(" s"));
+    m_audioTrimOut->setSpecialValueText(tr("(end)"));
+    audioForm->addRow(tr("Trim out"), m_audioTrimOut);
+
+    m_audioPan = new QDoubleSpinBox(m_audioGroup);
+    m_audioPan->setDecimals(2);
+    m_audioPan->setRange(-1.0, 1.0);
+    m_audioPan->setSingleStep(0.1);
+    audioForm->addRow(tr("Pan (-1 L · 0 C · +1 R)"), m_audioPan);
+
     m_audioLoop = new QCheckBox(tr("Loop"), m_audioGroup);
     audioForm->addRow(QString(), m_audioLoop);
 
+    auto *quickRow = new QHBoxLayout();
+    m_audioNormalize = new QPushButton(tr("Normalize"), m_audioGroup);
+    m_audioReverse   = new QPushButton(tr("Reverse"),   m_audioGroup);
+    quickRow->addWidget(m_audioNormalize);
+    quickRow->addWidget(m_audioReverse);
+    quickRow->addStretch(1);
+
     audioOuter->addLayout(audioForm);
+    audioOuter->addLayout(quickRow);
     outer->addWidget(m_audioGroup);
 
     // ---------------- Fade group ----------------
@@ -315,11 +354,19 @@ Inspector::Inspector(QWidget *parent)
     connect(m_oscPort,    &QSpinBox::editingFinished,     this, &Inspector::commitOscPort);
     connect(m_oscArgs,    &QLineEdit::editingFinished,    this, &Inspector::commitOscArgs);
 
-    connect(m_audioBrowse,  &QPushButton::clicked,            this, &Inspector::browseAudioFile);
-    connect(m_audioGain,    &QDoubleSpinBox::editingFinished, this, &Inspector::commitAudioGain);
-    connect(m_audioFadeIn,  &QDoubleSpinBox::editingFinished, this, &Inspector::commitAudioFadeIn);
-    connect(m_audioFadeOut, &QDoubleSpinBox::editingFinished, this, &Inspector::commitAudioFadeOut);
-    connect(m_audioLoop,    &QCheckBox::toggled,              this, &Inspector::commitAudioLoop);
+    connect(m_audioBrowse,    &QPushButton::clicked,            this, &Inspector::browseAudioFile);
+    connect(m_audioGain,      &QDoubleSpinBox::editingFinished, this, &Inspector::commitAudioGain);
+    connect(m_audioFadeIn,    &QDoubleSpinBox::editingFinished, this, &Inspector::commitAudioFadeIn);
+    connect(m_audioFadeOut,   &QDoubleSpinBox::editingFinished, this, &Inspector::commitAudioFadeOut);
+    connect(m_audioTrimIn,    &QDoubleSpinBox::editingFinished, this, &Inspector::commitAudioTrimIn);
+    connect(m_audioTrimOut,   &QDoubleSpinBox::editingFinished, this, &Inspector::commitAudioTrimOut);
+    connect(m_audioPan,       &QDoubleSpinBox::editingFinished, this, &Inspector::commitAudioPan);
+    connect(m_audioLoop,      &QCheckBox::toggled,              this, &Inspector::commitAudioLoop);
+    connect(m_audioNormalize, &QPushButton::clicked,            this, &Inspector::normalizeAudio);
+    connect(m_audioReverse,   &QPushButton::clicked,            this, &Inspector::reverseAudio);
+
+    connect(m_colorChip,  &QPushButton::clicked, this, &Inspector::pickCueColor);
+    connect(m_colorClear, &QPushButton::clicked, this, &Inspector::clearCueColor);
 
     connect(m_fadeTarget, &QComboBox::currentIndexChanged,  this, [this](int){ commitFadeTarget(); });
     connect(m_fadeParam,  &QComboBox::currentIndexChanged,  this, [this](int){ commitFadeParameter(); });
@@ -453,6 +500,9 @@ void Inspector::rebuild()
         m_audioGain->setValue(audioCue->gainDb());
         m_audioFadeIn->setValue(audioCue->fadeInSeconds());
         m_audioFadeOut->setValue(audioCue->fadeOutSeconds());
+        m_audioTrimIn->setValue(audioCue->trimInSeconds());
+        m_audioTrimOut->setValue(audioCue->trimOutSeconds());
+        m_audioPan->setValue(audioCue->pan());
         m_audioLoop->setChecked(audioCue->loop());
         m_audioWaveform->setAudioFile(audioCue->audioFile());
         if (auto file = audioCue->audioFile(); file && file->state() == audio::AudioFile::State::Loaded) {
@@ -460,8 +510,29 @@ void Inspector::rebuild()
                 .arg(file->sampleRate())
                 .arg(file->channelCount())
                 .arg(QString::number(file->durationSeconds(), 'f', 2)));
+        } else if (auto file = audioCue->audioFile(); file && file->state() == audio::AudioFile::State::Failed) {
+            m_audioMeta->setText(tr("Decode failed: %1").arg(file->errorString()));
+            m_audioMeta->setStyleSheet(QStringLiteral("color:#FF5A5A;"));
         } else {
             m_audioMeta->setText(QStringLiteral(" "));
+            m_audioMeta->setStyleSheet(QString());
+        }
+    }
+
+    // Color chip preview — fill the chip with the cue's colour, falling
+    // back to a neutral background when none is set.
+    if (m_cue) {
+        const auto col = m_cue->color();
+        if (col.isValid()) {
+            m_colorChip->setStyleSheet(QStringLiteral(
+                "background:%1; color:#0E0F12; border:1px solid #33373F; "
+                "border-radius:4px; padding:4px 10px; font-weight:600;").arg(col.name()));
+            m_colorChip->setText(col.name(QColor::HexRgb).toUpper());
+            m_colorClear->setEnabled(true);
+        } else {
+            m_colorChip->setStyleSheet(QString());
+            m_colorChip->setText(tr("Color…"));
+            m_colorClear->setEnabled(false);
         }
     }
 
@@ -596,7 +667,46 @@ void Inspector::browseAudioFile()
 void Inspector::commitAudioGain()    { if (!m_loading) pushFieldEdit(QStringLiteral("gainDb"),         m_audioGain->value()); }
 void Inspector::commitAudioFadeIn()  { if (!m_loading) pushFieldEdit(QStringLiteral("fadeInSeconds"),  m_audioFadeIn->value()); }
 void Inspector::commitAudioFadeOut() { if (!m_loading) pushFieldEdit(QStringLiteral("fadeOutSeconds"), m_audioFadeOut->value()); }
+void Inspector::commitAudioTrimIn()  { if (!m_loading) pushFieldEdit(QStringLiteral("trimInSeconds"),  m_audioTrimIn->value()); }
+void Inspector::commitAudioTrimOut() { if (!m_loading) pushFieldEdit(QStringLiteral("trimOutSeconds"), m_audioTrimOut->value()); }
+void Inspector::commitAudioPan()     { if (!m_loading) pushFieldEdit(QStringLiteral("pan"),            m_audioPan->value()); }
 void Inspector::commitAudioLoop()    { if (!m_loading) pushFieldEdit(QStringLiteral("loop"),           m_audioLoop->isChecked()); }
+
+void Inspector::normalizeAudio()
+{
+    auto *audioCue = qobject_cast<audio::AudioCue *>(m_cue.data());
+    if (!audioCue) return;
+    auto file = audioCue->audioFile();
+    if (!file || file->state() != audio::AudioFile::State::Loaded) return;
+    file->normaliseSamples(0.891f); // ~ -1 dBFS
+    m_audioWaveform->update();
+}
+
+void Inspector::reverseAudio()
+{
+    auto *audioCue = qobject_cast<audio::AudioCue *>(m_cue.data());
+    if (!audioCue) return;
+    auto file = audioCue->audioFile();
+    if (!file || file->state() != audio::AudioFile::State::Loaded) return;
+    file->reverseSamples();
+    m_audioWaveform->update();
+}
+
+void Inspector::pickCueColor()
+{
+    if (!m_cue) return;
+    const auto cur = m_cue->color();
+    const auto col = QColorDialog::getColor(cur.isValid() ? cur : QColor("#62B4FF"),
+        this, tr("Cue color"));
+    if (!col.isValid()) return;
+    pushFieldEdit(QStringLiteral("color"), col);
+}
+
+void Inspector::clearCueColor()
+{
+    if (!m_cue) return;
+    pushFieldEdit(QStringLiteral("color"), QColor()); // invalid = no tint
+}
 
 void Inspector::commitFadeTarget()
 {

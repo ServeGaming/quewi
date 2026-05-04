@@ -25,6 +25,9 @@ struct VoiceParams {
     double gainDb        = 0.0;
     double fadeInSeconds  = 0.0;
     double fadeOutSeconds = 0.0;
+    double trimInSeconds  = 0.0;   // start playback this far into the file
+    double trimOutSeconds = 0.0;   // 0 = play to end of file
+    double pan             = 0.0;  // -1 = full L, 0 = centre, +1 = full R
     bool   loop           = false;
 };
 
@@ -62,9 +65,12 @@ public:
     int  outputChannels()   const { return m_outputChannels.load(); }
     int  activeVoiceCount() const;
 
+    QString lastError() const { return m_lastError; }
+
 signals:
     void runningChanged(bool running);
     void voiceFinished(quewi::audio::VoiceId id);
+    void engineError(const QString &reason);
 
 private:
     class Mixer;
@@ -77,6 +83,7 @@ private:
     std::atomic<bool>             m_running{false};
     std::atomic<int>              m_outputSampleRate{0};
     std::atomic<int>              m_outputChannels{0};
+    QString                       m_lastError;
 };
 
 } // namespace quewi::audio

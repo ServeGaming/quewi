@@ -34,10 +34,10 @@ void CueListView::setModel(QAbstractItemModel *model)
     QTreeView::setModel(model);
     using core::CueListModel;
     if (model) {
-        // Sensible default column widths.
-        header()->resizeSection(CueListModel::ColumnNumber,   60);
-        header()->resizeSection(CueListModel::ColumnType,     90);
-        header()->resizeSection(CueListModel::ColumnName,    320);
+        header()->resizeSection(CueListModel::ColumnState,    24);
+        header()->resizeSection(CueListModel::ColumnNumber,   64);
+        header()->resizeSection(CueListModel::ColumnType,     96);
+        header()->resizeSection(CueListModel::ColumnName,    340);
         header()->resizeSection(CueListModel::ColumnPreWait,  60);
         header()->resizeSection(CueListModel::ColumnPostWait, 60);
     }

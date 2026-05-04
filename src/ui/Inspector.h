@@ -47,6 +47,8 @@ private slots:
     void commitPreWait();
     void commitPostWait();
     void commitNotes();
+    void pickCueColor();
+    void clearCueColor();
 
     // OSC
     void commitOscAddress();
@@ -59,7 +61,12 @@ private slots:
     void commitAudioGain();
     void commitAudioFadeIn();
     void commitAudioFadeOut();
+    void commitAudioTrimIn();
+    void commitAudioTrimOut();
+    void commitAudioPan();
     void commitAudioLoop();
+    void normalizeAudio();
+    void reverseAudio();
 
     // Fade
     void commitFadeTarget();
@@ -96,6 +103,8 @@ private:
     QPointer<cues::Cue>       m_cue;
 
     QLabel         *m_typeLabel = nullptr;
+    QPushButton    *m_colorChip = nullptr;
+    QPushButton    *m_colorClear = nullptr;
     QDoubleSpinBox *m_number    = nullptr;
     QLineEdit      *m_name      = nullptr;
     QDoubleSpinBox *m_preWait   = nullptr;
@@ -116,7 +125,12 @@ private:
     QDoubleSpinBox *m_audioGain     = nullptr;
     QDoubleSpinBox *m_audioFadeIn   = nullptr;
     QDoubleSpinBox *m_audioFadeOut  = nullptr;
+    QDoubleSpinBox *m_audioTrimIn   = nullptr;
+    QDoubleSpinBox *m_audioTrimOut  = nullptr;
+    QDoubleSpinBox *m_audioPan      = nullptr;
     QCheckBox      *m_audioLoop     = nullptr;
+    QPushButton    *m_audioNormalize = nullptr;
+    QPushButton    *m_audioReverse  = nullptr;
     WaveformWidget *m_audioWaveform = nullptr;
     QLabel         *m_audioMeta     = nullptr;
 
