@@ -24,7 +24,11 @@
 #include "video/VideoEngine.h"
 #include "ui/ActiveCuesPanel.h"
 #include "ui/AudioEditorWindow.h"
+#include "ui/CommandPalette.h"
+#include "ui/ShortcutManager.h"
+#include "ui/ShortcutsDialog.h"
 #include "ui/CueListView.h"
+#include "ui/PreflightDialog.h"
 #include "ui/Inspector.h"
 #include "ui/OscMonitor.h"
 #include "ui/PreferencesDialog.h"
@@ -44,8 +48,10 @@
 #include <QMenuBar>
 #include <QMessageBox>
 #include <QMimeData>
+#include <QInputDialog>
 #include <QSplitter>
 #include <QStatusBar>
+#include <QTabBar>
 #include <QUndoStack>
 #include <QUrl>
 #include <QVBoxLayout>
@@ -113,8 +119,54 @@ MainWindow::MainWindow(QWidget *parent)
                 }
             });
 
+    m_shortcuts = new ui::ShortcutManager(this);
+
+    // Transport QActions — rebindable. Spacebar GO is also still wired
+    // directly on the cue list view as a key event (so it works when the
+    // cue list has focus regardless of the global shortcut).
+    m_actGo = new QAction(tr("GO"), this);
+    addAction(m_actGo);
+    m_actGo->setShortcutContext(Qt::ApplicationShortcut);
+    connect(m_actGo, &QAction::triggered, this, &MainWindow::onGoRequested);
+
+    m_actPanic = new QAction(tr("Panic"), this);
+    addAction(m_actPanic);
+    m_actPanic->setShortcutContext(Qt::ApplicationShortcut);
+    connect(m_actPanic, &QAction::triggered, this, [this] {
+        if (m_goEngine) m_goEngine->cancelAll(0.05);
+        statusBar()->showMessage(tr("PANIC: all output stopped"), 2000);
+    });
+
+    m_actPause = new QAction(tr("Pause"), this);
+    addAction(m_actPause);
+    m_actPause->setShortcutContext(Qt::ApplicationShortcut);
+    connect(m_actPause, &QAction::triggered, this, [this] {
+        if (m_goEngine) m_goEngine->cancelAll(0.25);
+        statusBar()->showMessage(tr("Paused (cancels pending continues)"), 2500);
+    });
+
+    m_actFadeAll = new QAction(tr("Fade All"), this);
+    addAction(m_actFadeAll);
+    m_actFadeAll->setShortcutContext(Qt::ApplicationShortcut);
+    connect(m_actFadeAll, &QAction::triggered, this, [this] {
+        if (m_goEngine) m_goEngine->cancelAll(2.0);
+        statusBar()->showMessage(tr("Fade All: 2 s fade-out across every voice"), 3000);
+    });
+
+    // Register every meaningful shortcut. Defaults match what was
+    // previously hard-coded; users can rebind via Tools → Shortcuts.
+    auto regAction = [this](const char *id, const char *label, QAction *a, const QKeySequence &def) {
+        if (!a) return;
+        m_shortcuts->registerAction(QString::fromLatin1(id), tr(label), a, def);
+    };
+    regAction("transport.go",       "GO",       m_actGo,      QKeySequence(Qt::Key_Space));
+    regAction("transport.panic",    "Panic",    m_actPanic,   QKeySequence(QStringLiteral("Esc")));
+    regAction("transport.pause",    "Pause",    m_actPause,   QKeySequence(QStringLiteral("Ctrl+.")));
+    regAction("transport.fadeall",  "Fade All", m_actFadeAll, QKeySequence(QStringLiteral("Ctrl+Shift+.")));
+
     buildLayout();
     buildMenus();
+
     resetWorkspace();
     statusBar()->showMessage(tr("Ready"));
 }
@@ -127,6 +179,15 @@ void MainWindow::buildLayout()
     auto *outer = new QVBoxLayout(central);
     outer->setContentsMargins(0, 0, 0, 0);
     outer->setSpacing(0);
+
+    m_listTabs = new QTabBar(central);
+    m_listTabs->setObjectName(QStringLiteral("cueListTabs"));
+    m_listTabs->setExpanding(false);
+    m_listTabs->setDocumentMode(true);
+    m_listTabs->setTabsClosable(false);
+    m_listTabs->setMovable(false);
+    connect(m_listTabs, &QTabBar::currentChanged, this, &MainWindow::onTabSelected);
+    connect(m_listTabs, &QTabBar::tabBarDoubleClicked, this, [this](int){ renameCueListTab(); });
 
     m_mainSplitter = new QSplitter(Qt::Horizontal, central);
 
@@ -147,6 +208,7 @@ void MainWindow::buildLayout()
 
     m_transport = new ui::TransportBar(central);
 
+    outer->addWidget(m_listTabs, 0);
     outer->addWidget(m_mainSplitter, 1);
     outer->addWidget(m_activePanel, 0);
     outer->addWidget(m_transport, 0);
@@ -175,20 +237,16 @@ void MainWindow::buildLayout()
                 editor->show();
             }
         });
-    connect(m_transport,   &ui::TransportBar::goPressed,
-            this, &MainWindow::onGoRequested);
-    connect(m_transport,   &ui::TransportBar::panicPressed, this, [this] {
-        if (m_goEngine) m_goEngine->cancelAll(0.05);
-        statusBar()->showMessage(tr("PANIC: all output stopped"), 2000);
-    });
-    connect(m_transport,   &ui::TransportBar::pausePressed, this, [this] {
-        if (m_goEngine) m_goEngine->cancelAll(0.25);
-        statusBar()->showMessage(tr("Paused (cancels pending continues)"), 2500);
-    });
-    connect(m_transport,   &ui::TransportBar::fadeAllPressed, this, [this] {
-        if (m_goEngine) m_goEngine->cancelAll(2.0);
-        statusBar()->showMessage(tr("Fade All: 2 s fade-out across every voice"), 3000);
-    });
+    // Transport bar buttons trigger the rebindable QActions so they
+    // share one source of truth with the keyboard shortcuts.
+    connect(m_transport, &ui::TransportBar::goPressed,
+            m_actGo,    &QAction::trigger);
+    connect(m_transport, &ui::TransportBar::panicPressed,
+            m_actPanic, &QAction::trigger);
+    connect(m_transport, &ui::TransportBar::pausePressed,
+            m_actPause, &QAction::trigger);
+    connect(m_transport, &ui::TransportBar::fadeAllPressed,
+            m_actFadeAll, &QAction::trigger);
 }
 
 void MainWindow::buildMenus()
@@ -211,9 +269,27 @@ void MainWindow::buildMenus()
     m_actRedo->setShortcut(QKeySequence::Redo);
 
     auto *toolsMenu = menuBar()->addMenu(tr("&Tools"));
+    toolsMenu->addAction(tr("&Pre-flight…"),
+                         QKeySequence(QStringLiteral("Ctrl+P")),
+                         this, &MainWindow::showPreflight);
     toolsMenu->addAction(tr("&OSC Monitor…"),
                          QKeySequence(QStringLiteral("Ctrl+1")),
                          this, &MainWindow::showOscMonitor);
+    toolsMenu->addAction(tr("&Command palette…"),
+                         QKeySequence(QStringLiteral("Ctrl+K")),
+                         this, &MainWindow::showCommandPalette);
+    toolsMenu->addAction(tr("&Keyboard shortcuts…"),
+                         this, &MainWindow::showShortcutsDialog);
+    toolsMenu->addSeparator();
+    m_actShowMode = toolsMenu->addAction(tr("&Show Mode (locked)"));
+    m_actShowMode->setShortcut(QKeySequence(QStringLiteral("Ctrl+Shift+L")));
+    m_actShowMode->setCheckable(true);
+    connect(m_actShowMode, &QAction::triggered, this, &MainWindow::toggleShowMode);
+
+    auto *listMenu = menuBar()->addMenu(tr("&List"));
+    listMenu->addAction(tr("&New cue list…"),    this, &MainWindow::addCueListTab);
+    listMenu->addAction(tr("&Rename current…"),  this, &MainWindow::renameCueListTab);
+    listMenu->addAction(tr("&Remove current"),   this, &MainWindow::removeCueListTab);
 
     auto *cueMenu = menuBar()->addMenu(tr("&Cue"));
     cueMenu->addAction(tr("New &Memo"),       QKeySequence(Qt::Key_M), this, &MainWindow::insertMemoCue);
@@ -252,6 +328,7 @@ void MainWindow::resetWorkspace()
     m_inspector->setMidiEngine(m_midiEngine.get());
     if (m_activePanel) m_activePanel->setWorkspace(m_workspace.get());
     if (m_goEngine)    m_goEngine->setWorkspace(m_workspace.get());
+    rebuildListTabs();
 
     if (m_actUndo) m_actUndo->disconnect();
     if (m_actRedo) m_actRedo->disconnect();
@@ -320,6 +397,7 @@ bool MainWindow::loadShowFromPath(const QString &path)
     m_inspector->setMidiEngine(m_midiEngine.get());
     if (m_activePanel) m_activePanel->setWorkspace(m_workspace.get());
     if (m_goEngine)    m_goEngine->setWorkspace(m_workspace.get());
+    rebuildListTabs();
 
     if (m_actUndo) m_actUndo->disconnect();
     if (m_actRedo) m_actRedo->disconnect();
@@ -640,6 +718,128 @@ void MainWindow::deleteSelectedCue()
     if (!idx.isValid()) return;
     m_workspace->undoStack()->push(
         new core::RemoveCueCommand(list, idx.row()));
+}
+
+void MainWindow::showPreflight()
+{
+    ui::PreflightDialog dlg(m_workspace.get(), this);
+    dlg.exec();
+}
+
+void MainWindow::showCommandPalette()
+{
+    ui::CommandPalette dlg(menuBar(), this);
+    dlg.exec();
+}
+
+void MainWindow::showShortcutsDialog()
+{
+    ui::ShortcutsDialog dlg(m_shortcuts, this);
+    dlg.exec();
+}
+
+void MainWindow::toggleShowMode()
+{
+    m_showMode = m_actShowMode ? m_actShowMode->isChecked() : !m_showMode;
+    applyShowMode();
+}
+
+void MainWindow::applyShowMode()
+{
+    // Disable everything destructive while in Show Mode. The transport
+    // bar (GO / Pause / Fade All / Panic) and the cue list selection
+    // remain live so the operator can still drive the show.
+    const bool editable = !m_showMode;
+    if (m_inspector) m_inspector->setEnabled(editable);
+    if (m_listTabs)  m_listTabs->setEnabled(editable);
+
+    // Disable Edit, Cue, List menus.
+    for (QAction *act : menuBar()->actions()) {
+        const auto t = act->text().remove(QChar('&'));
+        if (t == tr("Edit") || t == tr("Cue") || t == tr("List") || t == tr("File")) {
+            act->setEnabled(editable);
+        }
+    }
+    if (m_actShowMode) m_actShowMode->setEnabled(true); // always allow toggle
+    updateTitle();
+    statusBar()->showMessage(m_showMode ? tr("SHOW MODE — editing locked")
+                                         : tr("Edit mode"), 2500);
+}
+
+void MainWindow::rebuildListTabs()
+{
+    if (!m_listTabs) return;
+    QSignalBlocker blocker(m_listTabs);
+    while (m_listTabs->count() > 0) m_listTabs->removeTab(0);
+    if (!m_workspace) return;
+    int currentIdx = 0;
+    int idx = 0;
+    for (const auto &list : m_workspace->cueLists()) {
+        m_listTabs->addTab(list->name());
+        m_listTabs->setTabData(idx, QVariant::fromValue(list->id()));
+        if (list.get() == m_workspace->activeCueList()) currentIdx = idx;
+        ++idx;
+    }
+    if (m_listTabs->count() > 0) m_listTabs->setCurrentIndex(currentIdx);
+}
+
+void MainWindow::onTabSelected(int index)
+{
+    if (!m_workspace || index < 0) return;
+    const auto id = m_listTabs->tabData(index).toUuid();
+    for (const auto &list : m_workspace->cueLists()) {
+        if (list->id() == id) {
+            m_workspace->setActiveCueList(list.get());
+            m_model->setCueList(list.get());
+            if (m_model->rowCount() > 0)
+                m_cueListView->setCurrentIndex(m_model->index(0, 0));
+            return;
+        }
+    }
+}
+
+void MainWindow::addCueListTab()
+{
+    if (!m_workspace) return;
+    bool ok = false;
+    const auto name = QInputDialog::getText(this, tr("New cue list"),
+        tr("Name:"), QLineEdit::Normal,
+        tr("List %1").arg(int(m_workspace->cueLists().size()) + 1), &ok);
+    if (!ok || name.isEmpty()) return;
+    auto list = std::make_unique<core::CueList>(name);
+    auto *raw = m_workspace->addCueList(std::move(list));
+    m_workspace->setActiveCueList(raw);
+    rebuildListTabs();
+    m_model->setCueList(raw);
+}
+
+void MainWindow::renameCueListTab()
+{
+    if (!m_workspace || !m_workspace->activeCueList()) return;
+    auto *list = m_workspace->activeCueList();
+    bool ok = false;
+    const auto name = QInputDialog::getText(this, tr("Rename cue list"),
+        tr("Name:"), QLineEdit::Normal, list->name(), &ok);
+    if (!ok || name.isEmpty()) return;
+    m_workspace->undoStack()->push(new core::RenameCueListCommand(list, name));
+    rebuildListTabs();
+}
+
+void MainWindow::removeCueListTab()
+{
+    if (!m_workspace || m_workspace->cueLists().size() <= 1) {
+        statusBar()->showMessage(tr("Can't remove the only cue list"), 2500);
+        return;
+    }
+    auto *list = m_workspace->activeCueList();
+    if (!list) return;
+    if (QMessageBox::question(this, tr("Remove cue list"),
+            tr("Remove \"%1\" and all its cues?").arg(list->name()))
+        != QMessageBox::Yes) return;
+    m_workspace->takeCueList(list->id());
+    auto *active = m_workspace->activeCueList();
+    rebuildListTabs();
+    if (active) m_model->setCueList(active);
 }
 
 void MainWindow::onSelectionChanged()

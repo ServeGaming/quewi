@@ -9,11 +9,12 @@ class QSplitter;
 class QDragEnterEvent;
 class QDragMoveEvent;
 class QDropEvent;
+class QTabBar;
 class QUrl;
 
 namespace quewi::core { class Workspace; class CueListModel; }
 namespace quewi::cues { class Cue; }
-namespace quewi::ui   { class ActiveCuesPanel; class CueListView; class Inspector; class TransportBar; class OscMonitor; }
+namespace quewi::ui   { class ActiveCuesPanel; class CueListView; class Inspector; class ShortcutManager; class TransportBar; class OscMonitor; }
 namespace quewi::osc  { class OscEngine; }
 namespace quewi::audio { class AudioEngine; }
 namespace quewi::lighting { class LightingEngine; }
@@ -63,6 +64,14 @@ private slots:
     void onSelectionChanged();
     void updateTitle();
     void onGoRequested();
+    void showPreflight();
+    void showCommandPalette();
+    void toggleShowMode();
+    void addCueListTab();
+    void renameCueListTab();
+    void removeCueListTab();
+    void onTabSelected(int index);
+    void showShortcutsDialog();
 
 private:
     void buildLayout();
@@ -98,8 +107,24 @@ private:
     QAction *m_actUndo = nullptr;
     QAction *m_actRedo = nullptr;
     QAction *m_actSave = nullptr;
+    QAction *m_actShowMode = nullptr;
+
+    // Transport actions — exposed as QActions so the shortcut manager
+    // can rebind them. Triggering them runs the same code as the buttons.
+    QAction *m_actGo       = nullptr;
+    QAction *m_actPause    = nullptr;
+    QAction *m_actFadeAll  = nullptr;
+    QAction *m_actPanic    = nullptr;
+
+    ui::ShortcutManager *m_shortcuts = nullptr;
+
+    QTabBar *m_listTabs = nullptr;
+    bool     m_showMode = false;
 
     QString m_currentPath;
+
+    void rebuildListTabs();
+    void applyShowMode();
 };
 
 } // namespace quewi

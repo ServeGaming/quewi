@@ -51,7 +51,7 @@ TransportBar::TransportBar(QWidget *parent)
 
     m_goButton = new QPushButton(tr("GO"), this);
     m_goButton->setObjectName(QStringLiteral("goButton"));
-    m_goButton->setShortcut(Qt::Key_Space);
+    // Shortcut handled by the rebindable QAction owned by MainWindow.
     m_goButton->setDefault(true);
 
     layout->addWidget(m_pause);
