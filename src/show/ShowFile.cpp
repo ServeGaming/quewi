@@ -1,6 +1,7 @@
 #include "show/ShowFile.h"
 
 #include "core/CueList.h"
+#include "core/PatchManager.h"
 #include "core/Workspace.h"
 #include "audio/AudioCue.h"
 #include "cues/Cue.h"
@@ -166,6 +167,13 @@ bool ShowFile::load(const QString &path, core::Workspace &workspace)
             && mq.next()) {
             workspace.setName(mq.value(0).toString());
         }
+        // Patches (named routing destinations) from meta.
+        QSqlQuery pq(db);
+        if (pq.exec(QStringLiteral("SELECT value FROM meta WHERE key='patches_json'"))
+            && pq.next() && workspace.patches()) {
+            const auto doc = QJsonDocument::fromJson(pq.value(0).toString().toUtf8());
+            if (doc.isObject()) workspace.patches()->fromJson(doc.object());
+        }
 
         db.close();
     }
@@ -221,6 +229,12 @@ bool ShowFile::save(const QString &path, const core::Workspace &workspace)
         mq.bindValue(0, QStringLiteral("workspace_name"));
         mq.bindValue(1, workspace.name());
         mq.exec();
+        if (auto *patches = workspace.patches()) {
+            const auto json = QJsonDocument(patches->toJson()).toJson(QJsonDocument::Compact);
+            mq.bindValue(0, QStringLiteral("patches_json"));
+            mq.bindValue(1, QString::fromUtf8(json));
+            mq.exec();
+        }
 
         // Cue lists & cues
         QSqlQuery lq(db);

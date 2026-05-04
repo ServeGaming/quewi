@@ -9,6 +9,7 @@
 #include <QHeaderView>
 #include <QKeyEvent>
 #include <QMimeData>
+#include <QSettings>
 #include <QUndoStack>
 
 namespace quewi::ui {
@@ -57,7 +58,30 @@ void CueListView::setModel(QAbstractItemModel *model)
         header()->resizeSection(CueListModel::ColumnName,    340);
         header()->resizeSection(CueListModel::ColumnPreWait,  60);
         header()->resizeSection(CueListModel::ColumnPostWait, 60);
+        header()->resizeSection(CueListModel::ColumnGain,     64);
+        header()->resizeSection(CueListModel::ColumnPan,      64);
+        header()->resizeSection(CueListModel::ColumnFadeIn,   72);
+        header()->resizeSection(CueListModel::ColumnFadeOut,  72);
+        header()->resizeSection(CueListModel::ColumnOutput,  120);
+        header()->resizeSection(CueListModel::ColumnTarget,  120);
+        header()->resizeSection(CueListModel::ColumnHost,    140);
+        header()->resizeSection(CueListModel::ColumnPort,     56);
+        header()->resizeSection(CueListModel::ColumnFile,    180);
+        applyColumnVisibility();
     }
+}
+
+void CueListView::applyColumnVisibility()
+{
+    using core::CueListModel;
+    QSettings s(QStringLiteral("ServeGaming"), QStringLiteral("quewi"));
+    s.beginGroup(QStringLiteral("ui/cueColumns"));
+    for (int c = 0; c < CueListModel::ColumnCount; ++c) {
+        if (!CueListModel::columnIsOptional(c)) continue;
+        bool visible = s.value(CueListModel::columnSettingsKey(c), false).toBool();
+        setColumnHidden(c, !visible);
+    }
+    s.endGroup();
 }
 
 cues::Cue *CueListView::currentCue() const

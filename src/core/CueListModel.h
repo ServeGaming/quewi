@@ -22,8 +22,26 @@ public:
         ColumnPreWait,
         ColumnPostWait,
         ColumnNotes,
+        // Optional columns — toggle via Preferences. The model always has
+        // them; the view hides them based on QSettings.
+        ColumnGain,        // audio cues only
+        ColumnPan,         // audio cues only
+        ColumnFadeIn,      // audio cues only
+        ColumnFadeOut,     // audio cues only
+        ColumnOutput,      // audio cues only
+        ColumnTarget,      // control cues
+        ColumnHost,        // OSC cues
+        ColumnPort,        // OSC cues
+        ColumnFile,        // audio / video cues
         ColumnCount,
     };
+
+    // For the column-picker UI. Returns the user-friendly label and the
+    // QSettings key suffix for each optional column. Optional columns
+    // are those after ColumnNotes; the rest are always shown.
+    static QString columnLabel(int column);
+    static QString columnSettingsKey(int column);
+    static bool    columnIsOptional(int column);
 
     enum Role {
         CueIdRole = Qt::UserRole + 1,

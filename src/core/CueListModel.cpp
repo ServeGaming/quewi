@@ -96,6 +96,17 @@ QVariant CueListModel::data(const QModelIndex &index, int role) const
     if (role == CuePointerRole) return QVariant::fromValue(static_cast<void *>(cue));
 
     if (role == Qt::DisplayRole || role == Qt::EditRole) {
+        auto fmtFieldDouble = [&](const QString &k, int decimals = 2) -> QVariant {
+            QVariant v = cue->field(k);
+            if (!v.isValid()) return QStringLiteral("—");
+            return QString::number(v.toDouble(), 'f', decimals);
+        };
+        auto fmtFieldString = [&](const QString &k) -> QVariant {
+            QVariant v = cue->field(k);
+            const auto s = v.toString();
+            return s.isEmpty() ? QStringLiteral("—") : s;
+        };
+
         switch (index.column()) {
         case ColumnState:     return QString();   // dot drawn by delegate via DecorationRole
         case ColumnNumber:    return QString::number(cue->number(), 'f', 2);
@@ -108,6 +119,30 @@ QVariant CueListModel::data(const QModelIndex &index, int role) const
                                   ? QString::number(cue->postWait(), 'f', 2)
                                   : QStringLiteral("—");
         case ColumnNotes:     return cue->notes();
+        case ColumnGain:      return fmtFieldDouble(QStringLiteral("gainDb"), 1);
+        case ColumnPan:       return fmtFieldDouble(QStringLiteral("pan"),    2);
+        case ColumnFadeIn:    return fmtFieldDouble(QStringLiteral("fadeInSeconds"));
+        case ColumnFadeOut:   return fmtFieldDouble(QStringLiteral("fadeOutSeconds"));
+        case ColumnOutput: {
+            const auto v = cue->field(QStringLiteral("outputDeviceId")).toString();
+            return v.isEmpty() ? QStringLiteral("default") : v;
+        }
+        case ColumnTarget: {
+            const auto v = cue->field(QStringLiteral("targetId"));
+            return v.isValid() && !v.toString().isEmpty() ? v.toString() : QStringLiteral("—");
+        }
+        case ColumnHost:      return fmtFieldString(QStringLiteral("host"));
+        case ColumnPort: {
+            const auto v = cue->field(QStringLiteral("port"));
+            return v.isValid() ? QString::number(v.toInt()) : QStringLiteral("—");
+        }
+        case ColumnFile: {
+            const auto v = cue->field(QStringLiteral("filePath")).toString();
+            if (v.isEmpty()) return QStringLiteral("—");
+            int slash = v.lastIndexOf(QLatin1Char('/'));
+            int back  = v.lastIndexOf(QLatin1Char('\\'));
+            return v.mid(std::max(slash, back) + 1);
+        }
         default:              return {};
         }
     }
@@ -177,16 +212,51 @@ QVariant CueListModel::data(const QModelIndex &index, int role) const
 QVariant CueListModel::headerData(int section, Qt::Orientation orientation, int role) const
 {
     if (orientation != Qt::Horizontal || role != Qt::DisplayRole) return {};
+    return columnLabel(section);
+}
+
+QString CueListModel::columnLabel(int section)
+{
     switch (section) {
-    case ColumnState:     return QString();
-    case ColumnNumber:    return tr("#");
-    case ColumnType:      return tr("Type");
-    case ColumnName:      return tr("Name");
-    case ColumnPreWait:   return tr("Pre");
-    case ColumnPostWait:  return tr("Post");
-    case ColumnNotes:     return tr("Notes");
-    default:              return {};
+    case ColumnState:    return QString();
+    case ColumnNumber:   return tr("#");
+    case ColumnType:     return tr("Type");
+    case ColumnName:     return tr("Name");
+    case ColumnPreWait:  return tr("Pre");
+    case ColumnPostWait: return tr("Post");
+    case ColumnNotes:    return tr("Notes");
+    case ColumnGain:     return tr("Gain");
+    case ColumnPan:      return tr("Pan");
+    case ColumnFadeIn:   return tr("Fade In");
+    case ColumnFadeOut:  return tr("Fade Out");
+    case ColumnOutput:   return tr("Output");
+    case ColumnTarget:   return tr("Target");
+    case ColumnHost:     return tr("Host");
+    case ColumnPort:     return tr("Port");
+    case ColumnFile:     return tr("File");
+    default:             return {};
     }
+}
+
+QString CueListModel::columnSettingsKey(int section)
+{
+    switch (section) {
+    case ColumnGain:    return QStringLiteral("gain");
+    case ColumnPan:     return QStringLiteral("pan");
+    case ColumnFadeIn:  return QStringLiteral("fadeIn");
+    case ColumnFadeOut: return QStringLiteral("fadeOut");
+    case ColumnOutput:  return QStringLiteral("output");
+    case ColumnTarget:  return QStringLiteral("target");
+    case ColumnHost:    return QStringLiteral("host");
+    case ColumnPort:    return QStringLiteral("port");
+    case ColumnFile:    return QStringLiteral("file");
+    default:            return {};
+    }
+}
+
+bool CueListModel::columnIsOptional(int section)
+{
+    return section >= ColumnGain && section < ColumnCount;
 }
 
 Qt::ItemFlags CueListModel::flags(const QModelIndex &index) const

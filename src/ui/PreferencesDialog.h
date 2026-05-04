@@ -14,6 +14,11 @@ public:
     explicit PreferencesDialog(audio::AudioEngine *audioEngine,
                                QWidget *parent = nullptr);
     ~PreferencesDialog() override;
+
+signals:
+    // Emitted when the user toggles cue-list column visibility, so the
+    // owning window can refresh its open list views without a restart.
+    void cueListColumnsChanged();
 };
 
 } // namespace quewi::ui

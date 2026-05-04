@@ -21,6 +21,8 @@ add_library(quewi_ui STATIC
     EffectsRackWidget.cpp
     ParametricEqDialog.h
     ParametricEqDialog.cpp
+    PatchEditorDialog.h
+    PatchEditorDialog.cpp
     SpectrogramWidget.h
     SpectrogramWidget.cpp
     ActiveCuesPanel.h

@@ -73,6 +73,7 @@ private slots:
     void removeCueListTab();
     void onTabSelected(int index);
     void showShortcutsDialog();
+    void showPatchEditor();
 
 private:
     void buildLayout();

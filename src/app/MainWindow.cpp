@@ -33,8 +33,11 @@
 #include "ui/PreflightDialog.h"
 #include "ui/Inspector.h"
 #include "ui/OscMonitor.h"
+#include "ui/PatchEditorDialog.h"
 #include "ui/PreferencesDialog.h"
 #include "ui/TransportBar.h"
+
+#include "core/PatchManager.h"
 
 #include <QAction>
 #include <QApplication>
@@ -290,6 +293,9 @@ void MainWindow::buildMenus()
                          this, &MainWindow::showCommandPalette);
     toolsMenu->addAction(tr("&Keyboard shortcuts…"),
                          this, &MainWindow::showShortcutsDialog);
+    toolsMenu->addAction(tr("&Patch Editor…"),
+                         QKeySequence(QStringLiteral("Ctrl+Shift+P")),
+                         this, &MainWindow::showPatchEditor);
     toolsMenu->addSeparator();
     m_actShowMode = toolsMenu->addAction(tr("&Show Mode (locked)"));
     m_actShowMode->setShortcut(QKeySequence(QStringLiteral("Ctrl+Shift+L")));
@@ -485,6 +491,15 @@ bool MainWindow::saveShowAs()
 void MainWindow::showPreferences()
 {
     ui::PreferencesDialog dlg(m_audioEngine.get(), this);
+    connect(&dlg, &ui::PreferencesDialog::cueListColumnsChanged,
+            this, [this] { if (m_cueListView) m_cueListView->applyColumnVisibility(); });
+    dlg.exec();
+}
+
+void MainWindow::showPatchEditor()
+{
+    if (!m_workspace || !m_workspace->patches()) return;
+    ui::PatchEditorDialog dlg(m_workspace->patches(), this);
     dlg.exec();
 }
 

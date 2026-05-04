@@ -1,6 +1,7 @@
 #include "core/Workspace.h"
 
 #include "core/CueList.h"
+#include "core/PatchManager.h"
 
 #include <algorithm>
 
@@ -8,6 +9,7 @@ namespace quewi::core {
 
 Workspace::Workspace(QObject *parent)
     : QObject(parent)
+    , m_patches(std::make_unique<PatchManager>(this))
 {
     connect(&m_undoStack, &QUndoStack::cleanChanged, this, &Workspace::dirtyChanged);
 }

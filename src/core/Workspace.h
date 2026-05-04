@@ -11,6 +11,8 @@ namespace quewi::cues { class Cue; }
 
 namespace quewi::core {
 
+class PatchManager;
+
 using CueId = QUuid;
 using CueListId = QUuid;
 
@@ -37,6 +39,11 @@ public:
 
     QUndoStack *undoStack() { return &m_undoStack; }
 
+    // Named, reusable patches (audio outputs, OSC destinations, MIDI ports,
+    // DMX universes, video surfaces). The workspace owns one manager that
+    // ships with the show file.
+    PatchManager *patches() const { return m_patches.get(); }
+
     bool isDirty() const { return m_undoStack.isClean() == false; }
     void markClean() { m_undoStack.setClean(); }
 
@@ -51,6 +58,7 @@ private:
     std::vector<std::unique_ptr<CueList>> m_cueLists;
     CueList *m_activeCueList = nullptr;
     QUndoStack m_undoStack;
+    std::unique_ptr<PatchManager> m_patches;
 };
 
 } // namespace quewi::core

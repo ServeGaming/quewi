@@ -25,6 +25,10 @@ public:
     cues::Cue *currentCue() const;
     cues::Cue *nextCue() const;
 
+    // Re-reads QSettings ui/cueColumns/* and updates which optional columns
+    // are visible. Called after Preferences saves.
+    void applyColumnVisibility();
+
 signals:
     void currentCueChanged(quewi::cues::Cue *cue);
     void goRequested();
