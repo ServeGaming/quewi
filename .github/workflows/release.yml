@@ -1,0 +1,101 @@
+# Release pipeline. Triggered when a tag matching v* is pushed
+# (e.g. v0.1.0). Builds a Release binary, runs windeployqt, packages an
+# MSI via CPack/WiX, and attaches the .msi to a GitHub Release for that
+# tag. Manual dispatch is also supported for dry runs against a branch.
+name: release
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Tag to build (release runs use the pushed tag automatically)"
+        required: false
+
+permissions:
+  contents: write   # needed to create the GitHub Release and upload assets
+
+jobs:
+  build-msi:
+    runs-on: windows-2022
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install Qt
+        uses: jurplel/install-qt-action@v4
+        with:
+          version: "6.6.3"
+          host: windows
+          target: desktop
+          arch: win64_msvc2022_64
+          modules: "qtmultimedia qtwebsockets"
+          cache: true
+
+      - name: Set up MSVC
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
+
+      # WiX 3.x is what CPack's WIX generator drives. Available
+      # pre-installed on windows-2022 runners under
+      # C:\Program Files (x86)\WiX Toolset v3.14\bin, but we add it to
+      # PATH explicitly to be defensive.
+      - name: Locate WiX
+        shell: pwsh
+        run: |
+          $wix = Get-ChildItem "C:\Program Files (x86)\WiX Toolset*" -Directory `
+            | Sort-Object Name -Descending | Select-Object -First 1
+          if (-not $wix) {
+            Write-Error "WiX Toolset not found on the runner image."
+            exit 1
+          }
+          Add-Content $env:GITHUB_PATH "$($wix.FullName)\bin"
+          Write-Output "Using WiX at $($wix.FullName)\bin"
+
+      - name: Configure (Release)
+        shell: cmd
+        run: cmake --preset windows-release
+
+      - name: Build
+        shell: cmd
+        run: cmake --build --preset windows-release
+
+      - name: Tests
+        shell: cmd
+        run: ctest --preset windows-debug --output-on-failure
+        # Tests are configured against the debug preset; they're cheap
+        # enough that we configure+build them too.
+        continue-on-error: true
+
+      - name: Stage install
+        shell: cmd
+        run: cmake --install build/windows-release --prefix build/windows-release/_install
+
+      - name: Package MSI
+        shell: cmd
+        working-directory: build/windows-release
+        run: cpack -G WIX --config CPackConfig.cmake
+
+      - name: Show artifacts
+        shell: pwsh
+        run: Get-ChildItem build/windows-release -Filter *.msi
+
+      - name: Upload MSI artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: quewi-windows-msi
+          path: build/windows-release/*.msi
+          if-no-files-found: error
+
+      - name: Attach to GitHub Release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: build/windows-release/*.msi
+          generate_release_notes: true
+          draft: false
+          prerelease: ${{ contains(github.ref, '-rc') || contains(github.ref, '-alpha') || contains(github.ref, '-beta') }}

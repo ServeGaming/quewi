@@ -12,6 +12,10 @@ set_target_properties(quewi PROPERTIES
     MACOSX_BUNDLE ON
 )
 
+target_compile_definitions(quewi PRIVATE
+    QUEWI_VERSION="${PROJECT_VERSION}"
+)
+
 target_link_libraries(quewi PRIVATE
     Qt6::Widgets
     Qt6::Network
@@ -26,3 +30,40 @@ target_link_libraries(quewi PRIVATE
     quewi_osc
     quewi_midi
 )
+
+# ── Install + windeployqt + CPack/WiX ────────────────────────────────
+# Drives `cmake --install` and `cpack -G WIX`. The install step copies
+# quewi.exe and runs windeployqt to bundle every Qt DLL, plugin, and
+# translation the build links against. CPack then wraps the staged
+# directory into an MSI on Windows.
+include(GNUInstallDirs)
+
+install(TARGETS quewi
+    RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
+    BUNDLE  DESTINATION .
+)
+
+if(WIN32)
+    # Locate windeployqt next to the Qt6 target binaries.
+    get_target_property(_qmake_exec Qt6::qmake IMPORTED_LOCATION)
+    get_filename_component(_qt_bin_dir "${_qmake_exec}" DIRECTORY)
+    find_program(WINDEPLOYQT_EXECUTABLE windeployqt
+        HINTS "${_qt_bin_dir}"
+        REQUIRED
+    )
+    # Run windeployqt against the *installed* exe so its dependencies
+    # land alongside it under bin/.
+    install(CODE "
+        message(STATUS \"Running windeployqt on \${CMAKE_INSTALL_PREFIX}/${CMAKE_INSTALL_BINDIR}/quewi.exe\")
+        execute_process(
+            COMMAND \"${WINDEPLOYQT_EXECUTABLE}\"
+                --release
+                --no-translations
+                --no-system-d3d-compiler
+                --no-opengl-sw
+                --compiler-runtime
+                \"\${CMAKE_INSTALL_PREFIX}/${CMAKE_INSTALL_BINDIR}/quewi.exe\"
+            COMMAND_ERROR_IS_FATAL ANY
+        )
+    ")
+endif()

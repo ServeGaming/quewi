@@ -29,7 +29,7 @@ int main(int argc, char *argv[])
     QApplication app(argc, argv);
     QApplication::setApplicationName("quewi");
     QApplication::setOrganizationName("ServeGaming");
-    QApplication::setApplicationVersion("0.0.1");
+    QApplication::setApplicationVersion(QStringLiteral(QUEWI_VERSION));
     QApplication::setStyle("Fusion");
 
     QCommandLineParser parser;
