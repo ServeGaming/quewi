@@ -30,7 +30,7 @@ jobs:
       - name: Install Qt
         uses: jurplel/install-qt-action@v4
         with:
-          version: '6.6.3'
+          version: '6.11.0'
           modules: 'qtmultimedia qtwebsockets'
           cache: true
 
