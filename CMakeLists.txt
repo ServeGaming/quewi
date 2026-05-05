@@ -80,7 +80,11 @@ if(WIN32)
     set(CPACK_PACKAGE_HOMEPAGE_URL      "${PROJECT_HOMEPAGE_URL}")
     set(CPACK_PACKAGE_INSTALL_DIRECTORY "quewi")
     set(CPACK_PACKAGE_FILE_NAME "quewi-${PROJECT_VERSION}-win64")
-    set(CPACK_RESOURCE_FILE_LICENSE "${CMAKE_SOURCE_DIR}/LICENSE")
+    # WiX rejects extensionless license files; stage a .txt copy.
+    configure_file("${CMAKE_SOURCE_DIR}/LICENSE"
+                   "${CMAKE_BINARY_DIR}/LICENSE.txt"
+                   COPYONLY)
+    set(CPACK_RESOURCE_FILE_LICENSE "${CMAKE_BINARY_DIR}/LICENSE.txt")
 
     # Stable Upgrade GUID — must NEVER change once a release is shipped,
     # or upgrades won't replace the prior installation. Generated once.
