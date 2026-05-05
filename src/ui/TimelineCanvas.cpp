@@ -1,12 +1,17 @@
 #include "ui/TimelineCanvas.h"
 #include "audio/AudioFile.h"
 
-#include <QPainter>
+#include <QContextMenuEvent>
+#include <QInputDialog>
+#include <QLineEdit>
+#include <QMenu>
+#include <QMessageBox>
 #include <QMouseEvent>
-#include <QWheelEvent>
+#include <QPainter>
 #include <QScrollBar>
-#include <cmath>
+#include <QWheelEvent>
 #include <algorithm>
+#include <cmath>
 
 namespace quewi::ui {
 
@@ -454,6 +459,70 @@ void TimelineCanvas::wheelEvent(QWheelEvent *e) {
 
 void TimelineCanvas::resizeEvent(QResizeEvent *) {
     updateScrollBars();
+}
+
+void TimelineCanvas::contextMenuEvent(QContextMenuEvent *e) {
+    if (!m_model) return;
+
+    QMenu menu(this);
+    const int x = e->pos().x();
+    const int y = e->pos().y();
+
+    // Right-click on track header: track-scoped actions.
+    if (x < kHeaderWidth && y >= kRulerHeight) {
+        const int ti = trackAtY(y);
+        if (ti < 0) return;
+        auto *track = m_model->track(ti);
+        const QString tname = track ? track->name() : tr("Track %1").arg(ti + 1);
+
+        auto *renameAct = menu.addAction(tr("Rename \"%1\"…").arg(tname));
+        auto *muteAct   = menu.addAction(track && track->isMuted()  ? tr("Unmute") : tr("Mute"));
+        auto *soloAct   = menu.addAction(track && track->isSoloed() ? tr("Unsolo") : tr("Solo"));
+        menu.addSeparator();
+        auto *removeAct = menu.addAction(tr("Remove Track"));
+        removeAct->setShortcut(QKeySequence::Delete);
+
+        QAction *chosen = menu.exec(e->globalPos());
+        if (!chosen) return;
+        if (chosen == removeAct) {
+            // Refuse to remove the last track — the editor needs at least
+            // one to draw against. The button could be disabled instead,
+            // but a status hint feels less surprising.
+            if (m_model->trackCount() <= 1) return;
+            const auto resp = QMessageBox::question(this,
+                tr("Remove Track"),
+                tr("Remove track \"%1\" and all its regions? This cannot be undone.").arg(tname),
+                QMessageBox::Yes | QMessageBox::Cancel);
+            if (resp == QMessageBox::Yes) m_model->removeTrack(ti);
+        } else if (chosen == muteAct && track) {
+            track->setMuted(!track->isMuted());
+        } else if (chosen == soloAct && track) {
+            track->setSoloed(!track->isSoloed());
+        } else if (chosen == renameAct && track) {
+            bool ok = false;
+            const QString n = QInputDialog::getText(this, tr("Rename Track"),
+                tr("Track name:"), QLineEdit::Normal, tname, &ok);
+            if (ok && !n.trimmed().isEmpty()) track->setName(n.trimmed());
+        }
+        update();
+        return;
+    }
+
+    // Right-click on a region: region-scoped actions.
+    if (auto hit = hitTest(x, y)) {
+        const auto &region = m_model->track(hit->trackIndex)->regions()[hit->regionIndex];
+        const QUuid rid = region.id;
+        auto *splitAct  = menu.addAction(tr("Split at Cursor"));
+        auto *removeAct = menu.addAction(tr("Remove Region"));
+        removeAct->setShortcut(QKeySequence::Delete);
+
+        QAction *chosen = menu.exec(e->globalPos());
+        if (chosen == splitAct) {
+            m_model->splitRegion(rid, xToFrames(x));
+        } else if (chosen == removeAct) {
+            m_model->removeRegion(rid);
+        }
+    }
 }
 
 } // namespace quewi::ui

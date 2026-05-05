@@ -51,6 +51,8 @@
 #include <QHBoxLayout>
 #include <QLabel>
 #include <QMediaDevices>
+#include <QItemSelectionModel>
+#include <QSet>
 #include <QSettings>
 #include <QKeySequence>
 #include <QMenuBar>
@@ -789,10 +791,35 @@ void MainWindow::deleteSelectedCue()
 {
     auto *list = m_workspace->activeCueList();
     if (!list) return;
-    const auto idx = m_cueListView->currentIndex();
-    if (!idx.isValid()) return;
-    m_workspace->undoStack()->push(
-        new core::RemoveCueCommand(list, idx.row()));
+
+    // Collect every selected row (the view is in ExtendedSelection mode).
+    // Falls back to the current row if nothing is explicitly selected so
+    // single-row Delete keeps working.
+    QSet<int> rowSet;
+    if (auto *sel = m_cueListView->selectionModel()) {
+        for (const auto &idx : sel->selectedRows()) {
+            if (idx.isValid()) rowSet.insert(idx.row());
+        }
+    }
+    if (rowSet.isEmpty()) {
+        const auto idx = m_cueListView->currentIndex();
+        if (!idx.isValid()) return;
+        rowSet.insert(idx.row());
+    }
+
+    // Sort descending so each removal doesn't shift the rows still to come.
+    QList<int> rows(rowSet.begin(), rowSet.end());
+    std::sort(rows.begin(), rows.end(), std::greater<int>());
+
+    auto *stack = m_workspace->undoStack();
+    if (rows.size() > 1) {
+        stack->beginMacro(tr("Delete %1 Cues").arg(rows.size()));
+        for (int row : rows) stack->push(new core::RemoveCueCommand(list, row));
+        stack->endMacro();
+        statusBar()->showMessage(tr("Deleted %1 cues").arg(rows.size()), 2500);
+    } else {
+        stack->push(new core::RemoveCueCommand(list, rows.first()));
+    }
 }
 
 // ---------- Auto-save journal -------------------------------------------
