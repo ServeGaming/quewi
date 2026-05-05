@@ -1,6 +1,7 @@
 #include "ui/TransportBar.h"
 
 #include "cues/Cue.h"
+#include "ui/AnimatedButton.h"
 
 #include <QHBoxLayout>
 #include <QLabel>
@@ -37,18 +38,38 @@ TransportBar::TransportBar(QWidget *parent)
 
     // Right: action buttons, escalating right-to-left.
     // Order (left → right): Pause, Fade All, Panic, GO.
-    m_pause = new QPushButton(tr("Pause"), this);
-    m_pause->setObjectName(QStringLiteral("pauseButton"));
-    m_pause->setMinimumHeight(36);
+    // The three secondary buttons are AnimatedButtons — the hover and
+    // press states animate over ~140 ms which feels more tactile than
+    // QSS' instant pseudo-state switch on a 165 Hz monitor.
+    auto *pauseBtn = new AnimatedButton(tr("Pause"), this);
+    pauseBtn->setMinimumHeight(36);
+    pauseBtn->setBorderRadius(6);
+    pauseBtn->setColors(QColor(0x34, 0x30, 0x2C),
+                        QColor(0x40, 0x3A, 0x34),
+                        QColor(0x2A, 0x28, 0x25),
+                        QColor(0xE8, 0xE2, 0xD4));
+    m_pause = pauseBtn;
 
-    m_fadeAll = new QPushButton(tr("Fade All"), this);
-    m_fadeAll->setObjectName(QStringLiteral("fadeAllButton"));
-    m_fadeAll->setMinimumHeight(36);
-    m_fadeAll->setToolTip(tr("Fade every running cue out over 2 seconds"));
+    auto *fadeBtn = new AnimatedButton(tr("Fade All"), this);
+    fadeBtn->setMinimumHeight(36);
+    fadeBtn->setBorderRadius(6);
+    fadeBtn->setColors(QColor(0x26, 0x24, 0x22),
+                        QColor(0xD7, 0xA2, 0x4E),  // amber on hover
+                        QColor(0xB0, 0x82, 0x3E),
+                        QColor(0xD7, 0xA2, 0x4E));
+    fadeBtn->setBorderColor(QColor(0xD7, 0xA2, 0x4E));
+    fadeBtn->setToolTip(tr("Fade every running cue out over 2 seconds"));
+    m_fadeAll = fadeBtn;
 
-    m_panic = new QPushButton(tr("Panic"), this);
-    m_panic->setObjectName(QStringLiteral("panicButton"));
-    m_panic->setMinimumHeight(36);
+    auto *panicBtn = new AnimatedButton(tr("Panic"), this);
+    panicBtn->setMinimumHeight(36);
+    panicBtn->setBorderRadius(6);
+    panicBtn->setColors(QColor(0x26, 0x24, 0x22),
+                        QColor(0xC2, 0x6A, 0x55),  // terracotta on hover
+                        QColor(0x9E, 0x55, 0x44),
+                        QColor(0xC2, 0x6A, 0x55));
+    panicBtn->setBorderColor(QColor(0xC2, 0x6A, 0x55));
+    m_panic = panicBtn;
 
     m_goButton = new QPushButton(tr("GO"), this);
     m_goButton->setObjectName(QStringLiteral("goButton"));

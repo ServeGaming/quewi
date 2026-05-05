@@ -295,10 +295,13 @@ QVariant CueListModel::data(const QModelIndex &index, int role) const
 
     if (role == Qt::BackgroundRole) {
         // Tint every column of the row by the cue's chosen color (if any).
+        // Lighten the colour first so it reads vividly against the warm
+        // bg even at moderate alpha — a 12 % wash of a saturated colour
+        // looks muddy, but a lightened version pops without overpowering.
         const auto col = cue->color();
         if (col.isValid()) {
-            QColor tint = col;
-            tint.setAlphaF(0.12f); // subtle wash — softer on warm bg
+            QColor tint = col.lighter(150);
+            tint.setAlphaF(0.22f);
             return QBrush(tint);
         }
     }

@@ -14,7 +14,10 @@ namespace quewi::ui {
 
 namespace {
 
-constexpr int   kAnimMs        = 220;
+// 165 Hz = 6 ms / frame. 180 ms = ~30 frames of glide, which is short
+// enough to feel responsive (~snappy) but long enough that the eye
+// reads the motion as continuous rather than jumpy.
+constexpr int   kAnimMs        = 180;
 constexpr int   kPixelStepFallback = 60; // for devices reporting only angleDelta
 
 // One animation per scrollbar — re-targeted on each wheel tick rather
@@ -34,7 +37,10 @@ void animateBarTo(QScrollBar *bar, int target)
     if (!entry.anim) {
         entry.bar  = bar;
         entry.anim = new QPropertyAnimation(bar, "value");
-        entry.anim->setEasingCurve(QEasingCurve::OutCubic);
+        // OutQuart accelerates harder at the start than OutCubic, which
+        // makes the wheel feel tighter under the finger. The motion still
+        // settles, just faster.
+        entry.anim->setEasingCurve(QEasingCurve::OutQuart);
         entry.anim->setDuration(kAnimMs);
         QObject::connect(bar, &QObject::destroyed, [bar] { g_anims.remove(bar); });
     }

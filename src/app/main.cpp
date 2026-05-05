@@ -5,17 +5,33 @@
 #include <QApplication>
 #include <QCommandLineParser>
 #include <QSettings>
+#include <QSurfaceFormat>
 #include <QTimer>
 
 int main(int argc, char *argv[])
 {
+    // ── Pre-QApplication tuning ───────────────────────────────────────
+    // Don't coalesce wheel/touch events — at 165 Hz this matters a lot,
+    // because Qt's default coalescing drops intermediate ticks and the
+    // smooth-scroll animation re-targets feel laggy.
+    QCoreApplication::setAttribute(Qt::AA_CompressHighFrequencyEvents, false);
+    QCoreApplication::setAttribute(Qt::AA_CompressTabletEvents,         false);
+
+    // Request a vsynced default surface format. QWidget itself isn't GL-
+    // backed, but this carries through to any QOpenGLWidget the app spins
+    // up (waveform / spectrogram could move there in a follow-up) and
+    // ensures we don't tear when we do.
+    QSurfaceFormat fmt;
+    fmt.setSwapInterval(1);
+    fmt.setSwapBehavior(QSurfaceFormat::DoubleBuffer);
+    QSurfaceFormat::setDefaultFormat(fmt);
+
     QApplication app(argc, argv);
     QApplication::setApplicationName("quewi");
     QApplication::setOrganizationName("ServeGaming");
     QApplication::setApplicationVersion("0.0.1");
-    QApplication::setStyle("Fusion"); // consistent base across platforms; QSS overrides chrome
+    QApplication::setStyle("Fusion");
 
-    // CLI flags (used by CI perf gates and headless smoke tests).
     QCommandLineParser parser;
     parser.setApplicationDescription(QStringLiteral("quewi — theatre cueing"));
     parser.addHelpOption();
@@ -40,11 +56,7 @@ int main(int argc, char *argv[])
     w.show();
 
     if (parser.isSet(selftestOpt)) {
-        // Spin the event loop briefly so widgets paint at least once,
-        // then quit cleanly. This is what the perf gate measures.
         QTimer::singleShot(200, &app, &QCoreApplication::quit);
     }
-    // selftest-idle: just sit there until killed by the CI step.
-
     return app.exec();
 }
