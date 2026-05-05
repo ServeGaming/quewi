@@ -31,7 +31,9 @@ QPixmap CueListModel::iconForType(const QString &typeKey)
     pm.fill(Qt::transparent);
     QPainter p(&pm);
     p.setRenderHint(QPainter::Antialiasing);
-    QColor ink(220, 226, 236);
+    // Warm cream ink — matches Theme::tokens().ink100, but core can't
+    // include ui, so the value is duplicated here.
+    QColor ink(0xE8, 0xE2, 0xD4);
     QPen pen(ink); pen.setWidthF(1.4); pen.setCapStyle(Qt::RoundCap); pen.setJoinStyle(Qt::RoundJoin);
     p.setPen(pen); p.setBrush(Qt::NoBrush);
 
@@ -296,7 +298,7 @@ QVariant CueListModel::data(const QModelIndex &index, int role) const
         const auto col = cue->color();
         if (col.isValid()) {
             QColor tint = col;
-            tint.setAlphaF(0.18f); // subtle wash
+            tint.setAlphaF(0.12f); // subtle wash — softer on warm bg
             return QBrush(tint);
         }
     }
@@ -308,11 +310,11 @@ QVariant CueListModel::data(const QModelIndex &index, int role) const
             // Token values mirror Theme::tokens() so the dot stays in sync
             // with the QSS palette without core depending on ui.
             QColor c;
-            if (running)              c = QColor(0x60, 0xdf, 0x85); // running
-            else if (loaded)          c = QColor(0x4a, 0x9e, 0xff); // loaded
+            if (running)              c = QColor(0x6F, 0xAE, 0x63); // running (mossy green)
+            else if (loaded)          c = QColor(0x4F, 0x8E, 0xAF); // loaded (dusty blue)
             else if (cue->color().isValid()) c = cue->color();
-            else c = cue->isArmed() ? QColor(0xc0, 0xc7, 0xd4)      // ink60
-                                     : QColor(0x8a, 0x91, 0x9e);    // ink40
+            else c = cue->isArmed() ? QColor(0xB5, 0xAC, 0x9C)      // ink60
+                                     : QColor(0x7A, 0x73, 0x68);    // ink40
 
             QPixmap pm(14, 14);
             pm.fill(Qt::transparent);

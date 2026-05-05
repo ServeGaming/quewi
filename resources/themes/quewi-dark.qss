@@ -1,9 +1,14 @@
-/* quewi — Dark theme. "Technical Precision" tokens (Stitch DESIGN.md).
+/* quewi — Dark theme. Warm-grey palette, QLab feel + Ableton restraint.
  *
- * Tokens are declared in src/ui/Theme.h and substituted at load time.
- * Use @tokenName below; never hardcode hex. Shapes are strictly sharp
- * (0 px radius); the only round elements are circular state dots painted
- * in C++. Depth comes from tonal layering, never from shadows.
+ * Tokens are declared in src/ui/Theme.h and substituted at load time
+ * using @tokenName. Never hardcode hex.
+ *
+ * Visual rules:
+ *   • 3 px radii on controls, 4 px on panels, 0 px on tab underlines.
+ *   • Hover states are subtler — instant in QSS (Qt has no transition
+ *     property) but the colour shift is small enough not to feel harsh.
+ *   • One accent (amber). State colours are dusted-down pastels.
+ *   • No glow, no gradients, no shadows.
  */
 
 /* ============================ Base ============================ */
@@ -12,7 +17,8 @@ QDialog,
 QWidget {
     background: @bgDeep;
     color: @ink100;
-    font-family: "Inter", "Segoe UI Variable", "SF Pro Text", "Segoe UI", system-ui, sans-serif;
+    font-family: "IBM Plex Sans", "Source Sans 3", "Segoe UI Variable",
+                 "Segoe UI", "SF Pro Text", system-ui, sans-serif;
     font-size: 13px;
 }
 
@@ -26,7 +32,7 @@ QToolTip {
     color: @ink100;
     border: 1px solid @outline;
     padding: 4px 8px;
-    border-radius: 0;
+    border-radius: 3px;
 }
 
 /* ============================ Status bar ============================ */
@@ -51,11 +57,11 @@ QMenuBar {
 QMenuBar::item {
     background: transparent;
     padding: 6px 10px;
-    border-radius: 0;
+    border-radius: 3px;
 }
 QMenuBar::item:selected,
 QMenuBar::item:pressed {
-    background: @bgInteractive;
+    background: @bgRowHover;
     color: @ink100;
 }
 
@@ -64,13 +70,13 @@ QMenu {
     color: @ink100;
     border: 1px solid @outline;
     padding: 4px;
-    border-radius: 0;
+    border-radius: 4px;
 }
 QMenu::item {
     padding: 6px 28px 6px 14px;
-    border-radius: 0;
+    border-radius: 3px;
 }
-QMenu::item:selected { background: @bgInteractive; }
+QMenu::item:selected { background: @bgRowSelected; }
 QMenu::item:disabled { color: @ink40; }
 QMenu::separator {
     height: 1px;
@@ -95,9 +101,12 @@ QTreeView {
     show-decoration-selected: 1;
 }
 QTreeView::item {
-    padding: 4px 8px;
+    padding: 7px 8px;
     border: none;
     border-left: 2px solid transparent;
+}
+QTreeView::item:hover {
+    background: @bgRowHover;
 }
 QTreeView::item:selected {
     background: @bgRowSelected;
@@ -105,9 +114,14 @@ QTreeView::item:selected {
 }
 QTreeView::item:selected:active {
     background: @bgRowSelected;
-    border-left: 2px solid @accentStrong;
+    border-left: 2px solid @accent;
 }
 QTreeView::item:focus { outline: 0; }
+QTreeView::branch:has-children:!has-siblings:closed,
+QTreeView::branch:closed:has-children:has-siblings {
+    /* Disclosure triangle painted by Qt; tint via standard stylable
+       state. The default arrow is recoloured by foreground. */
+}
 
 QHeaderView::section {
     background: @bgPanel;
@@ -118,9 +132,7 @@ QHeaderView::section {
     border-bottom: 1px solid @divider;
     font-size: 11px;
     font-weight: 600;
-    /* Qt's QSS ignores text-transform; per-column labels are uppercased
-       in CueListModel::columnLabel. */
-    letter-spacing: 0.10em;
+    letter-spacing: 0.06em;
 }
 QHeaderView::section:last { border-right: none; }
 
@@ -133,9 +145,9 @@ QComboBox {
     background: @bgInteractive;
     color: @ink100;
     border: 1px solid @outline;
-    border-radius: 0;
+    border-radius: 3px;
     padding: 5px 8px;
-    selection-background-color: @accentStrong;
+    selection-background-color: @accent;
     selection-color: @bgDeep;
     min-height: 22px;
 }
@@ -171,7 +183,7 @@ QDoubleSpinBox::up-button, QDoubleSpinBox::down-button {
 }
 QSpinBox::up-button:hover, QSpinBox::down-button:hover,
 QDoubleSpinBox::up-button:hover, QDoubleSpinBox::down-button:hover {
-    background: @bgInteractive;
+    background: @bgRowHover;
 }
 
 /* ============================ Group box ============================ */
@@ -179,12 +191,12 @@ QGroupBox {
     background: transparent;
     color: @ink60;
     border: 1px solid @outline;
-    border-radius: 0;
+    border-radius: 4px;
     margin-top: 18px;
     padding: 14px 12px 12px 12px;
     font-size: 11px;
     font-weight: 600;
-    letter-spacing: 0.10em;
+    letter-spacing: 0.06em;
 }
 QGroupBox::title {
     subcontrol-origin: margin;
@@ -200,13 +212,13 @@ QPushButton {
     background: @bgInteractive;
     color: @ink100;
     border: 1px solid @outline;
-    border-radius: 0;
+    border-radius: 3px;
     padding: 6px 14px;
     min-height: 24px;
-    font-weight: 600;
+    font-weight: 500;
 }
 QPushButton:hover {
-    background: @bgRowSelected;
+    background: @bgRowHover;
     border-color: @ink40;
 }
 QPushButton:pressed { background: @bgRow; }
@@ -220,16 +232,16 @@ QPushButton:focus {
     padding: 5px 13px;
 }
 
-/* GO button — filled green when ready, blue when standby (state-driven
-   via dynamic property `state`). The default style is the standby look. */
+/* GO button — filled mossy green when ready, dusty blue when standby.
+   Property-driven via setProperty("state", "ready"|"standby"). */
 QPushButton#goButton {
     background: @loaded;
     color: @bgDeep;
     border: none;
-    border-radius: 0;
+    border-radius: 4px;
     font-size: 22px;
-    font-weight: 800;
-    letter-spacing: 0.06em;
+    font-weight: 700;
+    letter-spacing: 0.04em;
     padding: 10px 24px;
     min-height: 64px;
     min-width: 200px;
@@ -238,11 +250,11 @@ QPushButton#goButton[state="ready"]    { background: @running; color: @bgDeep; }
 QPushButton#goButton[state="standby"]  { background: @loaded;  color: @bgDeep; }
 QPushButton#goButton[state="disabled"] { background: @bgPanel; color: @ink40; }
 QPushButton#goButton:hover {
-    /* Brighten 10 % on hover by overlaying ink on the fill */
-    color: @bgDeep;
+    /* Subtle 8 % brightness lift via the C++ HoverAnimator on this
+       widget — QSS just keeps the colour. */
 }
 QPushButton#goButton:pressed {
-    background: @err;
+    background: @accentSoft;
     color: @bgDeep;
 }
 QPushButton#goButton:disabled {
@@ -257,15 +269,13 @@ QPushButton#fadeAllButton {
     background: transparent;
 }
 QPushButton#fadeAllButton:hover  { background: @warn; color: @bgDeep; }
-QPushButton#fadeAllButton:pressed { background: @warn; color: @bgDeep; }
 
 QPushButton#panicButton {
     color: @err;
     border: 1px solid @err;
     background: transparent;
 }
-QPushButton#panicButton:hover  { background: @err; color: @bgDeep; }
-QPushButton#panicButton:pressed { background: @err; color: @bgDeep; }
+QPushButton#panicButton:hover   { background: @err; color: @bgDeep; }
 
 /* ============================ Transport bar ============================ */
 QWidget#transportBar {
@@ -277,27 +287,27 @@ QLabel#nextHeader {
     color: @ink60;
     font-size: 10px;
     font-weight: 700;
-    letter-spacing: 0.15em;
+    letter-spacing: 0.12em;
 }
 
 QLabel#nextLabel {
     color: @ink100;
     font-size: 22px;
-    font-weight: 700;
-    letter-spacing: -0.01em;
+    font-weight: 600;
+    letter-spacing: -0.005em;
 }
 
 /* ============================ Show Mode strip ============================ */
 QWidget#showModeStrip {
-    background: @accentStrong;
-    border-bottom: 1px solid @accent;
+    background: @accent;
+    border-bottom: 1px solid @accentSoft;
     min-height: 22px;
 }
 QLabel#showModeStripLabel {
     color: @bgDeep;
-    font-size: 11px;
-    font-weight: 700;
-    letter-spacing: 0.15em;
+    font-size: 12px;
+    font-weight: 600;
+    letter-spacing: 0.06em;
     padding: 3px 12px;
 }
 
@@ -305,8 +315,8 @@ QLabel#showModeStripLabel {
 QLabel#typeLabel {
     color: @ink100;
     font-size: 18px;
-    font-weight: 700;
-    letter-spacing: -0.01em;
+    font-weight: 600;
+    letter-spacing: -0.005em;
     padding-bottom: 6px;
     border-bottom: 1px solid @divider;
 }
@@ -317,17 +327,17 @@ QPushButton#colorChip {
     background: @bgInteractive;
     color: @ink60;
     border: 1px solid @outline;
-    border-radius: 0;
+    border-radius: 3px;
     padding: 4px 8px;
     font-size: 11px;
-    font-weight: 600;
+    font-weight: 500;
 }
 QPushButton#colorClear {
     background: transparent;
     color: @ink60;
     border: 1px solid @outline;
-    border-radius: 0;
-    font-weight: 700;
+    border-radius: 3px;
+    font-weight: 600;
 }
 QPushButton#colorClear:hover     { background: @bgPanel; color: @err; }
 QPushButton#colorClear:disabled  { color: @ink40; }
@@ -336,9 +346,9 @@ QPushButton#modeButton {
     background: @bgPanel;
     color: @ink60;
     border: 1px solid @outline;
-    border-radius: 0;
+    border-radius: 3px;
     padding: 6px 18px;
-    font-weight: 600;
+    font-weight: 500;
 }
 QPushButton#modeButton:hover    { background: @bgInteractive; color: @ink100; }
 QPushButton#modeButton:checked  {
@@ -356,36 +366,36 @@ QLabel#audioMeta {
 QSlider::groove:vertical {
     background: @bgPanel;
     width: 2px;
-    border-radius: 0;
+    border-radius: 1px;
 }
 QSlider::handle:vertical {
     background: @ink100;
     border: 1px solid @outline;
     height: 14px;
     margin: 0 -7px;
-    border-radius: 0;
+    border-radius: 2px;
 }
 QSlider::handle:vertical:hover  { background: @ink100; border-color: @accent; }
 QSlider::handle:vertical:pressed { background: @accent; }
-QSlider::sub-page:vertical { background: @outline; border-radius: 0; }
-QSlider::add-page:vertical { background: @accent;  border-radius: 0; }
+QSlider::sub-page:vertical { background: @outline; border-radius: 1px; }
+QSlider::add-page:vertical { background: @accent;  border-radius: 1px; }
 
 QSlider::groove:horizontal {
     background: @bgPanel;
     height: 2px;
-    border-radius: 0;
+    border-radius: 1px;
 }
 QSlider::handle:horizontal {
     background: @ink100;
     border: 1px solid @outline;
     width: 14px;
     margin: -7px 0;
-    border-radius: 0;
+    border-radius: 2px;
 }
 QSlider::handle:horizontal:hover  { background: @ink100; border-color: @accent; }
 QSlider::handle:horizontal:pressed { background: @accent; }
-QSlider::sub-page:horizontal { background: @accent;  border-radius: 0; }
-QSlider::add-page:horizontal { background: @outline; border-radius: 0; }
+QSlider::sub-page:horizontal { background: @accent;  border-radius: 1px; }
+QSlider::add-page:horizontal { background: @outline; border-radius: 1px; }
 
 /* ============================ Scrollbars ============================ */
 QScrollBar:vertical {
@@ -397,7 +407,7 @@ QScrollBar:vertical {
 QScrollBar::handle:vertical {
     background: @outline;
     min-height: 28px;
-    border-radius: 0;
+    border-radius: 3px;
     margin: 2px;
 }
 QScrollBar::handle:vertical:hover { background: @ink40; }
@@ -415,7 +425,7 @@ QScrollBar:horizontal {
 QScrollBar::handle:horizontal {
     background: @outline;
     min-width: 28px;
-    border-radius: 0;
+    border-radius: 3px;
     margin: 2px;
 }
 QScrollBar::handle:horizontal:hover { background: @ink40; }
@@ -424,7 +434,7 @@ QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal {
 }
 QScrollBar::add-page:horizontal, QScrollBar::sub-page:horizontal { background: transparent; }
 
-/* ============================ List widget (preferences) ============================ */
+/* ============================ List widget ============================ */
 QListWidget {
     background: @bgPanel;
     color: @ink100;
@@ -434,30 +444,36 @@ QListWidget {
 }
 QListWidget::item {
     padding: 8px 12px;
-    border-radius: 0;
+    border-radius: 3px;
 }
+QListWidget::item:hover    { background: @bgRowHover; }
 QListWidget::item:selected {
     background: @bgRowSelected;
     color: @ink100;
 }
 
-/* ============================ Tab bar ============================ */
+/* ============================ Tab bar — Ableton-style underline ============================ */
 QTabBar::tab {
-    background: @bgPanel;
+    background: transparent;
     color: @ink60;
-    padding: 6px 14px;
-    border: 1px solid transparent;
-    border-bottom: 1px solid @divider;
-    font-size: 11px;
-    font-weight: 700;
-    letter-spacing: 0.12em;
-    min-width: 80px;
+    padding: 8px 16px;
+    border: none;
+    border-bottom: 2px solid transparent;
+    font-size: 12px;
+    font-weight: 500;
+    min-width: 60px;
 }
+QTabBar::tab:hover    { color: @ink100; }
 QTabBar::tab:selected {
-    color: @accent;
+    color: @ink100;
     border-bottom: 2px solid @accent;
 }
-QTabBar::tab:hover:!selected { color: @ink100; }
+QTabWidget::pane {
+    background: @bgPanel;
+    border: none;
+    border-top: 1px solid @divider;
+    top: -1px;
+}
 
 /* ============================ Active cues panel ============================ */
 QWidget#activeCuesPanel {
@@ -468,35 +484,35 @@ QLabel#activeCuesHeader {
     color: @ink60;
     font-size: 11px;
     font-weight: 700;
-    letter-spacing: 0.15em;
+    letter-spacing: 0.12em;
     padding-bottom: 4px;
 }
 QWidget#activeCueRow {
     background: @bgRow;
-    border-radius: 0;
+    border-radius: 3px;
 }
 QPushButton#activeStopButton {
     background: transparent;
     color: @err;
     border: 1px solid @err;
-    border-radius: 0;
+    border-radius: 3px;
     padding: 2px 8px;
     font-size: 11px;
-    font-weight: 600;
+    font-weight: 500;
 }
 QPushButton#activeStopButton:hover {
     background: @err;
     color: @bgDeep;
-    border-color: @err;
 }
+
 QProgressBar {
     background: @bgDeep;
     border: none;
-    border-radius: 0;
+    border-radius: 2px;
 }
 QProgressBar::chunk {
-    background: @accentStrong;
-    border-radius: 0;
+    background: @loaded;
+    border-radius: 2px;
 }
 
 /* ============================ Dialog button box ============================ */

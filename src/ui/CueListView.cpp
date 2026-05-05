@@ -17,9 +17,15 @@ namespace quewi::ui {
 CueListView::CueListView(QWidget *parent)
     : QTreeView(parent)
 {
-    setRootIsDecorated(false);
+    setRootIsDecorated(true);  // disclosure triangles for group cues
     setUniformRowHeights(true);
     setAllColumnsShowFocus(true);
+    setIndentation(16);
+    // Roomier rows — operator-friendly density, QLab-ish breathing room.
+    setStyleSheet(QStringLiteral(
+        "QTreeView::item { min-height: 28px; }"
+    ));
+    setIconSize(QSize(18, 18));
     setSelectionBehavior(QAbstractItemView::SelectRows);
     setSelectionMode(QAbstractItemView::ExtendedSelection);
     setAlternatingRowColors(true);

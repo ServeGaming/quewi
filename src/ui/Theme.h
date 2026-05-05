@@ -6,46 +6,54 @@
 namespace quewi::ui {
 
 // Loads a QSS theme from resources/themes/. See UX.md §13 and DESIGN.md.
+//
+// Visual direction:
+//   • Warm dark grays (slight brown undertone, not blue).
+//   • Creamy off-white ink (#E8E2D4) instead of cool white.
+//   • Restrained pastel state colours — mossy green, dusty blue,
+//     amber, terracotta. No purple, no neon, no glow.
+//   • Soft 3 px corner radii on controls, 4 px on panels.
+//   • One accent only: amber (#C58B4A) — used sparingly for selection
+//     and focus rings.
 class Theme {
 public:
     static QString load(const QString &name);
 
     // ── Tokens ────────────────────────────────────────────────────────
-    // Single source of truth for both QSS (string-substituted at load) and
-    // any C++-side QPainter code (TimelineCanvas, ParametricEqDialog,
-    // SpectrogramWidget, PeakMeter, …). Values mirror the Stitch
-    // DESIGN.md frontmatter for the "Technical Precision" theme so that
-    // changing them in one place changes the whole app.
+    // Single source of truth for both the QSS (string-substituted at
+    // load) and any C++-painted widget. Changing a value here updates
+    // the entire app on the next theme reload.
     struct Tokens {
         // Surfaces — tonal layering, no shadows.
-        QColor bgDeep            { 0x10, 0x14, 0x19 };  // window / outermost
-        QColor bgPanel           { 0x18, 0x1c, 0x22 };  // panel
-        QColor bgRow             { 0x1c, 0x20, 0x26 };  // row
-        QColor bgRowAlt          { 0x14, 0x18, 0x1d };  // row alt (subtle)
-        QColor bgRowSelected     { 0x27, 0x2a, 0x30 };  // selected row
-        QColor bgInteractive     { 0x31, 0x35, 0x3b };  // form fields, buttons
+        QColor bgDeep            { 0x1F, 0x1D, 0x1B };  // window
+        QColor bgPanel           { 0x26, 0x24, 0x22 };  // panel
+        QColor bgRow             { 0x2A, 0x28, 0x25 };  // row
+        QColor bgRowAlt          { 0x25, 0x23, 0x1F };  // alt row (subtle)
+        QColor bgRowHover        { 0x33, 0x2F, 0x2B };  // row hover
+        QColor bgRowSelected     { 0x3C, 0x37, 0x33 };  // selected row
+        QColor bgInteractive     { 0x34, 0x30, 0x2C };  // form fields, buttons
 
-        // Inks — text colours.
-        QColor ink100            { 0xe0, 0xe2, 0xeb };  // primary
-        QColor ink60             { 0xc0, 0xc7, 0xd4 };  // secondary
-        QColor ink40             { 0x8a, 0x91, 0x9e };  // dim / disabled
+        // Inks — text colours, slightly warm off-white.
+        QColor ink100            { 0xE8, 0xE2, 0xD4 };  // primary
+        QColor ink60             { 0xB5, 0xAC, 0x9C };  // secondary
+        QColor ink40             { 0x7A, 0x73, 0x68 };  // dim / disabled
 
         // Outlines / dividers.
-        QColor divider           { 0x26, 0x2a, 0x38 };  // panel-to-panel
-        QColor outline           { 0x41, 0x47, 0x52 };  // form / button border
-        QColor outlineFocus      { 0xa4, 0xc9, 0xff };  // 2 px focus ring
+        QColor divider           { 0x38, 0x33, 0x2E };  // panel-to-panel
+        QColor outline           { 0x4A, 0x44, 0x3D };  // form / button border
+        QColor outlineFocus      { 0xC5, 0x8B, 0x4A };  // 2 px focus ring
 
-        // Functional state colours.
-        QColor accent            { 0xa4, 0xc9, 0xff };  // primary
-        QColor accentStrong      { 0x4a, 0x9e, 0xff };  // primary-container
-        QColor running           { 0x60, 0xdf, 0x85 };  // green – sounding
-        QColor loaded            { 0x4a, 0x9e, 0xff };  // blue – pre-rolled
-        QColor warn              { 0xff, 0xb8, 0x69 };  // amber
-        QColor err               { 0xff, 0xb4, 0xab };  // red
+        // Functional state colours — restrained pastels.
+        QColor accent            { 0xC5, 0x8B, 0x4A };  // amber
+        QColor accentSoft        { 0xA0, 0x71, 0x3D };  // pressed amber
+        QColor running           { 0x6F, 0xAE, 0x63 };  // mossy green
+        QColor loaded            { 0x4F, 0x8E, 0xAF };  // dusty blue
+        QColor warn              { 0xD7, 0xA2, 0x4E };  // amber
+        QColor err               { 0xC2, 0x6A, 0x55 };  // terracotta
     };
 
-    // The active token set. For now there's only one ("Technical Precision")
-    // — multiple themes will branch off this in a follow-up.
+    // The active token set. Multiple themes will branch off this in a
+    // follow-up; for now there's only one — the warm dark default.
     static const Tokens &tokens();
 };
 
