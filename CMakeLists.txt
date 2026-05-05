@@ -93,5 +93,10 @@ if(WIN32)
     set(CPACK_PACKAGE_EXECUTABLES "quewi" "quewi")
     set(CPACK_CREATE_DESKTOP_LINKS "quewi")
 
+    # CPack/WIX automatically adds a "Uninstall <ProductName>" shortcut
+    # to the Start Menu folder (id=UNINSTALL) — see
+    # CPackWIX.cmake's WixSource fragment. So an explicit patch isn't
+    # needed; the MSI also registers normally with Apps & Features.
+
     include(CPack)
 endif()
