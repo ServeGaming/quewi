@@ -33,6 +33,19 @@ QByteArray SlipEncoder::encode(const QByteArray &packet)
 std::vector<QByteArray> SlipDecoder::feed(const QByteArray &bytes)
 {
     std::vector<QByteArray> frames;
+    auto appendOrOverflow = [this](char c) {
+        if (m_overflow) return;
+        if (m_buf.size() >= kMaxFrameBytes) {
+            // Frame too large; mark overflow so the rest of the frame
+            // is discarded until the next END resyncs us. Prevents an
+            // unbounded SLIP frame from exhausting memory.
+            m_overflow = true;
+            m_buf.clear();
+            return;
+        }
+        m_buf.append(c);
+    };
+
     for (char raw : bytes) {
         const auto b = static_cast<quint8>(raw);
 
@@ -40,15 +53,16 @@ std::vector<QByteArray> SlipDecoder::feed(const QByteArray &bytes)
             // END terminates the current frame (if any) and also doubles
             // as a framing-sync byte before the next one.
             if (m_inFrame) {
-                if (!m_buf.isEmpty()) frames.push_back(m_buf);
+                if (!m_overflow && !m_buf.isEmpty()) frames.push_back(m_buf);
                 m_buf.clear();
                 m_inFrame = false;
                 m_escNext = false;
+                m_overflow = false;
             } else {
-                // Start of a new frame.
                 m_inFrame = true;
                 m_buf.clear();
                 m_escNext = false;
+                m_overflow = false;
             }
             continue;
         }
@@ -57,12 +71,13 @@ std::vector<QByteArray> SlipDecoder::feed(const QByteArray &bytes)
 
         if (m_escNext) {
             m_escNext = false;
-            if (b == kEscEnd)      m_buf.append(static_cast<char>(kEnd));
-            else if (b == kEscEsc) m_buf.append(static_cast<char>(kEsc));
+            if (b == kEscEnd)      appendOrOverflow(static_cast<char>(kEnd));
+            else if (b == kEscEsc) appendOrOverflow(static_cast<char>(kEsc));
             else {
                 // Protocol violation; drop the frame and resync on next END.
                 m_buf.clear();
                 m_inFrame = false;
+                m_overflow = false;
             }
             continue;
         }
@@ -72,7 +87,7 @@ std::vector<QByteArray> SlipDecoder::feed(const QByteArray &bytes)
             continue;
         }
 
-        m_buf.append(raw);
+        appendOrOverflow(raw);
     }
     return frames;
 }

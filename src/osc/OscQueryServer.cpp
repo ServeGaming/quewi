@@ -5,6 +5,16 @@
 #include <QJsonObject>
 #include <QTcpServer>
 #include <QTcpSocket>
+#include <QTimer>
+
+namespace {
+// Hard limits on incoming HTTP requests. quewi only ever serves OSC
+// Query GETs whose meaningful payload is tens of bytes; anything beyond
+// these bounds is either a buggy client or someone trying to fill our
+// memory.
+constexpr qint64 kMaxRequestBytes      = 16 * 1024;
+constexpr int    kRequestTimeoutMs     = 2000;
+}
 
 namespace quewi::osc {
 
@@ -41,6 +51,19 @@ void OscQueryServer::onNewConnection()
         if (!sock) continue;
         connect(sock, &QTcpSocket::readyRead, this, &OscQueryServer::onClientReadyRead);
         connect(sock, &QTcpSocket::disconnected, sock, &QObject::deleteLater);
+
+        // Per-connection timeout: if the client doesn't finish sending
+        // its request quickly, drop them. Stops slow-loris-style holds
+        // from tying up our event loop.
+        auto *deadline = new QTimer(sock);
+        deadline->setSingleShot(true);
+        deadline->setInterval(kRequestTimeoutMs);
+        connect(deadline, &QTimer::timeout, sock, [sock] {
+            if (sock->state() != QAbstractSocket::UnconnectedState) {
+                sock->abort();
+            }
+        });
+        deadline->start();
     }
 }
 
@@ -48,10 +71,17 @@ void OscQueryServer::onClientReadyRead()
 {
     auto *sock = qobject_cast<QTcpSocket *>(sender());
     if (!sock) return;
-    // Single-shot: read the full request (small) and respond. Real-world
-    // OSC Query clients send a single GET; if they pipeline we'd need a
-    // proper parser.
-    const auto data = sock->readAll();
+    // Cap the read to a small fixed budget. A real OSC Query client
+    // sends a few hundred bytes at most; anything bigger is junk or a
+    // memory-exhaustion attempt.
+    if (sock->bytesAvailable() > kMaxRequestBytes) {
+        sock->write(httpResponse(413, "Payload Too Large", "text/plain",
+                                 QByteArray("request too large")));
+        sock->flush();
+        sock->disconnectFromHost();
+        return;
+    }
+    const auto data = sock->read(kMaxRequestBytes);
     if (data.isEmpty()) return;
     handleRequest(sock, data);
 }

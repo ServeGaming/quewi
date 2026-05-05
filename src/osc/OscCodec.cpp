@@ -120,10 +120,17 @@ bool readBlob(const QByteArray &b, int &cur, QByteArray &out)
 {
     qint32 len = 0;
     if (!readI32(b, cur, len) || len < 0) return false;
-    if (cur + len > b.size()) return false;
+    // Use 64-bit math for the bounds check so a near-INT_MAX `len`
+    // can't overflow `cur + len` and bypass the test.
+    const qint64 lenL = static_cast<qint64>(len);
+    if (static_cast<qint64>(cur) + lenL > b.size()) return false;
+    // Padded length needs the same overflow-safe math, plus a sane
+    // upper bound so a malicious peer can't push `cur` past INT_MAX
+    // even via valid-looking data on a tiny buffer.
+    const qint64 paddedL = (lenL + 3) & ~qint64(3);
+    if (paddedL > 0x7FFFFFFF) return false;
     out = QByteArray(b.constData() + cur, len);
-    const int padded = (len + 3) & ~3;
-    cur += padded;
+    cur += static_cast<int>(paddedL);
     return true;
 }
 
@@ -303,8 +310,8 @@ QByteArray encodeBundle(const Bundle &b)
 // ---------- Message / Bundle decode -----------------------------------
 
 bool decodeMessage(const QByteArray &b, int start, int end, Message &out);
-bool decodeBundle(const QByteArray &b, int start, int end, Bundle &out);
-bool decodeElement(const QByteArray &b, int start, int end, Element &out);
+bool decodeBundle (const QByteArray &b, int start, int end, Bundle  &out, int depth);
+bool decodeElement(const QByteArray &b, int start, int end, Element &out, int depth);
 
 bool decodeMessage(const QByteArray &b, int start, int end, Message &out)
 {
@@ -328,8 +335,17 @@ bool decodeMessage(const QByteArray &b, int start, int end, Message &out)
     return cur <= end;
 }
 
-bool decodeBundle(const QByteArray &b, int start, int end, Bundle &out)
+// Maximum nesting depth for bundles + arrays. OSC has no defined limit;
+// 16 is comfortably more than any real show generates and stops a
+// malicious sender from blowing the stack with a deeply-nested packet.
+constexpr int kMaxOscDepth = 16;
+
+bool decodeElement(const QByteArray &b, int start, int end, Element &out, int depth);
+
+bool decodeBundle(const QByteArray &b, int start, int end, Bundle &out, int depth)
 {
+    if (depth > kMaxOscDepth) return false;
+
     int cur = start;
     QString header;
     if (!readString(b, cur, header)) return false;
@@ -343,20 +359,22 @@ bool decodeBundle(const QByteArray &b, int start, int end, Bundle &out)
     while (cur < end) {
         qint32 size = 0;
         if (!readI32(b, cur, size) || size < 0) return false;
-        if (cur + size > end) return false;
+        // 64-bit overflow-safe bounds check.
+        if (static_cast<qint64>(cur) + size > end) return false;
         Element el;
-        if (!decodeElement(b, cur, cur + size, el)) return false;
+        if (!decodeElement(b, cur, cur + size, el, depth + 1)) return false;
         out.elements.push_back(std::move(el));
         cur += size;
     }
     return true;
 }
 
-bool decodeElement(const QByteArray &b, int start, int end, Element &out)
+bool decodeElement(const QByteArray &b, int start, int end, Element &out, int depth)
 {
+    if (depth > kMaxOscDepth) return false;
     if (end - start >= 8 && b.mid(start, 8) == QByteArray("#bundle\0", 8)) {
         Bundle bb;
-        if (!decodeBundle(b, start, end, bb)) return false;
+        if (!decodeBundle(b, start, end, bb, depth)) return false;
         out = std::move(bb);
         return true;
     }
@@ -403,8 +421,11 @@ QByteArray Codec::encode(const Element &e)
 
 std::optional<Element> Codec::decode(const QByteArray &bytes)
 {
+    // Cap the input length up-front so even pathologically large inputs
+    // can't cause the cursor arithmetic to overflow downstream.
+    if (bytes.size() > 0x10000000) return std::nullopt; // 256 MB sanity cap
     Element el;
-    if (!decodeElement(bytes, 0, bytes.size(), el)) return std::nullopt;
+    if (!decodeElement(bytes, 0, bytes.size(), el, 0)) return std::nullopt;
     return el;
 }
 

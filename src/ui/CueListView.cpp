@@ -146,11 +146,16 @@ void CueListView::dropEvent(QDropEvent *event)
     QDataStream ds(data->data(QStringLiteral("application/x-quewi-cue-row")));
     qint32 count = 0;
     ds >> count;
-    if (count <= 0) { event->ignore(); return; }
+    // Cap the count well above any plausible cue-list size so a malformed
+    // or hostile MIME payload can't pin reserve() to a huge allocation.
+    constexpr qint32 kMaxDropRows = 100000;
+    if (count <= 0 || count > kMaxDropRows) { event->ignore(); return; }
     QList<int> rows;
     rows.reserve(count);
     for (qint32 i = 0; i < count; ++i) {
-        qint32 r = -1; ds >> r; if (r >= 0) rows.append(r);
+        qint32 r = -1; ds >> r;
+        if (ds.status() != QDataStream::Ok) { event->ignore(); return; }
+        if (r >= 0) rows.append(r);
     }
     if (rows.isEmpty()) { event->ignore(); return; }
 
