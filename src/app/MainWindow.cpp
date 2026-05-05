@@ -193,27 +193,33 @@ MainWindow::~MainWindow() = default;
 void MainWindow::buildLayout()
 {
     auto *central = new QWidget(this);
-    auto *outer = new QVBoxLayout(central);
-    outer->setContentsMargins(0, 0, 0, 0);
-    outer->setSpacing(0);
+    auto *centralCol = new QVBoxLayout(central);
+    centralCol->setContentsMargins(0, 0, 0, 0);
+    centralCol->setSpacing(0);
 
-    // Show Mode strip — stays hidden until Show Mode is toggled on. Sits
-    // above everything else as a 22 px accent band. Stylesheet selectors
-    // for #showModeStrip / #showModeStripLabel live in quewi-dark.qss.
+    // Show Mode strip — full-bleed across the top so it can't be missed.
     m_showModeStrip = new QWidget(central);
     m_showModeStrip->setObjectName(QStringLiteral("showModeStrip"));
     {
         auto *hb = new QHBoxLayout(m_showModeStrip);
         hb->setContentsMargins(0, 0, 0, 0);
         hb->setSpacing(0);
-        auto *lbl = new QLabel(tr("SHOW MODE   ·   OPERATOR CONTROLS ONLY"),
+        auto *lbl = new QLabel(tr("Show Mode  ·  Operator controls only"),
                                m_showModeStrip);
         lbl->setObjectName(QStringLiteral("showModeStripLabel"));
         lbl->setAlignment(Qt::AlignCenter);
         hb->addWidget(lbl);
     }
     m_showModeStrip->hide();
-    outer->addWidget(m_showModeStrip, 0);
+    centralCol->addWidget(m_showModeStrip, 0);
+
+    // The actual content area is a margined container so the panes sit
+    // as floating cards on the deep-bg canvas.
+    auto *content = new QWidget(central);
+    centralCol->addWidget(content, 1);
+    auto *outer = new QVBoxLayout(content);
+    outer->setContentsMargins(8, 8, 8, 8);
+    outer->setSpacing(8);
 
     m_listTabs = new QTabBar(central);
     m_listTabs->setObjectName(QStringLiteral("cueListTabs"));
@@ -225,6 +231,7 @@ void MainWindow::buildLayout()
     connect(m_listTabs, &QTabBar::tabBarDoubleClicked, this, [this](int){ renameCueListTab(); });
 
     m_mainSplitter = new QSplitter(Qt::Horizontal, central);
+    m_mainSplitter->setHandleWidth(8); // QSS width hint isn't always honoured
 
     m_cueListView = new ui::CueListView(m_mainSplitter);
     m_cueListView->setMinimumWidth(280);

@@ -69,12 +69,12 @@ QMenu {
     background: @bgPanel;
     color: @ink100;
     border: 1px solid @outline;
-    padding: 4px;
-    border-radius: 4px;
+    padding: 6px;
+    border-radius: 8px;
 }
 QMenu::item {
-    padding: 6px 28px 6px 14px;
-    border-radius: 3px;
+    padding: 7px 28px 7px 14px;
+    border-radius: 5px;
 }
 QMenu::item:selected { background: @bgRowSelected; }
 QMenu::item:disabled { color: @ink40; }
@@ -85,36 +85,38 @@ QMenu::separator {
 }
 
 /* ============================ Splitter ============================ */
-QSplitter::handle { background: @divider; }
-QSplitter::handle:horizontal { width: 1px; }
-QSplitter::handle:vertical   { height: 1px; }
+/* Wide handles in the deep-bg colour — makes the panes feel like
+   floating cards on a calmer canvas rather than welded boxes. */
+QSplitter::handle { background: @bgDeep; }
+QSplitter::handle:horizontal { width: 8px; }
+QSplitter::handle:vertical   { height: 8px; }
 
 /* ============================ Cue list (QTreeView) ============================ */
+/* Floating card: rounded panel, generous internal padding, no hard
+   dividers. Selected rows are tiles within the list rather than
+   rectangles with a left-border accent. */
 QTreeView {
     background: @bgPanel;
     alternate-background-color: @bgRowAlt;
     color: @ink100;
     border: none;
+    border-radius: 8px;
     selection-background-color: @bgRowSelected;
     selection-color: @ink100;
     outline: 0;
     show-decoration-selected: 1;
+    padding: 4px;
 }
 QTreeView::item {
-    padding: 7px 8px;
+    padding: 7px 10px;
     border: none;
-    border-left: 2px solid transparent;
+    border-radius: 6px;
+    margin: 1px 4px;
 }
-QTreeView::item:hover {
-    background: @bgRowHover;
-}
-QTreeView::item:selected {
-    background: @bgRowSelected;
-    border-left: 2px solid @accent;
-}
+QTreeView::item:hover    { background: @bgRowHover; }
+QTreeView::item:selected,
 QTreeView::item:selected:active {
     background: @bgRowSelected;
-    border-left: 2px solid @accent;
 }
 QTreeView::item:focus { outline: 0; }
 QTreeView::branch:has-children:!has-siblings:closed,
@@ -126,13 +128,12 @@ QTreeView::branch:closed:has-children:has-siblings {
 QHeaderView::section {
     background: @bgPanel;
     color: @ink60;
-    padding: 8px 10px;
+    padding: 8px 12px;
     border: none;
-    border-right: 1px solid @divider;
     border-bottom: 1px solid @divider;
-    font-size: 11px;
+    font-size: 10px;
     font-weight: 600;
-    letter-spacing: 0.06em;
+    letter-spacing: 0.10em;
 }
 QHeaderView::section:last { border-right: none; }
 
@@ -145,8 +146,8 @@ QComboBox {
     background: @bgInteractive;
     color: @ink100;
     border: 1px solid @outline;
-    border-radius: 3px;
-    padding: 5px 8px;
+    border-radius: 5px;
+    padding: 6px 10px;
     selection-background-color: @accent;
     selection-color: @bgDeep;
     min-height: 22px;
@@ -212,8 +213,8 @@ QPushButton {
     background: @bgInteractive;
     color: @ink100;
     border: 1px solid @outline;
-    border-radius: 3px;
-    padding: 6px 14px;
+    border-radius: 6px;
+    padding: 7px 16px;
     min-height: 24px;
     font-weight: 500;
 }
@@ -229,7 +230,7 @@ QPushButton:disabled {
 }
 QPushButton:focus {
     border: 2px solid @outlineFocus;
-    padding: 5px 13px;
+    padding: 6px 15px;
 }
 
 /* GO button — filled mossy green when ready, dusty blue when standby.
@@ -238,11 +239,11 @@ QPushButton#goButton {
     background: @loaded;
     color: @bgDeep;
     border: none;
-    border-radius: 4px;
+    border-radius: 12px;
     font-size: 22px;
     font-weight: 700;
     letter-spacing: 0.04em;
-    padding: 10px 24px;
+    padding: 12px 28px;
     min-height: 64px;
     min-width: 200px;
 }
@@ -278,9 +279,11 @@ QPushButton#panicButton {
 QPushButton#panicButton:hover   { background: @err; color: @bgDeep; }
 
 /* ============================ Transport bar ============================ */
+/* Floats above the deep bg with rounded corners — not a welded strip. */
 QWidget#transportBar {
     background: @bgPanel;
-    border-top: 1px solid @divider;
+    border: none;
+    border-radius: 10px;
 }
 
 QLabel#nextHeader {
@@ -321,7 +324,10 @@ QLabel#typeLabel {
     border-bottom: 1px solid @divider;
 }
 
-QWidget#inspectorPane { background: @bgDeep; }
+QWidget#inspectorPane {
+    background: @bgPanel;
+    border-radius: 8px;
+}
 
 QPushButton#colorChip {
     background: @bgInteractive;
@@ -439,12 +445,14 @@ QListWidget {
     background: @bgPanel;
     color: @ink100;
     border: none;
+    border-radius: 8px;
     outline: 0;
-    padding: 4px;
+    padding: 6px;
 }
 QListWidget::item {
-    padding: 8px 12px;
-    border-radius: 3px;
+    padding: 9px 14px;
+    border-radius: 6px;
+    margin: 1px 2px;
 }
 QListWidget::item:hover    { background: @bgRowHover; }
 QListWidget::item:selected {
@@ -478,7 +486,8 @@ QTabWidget::pane {
 /* ============================ Active cues panel ============================ */
 QWidget#activeCuesPanel {
     background: @bgPanel;
-    border-top: 1px solid @divider;
+    border: none;
+    border-radius: 10px;
 }
 QLabel#activeCuesHeader {
     color: @ink60;
@@ -489,7 +498,7 @@ QLabel#activeCuesHeader {
 }
 QWidget#activeCueRow {
     background: @bgRow;
-    border-radius: 3px;
+    border-radius: 8px;
 }
 QPushButton#activeStopButton {
     background: transparent;
