@@ -1,6 +1,8 @@
 add_library(quewi_ui STATIC
     Theme.h
     Theme.cpp
+    SmoothScroll.h
+    SmoothScroll.cpp
     CueListView.h
     CueListView.cpp
     Inspector.h

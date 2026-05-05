@@ -73,8 +73,12 @@ private:
     EffectsRackWidget *m_effectsRack = nullptr;
     SpectrogramWidget *m_spectrogram = nullptr;
 
-    // Status
-    QLabel *m_statusLabel = nullptr;
+    // Header strip + status
+    QLabel *m_headerNumber = nullptr;
+    QLabel *m_headerName   = nullptr;
+    QLabel *m_headerMeta   = nullptr;
+    QLabel *m_statusLabel  = nullptr;
+    void updateHeader();
 
     // Playback
     std::unique_ptr<QAudioSink> m_sink;

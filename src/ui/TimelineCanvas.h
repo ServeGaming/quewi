@@ -2,8 +2,10 @@
 
 #include "audio/AudioEditorModel.h"
 
-#include <QWidget>
+#include <QPropertyAnimation>
+#include <QPointer>
 #include <QScrollBar>
+#include <QWidget>
 #include <optional>
 
 namespace quewi::ui {
@@ -103,6 +105,7 @@ private:
 
     QScrollBar *m_hbar = nullptr;
     QScrollBar *m_vbar = nullptr;
+    QPointer<QPropertyAnimation> m_scrollAnim;
 
     // Drag state
     struct DragState {

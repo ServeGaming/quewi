@@ -9,11 +9,16 @@
 #include <QCursor>
 #include <QFileDialog>
 #include <QFileInfo>
+#include <QFrame>
+#include <QGridLayout>
 #include <QHBoxLayout>
+#include <QIcon>
 #include <QKeyEvent>
 #include <QLabel>
 #include <QMediaDevices>
 #include <QMessageBox>
+#include <QPainter>
+#include <QPainterPath>
 #include <QProgressDialog>
 #include <QPushButton>
 #include <QScrollBar>
@@ -25,6 +30,113 @@
 #include <QVBoxLayout>
 
 namespace quewi::ui {
+
+namespace {
+
+// 18×18 line icons painted into transparent QPixmaps. Cached on first
+// use. White ink so QSS-tinted toolbar buttons pick up the parent
+// stylesheet's text colour cleanly.
+QIcon makeEditorIcon(const QString &name) {
+    static QHash<QString, QIcon> cache;
+    if (auto it = cache.constFind(name); it != cache.constEnd()) return it.value();
+
+    const int sz = 18;
+    QPixmap pm(sz, sz);
+    pm.fill(Qt::transparent);
+    QPainter p(&pm);
+    p.setRenderHint(QPainter::Antialiasing);
+    QColor ink(0xe0, 0xe2, 0xeb);
+    QPen pen(ink); pen.setWidthF(1.5); pen.setCapStyle(Qt::RoundCap); pen.setJoinStyle(Qt::RoundJoin);
+    p.setPen(pen);
+    p.setBrush(Qt::NoBrush);
+
+    if (name == QLatin1String("play")) {
+        QPainterPath path;
+        path.moveTo(5, 4); path.lineTo(14, 9); path.lineTo(5, 14); path.closeSubpath();
+        p.fillPath(path, ink);
+    } else if (name == QLatin1String("stop")) {
+        p.fillRect(QRectF(5, 5, 8, 8), ink);
+    } else if (name == QLatin1String("loop")) {
+        p.drawArc(3, 4, 12, 10, 30 * 16, 300 * 16);
+        QPainterPath arrow;
+        arrow.moveTo(13.5, 3); arrow.lineTo(15.5, 5.5); arrow.lineTo(11.5, 6); arrow.closeSubpath();
+        p.fillPath(arrow, ink);
+    } else if (name == QLatin1String("select")) {
+        // Arrow / pointer
+        QPainterPath path;
+        path.moveTo(4, 3); path.lineTo(4, 14); path.lineTo(7, 11);
+        path.lineTo(9.5, 15); path.lineTo(11, 14.2);
+        path.lineTo(8.6, 10.4); path.lineTo(13, 10); path.closeSubpath();
+        p.fillPath(path, ink);
+    } else if (name == QLatin1String("razor")) {
+        // Razor blade
+        p.drawLine(3, 14, 13, 4);
+        p.drawRect(QRectF(11, 3, 4, 4));
+    } else if (name == QLatin1String("zoomIn")) {
+        p.drawEllipse(2, 2, 9, 9);
+        p.drawLine(11, 11, 16, 16);
+        p.drawLine(6.5, 4, 6.5, 9); // +
+        p.drawLine(4, 6.5, 9, 6.5);
+    } else if (name == QLatin1String("zoomOut")) {
+        p.drawEllipse(2, 2, 9, 9);
+        p.drawLine(11, 11, 16, 16);
+        p.drawLine(4, 6.5, 9, 6.5); // -
+    } else if (name == QLatin1String("zoomFit")) {
+        // Brackets
+        p.drawLine(3, 5, 3, 3); p.drawLine(3, 3, 5, 3);
+        p.drawLine(13, 3, 15, 3); p.drawLine(15, 3, 15, 5);
+        p.drawLine(3, 13, 3, 15); p.drawLine(3, 15, 5, 15);
+        p.drawLine(13, 15, 15, 15); p.drawLine(15, 15, 15, 13);
+        p.drawLine(6, 9, 12, 9);
+    } else if (name == QLatin1String("addTrack")) {
+        p.drawLine(3, 5, 15, 5);
+        p.drawLine(3, 9, 9, 9);
+        p.drawLine(3, 13, 9, 13);
+        p.drawLine(13, 11, 13, 15); // +
+        p.drawLine(11, 13, 15, 13);
+    } else if (name == QLatin1String("undo")) {
+        p.drawArc(3, 4, 12, 10, 60 * 16, -180 * 16);
+        QPainterPath arrow;
+        arrow.moveTo(3, 5); arrow.lineTo(5, 3); arrow.lineTo(7, 6); arrow.closeSubpath();
+        p.fillPath(arrow, ink);
+    } else if (name == QLatin1String("redo")) {
+        p.drawArc(3, 4, 12, 10, 120 * 16, 180 * 16);
+        QPainterPath arrow;
+        arrow.moveTo(15, 5); arrow.lineTo(13, 3); arrow.lineTo(11, 6); arrow.closeSubpath();
+        p.fillPath(arrow, ink);
+    } else if (name == QLatin1String("render")) {
+        // Down-arrow into tray
+        p.drawLine(9, 3, 9, 11);
+        QPainterPath arrow;
+        arrow.moveTo(5, 8); arrow.lineTo(9, 13); arrow.lineTo(13, 8); arrow.closeSubpath();
+        p.fillPath(arrow, ink);
+        p.drawLine(3, 15, 15, 15);
+    }
+    p.end();
+    QIcon icon(pm);
+    cache.insert(name, icon);
+    return cache.value(name);
+}
+
+// Vertical 1 px divider for the toolbar — a styled QFrame is heavier
+// and renders blurry, so paint it as a thin widget.
+QWidget *toolbarDivider(QWidget *parent) {
+    auto *w = new QFrame(parent);
+    w->setFrameShape(QFrame::VLine);
+    w->setFixedWidth(1);
+    w->setStyleSheet(QStringLiteral("color: #414752; background: #414752;"));
+    return w;
+}
+
+QLabel *sectionLabel(const QString &text, QWidget *parent) {
+    auto *l = new QLabel(text, parent);
+    l->setStyleSheet(QStringLiteral(
+        "color:#8a919e; font-size:10px; font-weight:700; letter-spacing:0.15em;"
+        "padding:0 6px;"));
+    return l;
+}
+
+} // namespace
 
 AudioEditorWindow::AudioEditorWindow(audio::AudioCue *cue, QWidget *parent)
     : QMainWindow(parent), m_cue(cue)
@@ -50,11 +162,8 @@ AudioEditorWindow::AudioEditorWindow(audio::AudioCue *cue, QWidget *parent)
                     && file->sampleRate() > 0)
                 {
                     m_model->setSampleRate(file->sampleRate());
-                    statusBar()->showMessage(
-                        tr("%1   ·   %2 Hz   ·   %3 ch")
-                            .arg(QFileInfo(file->path()).fileName())
-                            .arg(file->sampleRate())
-                            .arg(file->channelCount()));
+                    statusBar()->showMessage(QFileInfo(file->path()).fileName());
+                    updateHeader();
                 }
             };
             syncRate();
@@ -85,60 +194,84 @@ AudioEditorWindow::~AudioEditorWindow() = default;
 // ── Layout ────────────────────────────────────────────────────────────────────
 
 void AudioEditorWindow::buildToolbar() {
-    auto *tb = addToolBar(tr("Transport"));
+    auto *tb = addToolBar(tr("Editor"));
     tb->setMovable(false);
     tb->setIconSize(QSize(18, 18));
+    tb->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);
+    tb->setStyleSheet(QStringLiteral(
+        "QToolBar { background:#181c22; border:none; padding:4px 8px; spacing:2px; }"
+        "QToolButton { color:#e0e2eb; padding:6px 10px; background:transparent; border:1px solid transparent; }"
+        "QToolButton:hover { background:#272a30; border:1px solid #414752; }"
+        "QToolButton:checked { background:#272a30; border:1px solid #4a9eff; color:#a4c9ff; }"
+        "QToolButton:pressed { background:#1c2026; }"
+    ));
 
-    // Transport
-    auto *playAct  = tb->addAction(tr("▶ Play"),  this, &AudioEditorWindow::onPlay);
-    auto *stopAct  = tb->addAction(tr("■ Stop"),  this, &AudioEditorWindow::onStop);
-    auto *loopBtn  = new QToolButton(tb);
-    loopBtn->setText(tr("⟳ Loop"));
+    // ── TRANSPORT ─────────────────────────────────────────────────────
+    tb->addWidget(sectionLabel(tr("TRANSPORT"), tb));
+    tb->addAction(makeEditorIcon("play"), tr("Play"), this, &AudioEditorWindow::onPlay);
+    tb->addAction(makeEditorIcon("stop"), tr("Stop"), this, &AudioEditorWindow::onStop);
+    auto *loopBtn = new QToolButton(tb);
+    loopBtn->setIcon(makeEditorIcon("loop"));
+    loopBtn->setText(tr("Loop"));
+    loopBtn->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);
     loopBtn->setCheckable(true);
     connect(loopBtn, &QToolButton::toggled, this, &AudioEditorWindow::onLoopToggled);
     tb->addWidget(loopBtn);
-    Q_UNUSED(playAct) Q_UNUSED(stopAct)
 
-    tb->addSeparator();
+    tb->addWidget(toolbarDivider(tb));
 
-    // Tool mode
+    // ── TOOL ──────────────────────────────────────────────────────────
+    tb->addWidget(sectionLabel(tr("TOOL"), tb));
     auto *toolGroup = new QActionGroup(this);
-    auto *selAct = tb->addAction(tr("✥ Select"));
-    auto *razAct = tb->addAction(tr("✂ Razor"));
+    auto *selAct = tb->addAction(makeEditorIcon("select"), tr("Select"));
+    auto *razAct = tb->addAction(makeEditorIcon("razor"),  tr("Razor"));
     selAct->setCheckable(true); selAct->setChecked(true); selAct->setActionGroup(toolGroup);
     razAct->setCheckable(true); razAct->setActionGroup(toolGroup);
     connect(selAct, &QAction::triggered, this, [this]{ m_timeline->setTool(TimelineCanvas::Tool::Select); });
     connect(razAct, &QAction::triggered, this, [this]{ m_timeline->setTool(TimelineCanvas::Tool::Razor); });
 
-    tb->addSeparator();
+    tb->addWidget(toolbarDivider(tb));
 
-    // Zoom
-    tb->addAction(tr("− Zoom Out"), this, &AudioEditorWindow::zoomOut);
-    tb->addAction(tr("+ Zoom In"),  this, &AudioEditorWindow::zoomIn);
-    tb->addAction(tr("Fit"),        this, &AudioEditorWindow::zoomFit);
+    // ── ZOOM ──────────────────────────────────────────────────────────
+    tb->addWidget(sectionLabel(tr("ZOOM"), tb));
+    tb->addAction(makeEditorIcon("zoomOut"), tr("Out"), this, &AudioEditorWindow::zoomOut);
+    tb->addAction(makeEditorIcon("zoomIn"),  tr("In"),  this, &AudioEditorWindow::zoomIn);
+    tb->addAction(makeEditorIcon("zoomFit"), tr("Fit"), this, &AudioEditorWindow::zoomFit);
 
-    tb->addSeparator();
+    tb->addWidget(toolbarDivider(tb));
 
-    // Tracks
-    tb->addAction(tr("+ Track"), this, &AudioEditorWindow::addTrack);
+    // ── TRACKS ────────────────────────────────────────────────────────
+    tb->addWidget(sectionLabel(tr("TRACKS"), tb));
+    tb->addAction(makeEditorIcon("addTrack"), tr("Add Track"), this, &AudioEditorWindow::addTrack);
 
-    tb->addSeparator();
+    tb->addWidget(toolbarDivider(tb));
 
-    // Bounce
-    auto *bounceBtn = new QPushButton(tr("Render to File…"), tb);
-    bounceBtn->setObjectName(QStringLiteral("goButton"));
-    bounceBtn->setFixedHeight(28);
-    connect(bounceBtn, &QPushButton::clicked, this, &AudioEditorWindow::bounceToFile);
-    tb->addWidget(bounceBtn);
-
-    // Undo/Redo
-    tb->addSeparator();
+    // ── HISTORY ───────────────────────────────────────────────────────
+    tb->addWidget(sectionLabel(tr("HISTORY"), tb));
     auto *undoAct = m_model->undoStack()->createUndoAction(this, tr("Undo"));
+    undoAct->setIcon(makeEditorIcon("undo"));
     undoAct->setShortcut(QKeySequence::Undo);
     auto *redoAct = m_model->undoStack()->createRedoAction(this, tr("Redo"));
+    redoAct->setIcon(makeEditorIcon("redo"));
     redoAct->setShortcut(QKeySequence::Redo);
     tb->addAction(undoAct);
     tb->addAction(redoAct);
+
+    // Spacer pushes Render to the far right.
+    auto *spacer = new QWidget(tb);
+    spacer->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
+    tb->addWidget(spacer);
+
+    // Render — accent-filled action button (shares GO button style).
+    auto *bounceBtn = new QPushButton(makeEditorIcon("render"), tr("  Render to File"), tb);
+    bounceBtn->setObjectName(QStringLiteral("goButton"));
+    bounceBtn->setProperty("state", "ready");
+    bounceBtn->setMinimumHeight(30);
+    bounceBtn->setStyleSheet(QStringLiteral(
+        "QPushButton#goButton { font-size:12px; min-height:30px; padding:4px 18px; }"
+    ));
+    connect(bounceBtn, &QPushButton::clicked, this, &AudioEditorWindow::bounceToFile);
+    tb->addWidget(bounceBtn);
 }
 
 void AudioEditorWindow::buildCentral() {
@@ -146,6 +279,49 @@ void AudioEditorWindow::buildCentral() {
     auto *vl = new QVBoxLayout(central);
     vl->setContentsMargins(0, 0, 0, 0);
     vl->setSpacing(0);
+
+    // ── Header strip ─────────────────────────────────────────────────
+    // Cue identity left, format readout right. Sits between toolbar and
+    // timeline so the operator always knows what they're editing.
+    auto *header = new QWidget(central);
+    header->setObjectName(QStringLiteral("editorHeader"));
+    header->setStyleSheet(QStringLiteral(
+        "QWidget#editorHeader { background:#101419; border-bottom:1px solid #262a38; }"
+    ));
+    header->setFixedHeight(56);
+    auto *hl = new QHBoxLayout(header);
+    hl->setContentsMargins(20, 8, 20, 8);
+    hl->setSpacing(14);
+
+    m_headerNumber = new QLabel(QStringLiteral("—"), header);
+    m_headerNumber->setStyleSheet(QStringLiteral(
+        "color:#a4c9ff; font-family:'Space Grotesk','JetBrains Mono',monospace;"
+        "font-size:24px; font-weight:700; letter-spacing:-0.01em;"));
+    m_headerNumber->setMinimumWidth(72);
+
+    auto *nameStack = new QVBoxLayout();
+    nameStack->setSpacing(0);
+    nameStack->setContentsMargins(0, 0, 0, 0);
+    auto *caps = new QLabel(tr("AUDIO CUE"), header);
+    caps->setStyleSheet(QStringLiteral(
+        "color:#8a919e; font-size:10px; font-weight:700; letter-spacing:0.18em;"));
+    m_headerName = new QLabel(QStringLiteral("—"), header);
+    m_headerName->setStyleSheet(QStringLiteral(
+        "color:#e0e2eb; font-size:18px; font-weight:600; letter-spacing:-0.005em;"));
+    nameStack->addWidget(caps);
+    nameStack->addWidget(m_headerName);
+
+    m_headerMeta = new QLabel(QString(), header);
+    m_headerMeta->setAlignment(Qt::AlignRight | Qt::AlignVCenter);
+    m_headerMeta->setStyleSheet(QStringLiteral(
+        "color:#c0c7d4; font-family:'Space Grotesk','JetBrains Mono',monospace;"
+        "font-size:12px; letter-spacing:0.04em;"));
+
+    hl->addWidget(m_headerNumber, 0, Qt::AlignVCenter);
+    hl->addLayout(nameStack, 1);
+    hl->addWidget(m_headerMeta, 0, Qt::AlignVCenter);
+    vl->addWidget(header, 0);
+    updateHeader();
 
     // Timeline + scrollbars in a grid
     auto *timelineArea = new QWidget(central);
@@ -170,14 +346,25 @@ void AudioEditorWindow::buildCentral() {
 }
 
 void AudioEditorWindow::buildBottomPanel() {
-    auto *tabs = new QTabWidget(this);
-    tabs->setMaximumHeight(260);
+    auto *bottom = new QWidget(this);
+    bottom->setObjectName(QStringLiteral("editorBottomPanel"));
+    bottom->setStyleSheet(QStringLiteral(
+        "QWidget#editorBottomPanel { background:#181c22; border-top:1px solid #262a38; }"
+    ));
+    auto *bvl = new QVBoxLayout(bottom);
+    bvl->setContentsMargins(0, 0, 0, 0);
+    bvl->setSpacing(0);
+
+    auto *tabs = new QTabWidget(bottom);
+    tabs->setMinimumHeight(220);
+    tabs->setMaximumHeight(320);
+    tabs->setDocumentMode(true);
 
     m_effectsRack = new EffectsRackWidget(tabs);
-    tabs->addTab(m_effectsRack, tr("Effects"));
+    tabs->addTab(m_effectsRack, tr("EFFECTS"));
 
     m_spectrogram = new SpectrogramWidget(tabs);
-    tabs->addTab(m_spectrogram, tr("Spectrogram"));
+    tabs->addTab(m_spectrogram, tr("SPECTROGRAM"));
 
     // Only run FFT while the spectrogram tab is active — otherwise selection
     // clicks are instant.
@@ -186,14 +373,48 @@ void AudioEditorWindow::buildBottomPanel() {
     });
     m_spectrogram->setActive(false);
 
+    bvl->addWidget(tabs);
+
     // Attach via a dock-like bottom widget
     auto *central = centralWidget();
     auto *vl = qobject_cast<QVBoxLayout *>(central->layout());
-    if (vl) vl->addWidget(tabs);
+    if (vl) vl->addWidget(bottom);
 
     // Select first track's effects by default
     if (m_model->trackCount() > 0)
         m_effectsRack->setTrack(m_model->track(0));
+}
+
+void AudioEditorWindow::updateHeader() {
+    if (!m_headerNumber) return; // header not built yet
+    if (!m_cue) {
+        m_headerNumber->setText(QStringLiteral("—"));
+        m_headerName->setText(QStringLiteral("—"));
+        m_headerMeta->setText(QString());
+        return;
+    }
+    m_headerNumber->setText(QString::number(m_cue->number(), 'f', 2));
+    const auto name = m_cue->name().isEmpty() ? m_cue->typeName() : m_cue->name();
+    m_headerName->setText(name);
+
+    // Format readout from the first loaded source file, if any.
+    QString meta;
+    if (m_model->trackCount() > 0 && !m_model->track(0)->regions().empty()) {
+        auto file = m_model->track(0)->regions().front().sourceFile;
+        if (file && file->state() == audio::AudioFile::State::Loaded) {
+            const double dur = file->durationSeconds();
+            const int mins = int(dur) / 60;
+            const int secs = int(dur) % 60;
+            const int ms   = int(dur * 1000.0) % 1000;
+            meta = QStringLiteral("%1 Hz   %2 ch   %3:%4.%5")
+                       .arg(file->sampleRate())
+                       .arg(file->channelCount())
+                       .arg(mins)
+                       .arg(secs, 2, 10, QChar('0'))
+                       .arg(ms,  3, 10, QChar('0'));
+        }
+    }
+    m_headerMeta->setText(meta);
 }
 
 // ── Playback ──────────────────────────────────────────────────────────────────

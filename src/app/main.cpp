@@ -1,4 +1,5 @@
 #include "MainWindow.h"
+#include "ui/SmoothScroll.h"
 #include "ui/Theme.h"
 
 #include <QApplication>
@@ -32,6 +33,8 @@ int main(int argc, char *argv[])
                                     QStringLiteral("quewi-dark")).toString();
     const auto qss = quewi::ui::Theme::load(themeName);
     if (!qss.isEmpty()) app.setStyleSheet(qss);
+
+    quewi::ui::SmoothScroll::install(&app);
 
     quewi::MainWindow w;
     w.show();

@@ -419,14 +419,36 @@ void TimelineCanvas::mouseDoubleClickEvent(QMouseEvent *e) {
 }
 
 void TimelineCanvas::wheelEvent(QWheelEvent *e) {
-    // Ctrl+wheel = zoom; plain wheel = scroll
+    // Ctrl+wheel = zoom (snaps for predictable feel).
     if (e->modifiers() & Qt::ControlModifier) {
         double factor = (e->angleDelta().y() > 0) ? 0.8 : 1.25;
         setFramesPerPixel(m_framesPerPixel * factor);
-    } else if (e->modifiers() & Qt::ShiftModifier) {
-        if (m_hbar) m_hbar->setValue(m_hbar->value() - e->angleDelta().y());
+        return;
+    }
+
+    // Plain / Shift wheel = smooth pan. Re-target the running animation
+    // each tick so rapid rolls stack into a single longer glide.
+    auto smoothTo = [this](QScrollBar *bar, int target) {
+        if (!bar) return;
+        target = qBound(bar->minimum(), target, bar->maximum());
+        if (!m_scrollAnim) {
+            m_scrollAnim = new QPropertyAnimation(bar, "value", this);
+            m_scrollAnim->setEasingCurve(QEasingCurve::OutCubic);
+            m_scrollAnim->setDuration(220);
+        } else if (m_scrollAnim->targetObject() != bar) {
+            m_scrollAnim->setTargetObject(bar);
+        }
+        m_scrollAnim->stop();
+        m_scrollAnim->setStartValue(bar->value());
+        m_scrollAnim->setEndValue(target);
+        m_scrollAnim->start();
+    };
+
+    const int dy = e->angleDelta().y();
+    if (e->modifiers() & Qt::ShiftModifier) {
+        if (m_hbar) smoothTo(m_hbar, m_hbar->value() - dy);
     } else {
-        if (m_vbar) m_vbar->setValue(m_vbar->value() - e->angleDelta().y() / 2);
+        if (m_vbar) smoothTo(m_vbar, m_vbar->value() - dy / 2);
     }
 }
 
