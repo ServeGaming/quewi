@@ -35,6 +35,7 @@
 #include "ui/Inspector.h"
 #include "ui/OscMonitor.h"
 #include "ui/PatchEditorDialog.h"
+#include "ui/SpeakerPatchDialog.h"
 #include "ui/PreferencesDialog.h"
 #include "ui/TransportBar.h"
 
@@ -333,6 +334,8 @@ void MainWindow::buildMenus()
     toolsMenu->addAction(tr("&Patch Editor…"),
                          QKeySequence(QStringLiteral("Ctrl+Shift+P")),
                          this, &MainWindow::showPatchEditor);
+    toolsMenu->addAction(tr("&Speaker Patch…"),
+                         this, &MainWindow::showSpeakerPatch);
     toolsMenu->addSeparator();
     m_actShowMode = toolsMenu->addAction(tr("&Show Mode (locked)"));
     m_actShowMode->setShortcut(QKeySequence(QStringLiteral("Ctrl+Shift+L")));
@@ -564,6 +567,13 @@ void MainWindow::showPatchEditor()
 {
     if (!m_workspace || !m_workspace->patches()) return;
     ui::PatchEditorDialog dlg(m_workspace->patches(), this);
+    dlg.exec();
+}
+
+void MainWindow::showSpeakerPatch()
+{
+    if (!m_workspace || !m_workspace->patches()) return;
+    ui::SpeakerPatchDialog dlg(m_workspace->patches(), this);
     dlg.exec();
 }
 

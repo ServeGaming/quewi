@@ -80,6 +80,7 @@ private slots:
     void onTabSelected(int index);
     void showShortcutsDialog();
     void showPatchEditor();
+    void showSpeakerPatch();
     void showAbout();
     void openRecent(const QString &path);
     void rebuildRecentMenu();
