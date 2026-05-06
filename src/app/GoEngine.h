@@ -1,12 +1,16 @@
 #pragma once
 
+#include "audio/Vbap.h"
 #include "core/Workspace.h"
 
+#include <QHash>
 #include <QList>
 #include <QObject>
 #include <QPointer>
 
 class QTimer;
+
+namespace quewi::audio { class AudioCue; }
 
 namespace quewi::core   { class Workspace; }
 namespace quewi::cues   { class Cue; }
@@ -61,6 +65,19 @@ private:
     midi::MidiEngine             *m_midi = nullptr;
 
     QList<QTimer *> m_pending;
+
+    // Object-audio trajectory ticker. While at least one playing audio
+    // cue has a non-trivial trajectory, a 30 Hz timer recomputes VBAP
+    // gains from the cue's current playback position and pushes them
+    // into the AudioEngine.
+    struct TrajectoryEntry {
+        QPointer<audio::AudioCue> cue;
+        QList<audio::Speaker>     speakers;
+        int                       outChannels = 0;
+    };
+    QHash<quint64, TrajectoryEntry> m_trajectories;   // keyed by VoiceId
+    QTimer                          *m_trajectoryTimer = nullptr;
+    void onTrajectoryTick();
 };
 
 } // namespace quewi

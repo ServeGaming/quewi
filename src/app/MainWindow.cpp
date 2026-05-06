@@ -447,6 +447,8 @@ void MainWindow::buildMenus()
     };
     themeMenu->addAction(tr("&Dark"),  this, [applyTheme]{ applyTheme(QStringLiteral("quewi-dark")); });
     themeMenu->addAction(tr("&Light"), this, [applyTheme]{ applyTheme(QStringLiteral("quewi-light")); });
+    themeMenu->addAction(tr("&High contrast"),
+                         this, [applyTheme]{ applyTheme(QStringLiteral("quewi-highcontrast")); });
 
     auto *listMenu = menuBar()->addMenu(tr("&List"));
     listMenu->addAction(tr("&New cue list…"),    this, &MainWindow::addCueListTab);

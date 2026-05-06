@@ -3,6 +3,7 @@
 #include "audio/AudioCue.h"
 #include "audio/AudioEngine.h"
 #include "audio/AudioFile.h"
+#include "audio/AudioTrajectory.h"
 #include "core/CueList.h"
 #include "core/UndoCommands.h"
 #include "core/Workspace.h"
@@ -472,6 +473,34 @@ Inspector::Inspector(QWidget *parent)
     objForm->addRow(tr("Spread"), spRow);
 
     objVBox->addLayout(objForm);
+
+    // ── Trajectory ────────────────────────────────────────────────
+    m_trajGroup = new QGroupBox(tr("Trajectory"), m_objAudioGroup);
+    auto *trajVBox = new QVBoxLayout(m_trajGroup);
+
+    auto *trajTopRow = new QHBoxLayout();
+    trajTopRow->addWidget(new QLabel(tr("Mode:"), m_trajGroup));
+    m_trajMode = new QComboBox(m_trajGroup);
+    m_trajMode->addItem(tr("One-shot"), QStringLiteral("oneshot"));
+    m_trajMode->addItem(tr("Loop"),     QStringLiteral("loop"));
+    trajTopRow->addWidget(m_trajMode, 1);
+    m_trajAdd    = new QPushButton(tr("Add point"),    m_trajGroup);
+    m_trajRemove = new QPushButton(tr("Remove point"), m_trajGroup);
+    trajTopRow->addWidget(m_trajAdd);
+    trajTopRow->addWidget(m_trajRemove);
+    trajVBox->addLayout(trajTopRow);
+
+    m_trajTable = new QTableWidget(0, 4, m_trajGroup);
+    m_trajTable->setHorizontalHeaderLabels(
+        { tr("Time (s)"), tr("Az °"), tr("El °"), tr("Spread") });
+    m_trajTable->horizontalHeader()->setStretchLastSection(true);
+    m_trajTable->verticalHeader()->setVisible(false);
+    m_trajTable->setSelectionBehavior(QAbstractItemView::SelectRows);
+    m_trajTable->setMinimumHeight(120);
+    trajVBox->addWidget(m_trajTable);
+
+    objVBox->addWidget(m_trajGroup);
+
     audioOuter->addWidget(m_objAudioGroup);
 
     outer->addWidget(m_audioGroup);
@@ -706,6 +735,13 @@ Inspector::Inspector(QWidget *parent)
             this, &Inspector::onElevationSliderChanged);
     connect(m_objSpread, &QSlider::valueChanged,
             this, &Inspector::onSpreadSliderChanged);
+
+    connect(m_trajAdd,    &QPushButton::clicked, this, &Inspector::onTrajectoryAdd);
+    connect(m_trajRemove, &QPushButton::clicked, this, &Inspector::onTrajectoryRemove);
+    connect(m_trajTable,  &QTableWidget::cellChanged,
+            this, &Inspector::onTrajectoryCellChanged);
+    connect(m_trajMode, &QComboBox::currentIndexChanged,
+            this, [this](int){ onTrajectoryModeChanged(); });
 
     // Waveform handles: drag updates the spinbox value live; release pushes
     // a single undo step via the spinbox's editingFinished commit handlers.
@@ -1069,6 +1105,27 @@ void Inspector::rebuild()
         m_objSpread->setValue(static_cast<int>(audioCue->objectSpread() * 100));
         m_objSpreadLabel->setText(QStringLiteral("%1%")
             .arg(static_cast<int>(audioCue->objectSpread() * 100)));
+
+        // ── Trajectory reload ────────────────────────────────────────
+        const auto &traj = audioCue->trajectory();
+        QSignalBlocker bMode(m_trajMode);
+        m_trajMode->setCurrentIndex(
+            traj.mode() == audio::AudioTrajectory::Mode::Loop ? 1 : 0);
+        QSignalBlocker bTbl(m_trajTable);
+        m_trajTable->setRowCount(traj.keyframeCount());
+        const auto &kfs = traj.keyframes();
+        for (int i = 0; i < kfs.size(); ++i) {
+            const auto &k = kfs[i];
+            auto setCell = [&](int col, double v, char fmt = 'f', int prec = 2) {
+                auto *it = new QTableWidgetItem(QString::number(v, fmt, prec));
+                it->setTextAlignment(Qt::AlignCenter);
+                m_trajTable->setItem(i, col, it);
+            };
+            setCell(0, k.timeSeconds);
+            setCell(1, k.azimuthDeg, 'f', 1);
+            setCell(2, k.elevationDeg, 'f', 1);
+            setCell(3, k.spread, 'f', 2);
+        }
     }
 
     // Color chip preview — fill the chip with the cue's colour, falling
@@ -1453,6 +1510,101 @@ void Inspector::openSpeakerPatchDialog()
         m_objStageView->setSpeakers(audio::readSpeakers(m_workspace->patches(), savedId));
         m_loading = false;
     }
+}
+
+// ── Trajectory editor slots ──────────────────────────────────────────
+//
+// Trajectory edits write a fresh AudioTrajectory back through pushFieldEdit
+// is overkill here (no per-field undo for keyframe table changes in v1);
+// instead we mutate the cue directly. Lost: undo on a keyframe move.
+// Acceptable trade for shipping object-audio motion in 0.5 — undo for
+// trajectories is on the v0.6 list.
+
+namespace {
+audio::AudioTrajectory readTrajectoryFromTable(QTableWidget *table,
+                                               audio::AudioTrajectory::Mode mode)
+{
+    audio::AudioTrajectory t;
+    t.setMode(mode);
+    QList<audio::AudioTrajectory::Keyframe> kfs;
+    kfs.reserve(table->rowCount());
+    for (int r = 0; r < table->rowCount(); ++r) {
+        audio::AudioTrajectory::Keyframe k;
+        auto cellD = [&](int col) -> double {
+            auto *it = table->item(r, col);
+            return it ? it->text().toDouble() : 0.0;
+        };
+        k.timeSeconds   = cellD(0);
+        k.azimuthDeg    = cellD(1);
+        k.elevationDeg  = cellD(2);
+        k.spread        = qBound(0.0, cellD(3), 1.0);
+        kfs.append(k);
+    }
+    t.setKeyframes(std::move(kfs));
+    return t;
+}
+} // namespace
+
+void Inspector::onTrajectoryAdd()
+{
+    if (m_loading) return;
+    auto *audioCue = qobject_cast<audio::AudioCue *>(m_cue.data());
+    if (!audioCue) return;
+    auto traj = audioCue->trajectory();
+    audio::AudioTrajectory::Keyframe k;
+    // New point lands one second after the last keyframe and inherits its
+    // pose, so the user can add and then nudge instead of starting from
+    // an arbitrary spot.
+    if (!traj.keyframes().isEmpty()) {
+        const auto &last = traj.keyframes().last();
+        k.timeSeconds  = last.timeSeconds + 1.0;
+        k.azimuthDeg   = last.azimuthDeg;
+        k.elevationDeg = last.elevationDeg;
+        k.spread       = last.spread;
+    } else {
+        k.azimuthDeg   = audioCue->objectAzimuthDeg();
+        k.elevationDeg = audioCue->objectElevationDeg();
+        k.spread       = audioCue->objectSpread();
+    }
+    traj.addKeyframe(k);
+    audioCue->setTrajectory(std::move(traj));
+    onCueChanged();
+}
+
+void Inspector::onTrajectoryRemove()
+{
+    if (m_loading) return;
+    auto *audioCue = qobject_cast<audio::AudioCue *>(m_cue.data());
+    if (!audioCue) return;
+    const int row = m_trajTable->currentRow();
+    if (row < 0) return;
+    auto traj = audioCue->trajectory();
+    traj.removeKeyframe(row);
+    audioCue->setTrajectory(std::move(traj));
+    onCueChanged();
+}
+
+void Inspector::onTrajectoryCellChanged(int /*row*/, int /*column*/)
+{
+    if (m_loading) return;
+    auto *audioCue = qobject_cast<audio::AudioCue *>(m_cue.data());
+    if (!audioCue) return;
+    const auto mode = (m_trajMode->currentIndex() == 1)
+        ? audio::AudioTrajectory::Mode::Loop
+        : audio::AudioTrajectory::Mode::OneShot;
+    audioCue->setTrajectory(readTrajectoryFromTable(m_trajTable, mode));
+}
+
+void Inspector::onTrajectoryModeChanged()
+{
+    if (m_loading) return;
+    auto *audioCue = qobject_cast<audio::AudioCue *>(m_cue.data());
+    if (!audioCue) return;
+    auto traj = audioCue->trajectory();
+    traj.setMode(m_trajMode->currentIndex() == 1
+                 ? audio::AudioTrajectory::Mode::Loop
+                 : audio::AudioTrajectory::Mode::OneShot);
+    audioCue->setTrajectory(std::move(traj));
 }
 
 void Inspector::setAudioModeTrim()

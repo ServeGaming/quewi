@@ -173,6 +173,18 @@ public:
         return false;
     }
 
+    bool setVoiceChannelGains(VoiceId id, const QList<float> &gains)
+    {
+        std::lock_guard<std::mutex> lock(m_mutex);
+        for (auto &v : m_voices) {
+            if (v.id == id) {
+                v.channelGains = gains;
+                return true;
+            }
+        }
+        return false;
+    }
+
     bool setVoicePan(VoiceId id, double pan)
     {
         std::lock_guard<std::mutex> lock(m_mutex);
@@ -746,6 +758,13 @@ void AudioEngine::setVoicePan(VoiceId id, double pan)
 {
     for (auto &ctx : m_contexts) {
         if (ctx->mixer && ctx->mixer->setVoicePan(id, pan)) return;
+    }
+}
+
+void AudioEngine::setVoiceChannelGains(VoiceId id, const QList<float> &gains)
+{
+    for (auto &ctx : m_contexts) {
+        if (ctx->mixer && ctx->mixer->setVoiceChannelGains(id, gains)) return;
     }
 }
 

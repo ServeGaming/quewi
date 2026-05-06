@@ -103,6 +103,14 @@ public:
     void setVoiceGain(VoiceId id, double gainDb);
     void setVoicePan(VoiceId id, double pan);
 
+    // Swap the per-output-channel gain vector for a playing voice. Used
+    // by the trajectory ticker — each tick recomputes VBAP gains for the
+    // new (azimuth, elevation, spread) and pushes them in. Mutex-guarded
+    // so the audio callback either sees the old vector or the new one,
+    // never a torn state. Vector length should match the device channel
+    // count.
+    void setVoiceChannelGains(VoiceId id, const QList<float> &gains);
+
     // For the active-cues panel. Cheap snapshot, safe to call at 4 Hz.
     QList<ActiveVoice> activeVoices() const;
 

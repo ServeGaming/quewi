@@ -98,6 +98,9 @@ QJsonObject AudioCue::toPayload() const
         o.insert(QStringLiteral("objAzimuth"),     m_objAzimuth);
         o.insert(QStringLiteral("objElevation"),   m_objElevation);
         o.insert(QStringLiteral("objSpread"),      m_objSpread);
+        if (m_trajectory.keyframeCount() > 0) {
+            o.insert(QStringLiteral("trajectory"), m_trajectory.toJson());
+        }
     }
     return o;
 }
@@ -119,6 +122,12 @@ void AudioCue::fromPayload(const QJsonObject &payload)
     m_objAzimuth     = payload.value(QStringLiteral("objAzimuth")).toDouble(0.0);
     m_objElevation   = payload.value(QStringLiteral("objElevation")).toDouble(0.0);
     m_objSpread      = payload.value(QStringLiteral("objSpread")).toDouble(0.0);
+    if (payload.contains(QStringLiteral("trajectory"))) {
+        m_trajectory = AudioTrajectory::fromJson(
+            payload.value(QStringLiteral("trajectory")).toObject());
+    } else {
+        m_trajectory = AudioTrajectory{};
+    }
     m_file.reset();
 }
 

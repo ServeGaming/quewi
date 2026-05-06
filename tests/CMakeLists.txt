@@ -26,9 +26,13 @@ qt_add_executable(test_vbap test_vbap.cpp)
 target_link_libraries(test_vbap PRIVATE Qt6::Test quewi_audio)
 add_test(NAME vbap COMMAND test_vbap)
 
+qt_add_executable(test_trajectory test_trajectory.cpp)
+target_link_libraries(test_trajectory PRIVATE Qt6::Test quewi_audio)
+add_test(NAME trajectory COMMAND test_trajectory)
+
 # On Windows, Qt's DLLs need to be reachable via PATH at test runtime.
 if(WIN32)
-    foreach(name smoke osc_codec osc_pattern osc_slip osc_loopback audio_smoke vbap)
+    foreach(name smoke osc_codec osc_pattern osc_slip osc_loopback audio_smoke vbap trajectory)
         set_tests_properties(${name} PROPERTIES
             ENVIRONMENT_MODIFICATION
                 "PATH=path_list_prepend:$<TARGET_FILE_DIR:Qt6::Core>"

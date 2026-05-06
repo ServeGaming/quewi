@@ -1,6 +1,7 @@
 #pragma once
 
 #include "audio/AudioFile.h"
+#include "audio/AudioTrajectory.h"
 #include "cues/Cue.h"
 
 #include <QUuid>
@@ -59,6 +60,12 @@ public:
     double     objectElevationDeg() const { return m_objElevation; }
     double     objectSpread()       const { return m_objSpread; }
 
+    // Animated source position. When the trajectory has 2+ keyframes
+    // and Object Audio is on, GoEngine ticks it at ~30 Hz and updates
+    // the live VBAP gains on the playing voice.
+    const AudioTrajectory& trajectory() const { return m_trajectory; }
+    void  setTrajectory(AudioTrajectory t) { m_trajectory = std::move(t); emitChanged(); }
+
     std::shared_ptr<AudioFile> audioFile() const { return m_file; }
 
     quint64 currentVoiceId() const { return m_currentVoiceId; }
@@ -81,6 +88,7 @@ private:
     double m_objAzimuth   = 0.0;   // -180..+180, 0 = front, +90 = right
     double m_objElevation = 0.0;   // -90..+90, 0 = ear-level
     double m_objSpread    = 0.0;   // 0..1
+    AudioTrajectory m_trajectory;
 
     std::shared_ptr<AudioFile> m_file;
     quint64                    m_currentVoiceId = 0;

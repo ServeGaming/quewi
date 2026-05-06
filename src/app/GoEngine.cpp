@@ -2,6 +2,7 @@
 
 #include "audio/AudioCue.h"
 #include "audio/AudioEngine.h"
+#include "audio/AudioTrajectory.h"
 #include "audio/SpeakerPatch.h"
 #include "audio/Vbap.h"
 #include "core/CueList.h"
@@ -28,6 +29,38 @@ namespace quewi {
 
 GoEngine::GoEngine(QObject *parent) : QObject(parent) {}
 GoEngine::~GoEngine() { cancelAll(0.0); }
+
+void GoEngine::onTrajectoryTick()
+{
+    if (!m_audio) { m_trajectories.clear(); return; }
+
+    const auto active = m_audio->activeVoices();
+    QHash<quint64, double> posByVoice;
+    posByVoice.reserve(active.size());
+    for (const auto &av : active) posByVoice.insert(av.id, av.positionSeconds);
+
+    for (auto it = m_trajectories.begin(); it != m_trajectories.end(); ) {
+        const auto vid  = it.key();
+        auto      &rec  = it.value();
+        if (!posByVoice.contains(vid) || !rec.cue) {
+            it = m_trajectories.erase(it);
+            continue;
+        }
+        const double t = posByVoice.value(vid);
+        const auto sample = rec.cue->trajectory().sampleAt(t);
+        audio::Vbap v(rec.speakers);
+        const auto gains = v.gains(static_cast<float>(sample.azimuthDeg),
+                                   static_cast<float>(sample.elevationDeg),
+                                   static_cast<float>(sample.spread),
+                                   rec.outChannels);
+        m_audio->setVoiceChannelGains(vid, gains);
+        ++it;
+    }
+
+    if (m_trajectories.isEmpty() && m_trajectoryTimer) {
+        m_trajectoryTimer->stop();
+    }
+}
 
 void GoEngine::setWorkspace(core::Workspace *ws)              { m_workspace = ws; }
 void GoEngine::setAudioEngine(audio::AudioEngine *e)          { m_audio = e; }
@@ -127,22 +160,56 @@ void GoEngine::doFire(cues::Cue *cue)
                 // speaker patch into per-channel gains. If the patch is
                 // missing or empty, fall back to legacy stereo pan so
                 // the cue still plays — better than silence.
+                QList<audio::Speaker> trajSpeakers;
+                int                   trajOutChans = 0;
                 if (audioCue->objectAudioEnabled() && m_workspace) {
                     const auto speakers = audio::readSpeakers(
                         m_workspace->patches(), audioCue->speakerPatchId());
                     const int outChans = m_audio->outputChannelCount(p.outputDeviceId);
                     if (!speakers.isEmpty() && outChans > 0) {
+                        // Initial gains: keyframe @ t=0 if a trajectory
+                        // exists, otherwise the static cue position.
+                        double az = audioCue->objectAzimuthDeg();
+                        double el = audioCue->objectElevationDeg();
+                        double sp = audioCue->objectSpread();
+                        if (!audioCue->trajectory().isEmpty()) {
+                            const auto s = audioCue->trajectory().sampleAt(0.0);
+                            az = s.azimuthDeg;
+                            el = s.elevationDeg;
+                            sp = s.spread;
+                        }
                         audio::Vbap v(speakers);
                         p.channelGains = v.gains(
-                            static_cast<float>(audioCue->objectAzimuthDeg()),
-                            static_cast<float>(audioCue->objectElevationDeg()),
-                            static_cast<float>(audioCue->objectSpread()),
+                            static_cast<float>(az),
+                            static_cast<float>(el),
+                            static_cast<float>(sp),
                             outChans);
+                        trajSpeakers = speakers;
+                        trajOutChans = outChans;
                     }
                 }
 
                 const auto vid = m_audio->fire(file, p);
                 audioCue->setCurrentVoiceId(vid);
+                if (vid != 0
+                    && audioCue->objectAudioEnabled()
+                    && !audioCue->trajectory().isEmpty()
+                    && !trajSpeakers.isEmpty()
+                    && trajOutChans > 0)
+                {
+                    TrajectoryEntry rec;
+                    rec.cue         = audioCue;
+                    rec.speakers    = std::move(trajSpeakers);
+                    rec.outChannels = trajOutChans;
+                    m_trajectories.insert(vid, std::move(rec));
+                    if (!m_trajectoryTimer) {
+                        m_trajectoryTimer = new QTimer(this);
+                        m_trajectoryTimer->setInterval(33);   // ~30 Hz
+                        connect(m_trajectoryTimer, &QTimer::timeout,
+                                this, &GoEngine::onTrajectoryTick);
+                    }
+                    if (!m_trajectoryTimer->isActive()) m_trajectoryTimer->start();
+                }
                 if (vid == 0) status(tr("GO: audio engine failed — %1")
                     .arg(m_audio->lastError()));
                 else status(tr("GO: ▶ %1").arg(
@@ -427,6 +494,8 @@ void GoEngine::cancelAll(double fadeOutSeconds)
     if (m_audio)    m_audio->stopAll(fadeOutSeconds);
     if (m_lighting) m_lighting->blackout();
     if (m_video)    m_video->stopAll();
+    m_trajectories.clear();
+    if (m_trajectoryTimer) m_trajectoryTimer->stop();
 }
 
 } // namespace quewi

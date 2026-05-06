@@ -104,6 +104,10 @@ private slots:
     void onElevationSliderChanged(int tenthDeg);
     void onSpreadSliderChanged(int hundredths);
     void openSpeakerPatchDialog();
+    void onTrajectoryAdd();
+    void onTrajectoryRemove();
+    void onTrajectoryCellChanged(int row, int column);
+    void onTrajectoryModeChanged();
 
     // Fade
     void commitFadeTarget();
@@ -222,6 +226,15 @@ private:
     QSlider        *m_objSpread         = nullptr;
     QLabel         *m_objElevationLabel = nullptr;
     QLabel         *m_objSpreadLabel    = nullptr;
+
+    // Trajectory editor (inside Object Audio group). Animates the source
+    // position over the cue's playback time; when the table has 2+ rows,
+    // GoEngine ticks it at ~30 Hz on the running voice.
+    QGroupBox      *m_trajGroup     = nullptr;
+    QTableWidget   *m_trajTable     = nullptr;
+    QComboBox      *m_trajMode      = nullptr;
+    QPushButton    *m_trajAdd       = nullptr;
+    QPushButton    *m_trajRemove    = nullptr;
 
     // Fade group
     QGroupBox      *m_fadeGroup    = nullptr;
