@@ -29,6 +29,7 @@ class QTableWidget;
 namespace quewi::ui {
 
 class WaveformWidget;
+class StageView;
 
 // Right-pane editor for the currently-selected cue. Common header
 // (number, name, pre/post wait, notes) for every type, plus
@@ -95,6 +96,14 @@ private slots:
     void setAudioModeTrim();
     void setAudioModeFade();
     void commitAudioOutputDevice();
+
+    // Object Audio
+    void commitObjectAudioEnabled(bool on);
+    void commitSpeakerPatch();
+    void onStagePositionChanged(float azimuthDeg, float elevationDeg);
+    void onElevationSliderChanged(int tenthDeg);
+    void onSpreadSliderChanged(int hundredths);
+    void openSpeakerPatchDialog();
 
     // Fade
     void commitFadeTarget();
@@ -201,6 +210,18 @@ private:
     WaveformWidget *m_audioWaveform  = nullptr;
     QLabel         *m_audioMeta      = nullptr;
     QComboBox      *m_audioOutputDevice = nullptr;
+
+    // Object Audio sub-group (lives inside m_audioGroup; visible only
+    // when the audio cue has objectAudio = true).
+    QGroupBox      *m_objAudioGroup     = nullptr;
+    QCheckBox      *m_objAudioEnable    = nullptr;
+    QComboBox      *m_objSpeakerPatch   = nullptr;
+    QPushButton    *m_objSpeakerEdit    = nullptr;
+    StageView      *m_objStageView      = nullptr;
+    QSlider        *m_objElevation      = nullptr;
+    QSlider        *m_objSpread         = nullptr;
+    QLabel         *m_objElevationLabel = nullptr;
+    QLabel         *m_objSpreadLabel    = nullptr;
 
     // Fade group
     QGroupBox      *m_fadeGroup    = nullptr;

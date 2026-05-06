@@ -15,7 +15,11 @@
 #include "midi/MidiEngine.h"
 #include "lighting/LightCue.h"
 #include "osc/OscCue.h"
+#include "ui/SpeakerPatchDialog.h"
+#include "ui/StageView.h"
 #include "ui/WaveformWidget.h"
+#include "audio/SpeakerPatch.h"
+#include "core/PatchManager.h"
 #include "video/VideoCue.h"
 
 #include <QAudioDevice>
@@ -429,6 +433,47 @@ Inspector::Inspector(QWidget *parent)
 
     audioOuter->addLayout(audioForm);
     audioOuter->addLayout(quickRow);
+
+    // ---------------- Object Audio (nested inside Audio group) -----
+    m_objAudioGroup = new QGroupBox(tr("Object Audio"), m_audioGroup);
+    m_objAudioGroup->setCheckable(true);
+    m_objAudioGroup->setChecked(false);
+    auto *objVBox = new QVBoxLayout(m_objAudioGroup);
+
+    auto *objTopRow = new QHBoxLayout();
+    m_objSpeakerPatch = new QComboBox(m_objAudioGroup);
+    m_objSpeakerPatch->setMinimumWidth(160);
+    m_objSpeakerEdit  = new QPushButton(tr("Edit…"), m_objAudioGroup);
+    m_objSpeakerEdit->setToolTip(tr("Open the Speaker Patch editor"));
+    objTopRow->addWidget(new QLabel(tr("Speakers:"), m_objAudioGroup));
+    objTopRow->addWidget(m_objSpeakerPatch, 1);
+    objTopRow->addWidget(m_objSpeakerEdit);
+    objVBox->addLayout(objTopRow);
+
+    m_objStageView = new StageView(m_objAudioGroup);
+    objVBox->addWidget(m_objStageView, 1);
+
+    auto *objForm = new QFormLayout();
+    m_objElevation = new QSlider(Qt::Horizontal, m_objAudioGroup);
+    m_objElevation->setRange(-900, 900);     // tenths of a degree
+    m_objElevation->setSingleStep(10);
+    m_objElevationLabel = new QLabel(QStringLiteral("0°"), m_objAudioGroup);
+    auto *elRow = new QHBoxLayout();
+    elRow->addWidget(m_objElevation, 1);
+    elRow->addWidget(m_objElevationLabel);
+    objForm->addRow(tr("Elevation"), elRow);
+
+    m_objSpread = new QSlider(Qt::Horizontal, m_objAudioGroup);
+    m_objSpread->setRange(0, 100);
+    m_objSpreadLabel = new QLabel(QStringLiteral("0%"), m_objAudioGroup);
+    auto *spRow = new QHBoxLayout();
+    spRow->addWidget(m_objSpread, 1);
+    spRow->addWidget(m_objSpreadLabel);
+    objForm->addRow(tr("Spread"), spRow);
+
+    objVBox->addLayout(objForm);
+    audioOuter->addWidget(m_objAudioGroup);
+
     outer->addWidget(m_audioGroup);
 
     // ---------------- Fade group ----------------
@@ -647,6 +692,20 @@ Inspector::Inspector(QWidget *parent)
     connect(m_audioModeFade,   &QPushButton::clicked,            this, &Inspector::setAudioModeFade);
     connect(m_audioOutputDevice, &QComboBox::currentIndexChanged,
             this, [this](int){ commitAudioOutputDevice(); });
+
+    // Object Audio
+    connect(m_objAudioGroup, &QGroupBox::toggled,
+            this, &Inspector::commitObjectAudioEnabled);
+    connect(m_objSpeakerPatch, &QComboBox::currentIndexChanged,
+            this, [this](int){ commitSpeakerPatch(); });
+    connect(m_objSpeakerEdit, &QPushButton::clicked,
+            this, &Inspector::openSpeakerPatchDialog);
+    connect(m_objStageView, &StageView::positionChanged,
+            this, &Inspector::onStagePositionChanged);
+    connect(m_objElevation, &QSlider::valueChanged,
+            this, &Inspector::onElevationSliderChanged);
+    connect(m_objSpread, &QSlider::valueChanged,
+            this, &Inspector::onSpreadSliderChanged);
 
     // Waveform handles: drag updates the spinbox value live; release pushes
     // a single undo step via the spinbox's editingFinished commit handlers.
@@ -977,6 +1036,39 @@ void Inspector::rebuild()
             m_audioMeta->setText(QStringLiteral(" "));
             m_audioMeta->setStyleSheet(QString());
         }
+
+        // ── Object Audio reload ──────────────────────────────────────
+        m_objAudioGroup->setChecked(audioCue->objectAudioEnabled());
+
+        m_objSpeakerPatch->clear();
+        m_objSpeakerPatch->addItem(tr("(none)"), QUuid());
+        int patchIdx = 0;
+        if (m_workspace && m_workspace->patches()) {
+            const auto patches = m_workspace->patches()->patchesIn(
+                core::PatchManager::Category::SpeakerArray);
+            for (int i = 0; i < patches.size(); ++i) {
+                m_objSpeakerPatch->addItem(patches[i].name, patches[i].id);
+                if (patches[i].id == audioCue->speakerPatchId()) patchIdx = i + 1;
+            }
+        }
+        m_objSpeakerPatch->setCurrentIndex(patchIdx);
+
+        // Push current speakers into the stage view so the user sees
+        // the dot relative to their actual rig.
+        if (m_workspace && m_workspace->patches()) {
+            m_objStageView->setSpeakers(audio::readSpeakers(
+                m_workspace->patches(), audioCue->speakerPatchId()));
+        } else {
+            m_objStageView->setSpeakers({});
+        }
+        m_objStageView->setAzimuth(static_cast<float>(audioCue->objectAzimuthDeg()));
+        m_objStageView->setElevation(static_cast<float>(audioCue->objectElevationDeg()));
+        m_objElevation->setValue(static_cast<int>(audioCue->objectElevationDeg() * 10));
+        m_objElevationLabel->setText(QStringLiteral("%1°")
+            .arg(QString::number(audioCue->objectElevationDeg(), 'f', 0)));
+        m_objSpread->setValue(static_cast<int>(audioCue->objectSpread() * 100));
+        m_objSpreadLabel->setText(QStringLiteral("%1%")
+            .arg(static_cast<int>(audioCue->objectSpread() * 100)));
     }
 
     // Color chip preview — fill the chip with the cue's colour, falling
@@ -1261,6 +1353,82 @@ void Inspector::commitAudioOutputDevice()
     if (m_loading) return;
     pushFieldEdit(QStringLiteral("outputDeviceId"),
                   m_audioOutputDevice->currentData().toByteArray());
+}
+
+// ── Object Audio commits ─────────────────────────────────────────────
+void Inspector::commitObjectAudioEnabled(bool on)
+{
+    if (m_loading) return;
+    pushFieldEdit(QStringLiteral("objectAudio"), on);
+}
+
+void Inspector::commitSpeakerPatch()
+{
+    if (m_loading) return;
+    const QUuid id = m_objSpeakerPatch->currentData().toUuid();
+    pushFieldEdit(QStringLiteral("speakerPatchId"), id);
+    if (m_workspace && m_workspace->patches()) {
+        m_objStageView->setSpeakers(audio::readSpeakers(m_workspace->patches(), id));
+    }
+}
+
+void Inspector::onStagePositionChanged(float azimuthDeg, float elevationDeg)
+{
+    if (m_loading) return;
+    pushFieldEdit(QStringLiteral("objAzimuth"),   double(azimuthDeg));
+    pushFieldEdit(QStringLiteral("objElevation"), double(elevationDeg));
+
+    // Keep the elevation slider in sync without triggering its commit.
+    m_loading = true;
+    m_objElevation->setValue(static_cast<int>(elevationDeg * 10));
+    m_objElevationLabel->setText(QStringLiteral("%1°")
+        .arg(QString::number(elevationDeg, 'f', 0)));
+    m_loading = false;
+}
+
+void Inspector::onElevationSliderChanged(int tenthDeg)
+{
+    if (m_loading) return;
+    const double el = tenthDeg / 10.0;
+    m_objElevationLabel->setText(QStringLiteral("%1°")
+        .arg(QString::number(el, 'f', 0)));
+    pushFieldEdit(QStringLiteral("objElevation"), el);
+    m_loading = true;
+    m_objStageView->setElevation(static_cast<float>(el));
+    m_loading = false;
+}
+
+void Inspector::onSpreadSliderChanged(int hundredths)
+{
+    if (m_loading) return;
+    const double s = hundredths / 100.0;
+    m_objSpreadLabel->setText(QStringLiteral("%1%").arg(hundredths));
+    pushFieldEdit(QStringLiteral("objSpread"), s);
+}
+
+void Inspector::openSpeakerPatchDialog()
+{
+    if (!m_workspace || !m_workspace->patches()) return;
+    SpeakerPatchDialog dlg(m_workspace->patches(), this);
+    dlg.exec();
+    // After the dialog closes the speaker list may have changed —
+    // rebuild this row's combo + reload the stage view.
+    if (auto *audioCue = qobject_cast<audio::AudioCue *>(m_cue.data())) {
+        const auto savedId = audioCue->speakerPatchId();
+        m_loading = true;
+        m_objSpeakerPatch->clear();
+        m_objSpeakerPatch->addItem(tr("(none)"), QUuid());
+        int sel = 0;
+        const auto patches = m_workspace->patches()->patchesIn(
+            core::PatchManager::Category::SpeakerArray);
+        for (int i = 0; i < patches.size(); ++i) {
+            m_objSpeakerPatch->addItem(patches[i].name, patches[i].id);
+            if (patches[i].id == savedId) sel = i + 1;
+        }
+        m_objSpeakerPatch->setCurrentIndex(sel);
+        m_objStageView->setSpeakers(audio::readSpeakers(m_workspace->patches(), savedId));
+        m_loading = false;
+    }
 }
 
 void Inspector::setAudioModeTrim()
