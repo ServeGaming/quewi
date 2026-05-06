@@ -32,7 +32,7 @@ PatchEditorDialog::PatchEditorDialog(core::PatchManager *manager, QWidget *paren
     m_tabs = new QTabWidget(this);
     for (auto cat : {Category::AudioOutput, Category::OscDestination,
                      Category::MidiPort,    Category::DmxUniverse,
-                     Category::VideoSurface})
+                     Category::VideoSurface, Category::SpeakerArray})
     {
         m_tabs->addTab(buildTab(cat), core::PatchManager::categoryLabel(cat));
     }
@@ -268,6 +268,26 @@ QWidget *PatchEditorDialog::buildForm(Category cat, QListWidget *list) {
                 m_manager->setFields(id, fields);
             });
             fl->addRow(tr("Display"), display);
+            break;
+        }
+        case Category::SpeakerArray: {
+            // Rich editor lives in SpeakerPatchDialog (Stage 4 of the
+            // object-audio rollout). The patch fields model is fixed:
+            // a "templateKey" string + a "speakers" array. For now show
+            // a read-only summary; double-clicking the patch in Stage 4
+            // will open the dedicated dialog.
+            const auto tmpl = patch.fields.value(QStringLiteral("templateKey"),
+                                                  tr("custom")).toString();
+            const auto count = patch.fields.value(QStringLiteral("speakers"))
+                                .toJsonArray().size();
+            auto *summary = new QLabel(
+                tr("Template: %1 · %2 speakers").arg(tmpl).arg(count), form);
+            summary->setStyleSheet(QStringLiteral("color: palette(mid);"));
+            fl->addRow(summary);
+            auto *hint = new QLabel(
+                tr("Use Tools → Speaker Patch… to edit positions."), form);
+            hint->setWordWrap(true);
+            fl->addRow(hint);
             break;
         }
         }

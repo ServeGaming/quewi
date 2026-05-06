@@ -475,15 +475,26 @@ AudioEngine::DeviceContext *AudioEngine::ensureContextForDevice(const QAudioDevi
     const QByteArray key = device.id();
     if (auto *existing = contextForDeviceId(key)) return existing;
 
+    // Channel-count negotiation. Object audio (Phase 6 / v0.3) needs more
+    // than two channels; ask the device for what it can do, then pick a
+    // sensible upper bound (16) so a 64-out aggregate device doesn't get
+    // us a 64-channel mixer for a stereo-only show. The user's Speaker
+    // Patch tells the renderer which channels to actually drive.
+    const QAudioFormat preferred = device.preferredFormat();
+    const int devMaxChans  = qBound(2, preferred.channelCount(), 16);
+
     QAudioFormat fmt;
     fmt.setSampleFormat(QAudioFormat::Float);
     fmt.setSampleRate(48000);
-    fmt.setChannelCount(2);
+    fmt.setChannelCount(devMaxChans);
     if (!device.isFormatSupported(fmt)) {
-        fmt = device.preferredFormat();
+        // Fall back to the preferred format wholesale — covers devices
+        // that only advertise specific (rate, channels) combinations.
+        fmt = preferred;
         if (fmt.sampleFormat() != QAudioFormat::Float) {
             fmt.setSampleFormat(QAudioFormat::Float);
         }
+        if (fmt.channelCount() < 2) fmt.setChannelCount(2);
     }
     if (!device.isFormatSupported(fmt)) {
         m_lastError = tr("Device '%1' rejects float32 format").arg(device.description());

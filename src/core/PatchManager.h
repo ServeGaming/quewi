@@ -25,6 +25,11 @@ public:
         MidiPort,
         DmxUniverse,
         VideoSurface,
+        // SpeakerArray — VBAP / object-audio routing. Fields:
+        //   "speakers" : QJsonArray of objects with keys
+        //       label, channel (0-based), azimuthDeg, elevationDeg, distance.
+        //   "templateKey" : optional ("stereo", "5.1", "7.1", "7.1.4", "custom")
+        SpeakerArray,
     };
     Q_ENUM(Category)
 
