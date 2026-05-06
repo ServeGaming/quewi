@@ -1,10 +1,13 @@
 #pragma once
 
 #include <QColor>
+#include <QHash>
 #include <QObject>
+#include <QPolygonF>
 #include <QPointer>
 #include <QRectF>
 #include <QString>
+#include <memory>
 #include <vector>
 
 class QScreen;
@@ -14,8 +17,8 @@ namespace quewi::video {
 using VideoVoiceId = quint64;
 
 // Description of one visual cue's runtime state — used by the engine
-// to set up the output window. The cue itself is the source of truth;
-// this struct is the snapshot the engine consumes at fire time.
+// to set up the layer. The cue itself is the source of truth; this
+// struct is the snapshot the engine consumes at fire time.
 struct VideoVoiceParams {
     enum Kind { Video, Image, Text };
     Kind    kind = Video;
@@ -27,14 +30,16 @@ struct VideoVoiceParams {
     QRectF  geometry = {0.0, 0.0, 1.0, 1.0}; // normalised to chosen screen
     double  opacity = 1.0;
     bool    loop = false;      // Video only
+    int     zOrder = 0;        // higher = on top
 };
 
-class VideoOutputWindow;
+class Compositor;
+class Layer;
 
-// Owns a pool of frameless output windows — one per active visual cue.
-// A real compositing pipeline (multiple cues sharing a surface, blending,
-// effects) lands when the GoEngine arrives in Phase 6; for v1 each cue
-// gets its own borderless top-level window on the chosen screen.
+// Owns a Compositor (one window per output screen). fire() creates the
+// matching Layer subclass and routes it onto the compositor; stop()
+// removes the layer. Per-screen corner-pin transforms are held here
+// too so the inspector can configure them.
 class VideoEngine : public QObject {
     Q_OBJECT
 public:
@@ -48,16 +53,22 @@ public:
 
     int activeVoiceCount() const { return static_cast<int>(m_voices.size()); }
 
+    // Per-screen projection mapping. Quad corners are normalised 0..1
+    // window space; identity = {(0,0),(1,0),(1,1),(0,1)}.
+    void  setCornerPin(int screenIndex, const QPolygonF &quad);
+    QPolygonF cornerPin(int screenIndex) const;
+
 signals:
     void voiceFinished(quewi::video::VideoVoiceId id);
 
 private:
     struct Voice {
         VideoVoiceId        id = 0;
-        VideoOutputWindow  *window = nullptr;
+        QPointer<Layer>     layer;
     };
-    void onWindowFinished(VideoOutputWindow *window);
+    void onLayerFinished(Layer *layer);
 
+    std::unique_ptr<Compositor> m_compositor;
     std::vector<Voice> m_voices;
     VideoVoiceId       m_nextId = 0;
 };
