@@ -76,6 +76,9 @@ private slots:
     void onTabSelected(int index);
     void showShortcutsDialog();
     void showPatchEditor();
+    void showAbout();
+    void openRecent(const QString &path);
+    void rebuildRecentMenu();
 
 private:
     void buildLayout();
@@ -112,6 +115,11 @@ private:
     QAction *m_actRedo = nullptr;
     QAction *m_actSave = nullptr;
     QAction *m_actShowMode = nullptr;
+
+    // Recent-files menu — re-built whenever the MRU list mutates
+    // (open/save) so missing files get pruned from the visible list.
+    QMenu *m_recentMenu = nullptr;
+    void noteRecentFile(const QString &path);
 
     // Transport actions — exposed as QActions so the shortcut manager
     // can rebind them. Triggering them runs the same code as the buttons.

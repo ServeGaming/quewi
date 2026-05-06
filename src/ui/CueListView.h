@@ -41,6 +41,7 @@ protected:
     void keyPressEvent(QKeyEvent *event) override;
     void currentChanged(const QModelIndex &current, const QModelIndex &previous) override;
     void dropEvent(QDropEvent *event) override;
+    void paintEvent(QPaintEvent *event) override;
 
 private:
     QPointer<core::Workspace> m_workspace;

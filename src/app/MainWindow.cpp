@@ -22,6 +22,7 @@
 #include "show/ShowFile.h"
 #include "video/VideoCue.h"
 #include "video/VideoEngine.h"
+#include "ui/AboutDialog.h"
 #include "ui/ActiveCuesPanel.h"
 #include "ui/AudioEditorWindow.h"
 #include "ui/CommandPalette.h"
@@ -55,6 +56,7 @@
 #include <QSet>
 #include <QSettings>
 #include <QKeySequence>
+#include <QMenu>
 #include <QMenuBar>
 #include <QMessageBox>
 #include <QMimeData>
@@ -300,6 +302,8 @@ void MainWindow::buildMenus()
     auto *file = menuBar()->addMenu(tr("&File"));
     file->addAction(tr("&New"),    QKeySequence::New,    this, &MainWindow::newShow);
     file->addAction(tr("&Open…"),  QKeySequence::Open,   this, &MainWindow::openShow);
+    m_recentMenu = file->addMenu(tr("Open &Recent"));
+    rebuildRecentMenu();
     file->addSeparator();
     m_actSave = file->addAction(tr("&Save"), QKeySequence::Save, this, [this]{ saveShow(); });
     file->addAction(tr("Save &As…"), QKeySequence::SaveAs, this, [this]{ saveShowAs(); });
@@ -381,6 +385,14 @@ void MainWindow::buildMenus()
     cueMenu->addAction(tr("New M&SC"),   QKeySequence(QStringLiteral("Ctrl+Shift+M")),  this, &MainWindow::insertMscCue);
     cueMenu->addSeparator();
     cueMenu->addAction(tr("&Delete"), QKeySequence::Delete, this, &MainWindow::deleteSelectedCue);
+
+    auto *helpMenu = menuBar()->addMenu(tr("&Help"));
+    helpMenu->addAction(tr("&Keyboard shortcuts…"),
+                        this, &MainWindow::showShortcutsDialog);
+    helpMenu->addSeparator();
+    helpMenu->addAction(tr("&About quewi…"),
+                        QKeySequence(QStringLiteral("Ctrl+?")),
+                        this, &MainWindow::showAbout);
 }
 
 void MainWindow::resetWorkspace()
@@ -487,6 +499,7 @@ bool MainWindow::loadShowFromPath(const QString &path)
     m_currentPath = path;
     updateTitle();
     onSelectionChanged();
+    noteRecentFile(path);
     statusBar()->showMessage(tr("Opened %1").arg(path), 3000);
     return true;
 }
@@ -500,6 +513,7 @@ bool MainWindow::saveTo(const QString &path)
     m_workspace->markClean();
     m_currentPath = path;
     updateTitle();
+    noteRecentFile(path);
     statusBar()->showMessage(tr("Saved %1").arg(path), 3000);
     clearJournal();
     return true;
@@ -923,6 +937,75 @@ void MainWindow::showShortcutsDialog()
 {
     ui::ShortcutsDialog dlg(m_shortcuts, this);
     dlg.exec();
+}
+
+void MainWindow::showAbout()
+{
+    ui::AboutDialog dlg(this);
+    dlg.exec();
+}
+
+// ── Recent files ───────────────────────────────────────────────────────
+// MRU list is persisted in QSettings under ui/recentFiles. We cap it at
+// 8 visible entries and prune missing files on every rebuild — operators
+// tend to rename / move show files and stale entries are noise.
+namespace { constexpr int kMaxRecentFiles = 8; }
+
+void MainWindow::noteRecentFile(const QString &path)
+{
+    if (path.isEmpty()) return;
+    QSettings s(QStringLiteral("ServeGaming"), QStringLiteral("quewi"));
+    auto list = s.value(QStringLiteral("ui/recentFiles")).toStringList();
+    const auto canonical = QFileInfo(path).absoluteFilePath();
+    list.removeAll(canonical);
+    list.prepend(canonical);
+    while (list.size() > kMaxRecentFiles) list.removeLast();
+    s.setValue(QStringLiteral("ui/recentFiles"), list);
+    rebuildRecentMenu();
+}
+
+void MainWindow::rebuildRecentMenu()
+{
+    if (!m_recentMenu) return;
+    m_recentMenu->clear();
+    QSettings s(QStringLiteral("ServeGaming"), QStringLiteral("quewi"));
+    auto list = s.value(QStringLiteral("ui/recentFiles")).toStringList();
+
+    // Drop entries whose files no longer exist so the menu stays honest.
+    QStringList live;
+    for (const auto &p : list)
+        if (QFileInfo::exists(p)) live << p;
+    if (live != list) s.setValue(QStringLiteral("ui/recentFiles"), live);
+
+    if (live.isEmpty()) {
+        auto *empty = m_recentMenu->addAction(tr("(none)"));
+        empty->setEnabled(false);
+        return;
+    }
+    for (const auto &p : live) {
+        const auto label = QFileInfo(p).fileName();
+        auto *act = m_recentMenu->addAction(label);
+        act->setToolTip(p);
+        connect(act, &QAction::triggered, this, [this, p]{ openRecent(p); });
+    }
+    m_recentMenu->addSeparator();
+    auto *clear = m_recentMenu->addAction(tr("Clear list"));
+    connect(clear, &QAction::triggered, this, [this]{
+        QSettings s(QStringLiteral("ServeGaming"), QStringLiteral("quewi"));
+        s.remove(QStringLiteral("ui/recentFiles"));
+        rebuildRecentMenu();
+    });
+}
+
+void MainWindow::openRecent(const QString &path)
+{
+    if (!maybeSaveChanges()) return;
+    if (!QFileInfo::exists(path)) {
+        statusBar()->showMessage(tr("File no longer exists: %1").arg(path), 4000);
+        rebuildRecentMenu();
+        return;
+    }
+    loadShowFromPath(path);
 }
 
 void MainWindow::toggleShowMode()

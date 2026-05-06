@@ -9,6 +9,8 @@
 #include <QHeaderView>
 #include <QKeyEvent>
 #include <QMimeData>
+#include <QPainter>
+#include <QPaintEvent>
 #include <QSettings>
 #include <QUndoStack>
 
@@ -58,6 +60,13 @@ void CueListView::setModel(QAbstractItemModel *model)
     QTreeView::setModel(model);
     using core::CueListModel;
     if (model) {
+        // Re-paint the empty-state placeholder when the row count changes.
+        connect(model, &QAbstractItemModel::rowsInserted, this,
+                [this]{ viewport()->update(); });
+        connect(model, &QAbstractItemModel::rowsRemoved, this,
+                [this]{ viewport()->update(); });
+        connect(model, &QAbstractItemModel::modelReset, this,
+                [this]{ viewport()->update(); });
         header()->resizeSection(CueListModel::ColumnState,    24);
         header()->resizeSection(CueListModel::ColumnNumber,   64);
         header()->resizeSection(CueListModel::ColumnType,     96);
@@ -209,6 +218,41 @@ void CueListView::currentChanged(const QModelIndex &current, const QModelIndex &
     QTreeView::currentChanged(current, previous);
     auto *m = qobject_cast<core::CueListModel *>(model());
     emit currentCueChanged(m ? m->cueAt(current) : nullptr);
+}
+
+void CueListView::paintEvent(QPaintEvent *event)
+{
+    QTreeView::paintEvent(event);
+    if (model() && model()->rowCount() > 0) return;
+
+    // Draw a centered hint over the empty viewport. Painted *after* the
+    // base view so the alternating-row stripes don't show through.
+    QPainter p(viewport());
+    p.setRenderHint(QPainter::Antialiasing);
+
+    auto col = palette().color(QPalette::PlaceholderText);
+    if (!col.isValid()) col = palette().color(QPalette::Mid);
+
+    QFont titleFont = font();
+    titleFont.setPointSizeF(titleFont.pointSizeF() + 4.0);
+    titleFont.setWeight(QFont::DemiBold);
+
+    const QString title = tr("No cues yet");
+    const QString hint  = tr("Press N for a memo · A for audio · O for OSC\n"
+                             "or drag audio/video files here");
+
+    const QRect r = viewport()->rect();
+    p.setPen(col);
+
+    p.setFont(titleFont);
+    QRect titleRect = p.fontMetrics().boundingRect(r, Qt::AlignCenter, title);
+    titleRect.moveCenter(QPoint(r.center().x(), r.center().y() - titleRect.height()));
+    p.drawText(titleRect, Qt::AlignCenter, title);
+
+    p.setFont(font());
+    QRect hintRect = r;
+    hintRect.setTop(titleRect.bottom() + 8);
+    p.drawText(hintRect, Qt::AlignHCenter | Qt::AlignTop, hint);
 }
 
 } // namespace quewi::ui
