@@ -18,7 +18,7 @@ class QUrl;
 
 namespace quewi::core { class Workspace; class CueListModel; }
 namespace quewi::cues { class Cue; }
-namespace quewi::ui   { class ActiveCuesPanel; class CueListView; class Inspector; class ShortcutManager; class TransportBar; class OscMonitor; }
+namespace quewi::ui   { class ActiveCuesPanel; class CueListView; class Inspector; class ShortcutManager; class TransportBar; class OscMonitor; class ScriptWindow; }
 namespace quewi::osc  { class OscEngine; }
 namespace quewi::audio { class AudioEngine; }
 namespace quewi::lighting { class LightingEngine; }
@@ -48,6 +48,7 @@ private slots:
     bool saveShowAs();
     void showPreferences();
     void showOscMonitor();
+    void showScriptWindow();
     void insertMemoCue();
     void insertOscCue();
     void insertAudioCue();
@@ -117,6 +118,7 @@ private:
     ui::TransportBar *m_transport  = nullptr;
     ui::ActiveCuesPanel *m_activePanel = nullptr;
     ui::OscMonitor   *m_oscMonitor = nullptr;
+    ui::ScriptWindow *m_scriptWindow = nullptr;
     QSplitter       *m_mainSplitter = nullptr;
 
     QAction *m_actUndo = nullptr;

@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.24)
 project(quewi
-    VERSION 0.5.0
+    VERSION 0.6.0
     DESCRIPTION "Theatre cueing software"
     HOMEPAGE_URL "https://github.com/ServeGaming/quewi"
     LANGUAGES CXX
@@ -38,6 +38,8 @@ find_package(Qt6 6.7 REQUIRED COMPONENTS
     Multimedia
     MultimediaWidgets
     WebSockets
+    Pdf
+    PdfWidgets
     Test
 )
 

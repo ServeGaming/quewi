@@ -2,6 +2,7 @@
 
 #include "core/CueList.h"
 #include "core/PatchManager.h"
+#include "core/ScriptModel.h"
 
 #include <algorithm>
 
@@ -10,6 +11,7 @@ namespace quewi::core {
 Workspace::Workspace(QObject *parent)
     : QObject(parent)
     , m_patches(std::make_unique<PatchManager>(this))
+    , m_script(std::make_unique<ScriptModel>(this))
 {
     connect(&m_undoStack, &QUndoStack::cleanChanged, this, &Workspace::dirtyChanged);
 }

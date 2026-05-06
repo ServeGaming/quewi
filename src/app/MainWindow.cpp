@@ -31,6 +31,7 @@
 #include "ui/FindReplaceDialog.h"
 #include "ui/ShortcutManager.h"
 #include "ui/ShortcutsDialog.h"
+#include "ui/ScriptWindow.h"
 #include "ui/Theme.h"
 #include "ui/CueListView.h"
 #include "ui/PreflightDialog.h"
@@ -408,6 +409,9 @@ void MainWindow::buildMenus()
                          this, &MainWindow::showSpeakerPatch);
     toolsMenu->addAction(tr("Pro&jection Mapping…"),
                          this, &MainWindow::showProjectionMapping);
+    toolsMenu->addAction(tr("S&cript follower…"),
+                         QKeySequence(QStringLiteral("Ctrl+Shift+S")),
+                         this, &MainWindow::showScriptWindow);
     toolsMenu->addSeparator();
     m_actShowMode = toolsMenu->addAction(tr("&Show Mode (locked)"));
     m_actShowMode->setShortcut(QKeySequence(QStringLiteral("Ctrl+Shift+L")));
@@ -675,6 +679,30 @@ void MainWindow::showOscMonitor()
     m_oscMonitor->show();
     m_oscMonitor->raise();
     m_oscMonitor->activateWindow();
+}
+
+void MainWindow::showScriptWindow()
+{
+    if (!m_scriptWindow) {
+        m_scriptWindow = new ui::ScriptWindow();
+        m_scriptWindow->setAttribute(Qt::WA_DeleteOnClose, false);
+        m_scriptWindow->setWorkspace(m_workspace.get());
+        m_scriptWindow->setGoEngine(m_goEngine.get());
+        // Keep the selected cue in sync so click-to-bind works.
+        if (m_cueListView) {
+            connect(m_cueListView, &ui::CueListView::currentCueChanged,
+                    this, [this](cues::Cue *cue) {
+                        if (m_scriptWindow)
+                            m_scriptWindow->setSelectedCue(cue ? cue->id() : QUuid());
+                    });
+        }
+    }
+    // After resetWorkspace the m_workspace pointer is fresh — re-bind.
+    m_scriptWindow->setWorkspace(m_workspace.get());
+    m_scriptWindow->setGoEngine(m_goEngine.get());
+    m_scriptWindow->show();
+    m_scriptWindow->raise();
+    m_scriptWindow->activateWindow();
 }
 
 void MainWindow::insertMemoCue()

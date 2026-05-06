@@ -9,6 +9,8 @@ add_library(quewi_core STATIC
     UndoCommands.cpp
     PatchManager.h
     PatchManager.cpp
+    ScriptModel.h
+    ScriptModel.cpp
     ../cues/Cue.h
     ../cues/Cue.cpp
     ../cues/MemoCue.h

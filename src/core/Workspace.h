@@ -12,6 +12,7 @@ namespace quewi::cues { class Cue; }
 namespace quewi::core {
 
 class PatchManager;
+class ScriptModel;
 
 using CueId = QUuid;
 using CueListId = QUuid;
@@ -44,6 +45,10 @@ public:
     // ships with the show file.
     PatchManager *patches() const { return m_patches.get(); }
 
+    // The stage manager's annotated script. One per workspace; lazy —
+    // empty until a script is loaded via ScriptModel::loadFromFile.
+    ScriptModel *scriptModel() const { return m_script.get(); }
+
     bool isDirty() const { return m_undoStack.isClean() == false; }
     void markClean() { m_undoStack.setClean(); }
 
@@ -59,6 +64,7 @@ private:
     CueList *m_activeCueList = nullptr;
     QUndoStack m_undoStack;
     std::unique_ptr<PatchManager> m_patches;
+    std::unique_ptr<ScriptModel> m_script;
 };
 
 } // namespace quewi::core

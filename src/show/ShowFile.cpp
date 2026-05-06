@@ -2,6 +2,7 @@
 
 #include "core/CueList.h"
 #include "core/PatchManager.h"
+#include "core/ScriptModel.h"
 #include "core/Workspace.h"
 #include "audio/AudioCue.h"
 #include "cues/Cue.h"
@@ -243,6 +244,14 @@ bool ShowFile::load(const QString &path, core::Workspace &workspace)
             if (doc.isObject()) workspace.patches()->fromJson(doc.object());
         }
 
+        // Script + annotations from meta.
+        QSqlQuery sq(db);
+        if (sq.exec(QStringLiteral("SELECT value FROM meta WHERE key='script_json'"))
+            && sq.next() && workspace.scriptModel()) {
+            const auto doc = QJsonDocument::fromJson(sq.value(0).toString().toUtf8());
+            if (doc.isObject()) workspace.scriptModel()->fromJson(doc.object());
+        }
+
         db.close();
     }
     QSqlDatabase::removeDatabase(conn);
@@ -300,6 +309,12 @@ bool ShowFile::save(const QString &path, const core::Workspace &workspace)
         if (auto *patches = workspace.patches()) {
             const auto json = QJsonDocument(patches->toJson()).toJson(QJsonDocument::Compact);
             mq.bindValue(0, QStringLiteral("patches_json"));
+            mq.bindValue(1, QString::fromUtf8(json));
+            mq.exec();
+        }
+        if (auto *script = workspace.scriptModel()) {
+            const auto json = QJsonDocument(script->toJson()).toJson(QJsonDocument::Compact);
+            mq.bindValue(0, QStringLiteral("script_json"));
             mq.bindValue(1, QString::fromUtf8(json));
             mq.exec();
         }
