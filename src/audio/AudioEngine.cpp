@@ -68,6 +68,7 @@ public:
         }
         v.srcSampleRate = srcSr;
         v.channelGains  = params.channelGains;
+        v.peakPerChannel.fill(0.0f, m_outputChannels);
 
         std::lock_guard<std::mutex> lock(m_mutex);
         m_voices.push_back(std::move(v));
@@ -86,6 +87,46 @@ public:
                 v.fadeOutCounter = 0;
             }
         }
+    }
+
+    bool pauseVoice(VoiceId id)
+    {
+        std::lock_guard<std::mutex> lock(m_mutex);
+        for (auto &v : m_voices) {
+            if (v.id == id && !v.paused && !v.finished) {
+                v.paused = true;
+                return true;
+            }
+        }
+        return false;
+    }
+
+    bool resumeVoice(VoiceId id)
+    {
+        std::lock_guard<std::mutex> lock(m_mutex);
+        // Linear 5 ms attack ramp on resume so the silence-to-signal
+        // transition isn't a hard click; long enough to mask the worst
+        // discontinuities, short enough that operators don't perceive
+        // a delay.
+        const qint64 fadeSamples = static_cast<qint64>(0.005 * m_outputSampleRate);
+        for (auto &v : m_voices) {
+            if (v.id == id && v.paused) {
+                v.paused = false;
+                v.resumeFadeSamples = std::max<qint64>(fadeSamples, 1);
+                v.resumeFadeCounter = 0;
+                return true;
+            }
+        }
+        return false;
+    }
+
+    bool isPausedVoice(VoiceId id) const
+    {
+        std::lock_guard<std::mutex> lock(m_mutex);
+        for (const auto &v : m_voices) {
+            if (v.id == id) return v.paused;
+        }
+        return false;
     }
 
     void stopAll(double fadeOutSeconds)
@@ -170,6 +211,7 @@ public:
             a.loop = v.loop;
             a.peakLeft  = v.peakL.load(std::memory_order_relaxed);
             a.peakRight = v.peakR.load(std::memory_order_relaxed);
+            a.peakPerChannel = v.peakPerChannel;  // copy under m_mutex
             out.append(a);
         }
     }
@@ -212,12 +254,25 @@ private:
         bool     loop = false;
         bool     finished = false;
 
+        // Pause: when true, the mix loop emits silence for this voice
+        // and leaves readPos untouched. resume() flips it back. A small
+        // attack ramp on resume avoids the worst clicks; we don't ramp
+        // on pause (operators expect instant silence on Pause).
+        bool     paused = false;
+        qint64   resumeFadeSamples = 0;
+        qint64   resumeFadeCounter = 0;
+
         // Object-audio routing. Set once at fire() time from VBAP gains
         // for the cue's spatial position; the mixer reads it under the
         // same mutex snapshot as the rest of the voice. Empty means use
         // the legacy stereo pan path. Trajectories (animated positions)
         // would replace this with an atomic pointer-swap; v1 is static.
         QList<float> channelGains;
+
+        // Per-channel peak — sized to the device's output channel count.
+        // The mixer writes these every buffer; the UI thread reads under
+        // the existing mutex snapshot so no atomics required.
+        QList<float> peakPerChannel;
 
         Voice() = default;
         Voice(const Voice &) = delete;
@@ -241,6 +296,7 @@ private:
             , loop(other.loop)
             , finished(other.finished)
             , channelGains(std::move(other.channelGains))
+            , peakPerChannel(std::move(other.peakPerChannel))
         {
             gain.store(other.gain.load(std::memory_order_relaxed), std::memory_order_relaxed);
             currentGain.store(other.currentGain.load(std::memory_order_relaxed), std::memory_order_relaxed);
@@ -268,7 +324,8 @@ private:
             fadeOutFromGain = other.fadeOutFromGain;
             loop = other.loop;
             finished = other.finished;
-            channelGains = std::move(other.channelGains);
+            channelGains   = std::move(other.channelGains);
+            peakPerChannel = std::move(other.peakPerChannel);
             gain.store(other.gain.load(std::memory_order_relaxed), std::memory_order_relaxed);
             currentGain.store(other.currentGain.load(std::memory_order_relaxed), std::memory_order_relaxed);
             targetGain.store(other.targetGain.load(std::memory_order_relaxed), std::memory_order_relaxed);
@@ -305,6 +362,13 @@ qint64 AudioEngine::Mixer::readData(char *data, qint64 maxlen)
         std::lock_guard<std::mutex> lock(m_mutex);
         for (auto &v : m_voices) {
             if (!v.file || v.file->state() != AudioFile::State::Loaded) continue;
+            // Paused voice — emit silence, don't advance readPos.
+            // peakPerChannel decays via the UI smoothing.
+            if (v.paused) {
+                v.peakL.store(0.f, std::memory_order_relaxed);
+                v.peakR.store(0.f, std::memory_order_relaxed);
+                continue;
+            }
 
             const auto &samples = v.file->samples();
             const int   inChans  = v.file->channelCount();
@@ -328,6 +392,9 @@ qint64 AudioEngine::Mixer::readData(char *data, qint64 maxlen)
             const float rightPan = float(std::sin(panT * M_PI / 2.0) * kSqrt2);
 
             float bufPeakL = 0.f, bufPeakR = 0.f;
+            // Per-channel peaks for this buffer. The mixer caps at 16
+            // because the engine itself caps device channel count there.
+            std::array<float, 16> bufPeaks{};
             for (qint64 f = 0; f < framesWanted; ++f) {
                 if (v.finished) break;
 
@@ -352,6 +419,15 @@ qint64 AudioEngine::Mixer::readData(char *data, qint64 maxlen)
                 const qint64 absSamp = v.readPos + f * static_cast<qint64>(rate);
                 if (v.fadeInSamples > 0 && absSamp < v.fadeInSamples) {
                     envGain *= static_cast<double>(absSamp) / static_cast<double>(v.fadeInSamples);
+                }
+                if (v.resumeFadeSamples > 0
+                    && v.resumeFadeCounter < v.resumeFadeSamples) {
+                    envGain *= static_cast<double>(v.resumeFadeCounter)
+                             / static_cast<double>(v.resumeFadeSamples);
+                    ++v.resumeFadeCounter;
+                    if (v.resumeFadeCounter >= v.resumeFadeSamples) {
+                        v.resumeFadeSamples = 0;
+                    }
                 }
                 if (v.stopRequested) {
                     const qint64 cnt = v.fadeOutCounter + f;
@@ -405,8 +481,7 @@ qint64 AudioEngine::Mixer::readData(char *data, qint64 maxlen)
                         const float written = scaled * g;
                         out[f * outChans + oc] += written;
                         const float a = std::fabs(written);
-                        if (oc == 0)      { if (a > bufPeakL) bufPeakL = a; }
-                        else if (oc == 1) { if (a > bufPeakR) bufPeakR = a; }
+                        if (oc < 16 && a > bufPeaks[oc]) bufPeaks[oc] = a;
                     }
                     continue;
                 }
@@ -433,15 +508,18 @@ qint64 AudioEngine::Mixer::readData(char *data, qint64 maxlen)
                     const float written = static_cast<float>(s * finalGain) * panGain;
                     out[f * outChans + oc] += written;
                     const float a = std::fabs(written);
-                    if (oc == 0) {
-                        if (a > bufPeakL) bufPeakL = a;
-                    } else if (oc == 1) {
-                        if (a > bufPeakR) bufPeakR = a;
-                    }
+                    if (oc < 16 && a > bufPeaks[oc]) bufPeaks[oc] = a;
                 }
             }
+            // bufPeaks[0/1] also drive the legacy peakL/R atomics so the
+            // existing stereo readers keep working.
+            bufPeakL = bufPeaks[0];
+            bufPeakR = (outChans > 1) ? bufPeaks[1] : 0.f;
             v.peakL.store(bufPeakL, std::memory_order_relaxed);
             v.peakR.store(bufPeakR, std::memory_order_relaxed);
+            // Per-channel peaks for the active-cues panel.
+            const int copyN = std::min<int>(outChans, v.peakPerChannel.size());
+            for (int oc = 0; oc < copyN; ++oc) v.peakPerChannel[oc] = bufPeaks[oc];
 
             const qint64 advanced = static_cast<qint64>(framesWanted * rate);
             v.readPos += advanced;
@@ -692,6 +770,30 @@ int AudioEngine::outputChannelCount(const QByteArray &outputDeviceId)
     const QAudioDevice dev = resolveDevice(outputDeviceId);
     auto *ctx = ensureContextForDevice(dev);
     return ctx ? ctx->channels : 0;
+}
+
+bool AudioEngine::pause(VoiceId id)
+{
+    for (auto &ctx : m_contexts) {
+        if (ctx->mixer && ctx->mixer->pauseVoice(id)) return true;
+    }
+    return false;
+}
+
+bool AudioEngine::resume(VoiceId id)
+{
+    for (auto &ctx : m_contexts) {
+        if (ctx->mixer && ctx->mixer->resumeVoice(id)) return true;
+    }
+    return false;
+}
+
+bool AudioEngine::isPaused(VoiceId id) const
+{
+    for (const auto &ctx : m_contexts) {
+        if (ctx->mixer && ctx->mixer->isPausedVoice(id)) return true;
+    }
+    return false;
 }
 
 void AudioEngine::onMixerVoiceFinished(VoiceId id)

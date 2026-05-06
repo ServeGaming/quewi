@@ -7,6 +7,7 @@
 class QAction;
 class QHBoxLayout;
 class QLabel;
+class QPushButton;
 class QSplitter;
 class QDragEnterEvent;
 class QDragMoveEvent;
@@ -82,6 +83,7 @@ private slots:
     void showPatchEditor();
     void showSpeakerPatch();
     void showAbout();
+    void showNotifications();
     void openRecent(const QString &path);
     void rebuildRecentMenu();
 
@@ -125,6 +127,12 @@ private:
     // (open/save) so missing files get pruned from the visible list.
     QMenu *m_recentMenu = nullptr;
     void noteRecentFile(const QString &path);
+
+    // Notification badge in the status bar — a clickable QLabel that
+    // reads "N alerts" and opens the inbox. Updates on every post().
+    QPushButton *m_notifBadge = nullptr;
+    int          m_unreadNotifs = 0;
+    void refreshNotifBadge();
 
     // Transport actions — exposed as QActions so the shortcut manager
     // can rebind them. Triggering them runs the same code as the buttons.

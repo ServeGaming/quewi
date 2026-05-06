@@ -1,9 +1,12 @@
 #pragma once
 
+#include <QJsonObject>
 #include <QObject>
 #include <QString>
+#include <memory>
 
 namespace quewi::core { class Workspace; }
+namespace quewi::cues { class Cue; }
 
 namespace quewi::show {
 
@@ -23,6 +26,19 @@ public:
     static bool save(const QString &path, const core::Workspace &workspace);
 
     static QString lastError();
+
+    // Last non-fatal warning string from a successful load — e.g.
+    // "Recovered N cues with corrupt payloads". Empty if none.
+    // Cleared at the start of each load() / save() call.
+    static QString lastWarning();
+
+    // Construct a Cue subclass from a stored type-key + payload pair.
+    // Used by the show file loader and by clipboard paste in CueListView.
+    // Unknown type strings produce a Memo cue with a note explaining
+    // the type — same fallback the loader uses, so paste-from-future
+    // never destroys data.
+    static std::unique_ptr<cues::Cue> cueFromTypeAndPayload(
+        const QString &type, const QJsonObject &payload);
 };
 
 } // namespace quewi::show

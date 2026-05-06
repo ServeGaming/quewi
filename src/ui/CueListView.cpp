@@ -5,14 +5,20 @@
 #include "core/Workspace.h"
 
 #include "cues/Cue.h"
+#include "show/ShowFile.h"
 
 #include <QAction>
+#include <QClipboard>
 #include <QContextMenuEvent>
 #include <QDataStream>
 #include <QDragLeaveEvent>
 #include <QDragMoveEvent>
 #include <QDropEvent>
+#include <QGuiApplication>
 #include <QHeaderView>
+#include <QJsonArray>
+#include <QJsonDocument>
+#include <QJsonObject>
 #include <QKeyEvent>
 #include <QMenu>
 #include <QMimeData>
@@ -20,6 +26,7 @@
 #include <QPaintEvent>
 #include <QSettings>
 #include <QUndoStack>
+#include <QUuid>
 
 namespace quewi::ui {
 
@@ -68,11 +75,13 @@ void CueListView::setModel(QAbstractItemModel *model)
     if (model) {
         // Re-paint the empty-state placeholder when the row count changes.
         connect(model, &QAbstractItemModel::rowsInserted, this,
-                [this]{ viewport()->update(); });
+                [this]{ viewport()->update(); applyFilter(); });
         connect(model, &QAbstractItemModel::rowsRemoved, this,
                 [this]{ viewport()->update(); });
         connect(model, &QAbstractItemModel::modelReset, this,
-                [this]{ viewport()->update(); });
+                [this]{ viewport()->update(); applyFilter(); });
+        connect(model, &QAbstractItemModel::dataChanged, this,
+                [this]{ applyFilter(); });
         // Column widths picked so a 1440-wide cue panel fits the common
         // columns (state/number/type/name/pre/post/fade) without the
         // Name column getting squeezed. Optional columns (Output, Target,
@@ -135,6 +144,24 @@ void CueListView::keyPressEvent(QKeyEvent *event)
         emit goRequested();
         event->accept();
         return;
+    }
+    // Clipboard shortcuts at the view level so they work without focus
+    // on a specific QAction. Selection drives the target list.
+    if (event->matches(QKeySequence::Copy) || event->matches(QKeySequence::Cut)
+        || event->matches(QKeySequence::Paste)
+        || (event->modifiers() == Qt::ControlModifier && event->key() == Qt::Key_D))
+    {
+        auto *m = qobject_cast<core::CueListModel *>(model());
+        if (!m) { QTreeView::keyPressEvent(event); return; }
+        QList<cues::Cue *> sel;
+        for (const auto &i : selectionModel()->selectedRows())
+            if (auto *c = m->cueAt(i)) sel << c;
+        const int curRow = currentIndex().isValid() ? currentIndex().row()
+                                                    : m->rowCount() - 1;
+        if (event->matches(QKeySequence::Copy))      { copyCuesToClipboard(sel); event->accept(); return; }
+        if (event->matches(QKeySequence::Cut))       { cutCuesToClipboard(sel, curRow); event->accept(); return; }
+        if (event->matches(QKeySequence::Paste))     { pasteCuesFromClipboard(curRow); event->accept(); return; }
+        if (event->key() == Qt::Key_D)               { duplicateCues(sel, curRow); event->accept(); return; }
     }
     QTreeView::keyPressEvent(event);
 }
@@ -232,6 +259,35 @@ void CueListView::currentChanged(const QModelIndex &current, const QModelIndex &
     emit currentCueChanged(m ? m->cueAt(current) : nullptr);
 }
 
+void CueListView::setFilterText(const QString &substring)
+{
+    if (m_filterText == substring) return;
+    m_filterText = substring;
+    applyFilter();
+}
+
+bool CueListView::rowMatchesFilter(int row) const
+{
+    if (m_filterText.isEmpty()) return true;
+    auto *m = qobject_cast<core::CueListModel *>(model());
+    if (!m) return true;
+    auto *cue = m->cueAt(m->index(row, 0));
+    if (!cue) return true;
+    const auto needle = m_filterText;
+    if (cue->name().contains(needle, Qt::CaseInsensitive)) return true;
+    if (cue->typeName().contains(needle, Qt::CaseInsensitive)) return true;
+    if (QString::number(cue->number(), 'f', 2).contains(needle)) return true;
+    return false;
+}
+
+void CueListView::applyFilter()
+{
+    auto *m = qobject_cast<core::CueListModel *>(model());
+    if (!m) return;
+    for (int r = 0; r < m->rowCount(); ++r)
+        setRowHidden(r, m->index(0, 0).parent(), !rowMatchesFilter(r));
+}
+
 void CueListView::contextMenuEvent(QContextMenuEvent *event)
 {
     auto *m = qobject_cast<core::CueListModel *>(model());
@@ -306,7 +362,132 @@ void CueListView::contextMenuEvent(QContextMenuEvent *event)
     auto *clear = colorMenu->addAction(tr("Clear color"));
     connect(clear, &QAction::triggered, this, [applyColor]{ applyColor(QColor()); });
 
+    menu.addSeparator();
+
+    // ── Cut / Copy / Paste / Duplicate ──────────────────────────────
+    // Cut & copy serialize the selection to JSON on the system clipboard
+    // (so paste survives across quewi instances). The MIME type is
+    // app-specific so other apps don't pick it up by mistake.
+    auto *cutAct  = menu.addAction(tr("Cu&t"));
+    cutAct->setShortcut(QKeySequence::Cut);
+    auto *copyAct = menu.addAction(tr("&Copy"));
+    copyAct->setShortcut(QKeySequence::Copy);
+    auto *pasteAct = menu.addAction(tr("&Paste"));
+    pasteAct->setShortcut(QKeySequence::Paste);
+    auto *dupeAct  = menu.addAction(tr("&Duplicate"));
+    dupeAct->setShortcut(QKeySequence(QStringLiteral("Ctrl+D")));
+
+    const int currentRow = idx.row();
+    connect(copyAct,  &QAction::triggered, this,
+            [this, targets]{ copyCuesToClipboard(targets); });
+    connect(cutAct,   &QAction::triggered, this,
+            [this, targets, currentRow]{ cutCuesToClipboard(targets, currentRow); });
+    connect(pasteAct, &QAction::triggered, this,
+            [this, currentRow]{ pasteCuesFromClipboard(currentRow); });
+    connect(dupeAct,  &QAction::triggered, this,
+            [this, targets, currentRow]{ duplicateCues(targets, currentRow); });
+
+    pasteAct->setEnabled(clipboardHasCues());
+
+    menu.addSeparator();
+    auto *insertAbove = menu.addAction(tr("Insert &Above"));
+    auto *insertBelow = menu.addAction(tr("Insert &Below"));
+    connect(insertAbove, &QAction::triggered, this,
+            [this, currentRow]{ emit insertRequested(currentRow); });
+    connect(insertBelow, &QAction::triggered, this,
+            [this, currentRow]{ emit insertRequested(currentRow + 1); });
+
     menu.exec(event->globalPos());
+}
+
+namespace {
+constexpr const char kCueClipMime[] = "application/x-quewi-cues";
+} // namespace
+
+void CueListView::copyCuesToClipboard(const QList<cues::Cue *> &cues) const
+{
+    if (cues.isEmpty()) return;
+    QJsonArray arr;
+    for (auto *c : cues) {
+        if (!c) continue;
+        QJsonObject o;
+        o.insert(QStringLiteral("type"),    c->typeKey());
+        o.insert(QStringLiteral("payload"), c->toPayload());
+        arr.append(o);
+    }
+    QJsonDocument doc(arr);
+    auto *mime = new QMimeData();
+    mime->setData(QString::fromLatin1(kCueClipMime), doc.toJson(QJsonDocument::Compact));
+    QGuiApplication::clipboard()->setMimeData(mime);
+}
+
+void CueListView::cutCuesToClipboard(const QList<cues::Cue *> &cues, int /*currentRow*/)
+{
+    if (!m_workspace) return;
+    copyCuesToClipboard(cues);
+    auto *m = qobject_cast<core::CueListModel *>(model());
+    if (!m) return;
+    auto *list = m->cueList();
+    if (!list) return;
+    auto *stack = m_workspace->undoStack();
+    stack->beginMacro(tr("Cut cues"));
+    // Remove top-down so each row index stays valid.
+    QList<int> rows;
+    for (auto *c : cues) {
+        const int r = list->rowOf(c);
+        if (r >= 0) rows.append(r);
+    }
+    std::sort(rows.begin(), rows.end(), std::greater<int>());
+    for (int r : rows) stack->push(new core::RemoveCueCommand(list, r));
+    stack->endMacro();
+}
+
+bool CueListView::clipboardHasCues() const
+{
+    const auto *mime = QGuiApplication::clipboard()->mimeData();
+    return mime && mime->hasFormat(QString::fromLatin1(kCueClipMime));
+}
+
+void CueListView::pasteCuesFromClipboard(int afterRow)
+{
+    if (!m_workspace) return;
+    auto *m = qobject_cast<core::CueListModel *>(model());
+    if (!m) return;
+    auto *list = m->cueList();
+    if (!list) return;
+
+    const auto *mime = QGuiApplication::clipboard()->mimeData();
+    if (!mime || !mime->hasFormat(QString::fromLatin1(kCueClipMime))) return;
+    const auto bytes = mime->data(QString::fromLatin1(kCueClipMime));
+    const auto doc   = QJsonDocument::fromJson(bytes);
+    if (!doc.isArray()) return;
+
+    auto *stack = m_workspace->undoStack();
+    stack->beginMacro(tr("Paste cues"));
+    int insertAt = afterRow + 1;
+    for (const auto &v : doc.array()) {
+        const auto o = v.toObject();
+        const auto type    = o.value(QStringLiteral("type")).toString();
+        const auto payload = o.value(QStringLiteral("payload")).toObject();
+        auto cue = show::ShowFile::cueFromTypeAndPayload(type, payload);
+        if (!cue) continue;
+        // Fresh id so the original keeps its identity for goto/start
+        // targeting; otherwise paste would alias the source cue's id.
+        cue->setId(QUuid::createUuid());
+        stack->push(new core::InsertCueCommand(list, insertAt, std::move(cue)));
+        ++insertAt;
+    }
+    stack->endMacro();
+    if (insertAt - 1 < m->rowCount())
+        setCurrentIndex(m->index(insertAt - 1, 0));
+}
+
+void CueListView::duplicateCues(const QList<cues::Cue *> &cues, int afterRow)
+{
+    // Round-trip through clipboard format keeps the implementation
+    // identical to copy+paste — no alternate code path to maintain.
+    copyCuesToClipboard(cues);
+    pasteCuesFromClipboard(afterRow);
 }
 
 void CueListView::dragMoveEvent(QDragMoveEvent *event)

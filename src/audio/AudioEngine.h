@@ -57,6 +57,10 @@ struct ActiveVoice {
     // value so brief peaks remain visible.
     float      peakLeft        = 0.f;
     float      peakRight       = 0.f;
+    // Per-channel peaks, length == device output channel count. Object
+    // audio cues use this for per-output meters; stereo cues fall back
+    // to peakLeft/peakRight which still mirror channels 0/1.
+    QList<float> peakPerChannel;
 };
 
 // The engine owns one or more output devices and any number of active
@@ -85,6 +89,14 @@ public:
     void stop(VoiceId id, double fadeOutSeconds = 0.05);
     void stopAll(double fadeOutSeconds = 0.05);
     void fadeGain(VoiceId id, double targetDb, double durationSeconds);
+
+    // Pause / resume — the voice keeps its read position and stays in
+    // the engine's voice table, but produces silence until resume(). A
+    // short anti-click fade (~5ms) is applied at the boundary. Returns
+    // true if the voice was found.
+    bool pause(VoiceId id);
+    bool resume(VoiceId id);
+    bool isPaused(VoiceId id) const;
 
     // Real-time live changes — applied immediately, no fade. Used by the
     // inspector when the user nudges a slider on a playing cue.

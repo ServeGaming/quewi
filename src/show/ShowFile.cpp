@@ -29,6 +29,7 @@ namespace quewi::show {
 namespace {
 
 QString g_lastError;
+QString g_lastWarning;
 
 constexpr int kSchemaVersion = 1;
 
@@ -96,11 +97,21 @@ std::unique_ptr<cues::Cue> makeCue(const QString &type)
 
 } // namespace
 
-QString ShowFile::lastError() { return g_lastError; }
+QString ShowFile::lastError()   { return g_lastError; }
+QString ShowFile::lastWarning() { return g_lastWarning; }
+
+std::unique_ptr<cues::Cue> ShowFile::cueFromTypeAndPayload(
+    const QString &type, const QJsonObject &payload)
+{
+    auto cue = makeCue(type);
+    if (cue) cue->fromPayload(payload);
+    return cue;
+}
 
 bool ShowFile::load(const QString &path, core::Workspace &workspace)
 {
     g_lastError.clear();
+    g_lastWarning.clear();
     if (!QFile::exists(path)) {
         setError(QStringLiteral("File not found: %1").arg(path));
         return false;
@@ -185,9 +196,19 @@ bool ShowFile::load(const QString &path, core::Workspace &workspace)
                 QSqlDatabase::removeDatabase(conn);
                 return false;
             }
+            // Per-cue load is tolerant: a malformed payload gives a
+            // default-state cue with the right type+id rather than
+            // aborting the whole load. The number of recoveries is
+            // counted and reported via the status message so the user
+            // knows the file isn't pristine.
             int ord = 0;
+            int recoveredCues = 0;
             while (cq.next()) {
-                const auto cueId   = QUuid(cq.value(0).toString());
+                QUuid cueId(cq.value(0).toString());
+                if (cueId.isNull()) {
+                    cueId = QUuid::createUuid();
+                    ++recoveredCues;
+                }
                 const auto type    = cq.value(1).toString();
                 const auto payload = cq.value(2).toString();
 
@@ -195,7 +216,14 @@ bool ShowFile::load(const QString &path, core::Workspace &workspace)
                 cue->setId(cueId);
                 const auto doc = QJsonDocument::fromJson(payload.toUtf8());
                 if (doc.isObject()) cue->fromPayload(doc.object());
+                else if (!payload.isEmpty()) ++recoveredCues;
                 list->insertCue(ord++, std::move(cue));
+            }
+            if (recoveredCues > 0) {
+                g_lastWarning = QStringLiteral(
+                    "Recovered %1 cue%2 with corrupt or missing payloads "
+                    "(loaded with default values).")
+                    .arg(recoveredCues).arg(recoveredCues == 1 ? "" : "s");
             }
 
             workspace.addCueList(std::move(list));

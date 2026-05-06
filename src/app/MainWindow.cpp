@@ -26,6 +26,8 @@
 #include "ui/ActiveCuesPanel.h"
 #include "ui/AudioEditorWindow.h"
 #include "ui/CommandPalette.h"
+#include "ui/Notifications.h"
+#include "ui/NotificationsDialog.h"
 #include "ui/FindReplaceDialog.h"
 #include "ui/ShortcutManager.h"
 #include "ui/ShortcutsDialog.h"
@@ -63,6 +65,8 @@
 #include <QMimeData>
 #include <QDir>
 #include <QInputDialog>
+#include <QLineEdit>
+#include <QPushButton>
 #include <QSplitter>
 #include <QStandardPaths>
 #include <QTimer>
@@ -85,6 +89,8 @@ MainWindow::MainWindow(QWidget *parent)
     m_oscEngine = std::make_unique<osc::OscEngine>(this);
     connect(m_oscEngine.get(), &osc::OscEngine::sendError, this, [this](const QString &reason) {
         statusBar()->showMessage(tr("OSC: %1").arg(reason), 4000);
+        ui::Notifications::instance().post(
+            ui::Notifications::Level::Warn, QStringLiteral("OSC"), reason);
     });
     registerOscRemoteHandlers();
     // Default remote-control port. Documented in docs/osc-remote-api.md.
@@ -97,6 +103,8 @@ MainWindow::MainWindow(QWidget *parent)
     connect(m_audioEngine.get(), &audio::AudioEngine::engineError, this,
             [this](const QString &reason) {
                 statusBar()->showMessage(tr("Audio: %1").arg(reason), 5000);
+                ui::Notifications::instance().post(
+                    ui::Notifications::Level::Error, QStringLiteral("Audio"), reason);
             });
     {
         QSettings s(QStringLiteral("ServeGaming"), QStringLiteral("quewi"));
@@ -187,6 +195,28 @@ MainWindow::MainWindow(QWidget *parent)
     resetWorkspace();
     statusBar()->showMessage(tr("Ready"));
 
+    // Notification badge — clickable QPushButton on the right side of
+    // the status bar. Shows the unread count whenever post() lands in
+    // Notifications::instance() while the inbox isn't open.
+    m_notifBadge = new QPushButton(this);
+    m_notifBadge->setFlat(true);
+    m_notifBadge->setCursor(Qt::PointingHandCursor);
+    m_notifBadge->setStyleSheet(QStringLiteral(
+        "QPushButton { color: #D7A24E; padding: 2px 8px; border: none; "
+        "background: transparent; }"
+        "QPushButton:hover { color: #E8C861; }"));
+    m_notifBadge->setVisible(false);
+    statusBar()->addPermanentWidget(m_notifBadge);
+    connect(m_notifBadge, &QPushButton::clicked,
+            this, &MainWindow::showNotifications);
+    connect(&ui::Notifications::instance(), &ui::Notifications::posted,
+            this, [this](const ui::Notifications::Entry &e) {
+                ++m_unreadNotifs;
+                refreshNotifBadge();
+                if (e.level == ui::Notifications::Level::Error)
+                    statusBar()->showMessage(tr("⚠ %1").arg(e.message), 4000);
+            });
+
     // Offer recovery after the main window is on screen.
     QTimer::singleShot(0, this, &MainWindow::recoverFromJournalIfPresent);
 }
@@ -236,11 +266,29 @@ void MainWindow::buildLayout()
     m_mainSplitter = new QSplitter(Qt::Horizontal, central);
     m_mainSplitter->setHandleWidth(8); // QSS width hint isn't always honoured
 
-    m_cueListView = new ui::CueListView(m_mainSplitter);
-    m_cueListView->setMinimumWidth(280);
-    m_inspector   = new ui::Inspector(m_mainSplitter);
+    // Cue list pane: filter line on top, view fills the rest. Wrapping
+    // them in one widget keeps the splitter happy (it lays out per
+    // child widget, not per pair).
+    auto *cuePane = new QWidget(m_mainSplitter);
+    cuePane->setMinimumWidth(280);
+    auto *cuePaneV = new QVBoxLayout(cuePane);
+    cuePaneV->setContentsMargins(0, 0, 0, 0);
+    cuePaneV->setSpacing(4);
 
-    m_mainSplitter->addWidget(m_cueListView);
+    auto *filterEdit = new QLineEdit(cuePane);
+    filterEdit->setObjectName(QStringLiteral("cueListFilter"));
+    filterEdit->setPlaceholderText(tr("Filter cues — name, type, or number"));
+    filterEdit->setClearButtonEnabled(true);
+
+    m_cueListView = new ui::CueListView(cuePane);
+    cuePaneV->addWidget(filterEdit);
+    cuePaneV->addWidget(m_cueListView, 1);
+    connect(filterEdit, &QLineEdit::textChanged, m_cueListView,
+            &ui::CueListView::setFilterText);
+
+    m_inspector = new ui::Inspector(m_mainSplitter);
+
+    m_mainSplitter->addWidget(cuePane);
     m_mainSplitter->addWidget(m_inspector);
     m_mainSplitter->setStretchFactor(0, 3);
     m_mainSplitter->setStretchFactor(1, 2);
@@ -285,6 +333,23 @@ void MainWindow::buildLayout()
                 auto *editor = new ui::AudioEditorWindow(ac, this);
                 editor->show();
             }
+        });
+    // Right-click → Insert Above/Below — drops a Memo at the chosen
+    // row. Memo is the no-op cue, fastest to retype into anything else
+    // via the inspector. Opening a full picker dialog feels heavy for
+    // a context-menu action.
+    connect(m_cueListView, &ui::CueListView::insertRequested, this,
+        [this](int row) {
+            auto *list = m_workspace ? m_workspace->activeCueList() : nullptr;
+            if (!list) return;
+            const int target = std::clamp(row, 0, list->cueCount());
+            auto cue = std::make_unique<cues::MemoCue>();
+            cue->setField(QStringLiteral("name"), tr("New cue"));
+            cue->setField(QStringLiteral("number"), static_cast<double>(target + 1));
+            m_workspace->undoStack()->push(
+                new core::InsertCueCommand(list, target, std::move(cue)));
+            if (m_model->rowCount() > target)
+                m_cueListView->setCurrentIndex(m_model->index(target, 0));
         });
     // Transport bar buttons trigger the rebindable QActions so they
     // share one source of truth with the keyboard shortcuts.
@@ -409,6 +474,8 @@ void MainWindow::buildMenus()
     auto *helpMenu = menuBar()->addMenu(tr("&Help"));
     helpMenu->addAction(tr("&Keyboard shortcuts…"),
                         this, &MainWindow::showShortcutsDialog);
+    helpMenu->addAction(tr("&Notifications…"),
+                        this, &MainWindow::showNotifications);
     helpMenu->addSeparator();
     helpMenu->addAction(tr("&About quewi…"),
                         QKeySequence(QStringLiteral("Ctrl+?")),
@@ -492,6 +559,11 @@ bool MainWindow::loadShowFromPath(const QString &path)
     if (!show::ShowFile::load(path, *fresh)) {
         QMessageBox::warning(this, tr("Open failed"), show::ShowFile::lastError());
         return false;
+    }
+    if (const auto warn = show::ShowFile::lastWarning(); !warn.isEmpty()) {
+        ui::Notifications::instance().post(
+            ui::Notifications::Level::Warn,
+            QStringLiteral("Show file"), warn);
     }
     m_workspace = std::move(fresh);
     m_model = std::make_unique<core::CueListModel>();
@@ -1022,6 +1094,25 @@ void MainWindow::showAbout()
 {
     ui::AboutDialog dlg(this);
     dlg.exec();
+}
+
+void MainWindow::showNotifications()
+{
+    ui::NotificationsDialog dlg(this);
+    dlg.exec();
+    m_unreadNotifs = 0;
+    refreshNotifBadge();
+}
+
+void MainWindow::refreshNotifBadge()
+{
+    if (!m_notifBadge) return;
+    if (m_unreadNotifs <= 0) {
+        m_notifBadge->setVisible(false);
+        return;
+    }
+    m_notifBadge->setVisible(true);
+    m_notifBadge->setText(tr("⚠ %1").arg(m_unreadNotifs));
 }
 
 // ── Recent files ───────────────────────────────────────────────────────

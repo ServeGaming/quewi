@@ -19,33 +19,55 @@
 #include <cmath>
 
 namespace {
-// Small two-channel peak meter with held-peak decay. Linear input (0..1+),
+// N-channel peak meter with held-peak decay. Linear input (0..1+),
 // drawn on a dB-mapped (-60..0 dBFS) gradient: green → yellow → red.
+// Width is fixed; height grows with channel count so an Atmos cue
+// (12 channels) becomes a tall ladder of bars rather than crushed
+// pixels. The widget caps at 16 channels to match the engine.
 class PeakMeter : public QWidget {
 public:
     explicit PeakMeter(QWidget *parent = nullptr) : QWidget(parent)
     {
-        setFixedSize(48, 18);
+        setChannels(2);
     }
-    void setPeaks(float l, float r) {
-        m_targetL = l; m_targetR = r;
-        // Smooth attack (snap up), slow release.
-        if (m_dispL < l) m_dispL = l; else m_dispL = std::max(l, m_dispL * 0.85f);
-        if (m_dispR < r) m_dispR = r; else m_dispR = std::max(r, m_dispR * 0.85f);
-        if (l >= m_holdL) { m_holdL = l; m_holdAgeL = 0; }
-        else if (++m_holdAgeL > 8) m_holdL = std::max(m_dispL, m_holdL * 0.92f);
-        if (r >= m_holdR) { m_holdR = r; m_holdAgeR = 0; }
-        else if (++m_holdAgeR > 8) m_holdR = std::max(m_dispR, m_holdR * 0.92f);
+    void setChannels(int n) {
+        n = std::clamp(n, 1, 16);
+        if (n == m_channels) return;
+        m_channels = n;
+        m_disp.assign(n, 0.f);
+        m_hold.assign(n, 0.f);
+        m_age.assign(n, 0);
+        // 7px per channel + 1px gaps; minimum ~18 px for stereo.
+        const int h = std::max(18, n * 8 + 2);
+        setFixedSize(48, h);
         update();
+    }
+    void setPeaks(const QList<float> &peaks) {
+        if (peaks.isEmpty()) return;
+        if (peaks.size() != m_channels) setChannels(peaks.size());
+        for (int i = 0; i < m_channels && i < peaks.size(); ++i) {
+            const float v = peaks[i];
+            if (m_disp[i] < v) m_disp[i] = v;
+            else m_disp[i] = std::max(v, m_disp[i] * 0.85f);
+            if (v >= m_hold[i]) { m_hold[i] = v; m_age[i] = 0; }
+            else if (++m_age[i] > 8) m_hold[i] = std::max(m_disp[i], m_hold[i] * 0.92f);
+        }
+        update();
+    }
+    // Backwards-compat for stereo callers.
+    void setPeaks(float l, float r) {
+        setPeaks(QList<float>{l, r});
     }
 protected:
     void paintEvent(QPaintEvent *) override {
         QPainter p(this);
         p.setRenderHint(QPainter::Antialiasing, false);
         const int W = width(), H = height();
-        const int barH = (H - 2) / 2;
-        p.fillRect(rect(), QColor(0x1F, 0x1D, 0x1B)); // bgDeep (warm)
-        auto draw = [&](int y, float disp, float hold) {
+        p.fillRect(rect(), QColor(0x1F, 0x1D, 0x1B));
+        const int totalH = H - 2;
+        const int barH   = std::max(2, totalH / m_channels - 1);
+        for (int i = 0; i < m_channels; ++i) {
+            const int y = 1 + i * (barH + 1);
             const auto pos = [&](float lin) {
                 if (lin <= 0.001f) return 0;
                 float db = 20.f * std::log10(lin);
@@ -53,29 +75,27 @@ protected:
                 if (db > 0.f) db = 0.f;
                 return int((db + 60.f) / 60.f * (W - 2));
             };
-            const int wDisp = pos(disp);
+            const int wDisp = pos(m_disp[i]);
             for (int x = 0; x < wDisp; ++x) {
                 float t = float(x) / float(W - 2);
-                QColor c = (t < 0.7f) ? QColor(0x6F, 0xAE, 0x63)   // running
-                          : (t < 0.9f) ? QColor(0xD7, 0xA2, 0x4E)  // warn
-                                       : QColor(0xC2, 0x6A, 0x55); // err
+                QColor c = (t < 0.7f) ? QColor(0x6F, 0xAE, 0x63)
+                          : (t < 0.9f) ? QColor(0xD7, 0xA2, 0x4E)
+                                       : QColor(0xC2, 0x6A, 0x55);
                 p.setPen(c);
                 p.drawLine(1 + x, y, 1 + x, y + barH - 1);
             }
-            int wHold = pos(hold);
+            int wHold = pos(m_hold[i]);
             if (wHold > 0) {
-                p.setPen(QColor(0xE8, 0xE2, 0xD4)); // ink100 held-peak tick
+                p.setPen(QColor(0xE8, 0xE2, 0xD4));
                 p.drawLine(1 + wHold, y, 1 + wHold, y + barH - 1);
             }
-        };
-        draw(1,           m_dispL, m_holdL);
-        draw(2 + barH,    m_dispR, m_holdR);
+        }
     }
 private:
-    float m_targetL = 0, m_targetR = 0;
-    float m_dispL = 0, m_dispR = 0;
-    float m_holdL = 0, m_holdR = 0;
-    int   m_holdAgeL = 0, m_holdAgeR = 0;
+    int m_channels = 2;
+    std::vector<float> m_disp;
+    std::vector<float> m_hold;
+    std::vector<int>   m_age;
 };
 } // namespace
 
@@ -144,7 +164,14 @@ public:
         m_meta->setText(QStringLiteral("%1 dB · %2")
             .arg(QString::number(v.gainDb, 'f', 1),
                  panLabel(v.pan)));
-        if (m_meter) m_meter->setPeaks(v.peakLeft, v.peakRight);
+        if (m_meter) {
+            // Per-output meter when the engine reported per-channel
+            // peaks (object-audio cues), stereo otherwise.
+            if (!v.peakPerChannel.isEmpty() && v.peakPerChannel.size() > 2)
+                m_meter->setPeaks(v.peakPerChannel);
+            else
+                m_meter->setPeaks(v.peakLeft, v.peakRight);
+        }
     }
 
     quint64 voiceId() const { return m_voiceId; }

@@ -212,9 +212,22 @@ void GoEngine::doFire(cues::Cue *cue)
             .arg(qobject_cast<cues::WaitCue *>(cue)->durationSeconds()));
     } else if (auto *startCue = qobject_cast<cues::StartCue *>(cue)) {
         if (auto *target = findCue(startCue->targetId())) {
-            status(tr("Start → %1").arg(
-                target->name().isEmpty() ? target->typeName() : target->name()));
-            fire(target);
+            // If the target is an audio cue currently paused, Start
+            // resumes it from the pause point rather than firing a
+            // fresh voice. Operators expect this — Start after Pause
+            // means "go again" not "start over."
+            if (auto *ac = qobject_cast<audio::AudioCue *>(target);
+                ac && m_audio && ac->currentVoiceId() != 0
+                && m_audio->isPaused(ac->currentVoiceId()))
+            {
+                m_audio->resume(ac->currentVoiceId());
+                status(tr("Start (resume) → %1").arg(
+                    ac->name().isEmpty() ? ac->typeName() : ac->name()));
+            } else {
+                status(tr("Start → %1").arg(
+                    target->name().isEmpty() ? target->typeName() : target->name()));
+                fire(target);
+            }
         } else {
             status(tr("Start: target not found"));
         }
@@ -234,11 +247,11 @@ void GoEngine::doFire(cues::Cue *cue)
             status(tr("Goto %1").arg(QString::number(target->number(), 'f', 2)));
         }
     } else if (auto *pauseCue = qobject_cast<cues::PauseCue *>(cue)) {
-        // Engine-level pause/resume is a 0.3 milestone — for now Pause
-        // stops the voice, which is the closest correct semantics.
+        // Real pause: voice keeps its read position and rejoins the mix
+        // unchanged when a Start cue targeting it fires.
         if (auto *ac = qobject_cast<audio::AudioCue *>(findCue(pauseCue->targetId()))) {
-            if (m_audio && ac->currentVoiceId() != 0) {
-                m_audio->stop(ac->currentVoiceId(), 0.0);
+            if (m_audio && ac->currentVoiceId() != 0
+                && m_audio->pause(ac->currentVoiceId())) {
                 status(tr("Pause → %1").arg(
                     ac->name().isEmpty() ? ac->typeName() : ac->name()));
             } else {
