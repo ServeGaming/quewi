@@ -26,7 +26,10 @@ else()
 endif()
 
 # Qt
-find_package(Qt6 6.11 REQUIRED COMPONENTS
+# Minimum is 6.7 — what aqtinstall (used by CI) reliably ships. Local
+# dev tracks the latest stable (6.11+ at time of writing); the codebase
+# doesn't depend on any post-6.7 APIs.
+find_package(Qt6 6.7 REQUIRED COMPONENTS
     Core
     Gui
     Widgets
