@@ -37,6 +37,7 @@
 #include "ui/Inspector.h"
 #include "ui/OscMonitor.h"
 #include "ui/PatchEditorDialog.h"
+#include "ui/ProjectionMappingDialog.h"
 #include "ui/SpeakerPatchDialog.h"
 #include "ui/PreferencesDialog.h"
 #include "ui/TransportBar.h"
@@ -121,6 +122,10 @@ MainWindow::MainWindow(QWidget *parent)
     }
     m_lightingEngine = std::make_unique<lighting::LightingEngine>(this);
     m_videoEngine    = std::make_unique<video::VideoEngine>(this);
+    // Apply any projection-mapping warps the user saved last session
+    // before any cue fires — the windows are hidden until the first
+    // visual cue lands but the per-screen quads are pre-loaded.
+    ui::ProjectionMappingDialog::applyPersistedQuads(m_videoEngine.get());
     m_midiEngine     = std::make_unique<midi::MidiEngine>(this);
 
     m_goEngine = std::make_unique<GoEngine>(this);
@@ -401,6 +406,8 @@ void MainWindow::buildMenus()
                          this, &MainWindow::showPatchEditor);
     toolsMenu->addAction(tr("&Speaker Patch…"),
                          this, &MainWindow::showSpeakerPatch);
+    toolsMenu->addAction(tr("Pro&jection Mapping…"),
+                         this, &MainWindow::showProjectionMapping);
     toolsMenu->addSeparator();
     m_actShowMode = toolsMenu->addAction(tr("&Show Mode (locked)"));
     m_actShowMode->setShortcut(QKeySequence(QStringLiteral("Ctrl+Shift+L")));
@@ -646,6 +653,13 @@ void MainWindow::showSpeakerPatch()
 {
     if (!m_workspace || !m_workspace->patches()) return;
     ui::SpeakerPatchDialog dlg(m_workspace->patches(), this);
+    dlg.exec();
+}
+
+void MainWindow::showProjectionMapping()
+{
+    if (!m_videoEngine) return;
+    ui::ProjectionMappingDialog dlg(m_videoEngine.get(), this);
     dlg.exec();
 }
 

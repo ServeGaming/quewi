@@ -82,6 +82,7 @@ private slots:
     void showShortcutsDialog();
     void showPatchEditor();
     void showSpeakerPatch();
+    void showProjectionMapping();
     void showAbout();
     void showNotifications();
     void openRecent(const QString &path);
