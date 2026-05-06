@@ -60,8 +60,16 @@ QTreeView {
     selection-color: #1A1D24;
     outline: 0;
 }
-QTreeView::item { padding: 4px 8px; border-left: 2px solid transparent; }
-QTreeView::item:selected { background: #CFE2FF; border-left: 2px solid #2563EB; }
+QTreeView::item {
+    padding: 5px 8px;
+    border-left: 2px solid transparent;
+}
+QTreeView::item:hover { background: #EEF2F8; }
+QTreeView::item:selected,
+QTreeView::item:selected:active {
+    background: #CFE2FF;
+    border-left: 2px solid #2563EB;
+}
 
 QHeaderView::section {
     background: #ECEEF3;

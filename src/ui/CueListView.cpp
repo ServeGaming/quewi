@@ -29,12 +29,11 @@ CueListView::CueListView(QWidget *parent)
     setRootIsDecorated(true);  // disclosure triangles for group cues
     setUniformRowHeights(true);
     setAllColumnsShowFocus(true);
-    setIndentation(16);
-    // Roomier rows — operator-friendly density, QLab-ish breathing room.
-    setStyleSheet(QStringLiteral(
-        "QTreeView::item { min-height: 28px; }"
-    ));
-    setIconSize(QSize(18, 18));
+    setIndentation(14);
+    // No inline stylesheet — the global QSS controls row padding and the
+    // hover/selection visuals. An inline override here would interleave
+    // with the global rules and break the continuous-row indicator.
+    setIconSize(QSize(16, 16));
     setSelectionBehavior(QAbstractItemView::SelectRows);
     setSelectionMode(QAbstractItemView::ExtendedSelection);
     setAlternatingRowColors(true);
@@ -74,21 +73,25 @@ void CueListView::setModel(QAbstractItemModel *model)
                 [this]{ viewport()->update(); });
         connect(model, &QAbstractItemModel::modelReset, this,
                 [this]{ viewport()->update(); });
-        header()->resizeSection(CueListModel::ColumnState,    24);
-        header()->resizeSection(CueListModel::ColumnNumber,   64);
-        header()->resizeSection(CueListModel::ColumnType,     96);
-        header()->resizeSection(CueListModel::ColumnName,    340);
-        header()->resizeSection(CueListModel::ColumnPreWait,  60);
-        header()->resizeSection(CueListModel::ColumnPostWait, 60);
-        header()->resizeSection(CueListModel::ColumnGain,     64);
-        header()->resizeSection(CueListModel::ColumnPan,      64);
-        header()->resizeSection(CueListModel::ColumnFadeIn,   72);
-        header()->resizeSection(CueListModel::ColumnFadeOut,  72);
-        header()->resizeSection(CueListModel::ColumnOutput,  120);
-        header()->resizeSection(CueListModel::ColumnTarget,  120);
-        header()->resizeSection(CueListModel::ColumnHost,    140);
-        header()->resizeSection(CueListModel::ColumnPort,     56);
-        header()->resizeSection(CueListModel::ColumnFile,    180);
+        // Column widths picked so a 1440-wide cue panel fits the common
+        // columns (state/number/type/name/pre/post/fade) without the
+        // Name column getting squeezed. Optional columns (Output, Target,
+        // Host, Port, File) are sized for the values they actually hold.
+        header()->resizeSection(CueListModel::ColumnState,    32);
+        header()->resizeSection(CueListModel::ColumnNumber,   72);
+        header()->resizeSection(CueListModel::ColumnType,     90);
+        header()->resizeSection(CueListModel::ColumnName,    320);
+        header()->resizeSection(CueListModel::ColumnPreWait,  56);
+        header()->resizeSection(CueListModel::ColumnPostWait, 56);
+        header()->resizeSection(CueListModel::ColumnGain,     56);
+        header()->resizeSection(CueListModel::ColumnPan,      56);
+        header()->resizeSection(CueListModel::ColumnFadeIn,   64);
+        header()->resizeSection(CueListModel::ColumnFadeOut,  64);
+        header()->resizeSection(CueListModel::ColumnOutput,  110);
+        header()->resizeSection(CueListModel::ColumnTarget,  110);
+        header()->resizeSection(CueListModel::ColumnHost,    130);
+        header()->resizeSection(CueListModel::ColumnPort,     54);
+        header()->resizeSection(CueListModel::ColumnFile,    220);
         applyColumnVisibility();
     }
 }

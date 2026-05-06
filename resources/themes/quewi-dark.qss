@@ -107,16 +107,21 @@ QTreeView {
     show-decoration-selected: 1;
     padding: 4px;
 }
+/* Continuous-row hover/selection: no per-cell margin/radius (those
+   produced the disjointed "lighter boxes" effect — one rectangle
+   per column instead of one per row). The selected row picks up a
+   left-border accent for a clear visual indicator without breaking
+   the row continuity. */
 QTreeView::item {
-    padding: 7px 10px;
+    padding: 5px 10px;
     border: none;
-    border-radius: 6px;
-    margin: 1px 4px;
+    border-left: 2px solid transparent;
 }
 QTreeView::item:hover    { background: @bgRowHover; }
 QTreeView::item:selected,
 QTreeView::item:selected:active {
     background: @bgRowSelected;
+    border-left: 2px solid @accent;
 }
 QTreeView::item:focus { outline: 0; }
 QTreeView::branch:has-children:!has-siblings:closed,

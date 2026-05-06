@@ -351,9 +351,22 @@ void MainWindow::buildMenus()
 
     auto *viewMenu = menuBar()->addMenu(tr("&View"));
     auto *themeMenu = viewMenu->addMenu(tr("&Theme"));
-    auto applyTheme = [](const QString &name) {
+    auto applyTheme = [this](const QString &name) {
         const auto qss = ui::Theme::load(name);
-        if (!qss.isEmpty()) qApp->setStyleSheet(qss);
+        if (qss.isEmpty()) return;
+
+        // setStyleSheet() re-polishes every visible widget on the GUI
+        // thread — perceptibly choppy on a dense show. Suppress paints
+        // while the swap happens so the user sees a single clean redraw
+        // instead of widgets rebuilding piecemeal. The wait cursor
+        // signals the brief hitch is intentional.
+        QGuiApplication::setOverrideCursor(Qt::WaitCursor);
+        setUpdatesEnabled(false);
+        qApp->setStyleSheet(qss);
+        setUpdatesEnabled(true);
+        update();
+        QGuiApplication::restoreOverrideCursor();
+
         QSettings s(QStringLiteral("ServeGaming"), QStringLiteral("quewi"));
         s.setValue(QStringLiteral("ui/theme"), name);
     };
