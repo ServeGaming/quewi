@@ -380,6 +380,10 @@ void MainWindow::buildMenus()
     cueMenu->addAction(tr("New S&tart"), QKeySequence(QStringLiteral("Shift+S")),       this, &MainWindow::insertStartCue);
     cueMenu->addAction(tr("New Sto&p"),  QKeySequence(QStringLiteral("Shift+X")),       this, &MainWindow::insertStopCue);
     cueMenu->addAction(tr("New &Goto"),  QKeySequence(QStringLiteral("Shift+G")),       this, &MainWindow::insertGotoCue);
+    cueMenu->addAction(tr("New Pa&use"), this, &MainWindow::insertPauseCue);
+    cueMenu->addAction(tr("New &Load"),  this, &MainWindow::insertLoadCue);
+    cueMenu->addAction(tr("New Re&set"), this, &MainWindow::insertResetCue);
+    cueMenu->addAction(tr("New Devam&p"), this, &MainWindow::insertDevampCue);
     cueMenu->addAction(tr("New Gr&oup"), QKeySequence(QStringLiteral("Ctrl+G")),        this, &MainWindow::insertGroupCue);
     cueMenu->addAction(tr("New &MIDI"),  QKeySequence(QStringLiteral("Shift+M")),       this, &MainWindow::insertMidiCue);
     cueMenu->addAction(tr("New M&SC"),   QKeySequence(QStringLiteral("Ctrl+Shift+M")),  this, &MainWindow::insertMscCue);
@@ -764,6 +768,58 @@ void MainWindow::insertGotoCue()
     m_workspace->undoStack()->push(new core::InsertCueCommand(list, insertRow, std::move(cue)));
     if (m_model->rowCount() > insertRow)
         m_cueListView->setCurrentIndex(m_model->index(insertRow, 0));
+}
+
+// Pause/Load/Reset/Devamp share the StartCue shape — the GoEngine
+// switches behaviour by cue subclass at fire time.
+namespace {
+template <typename CueT>
+std::unique_ptr<cues::Cue> makeNamedTargeting(const QString &name, int row) {
+    auto cue = std::make_unique<CueT>();
+    cue->setField(QStringLiteral("name"), name);
+    cue->setField(QStringLiteral("number"), static_cast<double>(row + 1));
+    return cue;
+}
+} // namespace
+
+void MainWindow::insertPauseCue()
+{
+    auto *list = m_workspace->activeCueList(); if (!list) return;
+    const auto idx = m_cueListView->currentIndex();
+    const int row = idx.isValid() ? idx.row() + 1 : list->cueCount();
+    m_workspace->undoStack()->push(new core::InsertCueCommand(
+        list, row, makeNamedTargeting<cues::PauseCue>(tr("Pause"), row)));
+    if (m_model->rowCount() > row) m_cueListView->setCurrentIndex(m_model->index(row, 0));
+}
+
+void MainWindow::insertLoadCue()
+{
+    auto *list = m_workspace->activeCueList(); if (!list) return;
+    const auto idx = m_cueListView->currentIndex();
+    const int row = idx.isValid() ? idx.row() + 1 : list->cueCount();
+    m_workspace->undoStack()->push(new core::InsertCueCommand(
+        list, row, makeNamedTargeting<cues::LoadCue>(tr("Load"), row)));
+    if (m_model->rowCount() > row) m_cueListView->setCurrentIndex(m_model->index(row, 0));
+}
+
+void MainWindow::insertResetCue()
+{
+    auto *list = m_workspace->activeCueList(); if (!list) return;
+    const auto idx = m_cueListView->currentIndex();
+    const int row = idx.isValid() ? idx.row() + 1 : list->cueCount();
+    m_workspace->undoStack()->push(new core::InsertCueCommand(
+        list, row, makeNamedTargeting<cues::ResetCue>(tr("Reset"), row)));
+    if (m_model->rowCount() > row) m_cueListView->setCurrentIndex(m_model->index(row, 0));
+}
+
+void MainWindow::insertDevampCue()
+{
+    auto *list = m_workspace->activeCueList(); if (!list) return;
+    const auto idx = m_cueListView->currentIndex();
+    const int row = idx.isValid() ? idx.row() + 1 : list->cueCount();
+    m_workspace->undoStack()->push(new core::InsertCueCommand(
+        list, row, makeNamedTargeting<cues::DevampCue>(tr("Devamp"), row)));
+    if (m_model->rowCount() > row) m_cueListView->setCurrentIndex(m_model->index(row, 0));
 }
 
 void MainWindow::insertGroupCue()

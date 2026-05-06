@@ -48,4 +48,45 @@ public:
     QString typeName() const override { return tr("Goto"); }
 };
 
+// Pause: target audio/video cue stops advancing without resetting; a
+// subsequent Start on the same target resumes from the pause point.
+class PauseCue : public TargetingCue {
+    Q_OBJECT
+public:
+    explicit PauseCue(QObject *parent = nullptr) : TargetingCue(parent) {}
+    QString typeKey()  const override { return QStringLiteral("pause"); }
+    QString typeName() const override { return tr("Pause"); }
+};
+
+// Load: pre-roll the target — open file handles, decode the audio head,
+// realize the texture — without actually starting playback. Reduces
+// GO-time latency for big media cues.
+class LoadCue : public TargetingCue {
+    Q_OBJECT
+public:
+    explicit LoadCue(QObject *parent = nullptr) : TargetingCue(parent) {}
+    QString typeKey()  const override { return QStringLiteral("load"); }
+    QString typeName() const override { return tr("Load"); }
+};
+
+// Reset: stop the target and rewind to its initial state. Useful for
+// re-arming a cue mid-show without re-loading the file.
+class ResetCue : public TargetingCue {
+    Q_OBJECT
+public:
+    explicit ResetCue(QObject *parent = nullptr) : TargetingCue(parent) {}
+    QString typeKey()  const override { return QStringLiteral("reset"); }
+    QString typeName() const override { return tr("Reset"); }
+};
+
+// Devamp: tell a vamping fade/audio cue to break out of its loop and
+// continue. No-op against non-vamping targets.
+class DevampCue : public TargetingCue {
+    Q_OBJECT
+public:
+    explicit DevampCue(QObject *parent = nullptr) : TargetingCue(parent) {}
+    QString typeKey()  const override { return QStringLiteral("devamp"); }
+    QString typeName() const override { return tr("Devamp"); }
+};
+
 } // namespace quewi::cues

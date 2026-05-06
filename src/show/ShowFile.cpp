@@ -79,6 +79,10 @@ std::unique_ptr<cues::Cue> makeCue(const QString &type)
     if (type == QLatin1String("start"))      return std::make_unique<cues::StartCue>();
     if (type == QLatin1String("stop"))       return std::make_unique<cues::StopCue>();
     if (type == QLatin1String("goto"))       return std::make_unique<cues::GotoCue>();
+    if (type == QLatin1String("pause"))      return std::make_unique<cues::PauseCue>();
+    if (type == QLatin1String("load"))       return std::make_unique<cues::LoadCue>();
+    if (type == QLatin1String("reset"))      return std::make_unique<cues::ResetCue>();
+    if (type == QLatin1String("devamp"))     return std::make_unique<cues::DevampCue>();
     if (type == QLatin1String("group"))      return std::make_unique<cues::GroupCue>();
     if (type == QLatin1String("midi"))       return std::make_unique<midi::MidiCue>();
     if (type == QLatin1String("msc"))        return std::make_unique<midi::MscCue>();
@@ -113,6 +117,42 @@ bool ShowFile::load(const QString &path, core::Workspace &workspace)
         }
 
         QSqlQuery q(db);
+
+        // Schema version gate. If the meta table is missing the file's
+        // either truncated or wasn't written by us at all — bail with a
+        // friendly error rather than silently producing an empty show.
+        // If the version is *newer* than we know how to read, refuse;
+        // older versions could be migrated in future, but for now there
+        // is only one (kSchemaVersion).
+        QSqlQuery vq(db);
+        if (!vq.exec(QStringLiteral(
+                "SELECT value FROM meta WHERE key='schema_version'"))) {
+            setError(QStringLiteral(
+                "This file isn't a quewi show, or it's corrupt "
+                "(no schema_version found)."));
+            db.close();
+            QSqlDatabase::removeDatabase(conn);
+            return false;
+        }
+        int fileSchema = 0;
+        if (vq.next()) fileSchema = vq.value(0).toInt();
+        if (fileSchema <= 0) {
+            setError(QStringLiteral(
+                "This file isn't a quewi show, or it's corrupt "
+                "(missing schema_version)."));
+            db.close();
+            QSqlDatabase::removeDatabase(conn);
+            return false;
+        }
+        if (fileSchema > kSchemaVersion) {
+            setError(QStringLiteral(
+                "This show was saved by a newer quewi (file schema v%1, "
+                "this build understands up to v%2). Update quewi and try "
+                "again.").arg(fileSchema).arg(kSchemaVersion));
+            db.close();
+            QSqlDatabase::removeDatabase(conn);
+            return false;
+        }
 
         // Cue lists in document order.
         if (!q.exec(QStringLiteral("SELECT id, name FROM cue_lists ORDER BY ord ASC"))) {

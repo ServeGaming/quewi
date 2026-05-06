@@ -11,6 +11,7 @@ class QPushButton;
 class QSpinBox;
 class QCheckBox;
 class QLabel;
+class QLineEdit;
 
 namespace quewi::ui {
 
@@ -37,6 +38,8 @@ private slots:
 
 private:
     void appendDetailFor(const quewi::osc::PacketEvent &event);
+    bool rowMatchesFilter(int row) const;
+    void applyFilter();
 
     osc::OscEngine *m_engine;
 
@@ -44,6 +47,8 @@ private:
     QPlainTextEdit *m_detail    = nullptr;
     QPushButton    *m_clearBtn  = nullptr;
     QPushButton    *m_pauseBtn  = nullptr;
+    QLineEdit      *m_filterEdit = nullptr;
+    QString         m_filter;
 
     QSpinBox       *m_udpPort   = nullptr;
     QPushButton    *m_udpToggle = nullptr;

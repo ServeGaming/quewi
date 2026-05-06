@@ -211,6 +211,44 @@ void GoEngine::doFire(cues::Cue *cue)
             emit gotoRequested(target->id());
             status(tr("Goto %1").arg(QString::number(target->number(), 'f', 2)));
         }
+    } else if (auto *pauseCue = qobject_cast<cues::PauseCue *>(cue)) {
+        // Engine-level pause/resume is a 0.3 milestone — for now Pause
+        // stops the voice, which is the closest correct semantics.
+        if (auto *ac = qobject_cast<audio::AudioCue *>(findCue(pauseCue->targetId()))) {
+            if (m_audio && ac->currentVoiceId() != 0) {
+                m_audio->stop(ac->currentVoiceId(), 0.0);
+                status(tr("Pause → %1").arg(
+                    ac->name().isEmpty() ? ac->typeName() : ac->name()));
+            } else {
+                status(tr("Pause: target not playing"));
+            }
+        } else {
+            status(tr("Pause: target not found"));
+        }
+    } else if (auto *loadCue = qobject_cast<cues::LoadCue *>(cue)) {
+        if (auto *ac = qobject_cast<audio::AudioCue *>(findCue(loadCue->targetId()))) {
+            ac->prepare();
+            status(tr("Load → %1").arg(
+                ac->name().isEmpty() ? ac->typeName() : ac->name()));
+        } else {
+            status(tr("Load: target not an audio cue"));
+        }
+    } else if (auto *resetCue = qobject_cast<cues::ResetCue *>(cue)) {
+        if (auto *ac = qobject_cast<audio::AudioCue *>(findCue(resetCue->targetId()))) {
+            if (m_audio && ac->currentVoiceId() != 0) {
+                m_audio->stop(ac->currentVoiceId(), 0.0);
+            }
+            ac->prepare();      // re-decode head so next fire is instant
+            status(tr("Reset → %1").arg(
+                ac->name().isEmpty() ? ac->typeName() : ac->name()));
+        } else {
+            status(tr("Reset: target not found"));
+        }
+    } else if (qobject_cast<cues::DevampCue *>(cue) != nullptr) {
+        // Vamping (looping until devamped) lands with the audio editor
+        // overhaul. Until then this is a documented no-op so shows
+        // authored against future builds round-trip cleanly.
+        status(tr("Devamp: vamping not yet implemented"));
     } else if (auto *midiCue = qobject_cast<midi::MidiCue *>(cue)) {
         if (m_midi) {
             if (m_midi->sendRaw(midiCue->portName(), midiCue->bytes())) {

@@ -8,6 +8,7 @@
 #include <QHBoxLayout>
 #include <QHeaderView>
 #include <QLabel>
+#include <QLineEdit>
 #include <QPlainTextEdit>
 #include <QPushButton>
 #include <QScrollBar>
@@ -172,13 +173,18 @@ OscMonitor::OscMonitor(osc::OscEngine *engine, QWidget *parent)
     splitter->setStretchFactor(1, 2);
     outer->addWidget(splitter, 1);
 
-    // Bottom: clear / pause
+    // Bottom: filter / pause / clear
     auto *bottom = new QHBoxLayout();
     bottom->setSpacing(8);
+    auto *filterLabel = new QLabel(tr("Filter:"), this);
+    m_filterEdit = new QLineEdit(this);
+    m_filterEdit->setPlaceholderText(tr("substring of address — e.g. /cue or eos"));
+    m_filterEdit->setClearButtonEnabled(true);
     m_pauseBtn = new QPushButton(tr("Pause"), this);
     m_pauseBtn->setCheckable(true);
     m_clearBtn = new QPushButton(tr("Clear"), this);
-    bottom->addStretch(1);
+    bottom->addWidget(filterLabel);
+    bottom->addWidget(m_filterEdit, 1);
     bottom->addWidget(m_pauseBtn);
     bottom->addWidget(m_clearBtn);
     outer->addLayout(bottom);
@@ -187,6 +193,10 @@ OscMonitor::OscMonitor(osc::OscEngine *engine, QWidget *parent)
     connect(m_table, &QTableWidget::itemSelectionChanged, this, &OscMonitor::onRowSelected);
     connect(m_clearBtn, &QPushButton::clicked, this, &OscMonitor::onClearClicked);
     connect(m_pauseBtn, &QPushButton::toggled, this, &OscMonitor::onPauseToggled);
+    connect(m_filterEdit, &QLineEdit::textChanged, this, [this](const QString &t){
+        m_filter = t;
+        applyFilter();
+    });
     connect(m_udpToggle, &QPushButton::toggled, this, &OscMonitor::onUdpToggle);
     connect(m_tcpToggle, &QPushButton::toggled, this, &OscMonitor::onTcpToggle);
     connect(m_wsToggle,  &QPushButton::toggled, this, &OscMonitor::onWsToggle);
@@ -230,6 +240,10 @@ void OscMonitor::onPacketSeen(const osc::PacketEvent &event)
     add(3, peer);
     add(4, address);
     add(5, args);
+
+    // Hide newly-inserted row immediately if it doesn't match the filter,
+    // otherwise the user sees rows blink in only to vanish on next event.
+    if (!rowMatchesFilter(row)) m_table->setRowHidden(row, true);
 
     // Cap the table at 10k rows so a runaway sender doesn't eat memory.
     constexpr int kMaxRows = 10000;
@@ -290,6 +304,20 @@ void OscMonitor::onClearClicked()
     m_table->setRowCount(0);
     m_events.clear();
     m_detail->clear();
+}
+
+bool OscMonitor::rowMatchesFilter(int row) const
+{
+    if (m_filter.isEmpty()) return true;
+    const auto *addrItem = m_table->item(row, 4);
+    if (!addrItem) return true;
+    return addrItem->text().contains(m_filter, Qt::CaseInsensitive);
+}
+
+void OscMonitor::applyFilter()
+{
+    for (int r = 0; r < m_table->rowCount(); ++r)
+        m_table->setRowHidden(r, !rowMatchesFilter(r));
 }
 
 void OscMonitor::onPauseToggled(bool paused)

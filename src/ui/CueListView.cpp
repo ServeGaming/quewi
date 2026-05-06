@@ -4,10 +4,17 @@
 #include "core/UndoCommands.h"
 #include "core/Workspace.h"
 
+#include "cues/Cue.h"
+
+#include <QAction>
+#include <QContextMenuEvent>
 #include <QDataStream>
+#include <QDragLeaveEvent>
+#include <QDragMoveEvent>
 #include <QDropEvent>
 #include <QHeaderView>
 #include <QKeyEvent>
+#include <QMenu>
 #include <QMimeData>
 #include <QPainter>
 #include <QPaintEvent>
@@ -210,6 +217,8 @@ void CueListView::dropEvent(QDropEvent *event)
         // command already handles that.
     }
     stack->endMacro();
+    m_dragActive = false;
+    viewport()->update();
     event->acceptProposedAction();
 }
 
@@ -220,9 +229,134 @@ void CueListView::currentChanged(const QModelIndex &current, const QModelIndex &
     emit currentCueChanged(m ? m->cueAt(current) : nullptr);
 }
 
+void CueListView::contextMenuEvent(QContextMenuEvent *event)
+{
+    auto *m = qobject_cast<core::CueListModel *>(model());
+    if (!m || !m_workspace) return;
+
+    const QModelIndex idx = indexAt(event->pos());
+    auto *cue = m->cueAt(idx);
+    if (!cue) return;
+
+    // If the user right-clicked a row outside the current selection,
+    // include only that row; otherwise the action applies to all
+    // selected rows.
+    QList<cues::Cue *> targets;
+    const auto sel = selectionModel() ? selectionModel()->selectedRows() : QModelIndexList{};
+    bool clickInSel = false;
+    for (const auto &i : sel)
+        if (i.row() == idx.row()) { clickInSel = true; break; }
+    if (clickInSel && !sel.isEmpty()) {
+        for (const auto &i : sel)
+            if (auto *c = m->cueAt(i)) targets << c;
+    } else {
+        targets << cue;
+    }
+
+    QMenu menu(this);
+    auto *colorMenu = menu.addMenu(tr("Color"));
+
+    // Eight distinct theatre-friendly tints + a neutral white. We store
+    // the color as a QColor and let CueListModel tint the row at paint
+    // time. Picking the same color as the current one acts as a toggle
+    // (clears it) — operators expect that.
+    struct Swatch { const char *label; const char *hex; };
+    static const Swatch kSwatches[] = {
+        { "Red",      "#C26A55" },
+        { "Amber",    "#D7A24E" },
+        { "Yellow",   "#E8C861" },
+        { "Green",    "#6FAE63" },
+        { "Teal",     "#5AA89D" },
+        { "Blue",     "#4F8EAF" },
+        { "Purple",   "#9577B0" },
+        { "Pink",     "#C97A9B" },
+    };
+
+    auto applyColor = [this, targets](const QColor &col) {
+        if (!m_workspace) return;
+        auto *stack = m_workspace->undoStack();
+        const QString label = col.isValid() ? tr("Set cue color")
+                                              : tr("Clear cue color");
+        stack->beginMacro(label);
+        for (auto *c : targets) {
+            if (!c) continue;
+            const QColor before = c->color();
+            // Toggle off if every selected cue already has this exact color.
+            QColor target = col;
+            if (col.isValid() && before == col) target = QColor();
+            stack->push(new core::EditCueFieldCommand(
+                c, QStringLiteral("color"),
+                QVariant::fromValue(before),
+                QVariant::fromValue(target)));
+        }
+        stack->endMacro();
+    };
+
+    for (const auto &s : kSwatches) {
+        const QColor col(QString::fromLatin1(s.hex));
+        QPixmap swatch(16, 16);
+        swatch.fill(col);
+        auto *act = colorMenu->addAction(QIcon(swatch), tr(s.label));
+        connect(act, &QAction::triggered, this, [applyColor, col]{ applyColor(col); });
+    }
+    colorMenu->addSeparator();
+    auto *clear = colorMenu->addAction(tr("Clear color"));
+    connect(clear, &QAction::triggered, this, [applyColor]{ applyColor(QColor()); });
+
+    menu.exec(event->globalPos());
+}
+
+void CueListView::dragMoveEvent(QDragMoveEvent *event)
+{
+    QTreeView::dragMoveEvent(event);
+    m_dragActive = true;
+    m_dragIndex  = indexAt(event->position().toPoint());
+    m_dragPos    = static_cast<int>(dropIndicatorPosition());
+    viewport()->update();
+}
+
+void CueListView::dragLeaveEvent(QDragLeaveEvent *event)
+{
+    QTreeView::dragLeaveEvent(event);
+    m_dragActive = false;
+    viewport()->update();
+}
+
 void CueListView::paintEvent(QPaintEvent *event)
 {
     QTreeView::paintEvent(event);
+
+    // Bolder drop indicator on top of the QStyle default — three pixels
+    // tall, accent-coloured, full viewport width. The default 1px line
+    // is too easy to miss on a 165 Hz monitor mid-drag.
+    if (m_dragActive) {
+        QPainter p(viewport());
+        p.setRenderHint(QPainter::Antialiasing, false);
+        const QColor accent = palette().color(QPalette::Highlight);
+        p.setPen(Qt::NoPen);
+
+        if (m_dragIndex.isValid()) {
+            const QRect r = visualRect(m_dragIndex);
+            const auto pos = static_cast<DropIndicatorPosition>(m_dragPos);
+            if (pos == OnItem) {
+                p.setBrush(QColor(accent.red(), accent.green(), accent.blue(), 60));
+                p.drawRect(0, r.top(), viewport()->width(), r.height());
+            } else {
+                QColor line = accent; line.setAlpha(220);
+                p.setBrush(line);
+                const int y = (pos == BelowItem) ? r.bottom() : r.top();
+                p.drawRect(0, y - 1, viewport()->width(), 3);
+            }
+        } else if (model() && model()->rowCount() > 0) {
+            // Drop past the last row — line at the bottom of that row.
+            const auto last = model()->index(model()->rowCount() - 1, 0);
+            const QRect r = visualRect(last);
+            QColor line = accent; line.setAlpha(220);
+            p.setBrush(line);
+            p.drawRect(0, r.bottom() - 1, viewport()->width(), 3);
+        }
+    }
+
     if (model() && model()->rowCount() > 0) return;
 
     // Draw a centered hint over the empty viewport. Painted *after* the

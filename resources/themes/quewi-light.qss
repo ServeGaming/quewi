@@ -177,3 +177,90 @@ QListWidget {
 }
 QListWidget::item { padding: 8px 12px; border-radius: 4px; }
 QListWidget::item:selected { background: #CFE2FF; color: #1A1D24; }
+
+/* Tab bar — same Ableton-style underline as the dark theme. */
+QTabBar::tab {
+    background: transparent;
+    color: #5C6470;
+    padding: 8px 16px;
+    border: none;
+    border-bottom: 2px solid transparent;
+    font-size: 12px;
+    font-weight: 500;
+    min-width: 60px;
+}
+QTabBar::tab:hover    { color: #1A1D24; }
+QTabBar::tab:selected {
+    color: #1A1D24;
+    border-bottom: 2px solid #2563EB;
+}
+QTabWidget::pane {
+    background: #F4F5F8;
+    border: none;
+    border-top: 1px solid #D7D9DF;
+    top: -1px;
+}
+
+/* Progress bar — used by audio fade timers / preflight. */
+QProgressBar {
+    background: #ECEEF3;
+    border: none;
+    border-radius: 2px;
+    text-align: center;
+    color: #1A1D24;
+}
+QProgressBar::chunk {
+    background: #4F8EAF;
+    border-radius: 2px;
+}
+
+/* Active cues panel — read-only running state list at the bottom. */
+QWidget#activeCuesPanel {
+    background: #ECEEF3;
+    border: none;
+    border-radius: 10px;
+}
+QLabel#activeCuesHeader {
+    color: #5C6470;
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.12em;
+    padding-bottom: 4px;
+}
+QWidget#activeCueRow {
+    background: #FFFFFF;
+    border-radius: 8px;
+    border: 1px solid #E0E2E8;
+}
+QPushButton#activeStopButton {
+    background: transparent;
+    color: #C26A55;
+    border: 1px solid #C26A55;
+    border-radius: 3px;
+    padding: 2px 8px;
+    font-size: 11px;
+    font-weight: 500;
+}
+QPushButton#activeStopButton:hover {
+    background: #C26A55;
+    color: #FFFFFF;
+}
+
+QDialogButtonBox { button-layout: 0; }
+
+/* Checkboxes and radio buttons — fall through to Fusion otherwise. */
+QCheckBox, QRadioButton {
+    color: #1A1D24;
+    spacing: 8px;
+    background: transparent;
+}
+
+/* Table widget (OSC monitor, patch editor). */
+QTableWidget {
+    background: #FFFFFF;
+    color: #1A1D24;
+    border: 1px solid #D7D9DF;
+    gridline-color: #ECEEF3;
+    selection-background-color: #CFE2FF;
+    selection-color: #1A1D24;
+}

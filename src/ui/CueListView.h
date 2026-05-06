@@ -5,6 +5,8 @@
 #include <QTreeView>
 #include <QUrl>
 
+class QContextMenuEvent;
+
 namespace quewi::core { class CueListModel; class Workspace; }
 namespace quewi::cues { class Cue; }
 
@@ -42,9 +44,19 @@ protected:
     void currentChanged(const QModelIndex &current, const QModelIndex &previous) override;
     void dropEvent(QDropEvent *event) override;
     void paintEvent(QPaintEvent *event) override;
+    void contextMenuEvent(QContextMenuEvent *event) override;
+    void dragMoveEvent(QDragMoveEvent *event) override;
+    void dragLeaveEvent(QDragLeaveEvent *event) override;
 
 private:
     QPointer<core::Workspace> m_workspace;
+
+    // Drag-indicator state — tracked so paintEvent can draw a thicker
+    // line than the default 1px QStyle drop indicator. Cleared on drop
+    // or dragLeave.
+    bool      m_dragActive = false;
+    QModelIndex m_dragIndex;
+    int       m_dragPos = 0;   // QAbstractItemView::DropIndicatorPosition
 };
 
 } // namespace quewi::ui

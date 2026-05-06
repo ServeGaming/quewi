@@ -170,6 +170,43 @@ Inspector::Inspector(QWidget *parent)
         m_midiBytes = new QLineEdit(m_midiGroup);
         m_midiBytes->setPlaceholderText(QStringLiteral("90 3C 7F  (hex bytes)"));
         f->addRow(tr("Bytes"), m_midiBytes);
+
+        // Builder row: a few common presets that overwrite the bytes
+        // field with a working hex sequence. Saves operators from looking
+        // up status-byte tables. Channel defaults to 1 — that's almost
+        // always what you want, and the user can hand-edit the nibble.
+        auto *presetsRow = new QHBoxLayout();
+        presetsRow->setContentsMargins(0, 0, 0, 0);
+        auto setBytes = [this](const QString &hex) {
+            m_midiBytes->setText(hex);
+            m_midiBytes->setFocus();
+        };
+        auto *bNote = new QPushButton(tr("Note On"), m_midiGroup);
+        bNote->setToolTip(tr("9N nn vv  · channel 1, middle C, vel 100"));
+        connect(bNote, &QPushButton::clicked, this, [setBytes]{
+            setBytes(QStringLiteral("90 3C 64"));
+        });
+        auto *bOff = new QPushButton(tr("Note Off"), m_midiGroup);
+        bOff->setToolTip(tr("8N nn vv  · channel 1, middle C, vel 0"));
+        connect(bOff, &QPushButton::clicked, this, [setBytes]{
+            setBytes(QStringLiteral("80 3C 00"));
+        });
+        auto *bCc = new QPushButton(tr("CC"), m_midiGroup);
+        bCc->setToolTip(tr("BN cc vv  · channel 1, controller 7 (volume), value 64"));
+        connect(bCc, &QPushButton::clicked, this, [setBytes]{
+            setBytes(QStringLiteral("B0 07 40"));
+        });
+        auto *bPc = new QPushButton(tr("PC"), m_midiGroup);
+        bPc->setToolTip(tr("CN pp  · channel 1, program 0"));
+        connect(bPc, &QPushButton::clicked, this, [setBytes]{
+            setBytes(QStringLiteral("C0 00"));
+        });
+        for (auto *b : { bNote, bOff, bCc, bPc }) {
+            b->setFlat(true);
+            presetsRow->addWidget(b);
+        }
+        presetsRow->addStretch(1);
+        f->addRow(tr("Presets"), presetsRow);
     }
     outer->addWidget(m_midiGroup);
 

@@ -60,6 +60,10 @@ private slots:
     void insertStartCue();
     void insertStopCue();
     void insertGotoCue();
+    void insertPauseCue();
+    void insertLoadCue();
+    void insertResetCue();
+    void insertDevampCue();
     void insertGroupCue();
     void insertMidiCue();
     void insertMscCue();
