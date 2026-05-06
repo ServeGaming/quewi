@@ -3,6 +3,7 @@
 #include "audio/AudioFile.h"
 #include "cues/Cue.h"
 
+#include <QUuid>
 #include <memory>
 
 namespace quewi::audio {
@@ -48,6 +49,16 @@ public:
     bool    loop()           const { return m_loop; }
     QByteArray outputDeviceId() const { return m_outputDeviceId; }
 
+    // Object-audio. When objectAudioEnabled is true and a speakerPatchId
+    // resolves to a SpeakerArray patch, the engine renders the cue as a
+    // point source at (azimuthDeg, elevationDeg) with VBAP gains and the
+    // legacy `pan` is ignored. spread (0..1) blends toward omni.
+    bool       objectAudioEnabled() const { return m_objAudio; }
+    QUuid      speakerPatchId()     const { return m_speakerPatchId; }
+    double     objectAzimuthDeg()   const { return m_objAzimuth; }
+    double     objectElevationDeg() const { return m_objElevation; }
+    double     objectSpread()       const { return m_objSpread; }
+
     std::shared_ptr<AudioFile> audioFile() const { return m_file; }
 
     quint64 currentVoiceId() const { return m_currentVoiceId; }
@@ -63,6 +74,13 @@ private:
     double  m_pan            = 0.0;
     bool    m_loop           = false;
     QByteArray m_outputDeviceId;   // empty = use AudioEngine default
+
+    // Object audio
+    bool   m_objAudio    = false;
+    QUuid  m_speakerPatchId;
+    double m_objAzimuth   = 0.0;   // -180..+180, 0 = front, +90 = right
+    double m_objElevation = 0.0;   // -90..+90, 0 = ear-level
+    double m_objSpread    = 0.0;   // 0..1
 
     std::shared_ptr<AudioFile> m_file;
     quint64                    m_currentVoiceId = 0;

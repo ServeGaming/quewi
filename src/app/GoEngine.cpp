@@ -2,7 +2,10 @@
 
 #include "audio/AudioCue.h"
 #include "audio/AudioEngine.h"
+#include "audio/SpeakerPatch.h"
+#include "audio/Vbap.h"
 #include "core/CueList.h"
+#include "core/PatchManager.h"
 #include "core/Workspace.h"
 #include "cues/Cue.h"
 #include "cues/FadeCue.h"
@@ -119,6 +122,25 @@ void GoEngine::doFire(cues::Cue *cue)
                 p.pan            = audioCue->pan();
                 p.loop           = audioCue->loop();
                 p.outputDeviceId = audioCue->outputDeviceId();
+
+                // Object Audio: convert (azimuth, elevation, spread) +
+                // speaker patch into per-channel gains. If the patch is
+                // missing or empty, fall back to legacy stereo pan so
+                // the cue still plays — better than silence.
+                if (audioCue->objectAudioEnabled() && m_workspace) {
+                    const auto speakers = audio::readSpeakers(
+                        m_workspace->patches(), audioCue->speakerPatchId());
+                    const int outChans = m_audio->outputChannelCount(p.outputDeviceId);
+                    if (!speakers.isEmpty() && outChans > 0) {
+                        audio::Vbap v(speakers);
+                        p.channelGains = v.gains(
+                            static_cast<float>(audioCue->objectAzimuthDeg()),
+                            static_cast<float>(audioCue->objectElevationDeg()),
+                            static_cast<float>(audioCue->objectSpread()),
+                            outChans);
+                    }
+                }
+
                 const auto vid = m_audio->fire(file, p);
                 audioCue->setCurrentVoiceId(vid);
                 if (vid == 0) status(tr("GO: audio engine failed — %1")

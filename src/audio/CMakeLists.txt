@@ -7,6 +7,8 @@ add_library(quewi_audio STATIC
     AudioCue.cpp
     Vbap.h
     Vbap.cpp
+    SpeakerPatch.h
+    SpeakerPatch.cpp
     AudioEffect.h
     AudioEffect.cpp
     AudioEditorModel.h

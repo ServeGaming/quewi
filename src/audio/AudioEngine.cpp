@@ -67,6 +67,7 @@ public:
             v.endFrame = static_cast<qint64>(params.trimOutSeconds * srcSr);
         }
         v.srcSampleRate = srcSr;
+        v.channelGains  = params.channelGains;
 
         std::lock_guard<std::mutex> lock(m_mutex);
         m_voices.push_back(std::move(v));
@@ -211,6 +212,13 @@ private:
         bool     loop = false;
         bool     finished = false;
 
+        // Object-audio routing. Set once at fire() time from VBAP gains
+        // for the cue's spatial position; the mixer reads it under the
+        // same mutex snapshot as the rest of the voice. Empty means use
+        // the legacy stereo pan path. Trajectories (animated positions)
+        // would replace this with an atomic pointer-swap; v1 is static.
+        QList<float> channelGains;
+
         Voice() = default;
         Voice(const Voice &) = delete;
         Voice &operator=(const Voice &) = delete;
@@ -232,6 +240,7 @@ private:
             , fadeOutFromGain(other.fadeOutFromGain)
             , loop(other.loop)
             , finished(other.finished)
+            , channelGains(std::move(other.channelGains))
         {
             gain.store(other.gain.load(std::memory_order_relaxed), std::memory_order_relaxed);
             currentGain.store(other.currentGain.load(std::memory_order_relaxed), std::memory_order_relaxed);
@@ -259,6 +268,7 @@ private:
             fadeOutFromGain = other.fadeOutFromGain;
             loop = other.loop;
             finished = other.finished;
+            channelGains = std::move(other.channelGains);
             gain.store(other.gain.load(std::memory_order_relaxed), std::memory_order_relaxed);
             currentGain.store(other.currentGain.load(std::memory_order_relaxed), std::memory_order_relaxed);
             targetGain.store(other.targetGain.load(std::memory_order_relaxed), std::memory_order_relaxed);
@@ -364,6 +374,42 @@ qint64 AudioEngine::Mixer::readData(char *data, qint64 maxlen)
                 }
 
                 const double finalGain = cur * envGain;
+
+                // Object-audio path: downmix the source to mono once per
+                // frame, then scale by the precomputed VBAP gain per
+                // output channel. Stereo/multichannel files become a
+                // single point source in space — that's the standard
+                // object-audio model. Trajectories arrive in 0.4.
+                const bool useChannelGains =
+                    !v.channelGains.isEmpty()
+                    && v.channelGains.size() >= outChans;
+
+                if (useChannelGains) {
+                    auto sampleMono = [&](qint64 idx) -> float {
+                        if (idx < 0) idx = 0;
+                        if (idx >= totalFrames) idx = totalFrames - 1;
+                        float acc = 0.f;
+                        for (int sc = 0; sc < inChans; ++sc) {
+                            acc += samples[static_cast<size_t>(idx) * static_cast<size_t>(inChans)
+                                           + static_cast<size_t>(sc)];
+                        }
+                        return acc / float(inChans);
+                    };
+                    const float s0 = sampleMono(i0);
+                    const float s1 = sampleMono(i1);
+                    const float s  = s0 + static_cast<float>(frac) * (s1 - s0);
+                    const float scaled = static_cast<float>(s * finalGain);
+                    for (int oc = 0; oc < outChans; ++oc) {
+                        const float g = v.channelGains[oc];
+                        if (g == 0.f) continue;
+                        const float written = scaled * g;
+                        out[f * outChans + oc] += written;
+                        const float a = std::fabs(written);
+                        if (oc == 0)      { if (a > bufPeakL) bufPeakL = a; }
+                        else if (oc == 1) { if (a > bufPeakR) bufPeakR = a; }
+                    }
+                    continue;
+                }
 
                 for (int oc = 0; oc < outChans; ++oc) {
                     int srcCh;
@@ -639,6 +685,13 @@ int AudioEngine::activeVoiceCount() const
     int n = 0;
     for (const auto &ctx : m_contexts) if (ctx->mixer) n += ctx->mixer->activeCount();
     return n;
+}
+
+int AudioEngine::outputChannelCount(const QByteArray &outputDeviceId)
+{
+    const QAudioDevice dev = resolveDevice(outputDeviceId);
+    auto *ctx = ensureContextForDevice(dev);
+    return ctx ? ctx->channels : 0;
 }
 
 void AudioEngine::onMixerVoiceFinished(VoiceId id)

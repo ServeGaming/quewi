@@ -18,6 +18,11 @@ QVariant AudioCue::field(const QString &key) const
     if (key == QLatin1String("pan"))            return m_pan;
     if (key == QLatin1String("loop"))           return m_loop;
     if (key == QLatin1String("outputDeviceId")) return m_outputDeviceId;
+    if (key == QLatin1String("objectAudio"))    return m_objAudio;
+    if (key == QLatin1String("speakerPatchId")) return m_speakerPatchId;
+    if (key == QLatin1String("objAzimuth"))     return m_objAzimuth;
+    if (key == QLatin1String("objElevation"))   return m_objElevation;
+    if (key == QLatin1String("objSpread"))      return m_objSpread;
     return cues::Cue::field(key);
 }
 
@@ -56,6 +61,22 @@ void AudioCue::setField(const QString &key, const QVariant &value)
         emitChanged();
         return;
     }
+    if (key == QLatin1String("objectAudio")) {
+        if (m_objAudio == value.toBool()) return;
+        m_objAudio = value.toBool();
+        emitChanged();
+        return;
+    }
+    if (key == QLatin1String("speakerPatchId")) {
+        const auto v = value.toUuid();
+        if (m_speakerPatchId == v) return;
+        m_speakerPatchId = v;
+        emitChanged();
+        return;
+    }
+    if (key == QLatin1String("objAzimuth"))   { setDouble(m_objAzimuth);   return; }
+    if (key == QLatin1String("objElevation")) { setDouble(m_objElevation); return; }
+    if (key == QLatin1String("objSpread"))    { setDouble(m_objSpread);    return; }
     cues::Cue::setField(key, value);
 }
 
@@ -71,6 +92,13 @@ QJsonObject AudioCue::toPayload() const
     o.insert(QStringLiteral("pan"),            m_pan);
     o.insert(QStringLiteral("loop"),           m_loop);
     o.insert(QStringLiteral("outputDeviceId"), QString::fromLatin1(m_outputDeviceId));
+    if (m_objAudio) {
+        o.insert(QStringLiteral("objectAudio"),    true);
+        o.insert(QStringLiteral("speakerPatchId"), m_speakerPatchId.toString(QUuid::WithoutBraces));
+        o.insert(QStringLiteral("objAzimuth"),     m_objAzimuth);
+        o.insert(QStringLiteral("objElevation"),   m_objElevation);
+        o.insert(QStringLiteral("objSpread"),      m_objSpread);
+    }
     return o;
 }
 
@@ -86,6 +114,11 @@ void AudioCue::fromPayload(const QJsonObject &payload)
     m_pan            = payload.value(QStringLiteral("pan")).toDouble();
     m_loop           = payload.value(QStringLiteral("loop")).toBool();
     m_outputDeviceId = payload.value(QStringLiteral("outputDeviceId")).toString().toLatin1();
+    m_objAudio       = payload.value(QStringLiteral("objectAudio")).toBool(false);
+    m_speakerPatchId = QUuid(payload.value(QStringLiteral("speakerPatchId")).toString());
+    m_objAzimuth     = payload.value(QStringLiteral("objAzimuth")).toDouble(0.0);
+    m_objElevation   = payload.value(QStringLiteral("objElevation")).toDouble(0.0);
+    m_objSpread      = payload.value(QStringLiteral("objSpread")).toDouble(0.0);
     m_file.reset();
 }
 

@@ -33,6 +33,13 @@ struct VoiceParams {
 
     // Empty = use the current default output device.
     QByteArray outputDeviceId;
+
+    // Object-audio routing. When channelGains is non-empty, the mixer
+    // ignores `pan` and writes each output channel scaled by the
+    // matching gain. The vector length matches the device's channel
+    // count. Computed by AudioEngine::fire() from the cue's spatial
+    // position and the speaker patch — voices stay agnostic to VBAP.
+    QList<float> channelGains;
 };
 
 // Snapshot of a currently-playing voice — surfaced to the UI so the
@@ -89,6 +96,14 @@ public:
 
     bool isRunning() const { return m_running.load(); }
     int  activeVoiceCount() const;
+
+    // Output channel count for the device that would be used by a fire()
+    // with this `outputDeviceId`. Returns 0 if the device can't be opened
+    // (caller should fall back to legacy stereo pan). Lazy: opens the
+    // device if it isn't already running, so the first call may incur a
+    // small latency. Used by the Object Audio path so it can size the
+    // VBAP gain vector to whatever the device reports.
+    int  outputChannelCount(const QByteArray &outputDeviceId);
 
     QString lastError() const { return m_lastError; }
 
