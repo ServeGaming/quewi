@@ -59,18 +59,36 @@ QList<Speaker> readSpeakers(const core::PatchManager *patches,
     const auto patch = patches->patch(patchId);
     if (patch.category != core::PatchManager::Category::SpeakerArray) return {};
 
-    const auto arr = patch.fields.value(QStringLiteral("speakers"))
-                        .toJsonArray();
-    QList<Speaker> out;
-    out.reserve(arr.size());
-    for (const auto &v : arr) {
-        const auto o = v.toObject();
+    // The "speakers" field is stored as a QJsonArray when the dialog
+    // writes it, but a JSON show-file roundtrip walks it through
+    // QVariantMap → QJsonObject → QVariantMap, which decays the inner
+    // array into a QVariantList of QVariantMap. Handle both shapes so
+    // newly-edited and freshly-loaded shows behave identically.
+    auto readEntry = [](const QVariantMap &o) -> Speaker {
         Speaker s;
-        s.channel      = o.value(QStringLiteral("channel")).toInt(0);
+        s.channel      = o.value(QStringLiteral("channel")).toInt();
         s.azimuthDeg   = static_cast<float>(o.value(QStringLiteral("azimuthDeg")).toDouble());
         s.elevationDeg = static_cast<float>(o.value(QStringLiteral("elevationDeg")).toDouble());
-        s.distance     = static_cast<float>(o.value(QStringLiteral("distance")).toDouble(1.0));
-        out.append(s);
+        s.distance     = static_cast<float>(o.value(QStringLiteral("distance"), 1.0).toDouble());
+        return s;
+    };
+
+    const auto v = patch.fields.value(QStringLiteral("speakers"));
+    QList<Speaker> out;
+    if (v.userType() == QMetaType::QVariantList) {
+        const auto list = v.toList();
+        out.reserve(list.size());
+        for (const auto &x : list) out.append(readEntry(x.toMap()));
+    } else {
+        const auto arr = v.toJsonArray();
+        out.reserve(arr.size());
+        for (const auto &x : arr) {
+            const auto o = x.toObject();
+            QVariantMap m;
+            for (auto it = o.constBegin(); it != o.constEnd(); ++it)
+                m.insert(it.key(), it.value().toVariant());
+            out.append(readEntry(m));
+        }
     }
     return out;
 }

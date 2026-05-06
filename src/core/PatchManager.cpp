@@ -76,7 +76,7 @@ void PatchManager::clear() {
     m_patches.clear();
     for (auto cat : {Category::AudioOutput, Category::OscDestination,
                      Category::MidiPort,    Category::DmxUniverse,
-                     Category::VideoSurface})
+                     Category::VideoSurface, Category::SpeakerArray})
         emit patchesChanged(cat);
 }
 
@@ -109,7 +109,7 @@ void PatchManager::fromJson(const QJsonObject &root) {
     }
     for (auto cat : {Category::AudioOutput, Category::OscDestination,
                      Category::MidiPort,    Category::DmxUniverse,
-                     Category::VideoSurface})
+                     Category::VideoSurface, Category::SpeakerArray})
         emit patchesChanged(cat);
 }
 

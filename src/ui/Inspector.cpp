@@ -1360,6 +1360,30 @@ void Inspector::commitObjectAudioEnabled(bool on)
 {
     if (m_loading) return;
     pushFieldEdit(QStringLiteral("objectAudio"), on);
+
+    // Bootstrap: enabling Object Audio with zero speaker patches means
+    // the user can do nothing useful — auto-create a Stereo patch and
+    // select it. Skip if the cue already references a patch (preserves
+    // user intent on toggle-off-then-on).
+    if (!on || !m_workspace || !m_workspace->patches()) return;
+    auto *audioCue = qobject_cast<audio::AudioCue *>(m_cue.data());
+    if (!audioCue || !audioCue->speakerPatchId().isNull()) return;
+    auto *patches = m_workspace->patches();
+    if (!patches->patchesIn(core::PatchManager::Category::SpeakerArray).isEmpty())
+        return;
+    const auto fields = audio::toPatchFields(QStringLiteral("stereo"),
+        audio::templateSpeakers(QStringLiteral("stereo")));
+    const auto id = patches->add(core::PatchManager::Category::SpeakerArray,
+                                 tr("Stereo"), fields);
+    pushFieldEdit(QStringLiteral("speakerPatchId"), id);
+    // Refresh combo to surface the new patch.
+    m_loading = true;
+    m_objSpeakerPatch->clear();
+    m_objSpeakerPatch->addItem(tr("(none)"), QUuid());
+    m_objSpeakerPatch->addItem(tr("Stereo"), id);
+    m_objSpeakerPatch->setCurrentIndex(1);
+    m_objStageView->setSpeakers(audio::readSpeakers(patches, id));
+    m_loading = false;
 }
 
 void Inspector::commitSpeakerPatch()
