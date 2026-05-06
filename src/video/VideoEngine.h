@@ -58,6 +58,13 @@ public:
     void  setCornerPin(int screenIndex, const QPolygonF &quad);
     QPolygonF cornerPin(int screenIndex) const;
 
+    // Show / hide a calibration test pattern on the given screen. The
+    // ProjectionMappingDialog calls these so the user has something to
+    // align against before any cue has fired. Idempotent.
+    void  showTestPattern(int screenIndex);
+    void  hideTestPattern(int screenIndex);
+    bool  hasTestPattern(int screenIndex) const;
+
 signals:
     void voiceFinished(quewi::video::VideoVoiceId id);
 
@@ -71,6 +78,10 @@ private:
     std::unique_ptr<Compositor> m_compositor;
     std::vector<Voice> m_voices;
     VideoVoiceId       m_nextId = 0;
+
+    // Per-screen test-pattern layers. The compositor owns the actual
+    // QObject; this map is just so we can find them again to remove.
+    QHash<int, QPointer<Layer>> m_testPatterns;
 };
 
 } // namespace quewi::video

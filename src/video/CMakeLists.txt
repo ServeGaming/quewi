@@ -14,6 +14,8 @@ add_library(quewi_video STATIC
     ImageLayer.cpp
     TextLayer.h
     TextLayer.cpp
+    TestPatternLayer.h
+    TestPatternLayer.cpp
 )
 target_include_directories(quewi_video PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/..)
 target_link_libraries(quewi_video PUBLIC

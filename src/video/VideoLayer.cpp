@@ -24,7 +24,18 @@ VideoLayer::VideoLayer(const QString &filePath, bool loop, QObject *parent)
     connect(m_sink, &QVideoSink::videoFrameChanged,
             this, [this](const QVideoFrame &f) {
                 if (!f.isValid()) return;
-                m_frame = f.toImage();
+                QImage img = f.toImage();
+                // Convert to a premultiplied 32-bit format once here so
+                // every paintEvent in the compositor blits without an
+                // implicit format conversion. Costs a few ms per frame
+                // up front; saves more on every screen redraw.
+                if (!img.isNull()
+                    && img.format() != QImage::Format_ARGB32_Premultiplied
+                    && img.format() != QImage::Format_RGB32)
+                {
+                    img = img.convertToFormat(QImage::Format_ARGB32_Premultiplied);
+                }
+                m_frame = std::move(img);
                 emit frameAvailable();
             });
     connect(m_player, &QMediaPlayer::mediaStatusChanged,

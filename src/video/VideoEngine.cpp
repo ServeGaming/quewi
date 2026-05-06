@@ -3,6 +3,7 @@
 #include "video/Compositor.h"
 #include "video/ImageLayer.h"
 #include "video/Layer.h"
+#include "video/TestPatternLayer.h"
 #include "video/TextLayer.h"
 #include "video/VideoLayer.h"
 
@@ -84,6 +85,34 @@ void VideoEngine::setCornerPin(int screenIndex, const QPolygonF &quad)
 QPolygonF VideoEngine::cornerPin(int screenIndex) const
 {
     return m_compositor ? m_compositor->cornerPin(screenIndex) : QPolygonF();
+}
+
+void VideoEngine::showTestPattern(int screenIndex)
+{
+    if (!m_compositor) return;
+    if (auto it = m_testPatterns.find(screenIndex); it != m_testPatterns.end()) {
+        if (it.value()) return;       // already showing
+        m_testPatterns.erase(it);     // stale pointer; rebuild
+    }
+    auto *layer = new TestPatternLayer();
+    m_compositor->addLayer(screenIndex, layer);
+    m_testPatterns.insert(screenIndex, layer);
+}
+
+void VideoEngine::hideTestPattern(int screenIndex)
+{
+    auto it = m_testPatterns.find(screenIndex);
+    if (it == m_testPatterns.end()) return;
+    if (Layer *layer = it.value().data()) {
+        m_compositor->removeLayer(layer);
+    }
+    m_testPatterns.erase(it);
+}
+
+bool VideoEngine::hasTestPattern(int screenIndex) const
+{
+    auto it = m_testPatterns.constFind(screenIndex);
+    return it != m_testPatterns.constEnd() && it.value();
 }
 
 void VideoEngine::onLayerFinished(Layer *layer)

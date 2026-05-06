@@ -122,6 +122,15 @@ void CompositorWindow::layoutOnScreen()
 void CompositorWindow::paintEvent(QPaintEvent *)
 {
     QPainter p(this);
+    // Smooth pixmap transform — without this, drawImage uses
+    // nearest-neighbor scaling when the source resolution doesn't
+    // match the layer's destination rect. That's noticeably blocky on
+    // 1080p video projected at 4K, or anything corner-pinned. Bilinear
+    // is the right default; the GPU handles it cheaply.
+    // Antialiasing helps the cornpin warp's edges look clean too.
+    p.setRenderHint(QPainter::SmoothPixmapTransform, true);
+    p.setRenderHint(QPainter::Antialiasing,          true);
+
     p.fillRect(rect(), Qt::black);
 
     if (!m_pinIsIdentity) {
