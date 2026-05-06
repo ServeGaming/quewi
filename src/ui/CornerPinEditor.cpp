@@ -14,6 +14,10 @@ QPolygonF identityQuad() {
 }
 constexpr double kHandleRadius = 7.0;
 constexpr double kHitSlop      = 12.0;
+// Pixel radius for snap-to-corner. Tight enough that the user can park
+// just past a corner deliberately, generous enough that aiming with a
+// shaky cursor still snaps cleanly.
+constexpr double kSnapPixels   = 12.0;
 } // namespace
 
 CornerPinEditor::CornerPinEditor(QWidget *parent)
@@ -112,17 +116,27 @@ void CornerPinEditor::paintEvent(QPaintEvent *)
     p.setPen(QPen(accent, 2));
     p.drawPolygon(warped);
 
-    // Handles.
-    p.setBrush(accent);
+    // Handles. The snapped handle (if any) gets a brighter halo so the
+    // user has feedback that snap kicked in.
     p.setPen(QPen(palette().color(QPalette::Text), 1));
-    for (const auto &c : warped) {
-        p.drawEllipse(c, kHandleRadius, kHandleRadius);
+    for (int i = 0; i < warped.size(); ++i) {
+        if (i == m_snappedHandle) {
+            QColor halo = accent;
+            halo.setAlpha(90);
+            p.setBrush(halo);
+            p.setPen(Qt::NoPen);
+            p.drawEllipse(warped[i], kHandleRadius + 6, kHandleRadius + 6);
+            p.setPen(QPen(palette().color(QPalette::Text), 1));
+        }
+        p.setBrush(accent);
+        p.drawEllipse(warped[i], kHandleRadius, kHandleRadius);
     }
 
     // Help text.
     p.setPen(palette().color(QPalette::Text));
     p.drawText(QPointF(8, height() - 8),
-               tr("Drag corners to warp. Double-click to reset."));
+               tr("Drag corners to warp. Hold Shift to disable snap. "
+                  "Double-click to reset."));
 }
 
 void CornerPinEditor::mousePressEvent(QMouseEvent *e)
@@ -140,14 +154,41 @@ void CornerPinEditor::mouseMoveEvent(QMouseEvent *e)
         setCursor(h >= 0 ? Qt::SizeAllCursor : Qt::CrossCursor);
         return;
     }
-    m_corners[m_dragHandle] = pixelToNormalised(e->position());
+
+    QPointF normalised = pixelToNormalised(e->position());
+
+    // Snap to one of the four canonical corners when the cursor is
+    // within kSnapPixels of it in screen space. Holding Shift disables
+    // snap so the operator can park just past a corner — useful for
+    // overshooting projector beds.
+    int snapTo = -1;
+    if (!(e->modifiers() & Qt::ShiftModifier)) {
+        const QPolygonF anchors = identityQuad();
+        const QPointF cursor = e->position();
+        double bestD2 = kSnapPixels * kSnapPixels;
+        for (int i = 0; i < anchors.size(); ++i) {
+            const QPointF anchorPx = normalisedToPixel(anchors[i]);
+            const double dx = anchorPx.x() - cursor.x();
+            const double dy = anchorPx.y() - cursor.y();
+            const double d2 = dx * dx + dy * dy;
+            if (d2 < bestD2) { bestD2 = d2; snapTo = i; }
+        }
+        if (snapTo >= 0) normalised = anchors[snapTo];
+    }
+    m_snappedHandle = (snapTo >= 0) ? m_dragHandle : -1;
+
+    m_corners[m_dragHandle] = normalised;
     emit cornersChanged(m_corners);
     update();
 }
 
 void CornerPinEditor::mouseReleaseEvent(QMouseEvent *e)
 {
-    if (e->button() == Qt::LeftButton) m_dragHandle = -1;
+    if (e->button() == Qt::LeftButton) {
+        m_dragHandle = -1;
+        m_snappedHandle = -1;
+        update();
+    }
 }
 
 void CornerPinEditor::mouseDoubleClickEvent(QMouseEvent *)

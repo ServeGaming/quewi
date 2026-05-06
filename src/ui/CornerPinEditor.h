@@ -46,6 +46,7 @@ private:
 
     QPolygonF m_corners;             // normalised 0..1
     int       m_dragHandle = -1;
+    int       m_snappedHandle = -1;  // for paint highlight; -1 if none
 };
 
 } // namespace quewi::ui
