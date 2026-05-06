@@ -1,4 +1,4 @@
-qt_add_executable(quewi
+set(QUEWI_APP_SOURCES
     main.cpp
     MainWindow.cpp
     MainWindow.h
@@ -6,6 +6,15 @@ qt_add_executable(quewi
     GoEngine.h
     ${CMAKE_SOURCE_DIR}/resources/resources.qrc
 )
+
+# On Windows, compile the .rc so the EXE carries an icon in Explorer.
+# AUTORCC handles the .qrc; the .rc is picked up by CMake's RC language.
+if(WIN32)
+    list(APPEND QUEWI_APP_SOURCES
+        ${CMAKE_SOURCE_DIR}/resources/icons/quewi.rc)
+endif()
+
+qt_add_executable(quewi ${QUEWI_APP_SOURCES})
 
 set_target_properties(quewi PROPERTIES
     WIN32_EXECUTABLE ON

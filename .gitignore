@@ -94,7 +94,9 @@ Thumbs.db
 desktop.ini
 
 # Local-only helper scripts (paths hardcoded to one machine)
-scripts/
+scripts/*
+# Portable scripts that should be tracked
+!scripts/make-icon.ps1
 
 
 # Claude Code per-project local settings

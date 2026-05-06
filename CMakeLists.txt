@@ -90,6 +90,10 @@ if(WIN32)
     # or upgrades won't replace the prior installation. Generated once.
     set(CPACK_WIX_UPGRADE_GUID "B1F2C3D4-9A0E-4F8B-9A1C-7E3F6A5C2B11")
     set(CPACK_WIX_PROGRAM_MENU_FOLDER "quewi")
+    # App icon shown in Add/Remove Programs and on Start Menu shortcuts.
+    if(EXISTS "${CMAKE_SOURCE_DIR}/resources/icons/quewi.ico")
+        set(CPACK_WIX_PRODUCT_ICON "${CMAKE_SOURCE_DIR}/resources/icons/quewi.ico")
+    endif()
     set(CPACK_PACKAGE_EXECUTABLES "quewi" "quewi")
     set(CPACK_CREATE_DESKTOP_LINKS "quewi")
 

@@ -4,6 +4,7 @@
 
 #include <QApplication>
 #include <QCommandLineParser>
+#include <QIcon>
 #include <QSettings>
 #include <QSurfaceFormat>
 #include <QTimer>
@@ -31,6 +32,7 @@ int main(int argc, char *argv[])
     QApplication::setOrganizationName("ServeGaming");
     QApplication::setApplicationVersion(QStringLiteral(QUEWI_VERSION));
     QApplication::setStyle("Fusion");
+    QApplication::setWindowIcon(QIcon(QStringLiteral(":/icons/quewi.png")));
 
     QCommandLineParser parser;
     parser.setApplicationDescription(QStringLiteral("quewi — theatre cueing"));
