@@ -4,13 +4,102 @@
 
 #include <QApplication>
 #include <QCommandLineParser>
+#include <QFile>
 #include <QIcon>
 #include <QSettings>
+#include <QStandardPaths>
 #include <QSurfaceFormat>
 #include <QTimer>
 
+#if defined(_MSC_VER) && defined(_DEBUG)
+#  include <crtdbg.h>
+#  include <windows.h>
+#  include <DbgHelp.h>
+#  pragma comment(lib, "Dbghelp.lib")
+#  include <cstdio>
+
+namespace {
+
+// Path of the diagnostic log: %TEMP%/quewi-debug.log. Written every
+// time the CRT trips a debug assertion in this build so we can see
+// which std::vector / std::string went out of bounds without
+// reproducing under a debugger.
+QString debugLogPath() {
+    return QStandardPaths::writableLocation(QStandardPaths::TempLocation)
+         + QStringLiteral("/quewi-debug.log");
+}
+
+void writeBacktrace(FILE *out) {
+    void *frames[64] = {};
+    const USHORT n = RtlCaptureStackBackTrace(0, 64, frames, nullptr);
+    HANDLE proc = GetCurrentProcess();
+    static bool symInited = false;
+    if (!symInited) { SymSetOptions(SYMOPT_LOAD_LINES | SYMOPT_DEFERRED_LOADS);
+                      SymInitialize(proc, nullptr, TRUE); symInited = true; }
+    char buf[sizeof(SYMBOL_INFO) + 256] = {};
+    auto *sym = reinterpret_cast<PSYMBOL_INFO>(buf);
+    sym->SizeOfStruct = sizeof(SYMBOL_INFO);
+    sym->MaxNameLen   = 255;
+    for (USHORT i = 0; i < n; ++i) {
+        const auto addr = reinterpret_cast<DWORD64>(frames[i]);
+        IMAGEHLP_LINE64 line = {}; line.SizeOfStruct = sizeof(line); DWORD disp = 0;
+        if (SymFromAddr(proc, addr, nullptr, sym)) {
+            std::fprintf(out, "  [%2u] %s + 0x%llx", i, sym->Name,
+                         (unsigned long long)(addr - sym->Address));
+            if (SymGetLineFromAddr64(proc, addr, &disp, &line))
+                std::fprintf(out, "  (%s:%lu)", line.FileName, line.LineNumber);
+            std::fputc('\n', out);
+        } else {
+            std::fprintf(out, "  [%2u] 0x%llx\n", i, (unsigned long long)addr);
+        }
+    }
+}
+
+int crtReportHook(int type, char *msg, int *retVal) {
+    const char *kind = (type == _CRT_ASSERT) ? "ASSERT"
+                     : (type == _CRT_ERROR)  ? "ERROR"
+                                              : "WARN";
+    // Print to stderr (visible if launched from a console).
+    std::fprintf(stderr, "\n=== quewi CRT %s ===\n%s\n=== Stack ===\n", kind, msg);
+    writeBacktrace(stderr);
+    std::fprintf(stderr, "=================\n");
+    std::fflush(stderr);
+    // Append to the log file too — the user usually launches via Explorer
+    // and never sees stderr.
+    if (FILE *f = nullptr; fopen_s(&f, debugLogPath().toLocal8Bit().constData(), "a") == 0 && f) {
+        std::fprintf(f, "\n=== quewi CRT %s ===\n%s\n=== Stack ===\n", kind, msg);
+        writeBacktrace(f);
+        std::fprintf(f, "=================\n");
+        std::fclose(f);
+    }
+    *retVal = 0;        // 0 = continue (don't break into debugger)
+    return TRUE;        // TRUE = handled, suppress the modal dialog
+}
+
+void installCrtAssertCapture() {
+    // Drop the modal dialog and instead route assertions through our
+    // hook. Continuing past an iterator-debug failure is "undefined,
+    // probably crashes soon", but we do it deliberately to capture a
+    // call stack so we know which line of our code asked for the
+    // out-of-range access.
+    _CrtSetReportHook(&crtReportHook);
+    _CrtSetReportMode(_CRT_ASSERT, _CRTDBG_MODE_FILE);
+    _CrtSetReportFile(_CRT_ASSERT, _CRTDBG_FILE_STDERR);
+    // Truncate previous log so we don't accumulate ancient runs.
+    QFile::remove(debugLogPath());
+    std::fprintf(stderr, "[quewi] CRT assertion capture installed; log: %s\n",
+                 debugLogPath().toLocal8Bit().constData());
+}
+
+} // namespace
+#endif
+
 int main(int argc, char *argv[])
 {
+#if defined(_MSC_VER) && defined(_DEBUG)
+    installCrtAssertCapture();
+#endif
+
     // ── Pre-QApplication tuning ───────────────────────────────────────
     // Don't coalesce wheel/touch events — at 165 Hz this matters a lot,
     // because Qt's default coalescing drops intermediate ticks and the
