@@ -435,6 +435,19 @@ Inspector::Inspector(QWidget *parent)
     audioOuter->addLayout(audioForm);
     audioOuter->addLayout(quickRow);
 
+    // ---------------- Output matrix (per-output send levels) ------
+    // A row of dB sliders, one per output channel of the cue's
+    // chosen device. Empty list = passthrough; the engine pads with
+    // unity for any channel beyond the matrix length.
+    m_outputMatrixGroup = new QGroupBox(tr("Output matrix (post-pan sends)"),
+                                         m_audioGroup);
+    m_outputMatrixGroup->setCheckable(true);
+    m_outputMatrixGroup->setChecked(false);
+    m_outputMatrixLayout = new QGridLayout(m_outputMatrixGroup);
+    m_outputMatrixLayout->setHorizontalSpacing(8);
+    m_outputMatrixLayout->setVerticalSpacing(4);
+    audioOuter->addWidget(m_outputMatrixGroup);
+
     // ---------------- Object Audio (nested inside Audio group) -----
     m_objAudioGroup = new QGroupBox(tr("Object Audio"), m_audioGroup);
     m_objAudioGroup->setCheckable(true);
@@ -720,7 +733,9 @@ Inspector::Inspector(QWidget *parent)
     connect(m_audioModeTrim,   &QPushButton::clicked,            this, &Inspector::setAudioModeTrim);
     connect(m_audioModeFade,   &QPushButton::clicked,            this, &Inspector::setAudioModeFade);
     connect(m_audioOutputDevice, &QComboBox::currentIndexChanged,
-            this, [this](int){ commitAudioOutputDevice(); });
+            this, [this](int){ commitAudioOutputDevice(); rebuildOutputMatrix(); });
+    connect(m_outputMatrixGroup, &QGroupBox::toggled,
+            this, &Inspector::onOutputMatrixToggled);
 
     // Object Audio
     connect(m_objAudioGroup, &QGroupBox::toggled,
@@ -1072,6 +1087,9 @@ void Inspector::rebuild()
             m_audioMeta->setText(QStringLiteral(" "));
             m_audioMeta->setStyleSheet(QString());
         }
+
+        // ── Output matrix reload ─────────────────────────────────────
+        rebuildOutputMatrix();
 
         // ── Object Audio reload ──────────────────────────────────────
         m_objAudioGroup->setChecked(audioCue->objectAudioEnabled());
@@ -1485,6 +1503,90 @@ void Inspector::onSpreadSliderChanged(int hundredths)
     const double s = hundredths / 100.0;
     m_objSpreadLabel->setText(QStringLiteral("%1%").arg(hundredths));
     pushFieldEdit(QStringLiteral("objSpread"), s);
+}
+
+void Inspector::rebuildOutputMatrix()
+{
+    if (!m_outputMatrixLayout) return;
+    // Wipe and rebuild — cheap; run on cue-change and device-change.
+    while (m_outputMatrixLayout->count() > 0) {
+        if (auto *w = m_outputMatrixLayout->itemAt(0)->widget()) {
+            m_outputMatrixLayout->removeWidget(w);
+            w->deleteLater();
+        } else {
+            delete m_outputMatrixLayout->takeAt(0);
+        }
+    }
+    m_outputMatrixSliders.clear();
+    m_outputMatrixLabels.clear();
+
+    auto *audioCue = qobject_cast<audio::AudioCue *>(m_cue.data());
+    if (!audioCue || !m_audioEngine) return;
+
+    // Honour whatever the device reports — defaults to stereo if the
+    // device hasn't been opened yet.
+    int outChans = m_audioEngine->outputChannelCount(audioCue->outputDeviceId());
+    if (outChans <= 0) outChans = 2;
+
+    const auto stored = audioCue->outputGainsDb();
+    for (int oc = 0; oc < outChans; ++oc) {
+        auto *channelLabel = new QLabel(QStringLiteral("%1").arg(oc + 1),
+                                         m_outputMatrixGroup);
+        channelLabel->setAlignment(Qt::AlignCenter);
+        channelLabel->setMinimumWidth(20);
+
+        auto *slider = new QSlider(Qt::Horizontal, m_outputMatrixGroup);
+        slider->setRange(-9000, 1200);    // -90 dB … +12 dB in centi-dB
+        const double db = (oc < stored.size()) ? stored[oc] : 0.0;
+        slider->setValue(int(db * 100.0));
+
+        auto *valueLabel = new QLabel(QStringLiteral("%1 dB")
+            .arg(QString::number(db, 'f', 1)), m_outputMatrixGroup);
+        valueLabel->setMinimumWidth(56);
+        valueLabel->setAlignment(Qt::AlignRight | Qt::AlignVCenter);
+
+        m_outputMatrixLayout->addWidget(channelLabel, oc, 0);
+        m_outputMatrixLayout->addWidget(slider,       oc, 1);
+        m_outputMatrixLayout->addWidget(valueLabel,   oc, 2);
+
+        m_outputMatrixSliders.append(slider);
+        m_outputMatrixLabels.append(valueLabel);
+
+        connect(slider, &QSlider::valueChanged, this,
+            [this, valueLabel](int centiDb) {
+                valueLabel->setText(QStringLiteral("%1 dB")
+                    .arg(QString::number(centiDb / 100.0, 'f', 1)));
+                if (!m_loading) onOutputMatrixSliderChanged();
+            });
+    }
+
+    m_outputMatrixGroup->setChecked(!stored.isEmpty());
+}
+
+void Inspector::onOutputMatrixToggled(bool on)
+{
+    if (m_loading) return;
+    auto *audioCue = qobject_cast<audio::AudioCue *>(m_cue.data());
+    if (!audioCue) return;
+    if (!on) {
+        // Empty list = passthrough on every output. Persist that state.
+        audioCue->setOutputGainsDb({});
+    } else {
+        // First enable pulls the current slider values into a gains list.
+        onOutputMatrixSliderChanged();
+    }
+}
+
+void Inspector::onOutputMatrixSliderChanged()
+{
+    if (m_loading) return;
+    auto *audioCue = qobject_cast<audio::AudioCue *>(m_cue.data());
+    if (!audioCue) return;
+    if (!m_outputMatrixGroup->isChecked()) return;
+    QList<double> gains;
+    gains.reserve(m_outputMatrixSliders.size());
+    for (auto *s : m_outputMatrixSliders) gains.append(s->value() / 100.0);
+    audioCue->setOutputGainsDb(gains);
 }
 
 void Inspector::openSpeakerPatchDialog()

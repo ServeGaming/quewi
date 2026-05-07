@@ -50,6 +50,17 @@ public:
     bool    loop()           const { return m_loop; }
     QByteArray outputDeviceId() const { return m_outputDeviceId; }
 
+    // Per-output send levels in dB. Empty = passthrough on every
+    // channel (legacy behaviour). When non-empty, the engine applies
+    // these gains AFTER the stereo pan so the operator can route a
+    // stereo cue to FOH at 0 dB and lobby at -12 dB independently.
+    // Length is whatever the operator set in the inspector — the
+    // mixer pads with 1.0 (0 dB) for any output channel beyond the
+    // matrix length, and silently ignores object-audio cues
+    // (channelGains owns the routing in that path).
+    const QList<double> &outputGainsDb() const { return m_outputGainsDb; }
+    void  setOutputGainsDb(const QList<double> &g) { m_outputGainsDb = g; emitChanged(); }
+
     // Object-audio. When objectAudioEnabled is true and a speakerPatchId
     // resolves to a SpeakerArray patch, the engine renders the cue as a
     // point source at (azimuthDeg, elevationDeg) with VBAP gains and the
@@ -89,6 +100,9 @@ private:
     double m_objElevation = 0.0;   // -90..+90, 0 = ear-level
     double m_objSpread    = 0.0;   // 0..1
     AudioTrajectory m_trajectory;
+
+    // Linear length matches whatever the operator set; mixer pads.
+    QList<double> m_outputGainsDb;
 
     std::shared_ptr<AudioFile> m_file;
     quint64                    m_currentVoiceId = 0;

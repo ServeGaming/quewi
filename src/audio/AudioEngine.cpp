@@ -76,6 +76,7 @@ public:
         }
         v.srcSampleRate = srcSr;
         v.channelGains  = params.channelGains;
+        v.outputGains   = params.outputGains;
         v.peakPerChannel.fill(0.0f, m_outputChannels);
 
         std::lock_guard<std::mutex> lock(m_mutex);
@@ -294,6 +295,12 @@ private:
         // would replace this with an atomic pointer-swap; v1 is static.
         QList<float> channelGains;
 
+        // Per-output send gains for non-object-audio cues. Applied
+        // AFTER the stereo pan; empty = passthrough. Mutated only at
+        // addVoice() time today (live edits would land via a sibling
+        // setVoiceOutputGains in a follow-up); under the mutex.
+        QList<float> outputGains;
+
         // Per-channel peak — sized to the device's output channel count.
         // The mixer writes these every buffer; the UI thread reads under
         // the existing mutex snapshot so no atomics required.
@@ -322,6 +329,7 @@ private:
             , loop(other.loop)
             , finished(other.finished)
             , channelGains(std::move(other.channelGains))
+            , outputGains(std::move(other.outputGains))
             , peakPerChannel(std::move(other.peakPerChannel))
         {
             gain.store(other.gain.load(std::memory_order_relaxed), std::memory_order_relaxed);
@@ -352,6 +360,7 @@ private:
             loop = other.loop;
             finished = other.finished;
             channelGains   = std::move(other.channelGains);
+            outputGains    = std::move(other.outputGains);
             peakPerChannel = std::move(other.peakPerChannel);
             gain.store(other.gain.load(std::memory_order_relaxed), std::memory_order_relaxed);
             currentGain.store(other.currentGain.load(std::memory_order_relaxed), std::memory_order_relaxed);
@@ -536,7 +545,15 @@ qint64 AudioEngine::Mixer::readData(char *data, qint64 maxlen)
                     if (outChans == 2) {
                         panGain = (oc == 0) ? leftPan : rightPan;
                     }
-                    const float written = static_cast<float>(s * finalGain) * panGain;
+                    // Per-output send gain (post-pan). Empty = unity
+                    // on every channel; shorter than outChans = unity
+                    // for the trailing channels. Lets the operator
+                    // route a stereo cue to FOH at 0 dB and lobby
+                    // at -12 dB without touching the pan.
+                    const float sendGain = (oc < v.outputGains.size())
+                                              ? v.outputGains[oc] : 1.f;
+                    const float written = static_cast<float>(s * finalGain)
+                                            * panGain * sendGain;
                     out[f * outChans + oc] += written;
                     const float a = std::fabs(written);
                     if (oc < 16 && a > bufPeaks[oc]) bufPeaks[oc] = a;

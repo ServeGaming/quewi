@@ -40,6 +40,13 @@ struct VoiceParams {
     // count. Computed by AudioEngine::fire() from the cue's spatial
     // position and the speaker patch — voices stay agnostic to VBAP.
     QList<float> channelGains;
+
+    // Per-output send gains (linear) applied AFTER the stereo pan.
+    // Empty = passthrough on every output. Independent of channelGains:
+    // non-object-audio cues use this to route a stereo signal to FOH at
+    // 0 dB and lobby at -12 dB without touching the pan. Object-audio
+    // cues ignore it (channelGains already encodes the routing).
+    QList<float> outputGains;
 };
 
 // Snapshot of a currently-playing voice — surfaced to the UI so the

@@ -1,5 +1,6 @@
 #include "audio/AudioCue.h"
 
+#include <QJsonArray>
 #include <QJsonObject>
 
 namespace quewi::audio {
@@ -92,6 +93,11 @@ QJsonObject AudioCue::toPayload() const
     o.insert(QStringLiteral("pan"),            m_pan);
     o.insert(QStringLiteral("loop"),           m_loop);
     o.insert(QStringLiteral("outputDeviceId"), QString::fromLatin1(m_outputDeviceId));
+    if (!m_outputGainsDb.isEmpty()) {
+        QJsonArray g;
+        for (double v : m_outputGainsDb) g.append(v);
+        o.insert(QStringLiteral("outputGainsDb"), g);
+    }
     if (m_objAudio) {
         o.insert(QStringLiteral("objectAudio"),    true);
         o.insert(QStringLiteral("speakerPatchId"), m_speakerPatchId.toString(QUuid::WithoutBraces));
@@ -122,6 +128,11 @@ void AudioCue::fromPayload(const QJsonObject &payload)
     m_objAzimuth     = payload.value(QStringLiteral("objAzimuth")).toDouble(0.0);
     m_objElevation   = payload.value(QStringLiteral("objElevation")).toDouble(0.0);
     m_objSpread      = payload.value(QStringLiteral("objSpread")).toDouble(0.0);
+    m_outputGainsDb.clear();
+    if (payload.contains(QStringLiteral("outputGainsDb"))) {
+        const auto arr = payload.value(QStringLiteral("outputGainsDb")).toArray();
+        for (const auto &v : arr) m_outputGainsDb.append(v.toDouble(0.0));
+    }
     if (payload.contains(QStringLiteral("trajectory"))) {
         m_trajectory = AudioTrajectory::fromJson(
             payload.value(QStringLiteral("trajectory")).toObject());

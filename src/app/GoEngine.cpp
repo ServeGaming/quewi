@@ -25,6 +25,8 @@
 #include <QRandomGenerator>
 #include <QTimer>
 
+#include <cmath>
+
 namespace quewi {
 
 GoEngine::GoEngine(QObject *parent) : QObject(parent) {}
@@ -155,6 +157,18 @@ void GoEngine::doFire(cues::Cue *cue)
                 p.pan            = audioCue->pan();
                 p.loop           = audioCue->loop();
                 p.outputDeviceId = audioCue->outputDeviceId();
+                // Per-output sends (dB → linear). Object-audio cues
+                // don't use this path — channelGains owns routing.
+                if (!audioCue->objectAudioEnabled()
+                    && !audioCue->outputGainsDb().isEmpty())
+                {
+                    QList<float> linear;
+                    linear.reserve(audioCue->outputGainsDb().size());
+                    for (double db : audioCue->outputGainsDb()) {
+                        linear.append(float(std::pow(10.0, db / 20.0)));
+                    }
+                    p.outputGains = std::move(linear);
+                }
 
                 // Object Audio: convert (azimuth, elevation, spread) +
                 // speaker patch into per-channel gains. If the patch is

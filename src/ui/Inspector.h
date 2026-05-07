@@ -13,6 +13,7 @@ class QGroupBox;
 class QComboBox;
 class QPushButton;
 class QCheckBox;
+class QGridLayout;
 class QFormLayout;
 class QButtonGroup;
 class QListWidget;
@@ -103,6 +104,9 @@ private slots:
     void onStagePositionChanged(float azimuthDeg, float elevationDeg);
     void onElevationSliderChanged(int tenthDeg);
     void onSpreadSliderChanged(int hundredths);
+    void onOutputMatrixToggled(bool on);
+    void onOutputMatrixSliderChanged();
+    void rebuildOutputMatrix();
     void openSpeakerPatchDialog();
     void onTrajectoryAdd();
     void onTrajectoryRemove();
@@ -230,6 +234,11 @@ private:
     // Trajectory editor (inside Object Audio group). Animates the source
     // position over the cue's playback time; when the table has 2+ rows,
     // GoEngine ticks it at ~30 Hz on the running voice.
+    QGroupBox      *m_outputMatrixGroup = nullptr;
+    QGridLayout    *m_outputMatrixLayout = nullptr;
+    QList<QSlider*> m_outputMatrixSliders;
+    QList<QLabel*>  m_outputMatrixLabels;
+
     QGroupBox      *m_trajGroup     = nullptr;
     QTableWidget   *m_trajTable     = nullptr;
     QComboBox      *m_trajMode      = nullptr;
