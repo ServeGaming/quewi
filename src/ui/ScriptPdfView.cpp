@@ -23,12 +23,6 @@ ScriptPdfView::ScriptPdfView(QWidget *parent)
     setDocument(m_doc);
     setPageMode(QPdfView::PageMode::MultiPage);
     setZoomMode(QPdfView::ZoomMode::FitToWidth);
-
-    // Paint the overlay on top of the QPdfView's viewport. We can't
-    // override paintEvent on QPdfView directly without losing the page
-    // rendering, so we use an event filter on the viewport and draw
-    // after QPdfView has finished painting.
-    viewport()->installEventFilter(this);
 }
 
 ScriptPdfView::~ScriptPdfView() = default;
@@ -158,33 +152,32 @@ void ScriptPdfView::mousePressEvent(QMouseEvent *event)
     QPdfView::mousePressEvent(event);
 }
 
-bool ScriptPdfView::eventFilter(QObject *watched, QEvent *event)
+void ScriptPdfView::paintEvent(QPaintEvent *event)
 {
-    if (watched == viewport() && event->type() == QEvent::Paint) {
-        // Let QPdfView paint first…
-        QPdfView::eventFilter(watched, event);
-        // …then overlay our annotation tabs.
-        if (m_workspace && m_workspace->scriptModel()) {
-            QPainter p(viewport());
-            const auto *m = m_workspace->scriptModel();
-            const QColor running = QColor(0x6F, 0xAE, 0x63, 200);
-            const QColor next    = QColor(0xD7, 0xA2, 0x4E, 200);
-            const QColor accent  = QColor(0xC5, 0x8B, 0x4A, 160);
-            for (const auto &a : m->annotations()) {
-                if (a.line > 0) continue;
-                const QRect r = locationToRect(a.page, a.yFraction);
-                if (r.isEmpty()) continue;
-                QColor c = accent;
-                if      (a.cueId == m_runningCue) c = running;
-                else if (a.cueId == m_nextCue)    c = next;
-                p.fillRect(r, c);
-                // Cue label dot on the left side.
-                p.fillRect(QRect(0, r.center().y() - 6, 5, 12), c);
-            }
-        }
-        return true;   // consumed — we drew on top
+    // Let QPdfView render the page(s) into the viewport first, then
+    // overlay our annotation tabs on top via a fresh painter. Painting
+    // through an event filter would have suppressed QPdfView's own
+    // paintEvent (Qt routes scroll-area paints via virtuals, not via
+    // filtered events), which is why the viewer was blank in v0.6.0.
+    QPdfView::paintEvent(event);
+
+    if (!m_workspace || !m_workspace->scriptModel()) return;
+    QPainter p(viewport());
+    const auto *m = m_workspace->scriptModel();
+    const QColor running = QColor(0x6F, 0xAE, 0x63, 200);
+    const QColor next    = QColor(0xD7, 0xA2, 0x4E, 200);
+    const QColor accent  = QColor(0xC5, 0x8B, 0x4A, 160);
+    for (const auto &a : m->annotations()) {
+        if (a.line > 0) continue;
+        const QRect r = locationToRect(a.page, a.yFraction);
+        if (r.isEmpty()) continue;
+        QColor c = accent;
+        if      (a.cueId == m_runningCue) c = running;
+        else if (a.cueId == m_nextCue)    c = next;
+        p.fillRect(r, c);
+        // Cue label dot on the left side.
+        p.fillRect(QRect(0, r.center().y() - 6, 5, 12), c);
     }
-    return QPdfView::eventFilter(watched, event);
 }
 
 } // namespace quewi::ui
