@@ -28,6 +28,7 @@ namespace quewi::midi  { class MidiEngine; }
 namespace quewi {
 
 class GoEngine;
+class UpdateChecker;
 
 class MainWindow : public QMainWindow {
     Q_OBJECT
@@ -91,6 +92,10 @@ private slots:
 
 public:
     bool loadShowFromPath(const QString &path);
+    // Manual = launched from File → Check for updates… (Verbose mode, so
+    // "you're up to date" is also confirmed). Startup pass calls this
+    // with manual=false so a flat line stays silent.
+    void checkForUpdates(bool manual);
 
 private:
     void buildLayout();
@@ -121,6 +126,7 @@ private:
     ui::ActiveCuesPanel *m_activePanel = nullptr;
     ui::OscMonitor   *m_oscMonitor = nullptr;
     ui::ScriptWindow *m_scriptWindow = nullptr;
+    UpdateChecker    *m_updateChecker = nullptr;
     QSplitter       *m_mainSplitter = nullptr;
 
     QAction *m_actUndo = nullptr;

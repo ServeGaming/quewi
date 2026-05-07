@@ -1,6 +1,9 @@
 #include "MainWindow.h"
 
 #include "GoEngine.h"
+#include "UpdateChecker.h"
+
+#include <QDesktopServices>
 
 #include "audio/AudioCue.h"
 #include "audio/AudioEngine.h"
@@ -225,6 +228,14 @@ MainWindow::MainWindow(QWidget *parent)
 
     // Offer recovery after the main window is on screen.
     QTimer::singleShot(0, this, &MainWindow::recoverFromJournalIfPresent);
+
+    // Silent update check on startup. Three-second delay so it doesn't
+    // contend with the cold-start path; the user-facing dialog only
+    // appears if a newer release is actually published.
+    QSettings s(QStringLiteral("ServeGaming"), QStringLiteral("quewi"));
+    if (s.value(QStringLiteral("update/checkOnStartup"), true).toBool()) {
+        QTimer::singleShot(3000, this, [this]{ checkForUpdates(false); });
+    }
 }
 
 MainWindow::~MainWindow() = default;
@@ -381,6 +392,8 @@ void MainWindow::buildMenus()
     file->addAction(tr("Save &As…"), QKeySequence::SaveAs, this, [this]{ saveShowAs(); });
     file->addSeparator();
     file->addAction(tr("&Preferences…"), this, &MainWindow::showPreferences);
+    file->addAction(tr("Check for &updates…"),
+                    this, [this]{ checkForUpdates(true); });
     file->addSeparator();
     file->addAction(tr("E&xit"), QKeySequence::Quit, this, &QWidget::close);
 
@@ -1339,7 +1352,54 @@ void MainWindow::updateTitle()
         ? tr("Untitled")
         : QFileInfo(m_currentPath).fileName();
     const QString dirty = m_workspace && m_workspace->isDirty() ? QStringLiteral("*") : QString();
-    setWindowTitle(QStringLiteral("%1%2 — quewi").arg(fileName, dirty));
+    setWindowTitle(QStringLiteral("%1%2 — quewi v%3")
+        .arg(fileName, dirty, QStringLiteral(QUEWI_VERSION)));
+}
+
+void MainWindow::checkForUpdates(bool manual)
+{
+    if (!m_updateChecker) {
+        m_updateChecker = new UpdateChecker(this);
+        connect(m_updateChecker, &UpdateChecker::updateAvailable, this,
+            [this](const QString &version, const QString &download,
+                   const QString &page, UpdateChecker::Mode /*mode*/)
+        {
+            QMessageBox box(this);
+            box.setWindowTitle(tr("Update available"));
+            box.setIcon(QMessageBox::Information);
+            box.setText(tr("quewi <b>v%1</b> is available.<br>"
+                           "You're running v%2.")
+                .arg(version, QStringLiteral(QUEWI_VERSION)));
+            box.setInformativeText(tr("Download the installer in your browser, "
+                                       "then run it to update. quewi will close "
+                                       "during install."));
+            auto *dl    = box.addButton(tr("Download"), QMessageBox::AcceptRole);
+            auto *notes = box.addButton(tr("Release notes"), QMessageBox::HelpRole);
+            box.addButton(tr("Later"), QMessageBox::RejectRole);
+            box.exec();
+            if (box.clickedButton() == dl)        QDesktopServices::openUrl(QUrl(download));
+            else if (box.clickedButton() == notes) QDesktopServices::openUrl(QUrl(page));
+        });
+        connect(m_updateChecker, &UpdateChecker::upToDate, this,
+            [this](UpdateChecker::Mode mode) {
+                if (mode == UpdateChecker::Mode::Verbose) {
+                    QMessageBox::information(this, tr("Up to date"),
+                        tr("quewi v%1 is the latest release.")
+                            .arg(QStringLiteral(QUEWI_VERSION)));
+                }
+            });
+        connect(m_updateChecker, &UpdateChecker::checkFailed, this,
+            [this](const QString &reason, UpdateChecker::Mode mode) {
+                if (mode == UpdateChecker::Mode::Verbose) {
+                    QMessageBox::warning(this, tr("Update check failed"),
+                        tr("Couldn't reach GitHub:\n%1").arg(reason));
+                }
+                // Silent failures stay quiet — the operator doesn't need
+                // a popup if their FOH laptop is offline at boot.
+            });
+    }
+    m_updateChecker->start(manual ? UpdateChecker::Mode::Verbose
+                                   : UpdateChecker::Mode::Silent);
 }
 
 void MainWindow::onGoRequested()
