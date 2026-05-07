@@ -53,6 +53,9 @@ private:
     QNetworkReply         *m_reply = nullptr;
     QFile                 *m_file = nullptr;
     QString                m_localPath;
+    // Server-reported total bytes from the downloadProgress signal.
+    // Used post-finish to confirm the file isn't truncated.
+    qint64                 m_expectedBytes = -1;
 };
 
 } // namespace quewi

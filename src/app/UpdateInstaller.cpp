@@ -49,14 +49,24 @@ void UpdateInstaller::download(const QString &msiUrl)
         return;
     }
 
-    // Stage to %TEMP%/quewi-update-X.Y.Z.msi. Windows sweeps temp on
-    // its own; we don't track the file once msiexec takes over.
+    // Stage to the user's Downloads folder — same place a browser
+    // would put the MSI if the operator downloaded it themselves.
+    // %TEMP% bit us in v0.9.x: Defender real-time protection or other
+    // antivirus can quarantine an MSI in temp within seconds, and on
+    // multi-user machines an elevated msiexec running as a different
+    // admin can't see the original user's per-profile temp directory.
+    // Downloads is per-user but standard, durable, and msiexec-safe.
     const QString name = QFileInfo(url.path()).fileName();
-    m_localPath = QStandardPaths::writableLocation(QStandardPaths::TempLocation)
-                  + QStringLiteral("/")
-                  + (name.isEmpty()
-                     ? QStringLiteral("quewi-update.msi")
-                     : name);
+    const QString fileName = name.isEmpty() ? QStringLiteral("quewi-update.msi")
+                                            : name;
+    QString downloadsDir = QStandardPaths::writableLocation(
+        QStandardPaths::DownloadLocation);
+    if (downloadsDir.isEmpty()) {
+        downloadsDir = QStandardPaths::writableLocation(
+            QStandardPaths::TempLocation);
+    }
+    QDir().mkpath(downloadsDir);
+    m_localPath = downloadsDir + QStringLiteral("/") + fileName;
     QFile::remove(m_localPath);
     m_file = new QFile(m_localPath, this);
     if (!m_file->open(QIODevice::WriteOnly)) {
@@ -65,6 +75,7 @@ void UpdateInstaller::download(const QString &msiUrl)
         emit downloadFailed(tr("Couldn't open %1: %2").arg(m_localPath, err));
         return;
     }
+    m_expectedBytes = -1;
 
     QNetworkRequest req(url);
     req.setHeader(QNetworkRequest::UserAgentHeader,
@@ -83,8 +94,11 @@ void UpdateInstaller::download(const QString &msiUrl)
             this,    &UpdateInstaller::onReplyFinished);
     connect(m_reply, &QNetworkReply::errorOccurred,
             this,    &UpdateInstaller::onReplyError);
-    connect(m_reply, &QNetworkReply::downloadProgress,
-            this,    &UpdateInstaller::progress);
+    connect(m_reply, &QNetworkReply::downloadProgress, this,
+        [this](qint64 received, qint64 total) {
+            if (total > 0) m_expectedBytes = total;
+            emit progress(received, total);
+        });
 }
 
 void UpdateInstaller::onReplyReadyRead()
@@ -122,18 +136,48 @@ void UpdateInstaller::onReplyFinished()
         emit downloadFailed(errStr);
         return;
     }
-    if (QFileInfo(m_localPath).size() < 1'000'000) {
-        // A real quewi MSI is ~50+ MB (Qt DLLs dominate). Anything under
-        // 1 MB is almost certainly an error page or HTML body that came
-        // back from a redirect we couldn't follow — refuse to hand a
-        // junk file to msiexec, which would silently fail and leave the
-        // user staring at nothing.
+
+    // Validation gauntlet. Each check exists because something in
+    // production has gone wrong here:
+    //  1. Size floor — error pages from a missed redirect are tiny.
+    //  2. Content-Length match — partial downloads pass the size
+    //     floor but msiexec rejects truncated installers with
+    //     "package could not be opened".
+    //  3. OLE2 magic — MSIs are OLE compound documents starting
+    //     with D0 CF 11 E0 A1 B1 1A E1. An HTML body or random
+    //     binary garbage will fail this even at the right size.
+    const qint64 actualBytes = QFileInfo(m_localPath).size();
+    if (actualBytes < 5'000'000) {
         QFile::remove(m_localPath);
         emit downloadFailed(tr("Download finished but the file looks "
                                "incomplete (%1 bytes). Try again, or "
                                "download manually from the release page.")
-                            .arg(QFileInfo(m_localPath).size()));
+                            .arg(actualBytes));
         return;
+    }
+    if (m_expectedBytes > 0 && actualBytes != m_expectedBytes) {
+        QFile::remove(m_localPath);
+        emit downloadFailed(tr("Download was truncated (got %1 of %2 bytes). "
+                               "Check your connection and try again.")
+                            .arg(actualBytes).arg(m_expectedBytes));
+        return;
+    }
+    {
+        QFile probe(m_localPath);
+        if (probe.open(QIODevice::ReadOnly)) {
+            const QByteArray head = probe.read(8);
+            probe.close();
+            static const QByteArray kOle2Magic =
+                QByteArray::fromHex("d0cf11e0a1b11ae1");
+            if (head != kOle2Magic) {
+                QFile::remove(m_localPath);
+                emit downloadFailed(tr("Downloaded file isn't a valid MSI "
+                                       "(magic header mismatch). Try again, "
+                                       "or download manually from the "
+                                       "release page."));
+                return;
+            }
+        }
     }
     emit downloadFinished(m_localPath);
 }
@@ -154,6 +198,13 @@ bool UpdateInstaller::launchAndQuit(const QString &msiPath)
     // We only quit if launch is confirmed. Otherwise the user keeps
     // quewi open with a clear error path instead of a blank desktop.
     const QString native = QDir::toNativeSeparators(msiPath);
+    // Last-line guard: between download-validation and this call, the
+    // user could close & reopen quewi (forgetting where the staged
+    // file was), or antivirus could have swept the file. If it's gone
+    // there's no point quitting the app.
+    if (!QFileInfo::exists(msiPath)) {
+        return false;
+    }
     bool started = false;
 
 #ifdef Q_OS_WIN
