@@ -6,9 +6,11 @@
 #include <QPainter>
 #include <QPaintEvent>
 #include <QPainterPath>
+#include <QWheelEvent>
 
 #include <algorithm>
 #include <cmath>
+#include <limits>
 
 namespace quewi::ui {
 
@@ -71,18 +73,79 @@ double WaveformWidget::effectiveDuration() const
     return m_file->durationSeconds();
 }
 
-int WaveformWidget::secondsToPixel(double sec) const
+double WaveformWidget::viewSpan() const
+{
+    if (m_viewEnd > m_viewStart) return m_viewEnd - m_viewStart;
+    return effectiveDuration();
+}
+
+void WaveformWidget::clampView()
 {
     const double dur = effectiveDuration();
-    if (dur <= 0.0) return 0;
-    return static_cast<int>((sec / dur) * width());
+    if (dur <= 0.0) { m_viewStart = 0.0; m_viewEnd = 0.0; return; }
+    if (m_viewEnd <= m_viewStart) { m_viewStart = 0.0; m_viewEnd = 0.0; return; }
+    // Don't allow a window narrower than ~5 ms — keeps the renderer
+    // sensible and prevents the user from zooming so far in that one
+    // pixel covers a sub-sample.
+    const double minSpan = 0.005;
+    double span = std::max(minSpan, m_viewEnd - m_viewStart);
+    span = std::min(span, dur);
+    if (m_viewStart < 0.0)          m_viewStart = 0.0;
+    if (m_viewStart + span > dur)   m_viewStart = dur - span;
+    if (m_viewStart < 0.0)          m_viewStart = 0.0;
+    m_viewEnd = m_viewStart + span;
+    if (m_viewEnd >= dur && m_viewStart <= 0.0) {
+        // Fully zoomed out — collapse to "no-zoom" sentinel.
+        m_viewStart = 0.0;
+        m_viewEnd   = 0.0;
+    }
+}
+
+int WaveformWidget::secondsToPixel(double sec) const
+{
+    const double span = viewSpan();
+    if (span <= 0.0 || width() <= 0) return 0;
+    return static_cast<int>(((sec - m_viewStart) / span) * width());
 }
 
 double WaveformWidget::pixelToSeconds(int px) const
 {
-    const double dur = effectiveDuration();
-    if (dur <= 0.0 || width() <= 0) return 0.0;
-    return std::clamp(static_cast<double>(px) / width(), 0.0, 1.0) * dur;
+    const double span = viewSpan();
+    if (span <= 0.0 || width() <= 0) return m_viewStart;
+    const double t = m_viewStart + (static_cast<double>(px) / width()) * span;
+    return std::clamp(t, 0.0, effectiveDuration());
+}
+
+double WaveformWidget::snapToZeroCrossing(double seconds) const
+{
+    if (!m_file || m_file->state() != audio::AudioFile::State::Loaded) return seconds;
+    const auto &samples = m_file->samples();
+    const int chans = m_file->channelCount();
+    const int sr    = m_file->sampleRate();
+    const qint64 totalFrames = m_file->frameCount();
+    if (chans <= 0 || sr <= 0 || totalFrames <= 1) return seconds;
+
+    const qint64 target = static_cast<qint64>(seconds * sr);
+    const qint64 win    = static_cast<qint64>(0.05 * sr);  // ±50 ms
+    const qint64 lo     = std::max<qint64>(0, target - win);
+    const qint64 hi     = std::min<qint64>(totalFrames - 1, target + win);
+    if (lo >= hi) return seconds;
+
+    qint64 best = -1;
+    qint64 bestDist = std::numeric_limits<qint64>::max();
+    // Look at channel 0 only — for stereo content the L channel is
+    // representative enough and avoids surprising behaviour where
+    // a "zero" exists on R but not L.
+    for (qint64 f = lo; f < hi; ++f) {
+        const float a = samples[static_cast<size_t>(f)     * chans];
+        const float b = samples[static_cast<size_t>(f + 1) * chans];
+        const bool crossed = (a <= 0.f && b > 0.f) || (a >= 0.f && b < 0.f);
+        if (!crossed) continue;
+        const qint64 d = std::llabs(f - target);
+        if (d < bestDist) { bestDist = d; best = f; }
+    }
+    if (best < 0) return seconds;
+    return static_cast<double>(best) / sr;
 }
 
 WaveformWidget::Handle WaveformWidget::hitTest(int x) const
@@ -143,12 +206,21 @@ void WaveformWidget::paintEvent(QPaintEvent *)
     const int trimXIn  = secondsToPixel(m_trimIn);
     const int trimXOut = secondsToPixel(m_trimOut > 0 ? m_trimOut : dur);
 
-    // Waveform — dim outside trim window when in trim mode.
+    // Map x → peak row through the visible window. When zoomed in,
+    // each pixel covers a small slice of the file so the row range is
+    // narrow; we still pick the max peak in the slice for an accurate
+    // envelope.
+    const double viewS = m_viewStart;
+    const double viewE = (m_viewEnd > m_viewStart) ? m_viewEnd : dur;
+    const double rowsPerSec = dur > 0.0 ? totalRows / dur : 0.0;
+
     for (int x = 0; x < w; ++x) {
-        const int rowStart = static_cast<int>(static_cast<qint64>(x)     * totalRows / w);
-        const int rowEnd   = static_cast<int>(static_cast<qint64>(x + 1) * totalRows / w);
+        const double t0 = viewS + (static_cast<double>(x)     / w) * (viewE - viewS);
+        const double t1 = viewS + (static_cast<double>(x + 1) / w) * (viewE - viewS);
+        const int rowStart = std::clamp(int(t0 * rowsPerSec), 0, totalRows);
+        const int rowEnd   = std::clamp(int(t1 * rowsPerSec), rowStart, totalRows);
         float peak = 0.0f;
-        for (int r = rowStart; r < rowEnd && r < totalRows; ++r) {
+        for (int r = rowStart; r <= rowEnd && r < totalRows; ++r) {
             for (int c = 0; c < chans; ++c) {
                 const float v = peaks[static_cast<size_t>(r) * static_cast<size_t>(chans)
                                        + static_cast<size_t>(c)];
@@ -159,6 +231,17 @@ void WaveformWidget::paintEvent(QPaintEvent *)
         const bool insideTrim = (x >= trimXIn && x <= trimXOut);
         p.setPen(insideTrim ? kWave : kWaveDim);
         p.drawLine(x, h / 2 - half, x, h / 2 + half);
+    }
+
+    // Zoom indicator. Subtle bottom-right hint when zoomed in so the
+    // operator knows the view isn't the whole file. Hidden when
+    // showing the full duration.
+    if (viewE - viewS < dur - 0.001) {
+        const QString hint = tr("zoom %1× (dbl-click to reset)")
+            .arg(QString::number(dur / std::max(0.001, viewE - viewS), 'f', 1));
+        p.setPen(kTextCol);
+        p.drawText(rect().adjusted(0, 0, -6, -4), Qt::AlignBottom | Qt::AlignRight,
+                   hint);
     }
 
     // Trim overlay — full strength when active, ghosted otherwise.
@@ -225,9 +308,34 @@ void WaveformWidget::paintEvent(QPaintEvent *)
 
 void WaveformWidget::mousePressEvent(QMouseEvent *event)
 {
+    const int x = event->position().toPoint().x();
+
+    if (event->button() == Qt::MiddleButton) {
+        // Middle-drag pan when zoomed in. We capture the view start
+        // and the cursor x, then translate cursor delta back into a
+        // time delta in mouseMoveEvent. Ignored when fully zoomed out
+        // (no point panning a window that already covers everything).
+        if (viewSpan() < effectiveDuration() - 0.001) {
+            m_panning = true;
+            m_panAnchorX = x;
+            m_panAnchorViewStart = m_viewStart;
+            setCursor(Qt::ClosedHandCursor);
+        }
+        return;
+    }
     if (event->button() != Qt::LeftButton) return;
-    m_dragging = hitTest(event->position().toPoint().x());
+
+    m_dragging = hitTest(x);
     if (m_dragging != Handle::None) {
+        m_dragPressTime = pixelToSeconds(x);
+        switch (m_dragging) {
+        case Handle::TrimIn:  m_dragInitialValue = m_trimIn;  break;
+        case Handle::TrimOut: m_dragInitialValue = m_trimOut > 0 ? m_trimOut
+                                                  : effectiveDuration(); break;
+        case Handle::FadeIn:  m_dragInitialValue = m_fadeIn;  break;
+        case Handle::FadeOut: m_dragInitialValue = m_fadeOut; break;
+        case Handle::None: break;
+        }
         setCursor(Qt::SplitHCursor);
     }
 }
@@ -235,8 +343,19 @@ void WaveformWidget::mousePressEvent(QMouseEvent *event)
 void WaveformWidget::mouseMoveEvent(QMouseEvent *event)
 {
     const int x = event->position().toPoint().x();
+
+    if (m_panning) {
+        const double span = viewSpan();
+        const double dx = static_cast<double>(x - m_panAnchorX);
+        const double secsPerPx = span / std::max(1, width());
+        m_viewStart = m_panAnchorViewStart - dx * secsPerPx;
+        m_viewEnd   = m_viewStart + span;
+        clampView();
+        update();
+        return;
+    }
+
     if (m_dragging == Handle::None) {
-        // Hover feedback
         if (m_mode != EditMode::None) {
             setCursor(hitTest(x) != Handle::None ? Qt::SplitHCursor
                                                  : Qt::PointingHandCursor);
@@ -245,7 +364,17 @@ void WaveformWidget::mouseMoveEvent(QMouseEvent *event)
     }
 
     const double dur = effectiveDuration();
-    const double t = pixelToSeconds(x);
+
+    // Shift = fine-drag: move at 0.1× the cursor delta from the press
+    // point. Anchors against m_dragPressTime / m_dragInitialValue so
+    // the value glides smoothly even as the cursor wanders far from
+    // the original handle position.
+    const bool fine = event->modifiers().testFlag(Qt::ShiftModifier);
+    const double cursorTime = pixelToSeconds(x);
+    const double t = fine
+        ? m_dragInitialValue + (cursorTime - m_dragPressTime) * 0.1
+        : cursorTime;
+
     switch (m_dragging) {
     case Handle::TrimIn: {
         const double maxIn = (m_trimOut > 0 ? m_trimOut : dur) - 0.01;
@@ -261,14 +390,23 @@ void WaveformWidget::mouseMoveEvent(QMouseEvent *event)
     }
     case Handle::FadeIn: {
         const double trimSpan = (m_trimOut > 0 ? m_trimOut : dur) - m_trimIn;
-        m_fadeIn = std::clamp(t - m_trimIn, 0.0, trimSpan);
+        // Fine-drag fadeIn anchors against the duration directly,
+        // which matches what the user expects (drag the edge, not
+        // the absolute time).
+        const double v = fine
+            ? m_dragInitialValue + (cursorTime - m_dragPressTime) * 0.1
+            : (cursorTime - m_trimIn);
+        m_fadeIn = std::clamp(v, 0.0, trimSpan);
         emit fadeInChanged(m_fadeIn);
         break;
     }
     case Handle::FadeOut: {
         const double end = (m_trimOut > 0 ? m_trimOut : dur);
         const double trimSpan = end - m_trimIn;
-        m_fadeOut = std::clamp(end - t, 0.0, trimSpan);
+        const double v = fine
+            ? m_dragInitialValue + (m_dragPressTime - cursorTime) * 0.1
+            : (end - cursorTime);
+        m_fadeOut = std::clamp(v, 0.0, trimSpan);
         emit fadeOutChanged(m_fadeOut);
         break;
     }
@@ -279,13 +417,69 @@ void WaveformWidget::mouseMoveEvent(QMouseEvent *event)
 
 void WaveformWidget::mouseReleaseEvent(QMouseEvent *event)
 {
+    if (event->button() == Qt::MiddleButton && m_panning) {
+        m_panning = false;
+        setCursor(m_mode == EditMode::None ? Qt::ArrowCursor
+                                            : Qt::PointingHandCursor);
+        return;
+    }
     if (event->button() != Qt::LeftButton) return;
     if (m_dragging != Handle::None) {
+        // Snap-to-zero-crossing on trim handles only — fade edges
+        // don't audibly benefit (the fade itself smooths the
+        // discontinuity).
+        if (m_dragging == Handle::TrimIn) {
+            const double snapped = snapToZeroCrossing(m_trimIn);
+            if (snapped != m_trimIn) {
+                m_trimIn = snapped;
+                emit trimInChanged(m_trimIn);
+            }
+        } else if (m_dragging == Handle::TrimOut) {
+            const double snapped = snapToZeroCrossing(m_trimOut);
+            if (snapped != m_trimOut) {
+                m_trimOut = snapped;
+                emit trimOutChanged(m_trimOut);
+            }
+        }
         m_dragging = Handle::None;
         setCursor(m_mode == EditMode::None ? Qt::ArrowCursor
                                             : Qt::PointingHandCursor);
         emit editingFinished();
+        update();
     }
+}
+
+void WaveformWidget::mouseDoubleClickEvent(QMouseEvent *event)
+{
+    // Double-click anywhere resets the zoom to "show full file".
+    if (event->button() != Qt::LeftButton) return;
+    m_viewStart = 0.0;
+    m_viewEnd   = 0.0;
+    update();
+}
+
+void WaveformWidget::wheelEvent(QWheelEvent *event)
+{
+    const double dur = effectiveDuration();
+    if (dur <= 0.0) { event->ignore(); return; }
+
+    // Wheel zoom toward the cursor: the time under the cursor stays
+    // pinned to the same x coordinate after the zoom. Standard pro-
+    // audio gesture — Pro Tools, Reaper, Audacity all do this.
+    const double zoom = std::pow(1.2, event->angleDelta().y() / 120.0);
+    const double oldSpan = viewSpan();
+    double newSpan = oldSpan / zoom;
+    newSpan = std::clamp(newSpan, 0.005, dur);
+
+    const QPointF pos = event->position();
+    const double cursorFrac = std::clamp(pos.x() / std::max(1, width()), 0.0, 1.0);
+    const double cursorTime = pixelToSeconds(static_cast<int>(pos.x()));
+
+    m_viewStart = cursorTime - cursorFrac * newSpan;
+    m_viewEnd   = m_viewStart + newSpan;
+    clampView();
+    update();
+    event->accept();
 }
 
 } // namespace quewi::ui

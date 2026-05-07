@@ -54,6 +54,8 @@ protected:
     void mousePressEvent(QMouseEvent *event) override;
     void mouseMoveEvent(QMouseEvent *event) override;
     void mouseReleaseEvent(QMouseEvent *event) override;
+    void mouseDoubleClickEvent(QMouseEvent *event) override;
+    void wheelEvent(QWheelEvent *event) override;
 
 private:
     enum class Handle {
@@ -64,6 +66,16 @@ private:
     int    secondsToPixel(double sec) const;
     double pixelToSeconds(int px) const;
     double effectiveDuration() const;
+    // Visible window. Zooming shrinks span; panning slides start/end.
+    // span() returns the duration of the visible window in seconds.
+    double viewSpan() const;
+    // Snap a time to the nearest sample-level zero crossing within
+    // ±50 ms. Returns the input unchanged if no crossing was found,
+    // or the file isn't fully decoded yet.
+    double snapToZeroCrossing(double seconds) const;
+    // Clamp the (m_viewStart, m_viewEnd) pair to the file duration
+    // and ensure they're sane. Called after any zoom or pan.
+    void   clampView();
 
     std::shared_ptr<audio::AudioFile> m_file;
     EditMode m_mode = EditMode::None;
@@ -74,6 +86,23 @@ private:
     double m_fadeOut = 0.0;
 
     Handle m_dragging = Handle::None;
+    // Press-anchored fine-drag state. When Shift is held during a
+    // handle drag, the value moves by 0.1× the cursor delta from
+    // press, instead of tracking the cursor 1:1 — useful for sample-
+    // accurate trim placement.
+    double m_dragPressTime = 0.0;
+    double m_dragInitialValue = 0.0;
+
+    // Visible window in seconds. m_viewEnd == 0 means "show full
+    // duration", which is the unzoomed default. clampView() turns 0
+    // into duration once a real zoom happens.
+    double m_viewStart = 0.0;
+    double m_viewEnd   = 0.0;
+
+    // Middle-button pan state.
+    bool   m_panning = false;
+    int    m_panAnchorX = 0;
+    double m_panAnchorViewStart = 0.0;
 };
 
 } // namespace quewi::ui
