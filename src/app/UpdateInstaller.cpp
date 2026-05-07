@@ -10,7 +10,13 @@
 #include <QNetworkRequest>
 #include <QProcess>
 #include <QStandardPaths>
+#include <QTimer>
 #include <QUrl>
+
+#ifdef Q_OS_WIN
+#  include <windows.h>
+#  include <shellapi.h>
+#endif
 
 #ifndef QUEWI_VERSION
 #  define QUEWI_VERSION "0.0.0"
@@ -116,30 +122,72 @@ void UpdateInstaller::onReplyFinished()
         emit downloadFailed(errStr);
         return;
     }
-    if (QFileInfo(m_localPath).size() < 1024) {
-        // Anything under 1 KB is almost certainly an error page that
-        // the redirect chain delivered; refuse to hand a junk file
-        // to msiexec.
+    if (QFileInfo(m_localPath).size() < 1'000'000) {
+        // A real quewi MSI is ~50+ MB (Qt DLLs dominate). Anything under
+        // 1 MB is almost certainly an error page or HTML body that came
+        // back from a redirect we couldn't follow — refuse to hand a
+        // junk file to msiexec, which would silently fail and leave the
+        // user staring at nothing.
         QFile::remove(m_localPath);
-        emit downloadFailed(tr("Download finished but the file looks empty."));
+        emit downloadFailed(tr("Download finished but the file looks "
+                               "incomplete (%1 bytes). Try again, or "
+                               "download manually from the release page.")
+                            .arg(QFileInfo(m_localPath).size()));
         return;
     }
     emit downloadFinished(m_localPath);
 }
 
-void UpdateInstaller::launchAndQuit(const QString &msiPath)
+bool UpdateInstaller::launchAndQuit(const QString &msiPath)
 {
-    // Spawn msiexec /i <path> as a *detached* process. Detached so
-    // killing quewi.exe doesn't take the installer with it; quewi
-    // quits immediately afterwards so the MSI's file replacement
-    // step doesn't hit a "file in use" lock on the running exe.
-    const QStringList args { QStringLiteral("/i"), msiPath };
-    if (!QProcess::startDetached(QStringLiteral("msiexec"), args)) {
-        // Fallback — let the OS shell handle it (typically also
-        // routes to msiexec, just via the file association).
-        QDesktopServices::openUrl(QUrl::fromLocalFile(msiPath));
+    // The previous implementation spawned msiexec detached and quit
+    // immediately. On unsigned MSIs (we don't sign yet) SmartScreen
+    // can silently block the launch, leaving the user with nothing —
+    // quewi closes, no installer ever shows. Fix:
+    //   1. Use ShellExecuteW with the default verb — this is exactly
+    //      what double-clicking the .msi in Explorer does. UAC and
+    //      SmartScreen prompts surface visibly.
+    //   2. Fall back to msiexec resolved from %SystemRoot%\System32
+    //      so we don't depend on PATH.
+    //   3. Final fallback: open Explorer pointing at the MSI so the
+    //      user can run it manually.
+    // We only quit if launch is confirmed. Otherwise the user keeps
+    // quewi open with a clear error path instead of a blank desktop.
+    const QString native = QDir::toNativeSeparators(msiPath);
+    bool started = false;
+
+#ifdef Q_OS_WIN
+    {
+        const std::wstring wpath = native.toStdWString();
+        const HINSTANCE rc = ShellExecuteW(nullptr, nullptr, wpath.c_str(),
+                                           nullptr, nullptr, SW_SHOWNORMAL);
+        // ShellExecute returns >32 on success, an error code <=32 on failure.
+        started = reinterpret_cast<INT_PTR>(rc) > 32;
     }
-    QCoreApplication::quit();
+#endif
+
+    if (!started) {
+        const QString sysroot = qEnvironmentVariable("SystemRoot",
+                                    QStringLiteral("C:/Windows"));
+        const QString msiexec = QDir::toNativeSeparators(
+            sysroot + QStringLiteral("/System32/msiexec.exe"));
+        started = QProcess::startDetached(msiexec,
+            { QStringLiteral("/i"), native });
+    }
+
+    if (!started) {
+        // Last resort — open Explorer so the user can find and run
+        // the file themselves. Don't quit; leaving them with neither
+        // installer nor app is the failure mode we just hit.
+        QProcess::startDetached(QStringLiteral("explorer.exe"),
+            { QStringLiteral("/select,") + native });
+        return false;
+    }
+
+    // Give the new process a moment to claim the install session and
+    // its UI before we vacate the running exe so MSI can replace it.
+    QTimer::singleShot(1500, qApp, &QCoreApplication::quit);
+    return true;
 }
 
 } // namespace quewi

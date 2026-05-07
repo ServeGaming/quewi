@@ -29,11 +29,14 @@ public:
     // whether to launch the installer.
     void download(const QString &msiUrl);
 
-    // Hand the downloaded MSI off to msiexec /i and quit the app so
-    // the installer can write into the install dir without a file
-    // lock on quewi.exe. Falls back to opening the file via the OS
-    // shell if msiexec spawn fails.
-    static void launchAndQuit(const QString &msiPath);
+    // Hand the downloaded MSI off to the OS (ShellExecute → file
+    // association on Windows, which routes through msiexec and gives
+    // the user a UAC + SmartScreen prompt the way a double-click in
+    // Explorer would). Returns true if the launch was confirmed and
+    // the app will quit shortly after; false if every fallback failed
+    // (in which case Explorer is opened pointing at the MSI and the
+    // app stays running so the user has a path forward).
+    static bool launchAndQuit(const QString &msiPath);
 
 signals:
     void progress(qint64 received, qint64 total);

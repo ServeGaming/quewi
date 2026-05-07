@@ -1550,7 +1550,15 @@ void MainWindow::runInAppInstall(const QString &msiUrl)
                    "installer will start. Continue?"),
                 QMessageBox::Yes | QMessageBox::No);
             if (answer == QMessageBox::Yes) {
-                UpdateInstaller::launchAndQuit(localPath);
+                if (!UpdateInstaller::launchAndQuit(localPath)) {
+                    QMessageBox::warning(this, tr("Couldn't launch installer"),
+                        tr("Quewi couldn't start the installer automatically. "
+                           "An Explorer window has been opened to the file:\n\n%1\n\n"
+                           "Double-click it to install. (Windows may prompt for "
+                           "administrator permission and warn about an unsigned "
+                           "installer; that's expected for now.)")
+                            .arg(QDir::toNativeSeparators(localPath)));
+                }
             }
         });
     connect(installer, &UpdateInstaller::downloadFailed, this,
