@@ -29,7 +29,7 @@ public:
         QColor bgPanel           { 0x26, 0x24, 0x22 };  // panel
         QColor bgRow             { 0x2A, 0x28, 0x25 };  // row
         QColor bgRowAlt          { 0x25, 0x23, 0x1F };  // alt row (subtle)
-        QColor bgRowHover        { 0x33, 0x2F, 0x2B };  // row hover
+        QColor bgRowHover        { 0x3A, 0x35, 0x30 };  // row hover
         QColor bgRowSelected     { 0x3C, 0x37, 0x33 };  // selected row
         QColor bgInteractive     { 0x34, 0x30, 0x2C };  // form fields, buttons
 

@@ -25,10 +25,49 @@
 #include <QPainter>
 #include <QPaintEvent>
 #include <QSettings>
+#include <QStyledItemDelegate>
 #include <QUndoStack>
 #include <QUuid>
 
 namespace quewi::ui {
+
+namespace {
+
+// Item delegate that overlays a coloured wash on top of the QSS-rendered
+// row when the cue is running. QSS owns the base background (panel +
+// hover + selected), and stylesheet rules win over the model's
+// Qt::BackgroundRole — so the only way to get a "running" tint visible
+// across the whole row, layered above the hover/selected styling, is
+// to paint after QStyledItemDelegate::paint() finishes.
+class CueRowDelegate : public QStyledItemDelegate {
+public:
+    using QStyledItemDelegate::QStyledItemDelegate;
+    void paint(QPainter *p, const QStyleOptionViewItem &opt,
+               const QModelIndex &idx) const override
+    {
+        QStyledItemDelegate::paint(p, opt, idx);
+
+        // Running wash — the model returns a green QBrush via the
+        // BackgroundRole only when the cue is in the running set.
+        // Use that as a signal to paint the overlay; alpha-blends so
+        // selection and hover stay visible underneath.
+        const QVariant bg = idx.data(Qt::BackgroundRole);
+        if (!bg.canConvert<QBrush>()) return;
+        const QBrush br = bg.value<QBrush>();
+        if (br.style() == Qt::NoBrush) return;
+        const QColor c = br.color();
+        // Cheap "is this the running tint?" test: high green channel,
+        // moderate alpha. Avoids over-painting the user's chosen cue
+        // colours which use lighter() and lower alpha.
+        if (c.alpha() >= 60 && c.green() > c.red() && c.green() > c.blue()) {
+            p->save();
+            p->fillRect(opt.rect, br);
+            p->restore();
+        }
+    }
+};
+
+} // namespace
 
 CueListView::CueListView(QWidget *parent)
     : QTreeView(parent)
@@ -37,6 +76,17 @@ CueListView::CueListView(QWidget *parent)
     setUniformRowHeights(true);
     setAllColumnsShowFocus(true);
     setIndentation(14);
+    // Per-pixel scroll mode + ScrollPerPixel: SmoothScroll animates
+    // the scrollbar's value continuously, but the default ScrollPerItem
+    // rounds the visible offset to whole rows — making the animation
+    // staircase-jitter on every frame. Per-pixel scrolling lets the
+    // glide land on every offset cleanly.
+    setVerticalScrollMode(QAbstractItemView::ScrollPerPixel);
+    setHorizontalScrollMode(QAbstractItemView::ScrollPerPixel);
+    // Row tint for running cues comes from this delegate — it runs
+    // after the QSS-supplied hover/selected background and overlays
+    // a green wash when the model says the cue is playing.
+    setItemDelegate(new CueRowDelegate(this));
     // No inline stylesheet — the global QSS controls row padding and the
     // hover/selection visuals. An inline override here would interleave
     // with the global rules and break the continuous-row indicator.
@@ -44,6 +94,8 @@ CueListView::CueListView(QWidget *parent)
     setSelectionBehavior(QAbstractItemView::SelectRows);
     setSelectionMode(QAbstractItemView::ExtendedSelection);
     setAlternatingRowColors(true);
+    setMouseTracking(true);   // hover styling needs cursor-move events
+    setAttribute(Qt::WA_Hover, true);
     setEditTriggers(QAbstractItemView::EditKeyPressed);
     header()->setStretchLastSection(true);
     setFocusPolicy(Qt::StrongFocus);
