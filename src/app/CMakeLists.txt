@@ -6,6 +6,8 @@ set(QUEWI_APP_SOURCES
     GoEngine.h
     UpdateChecker.cpp
     UpdateChecker.h
+    UpdateInstaller.cpp
+    UpdateInstaller.h
     ${CMAKE_SOURCE_DIR}/resources/resources.qrc
 )
 

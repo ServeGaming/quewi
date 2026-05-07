@@ -2,6 +2,9 @@
 
 #include "GoEngine.h"
 #include "UpdateChecker.h"
+#include "UpdateInstaller.h"
+
+#include <QProgressDialog>
 
 #include <QDesktopServices>
 
@@ -1425,6 +1428,54 @@ void MainWindow::updateTitle()
         .arg(fileName, dirty, QStringLiteral(QUEWI_VERSION)));
 }
 
+void MainWindow::runInAppInstall(const QString &msiUrl)
+{
+    auto *installer = new UpdateInstaller(this);
+    auto *prog = new QProgressDialog(tr("Downloading update…"),
+                                     tr("Cancel"), 0, 100, this);
+    prog->setWindowTitle(tr("Installing update"));
+    prog->setWindowModality(Qt::ApplicationModal);
+    prog->setMinimumDuration(0);
+    prog->setAutoClose(false);
+    prog->setAutoReset(false);
+
+    connect(installer, &UpdateInstaller::progress, prog,
+        [prog](qint64 received, qint64 total) {
+            if (total > 0) {
+                prog->setMaximum(int(total / 1024));
+                prog->setValue(int(received / 1024));
+                prog->setLabelText(tr("Downloading update… %1 / %2 KB")
+                    .arg(received / 1024).arg(total / 1024));
+            } else {
+                prog->setLabelText(tr("Downloading update… %1 KB")
+                    .arg(received / 1024));
+            }
+        });
+    connect(installer, &UpdateInstaller::downloadFinished, this,
+        [this, prog, installer](const QString &localPath) {
+            prog->close();
+            installer->deleteLater();
+            const auto answer = QMessageBox::question(this, tr("Install update"),
+                tr("Download complete. Quewi will close and the Windows "
+                   "installer will start. Continue?"),
+                QMessageBox::Yes | QMessageBox::No);
+            if (answer == QMessageBox::Yes) {
+                UpdateInstaller::launchAndQuit(localPath);
+            }
+        });
+    connect(installer, &UpdateInstaller::downloadFailed, this,
+        [this, prog, installer](const QString &reason) {
+            prog->close();
+            installer->deleteLater();
+            QMessageBox::warning(this, tr("Update download failed"),
+                tr("Couldn't download the installer:\n%1").arg(reason));
+        });
+    connect(prog, &QProgressDialog::canceled, installer,
+        [installer]{ installer->deleteLater(); });
+
+    installer->download(msiUrl);
+}
+
 void MainWindow::onMidiTrigger(quint8 status, const QByteArray &bytes)
 {
     if (bytes.size() < 2) return;
@@ -1469,15 +1520,24 @@ void MainWindow::checkForUpdates(bool manual)
             box.setText(tr("quewi <b>v%1</b> is available.<br>"
                            "You're running v%2.")
                 .arg(version, QStringLiteral(QUEWI_VERSION)));
-            box.setInformativeText(tr("Download the installer in your browser, "
-                                       "then run it to update. quewi will close "
-                                       "during install."));
-            auto *dl    = box.addButton(tr("Download"), QMessageBox::AcceptRole);
-            auto *notes = box.addButton(tr("Release notes"), QMessageBox::HelpRole);
+            box.setInformativeText(tr("Install downloads the new version and "
+                                       "launches the Windows installer; quewi "
+                                       "will close so the new files can be "
+                                       "written. \"Open in browser\" is "
+                                       "available if you'd rather download "
+                                       "manually."));
+            auto *install = box.addButton(tr("Install update"), QMessageBox::AcceptRole);
+            auto *manual  = box.addButton(tr("Open in browser"), QMessageBox::ActionRole);
+            auto *notes   = box.addButton(tr("Release notes"),  QMessageBox::HelpRole);
             box.addButton(tr("Later"), QMessageBox::RejectRole);
             box.exec();
-            if (box.clickedButton() == dl)        QDesktopServices::openUrl(QUrl(download));
-            else if (box.clickedButton() == notes) QDesktopServices::openUrl(QUrl(page));
+            if (box.clickedButton() == install) {
+                runInAppInstall(download);
+            } else if (box.clickedButton() == manual) {
+                QDesktopServices::openUrl(QUrl(download));
+            } else if (box.clickedButton() == notes) {
+                QDesktopServices::openUrl(QUrl(page));
+            }
         });
         connect(m_updateChecker, &UpdateChecker::upToDate, this,
             [this](UpdateChecker::Mode mode) {

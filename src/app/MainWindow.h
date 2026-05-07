@@ -97,6 +97,7 @@ public:
     // "you're up to date" is also confirmed). Startup pass calls this
     // with manual=false so a flat line stays silent.
     void checkForUpdates(bool manual);
+    void runInAppInstall(const QString &msiUrl);
 
 private:
     void buildLayout();
