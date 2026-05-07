@@ -57,6 +57,13 @@ int main(int argc, char *argv[])
     quewi::MainWindow w;
     w.show();
 
+    const auto positional = parser.positionalArguments();
+    if (!positional.isEmpty()) {
+        QTimer::singleShot(0, &w, [&w, positional]{
+            w.loadShowFromPath(positional.first());
+        });
+    }
+
     if (parser.isSet(selftestOpt)) {
         QTimer::singleShot(200, &app, &QCoreApplication::quit);
     }

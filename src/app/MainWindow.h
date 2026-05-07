@@ -89,6 +89,9 @@ private slots:
     void openRecent(const QString &path);
     void rebuildRecentMenu();
 
+public:
+    bool loadShowFromPath(const QString &path);
+
 private:
     void buildLayout();
     void buildMenus();
@@ -96,7 +99,6 @@ private:
     void rebindModel();
     bool maybeSaveChanges();
     bool saveTo(const QString &path);
-    bool loadShowFromPath(const QString &path);
     std::unique_ptr<cues::Cue> cueFromFile(const QString &path);
     int  insertCuesFromUrls(const QList<QUrl> &urls, int startRow = -1);
 
