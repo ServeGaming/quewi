@@ -121,9 +121,11 @@ void CueListModel::setRunningCueIds(const QSet<QUuid> &running)
 {
     if (m_runningIds == running) return;
     m_runningIds = running;
+    // Repaint the entire row, not just the state column — the running
+    // wash tints every column so the active row reads at a glance.
     if (m_list && m_list->cueCount() > 0)
-        emit dataChanged(index(0, ColumnState),
-                         index(m_list->cueCount() - 1, ColumnState),
+        emit dataChanged(index(0, 0),
+                         index(m_list->cueCount() - 1, ColumnCount - 1),
                          { Qt::DecorationRole, Qt::BackgroundRole });
 }
 
@@ -294,10 +296,16 @@ QVariant CueListModel::data(const QModelIndex &index, int role) const
     }
 
     if (role == Qt::BackgroundRole) {
-        // Tint every column of the row by the cue's chosen color (if any).
-        // Lighten the colour first so it reads vividly against the warm
-        // bg even at moderate alpha — a 12 % wash of a saturated colour
-        // looks muddy, but a lightened version pops without overpowering.
+        // Running cues take precedence — a soft mossy-green wash makes
+        // the active row obvious at a glance during a show, even if
+        // the operator has the cue list scrolled or filtered. If the
+        // cue isn't running but has a chosen colour, fall back to the
+        // user-tint so colour-coding still reads on idle rows.
+        if (m_runningIds.contains(cue->id())) {
+            QColor tint(0x6F, 0xAE, 0x63);    // matches the running dot
+            tint.setAlphaF(0.28f);
+            return QBrush(tint);
+        }
         const auto col = cue->color();
         if (col.isValid()) {
             QColor tint = col.lighter(150);
