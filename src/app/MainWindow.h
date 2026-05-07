@@ -115,6 +115,17 @@ private:
     // after opening a show is the one that starts decoding, which
     // surfaces as "audio still decoding" until the decoder finishes.
     void prewarmAudioCues();
+    // Returns total bytes pre-decoded across every AudioCue in the
+    // current workspace. Walks all cue lists; cheap (~hundreds of cues
+    // takes microseconds). Used by the status-bar mem readout and the
+    // pre-flight check.
+    qint64 currentAudioMemoryBytes() const;
+    // The user-configured cap from Preferences → Audio → Memory budget,
+    // in bytes. Default 512 MB.
+    qint64 audioMemoryBudgetBytes() const;
+    // Refresh the "Audio: X / Y MB" status-bar label. Polled at 0.5 Hz
+    // by m_memTimer.
+    void   refreshMemReadout();
     // Help → Report a bug. Opens the user's browser at a pre-filled
     // GitHub Issues "new" page with version, OS, Qt, and a template
     // body. We don't post via the API — keeps the app credential-free.
@@ -159,6 +170,9 @@ private:
     // reads "N alerts" and opens the inbox. Updates on every post().
     QPushButton *m_notifBadge = nullptr;
     int          m_unreadNotifs = 0;
+
+    QLabel  *m_memLabel = nullptr;
+    QTimer  *m_memTimer = nullptr;
     void refreshNotifBadge();
 
     // Transport actions — exposed as QActions so the shortcut manager

@@ -19,6 +19,20 @@ double AudioFile::durationSeconds() const
     return static_cast<double>(m_frameCount) / static_cast<double>(m_sampleRate);
 }
 
+qint64 AudioFile::bytesUsed() const
+{
+    // Native sample buffer + the immutable snapshot copy the audio
+    // mixer is reading through. Peaks (~kPeakBlock smaller) are
+    // negligible. Voices that have already captured snapshots keep
+    // those alive independently — once they finish they drop the
+    // shared_ptr, so the budget tracker only sees the AudioFile-side
+    // residency.
+    qint64 native = static_cast<qint64>(m_samples.size()) * qint64(sizeof(float));
+    if (auto snap = m_published.load(std::memory_order_acquire))
+        native += static_cast<qint64>(snap->samples.size()) * qint64(sizeof(float));
+    return native;
+}
+
 void AudioFile::clear()
 {
     if (m_decoder) {

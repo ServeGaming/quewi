@@ -22,6 +22,7 @@
 #include <QLabel>
 #include <QListWidget>
 #include <QPushButton>
+#include <QSettings>
 #include <QVBoxLayout>
 
 namespace quewi::ui {
@@ -53,6 +54,35 @@ QList<Issue> walk(core::Workspace *ws)
         if (!QFileInfo::exists(p)) {
             out.append({Issue::Warning, QStringLiteral("script"),
                 QObject::tr("script file missing on disk — %1").arg(p)});
+        }
+    }
+
+    // Workspace-level — total decoded audio residency vs. budget.
+    // Estimate compressed-file disk size × 8 as a generous upper bound
+    // for decoded float32 PCM. Cheaper than touching every decoder and
+    // catches "this show won't fit in RAM" before the operator hits GO
+    // and discovers half their cues silently weren't pre-warmed.
+    {
+        QSettings s(QStringLiteral("ServeGaming"), QStringLiteral("quewi"));
+        const qint64 budgetBytes = qint64(
+            s.value(QStringLiteral("audio/memoryBudgetMB"), 512).toInt())
+            * 1024 * 1024;
+        qint64 estimated = 0;
+        for (const auto &list : ws->cueLists()) {
+            for (int row = 0; row < list->cueCount(); ++row) {
+                if (auto *ac = qobject_cast<audio::AudioCue *>(list->cueAt(row))) {
+                    const QFileInfo fi(ac->filePath());
+                    if (fi.exists()) estimated += fi.size() * 8;
+                }
+            }
+        }
+        if (estimated > budgetBytes) {
+            out.append({Issue::Warning, QStringLiteral("memory"),
+                QObject::tr("estimated decoded audio (~%1 MB) exceeds the "
+                            "%2 MB budget. Cues that don't fit will decode "
+                            "lazily on GO; raise the cap in Preferences.")
+                    .arg(estimated / (1024 * 1024))
+                    .arg(budgetBytes / (1024 * 1024))});
         }
     }
 

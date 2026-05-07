@@ -16,6 +16,7 @@
 #include <QMediaDevices>
 #include <QPushButton>
 #include <QSettings>
+#include <QSpinBox>
 #include <QSplitter>
 #include <QStackedWidget>
 #include <QVBoxLayout>
@@ -69,6 +70,43 @@ QWidget *makeAudioPage(audio::AudioEngine *engine, QWidget *parent)
         });
 
     outer->addWidget(deviceGroup);
+
+    // ── Memory budget ─────────────────────────────────────────────
+    // Pre-decoded audio lives in RAM until the cue is removed. A 4-min
+    // stereo 48 kHz track is ~88 MB; a 90-min show recording is ~2 GB.
+    // The budget caps total decoded residency: cues that would push
+    // past it stay un-prewarmed (lazy decode on first GO) and the
+    // pre-flight check warns. v0.9.2 will make over-budget files
+    // stream from disk instead of warning.
+    auto *memGroup = new QGroupBox(QObject::tr("Memory budget"), page);
+    auto *memForm  = new QFormLayout(memGroup);
+
+    QSettings memSettings(QStringLiteral("ServeGaming"), QStringLiteral("quewi"));
+    const int currentBudgetMB = memSettings.value(
+        QStringLiteral("audio/memoryBudgetMB"), 512).toInt();
+
+    auto *budgetSpin = new QSpinBox(memGroup);
+    budgetSpin->setRange(64, 16'384);
+    budgetSpin->setSingleStep(64);
+    budgetSpin->setSuffix(QObject::tr(" MB"));
+    budgetSpin->setValue(currentBudgetMB);
+    QObject::connect(budgetSpin, &QSpinBox::valueChanged, memGroup, [](int v) {
+        QSettings s(QStringLiteral("ServeGaming"), QStringLiteral("quewi"));
+        s.setValue(QStringLiteral("audio/memoryBudgetMB"), v);
+    });
+    memForm->addRow(QObject::tr("Decoded audio cap"), budgetSpin);
+
+    auto *memHint = new QLabel(QObject::tr(
+        "Total RAM used by pre-decoded audio cues. Going over the cap "
+        "doesn't break the show — files that don't fit stay un-prewarmed "
+        "and decode lazily on GO. Streaming decode in a later release "
+        "will let huge files play without ever residing fully in RAM."),
+        memGroup);
+    memHint->setWordWrap(true);
+    memHint->setStyleSheet(QStringLiteral("color:#A8AEBA;"));
+    memForm->addRow(QString(), memHint);
+
+    outer->addWidget(memGroup);
     outer->addStretch(1);
     return page;
 }

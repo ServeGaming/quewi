@@ -62,6 +62,11 @@ public:
     // Interleaved float32 buffer. Size == frameCount * channelCount.
     const std::vector<float> &samples() const { return m_samples; }
 
+    // Resident memory cost — what this file currently holds in RAM,
+    // including the published snapshot (which holds a copy until the
+    // mixer drops it). Used by the global memory-budget tracker.
+    qint64 bytesUsed() const;
+
     // Peaks: one float per peak block per channel, interleaved.
     // Size == ceil(frameCount / kPeakBlock) * channelCount.
     const std::vector<float> &peaks() const { return m_peaks; }

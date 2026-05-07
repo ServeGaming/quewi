@@ -237,6 +237,20 @@ MainWindow::MainWindow(QWidget *parent)
         "QPushButton:hover { color: #E8C861; }"));
     m_notifBadge->setVisible(false);
     statusBar()->addPermanentWidget(m_notifBadge);
+
+    // Audio memory readout. Sits permanently on the right of the
+    // status bar so the operator sees decoded-residency at a glance
+    // and notices when the show is approaching the budget. Polled at
+    // 0.5 Hz — cheap walk of the workspace.
+    m_memLabel = new QLabel(this);
+    m_memLabel->setStyleSheet(QStringLiteral(
+        "color:#7A828F; padding:2px 8px;"));
+    statusBar()->addPermanentWidget(m_memLabel);
+    m_memTimer = new QTimer(this);
+    m_memTimer->setInterval(2000);
+    connect(m_memTimer, &QTimer::timeout, this, &MainWindow::refreshMemReadout);
+    m_memTimer->start();
+    refreshMemReadout();
     connect(m_notifBadge, &QPushButton::clicked,
             this, &MainWindow::showNotifications);
     connect(&ui::Notifications::instance(), &ui::Notifications::posted,
@@ -717,14 +731,96 @@ void MainWindow::reportBug()
 void MainWindow::prewarmAudioCues()
 {
     if (!m_workspace) return;
+    const qint64 budget = audioMemoryBudgetBytes();
+    qint64 used = 0;
+    int    skipped = 0;
+    QString firstSkippedName;
     for (const auto &list : m_workspace->cueLists()) {
         if (!list) continue;
         const int n = list->cueCount();
         for (int i = 0; i < n; ++i) {
-            if (auto *ac = qobject_cast<audio::AudioCue *>(list->cueAt(i)))
-                ac->prepare();
+            auto *ac = qobject_cast<audio::AudioCue *>(list->cueAt(i));
+            if (!ac) continue;
+            // Estimate residency cheaply from file size on disk. Real
+            // bytesUsed is 4× int16 / 2× int24 (decoded float32), but
+            // disk size is a useful upper-bound proxy that doesn't
+            // require touching the audio decoder. Once a file is
+            // actually decoded its bytesUsed() is authoritative.
+            const QString p = ac->filePath();
+            if (p.isEmpty()) continue;
+            qint64 estimate = ac->audioFile() ? ac->audioFile()->bytesUsed() : 0;
+            if (estimate <= 0) {
+                const QFileInfo fi(p);
+                if (fi.exists()) {
+                    // Compressed (mp3/aac/ogg) decompresses ~10×; PCM ~1×.
+                    // Pick a generous 8× to err on the safe side.
+                    estimate = fi.size() * 8;
+                }
+            }
+            if (used + estimate > budget) {
+                ++skipped;
+                if (firstSkippedName.isEmpty())
+                    firstSkippedName = ac->name().isEmpty() ? QFileInfo(p).fileName()
+                                                            : ac->name();
+                continue;
+            }
+            ac->prepare();
+            used += estimate;
         }
     }
+    if (skipped > 0) {
+        ui::Notifications::instance().post(
+            ui::Notifications::Level::Warn,
+            tr("Audio memory budget"),
+            tr("%1 cue%2 left un-prewarmed (would exceed %3 MB cap; "
+               "first: %4). They'll decode lazily on GO. Raise the "
+               "cap in Preferences → Audio if your show fits.")
+                .arg(skipped)
+                .arg(skipped == 1 ? QString() : QStringLiteral("s"))
+                .arg(budget / (1024 * 1024))
+                .arg(firstSkippedName));
+    }
+    refreshMemReadout();
+}
+
+qint64 MainWindow::currentAudioMemoryBytes() const
+{
+    if (!m_workspace) return 0;
+    qint64 total = 0;
+    for (const auto &list : m_workspace->cueLists()) {
+        if (!list) continue;
+        const int n = list->cueCount();
+        for (int i = 0; i < n; ++i) {
+            if (auto *ac = qobject_cast<audio::AudioCue *>(list->cueAt(i))) {
+                if (auto file = ac->audioFile())
+                    total += file->bytesUsed();
+            }
+        }
+    }
+    return total;
+}
+
+qint64 MainWindow::audioMemoryBudgetBytes() const
+{
+    QSettings s(QStringLiteral("ServeGaming"), QStringLiteral("quewi"));
+    const int mb = s.value(QStringLiteral("audio/memoryBudgetMB"), 512).toInt();
+    return qint64(mb) * 1024 * 1024;
+}
+
+void MainWindow::refreshMemReadout()
+{
+    if (!m_memLabel) return;
+    const qint64 used   = currentAudioMemoryBytes();
+    const qint64 budget = audioMemoryBudgetBytes();
+    const int usedMB    = int(used / (1024 * 1024));
+    const int budgetMB  = int(budget / (1024 * 1024));
+    m_memLabel->setText(tr("Audio: %1 / %2 MB").arg(usedMB).arg(budgetMB));
+    // Warn-tinted when within 10% of the cap, red over.
+    const float frac = budget > 0 ? float(used) / float(budget) : 0.f;
+    QString colour = QStringLiteral("#7A828F");
+    if (frac >= 1.0f)      colour = QStringLiteral("#E07B5A");
+    else if (frac >= 0.9f) colour = QStringLiteral("#D7A24E");
+    m_memLabel->setStyleSheet(QStringLiteral("color:%1; padding:2px 8px;").arg(colour));
 }
 
 bool MainWindow::saveTo(const QString &path)
