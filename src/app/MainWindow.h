@@ -110,6 +110,15 @@ private:
     bool saveTo(const QString &path);
     std::unique_ptr<cues::Cue> cueFromFile(const QString &path);
     int  insertCuesFromUrls(const QList<QUrl> &urls, int startRow = -1);
+    // Walks every cue list and kicks off prepare() on each AudioCue so
+    // QAudioDecoder runs in the background. Without this the first GO
+    // after opening a show is the one that starts decoding, which
+    // surfaces as "audio still decoding" until the decoder finishes.
+    void prewarmAudioCues();
+    // Help → Report a bug. Opens the user's browser at a pre-filled
+    // GitHub Issues "new" page with version, OS, Qt, and a template
+    // body. We don't post via the API — keeps the app credential-free.
+    void reportBug();
 
     void registerOscRemoteHandlers();
     void selectCueByNumber(double number);

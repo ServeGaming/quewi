@@ -88,6 +88,9 @@
 #include <QTabBar>
 #include <QUndoStack>
 #include <QUrl>
+#include <QUrlQuery>
+#include <QSysInfo>
+#include <QLocale>
 #include <QVBoxLayout>
 #include <QWidget>
 
@@ -553,6 +556,9 @@ void MainWindow::buildMenus()
     helpMenu->addAction(tr("&Notifications…"),
                         this, &MainWindow::showNotifications);
     helpMenu->addSeparator();
+    helpMenu->addAction(tr("&Report a bug…"),
+                        this, &MainWindow::reportBug);
+    helpMenu->addSeparator();
     helpMenu->addAction(tr("&About quewi…"),
                         QKeySequence(QStringLiteral("Ctrl+?")),
                         this, &MainWindow::showAbout);
@@ -672,8 +678,53 @@ bool MainWindow::loadShowFromPath(const QString &path)
     updateTitle();
     onSelectionChanged();
     noteRecentFile(path);
+    prewarmAudioCues();
     statusBar()->showMessage(tr("Opened %1").arg(path), 3000);
     return true;
+}
+
+void MainWindow::reportBug()
+{
+    const QString tmpl = QStringLiteral(
+        "**What happened?**\n"
+        "<!-- Steps to reproduce, expected vs. actual behaviour -->\n\n"
+        "**Show file**\n"
+        "<!-- If relevant, attach the .quewi file or a minimal repro -->\n\n"
+        "**Logs**\n"
+        "<!-- Paste contents of %TEMP%/quewi-debug.log if a crash was captured -->\n\n"
+        "---\n"
+        "- quewi: v%1\n"
+        "- OS: %2 %3 (%4)\n"
+        "- Qt runtime: %5\n"
+        "- Locale: %6\n")
+        .arg(QStringLiteral(QUEWI_VERSION),
+             QSysInfo::productType(),
+             QSysInfo::productVersion(),
+             QSysInfo::currentCpuArchitecture(),
+             QString::fromLatin1(qVersion()),
+             QLocale().name());
+
+    QUrl url(QStringLiteral("https://github.com/ServeGaming/quewi/issues/new"));
+    QUrlQuery q;
+    q.addQueryItem(QStringLiteral("title"),
+                   QStringLiteral("[bug] "));
+    q.addQueryItem(QStringLiteral("body"), tmpl);
+    q.addQueryItem(QStringLiteral("labels"), QStringLiteral("bug"));
+    url.setQuery(q);
+    QDesktopServices::openUrl(url);
+}
+
+void MainWindow::prewarmAudioCues()
+{
+    if (!m_workspace) return;
+    for (const auto &list : m_workspace->cueLists()) {
+        if (!list) continue;
+        const int n = list->cueCount();
+        for (int i = 0; i < n; ++i) {
+            if (auto *ac = qobject_cast<audio::AudioCue *>(list->cueAt(i)))
+                ac->prepare();
+        }
+    }
 }
 
 bool MainWindow::saveTo(const QString &path)
