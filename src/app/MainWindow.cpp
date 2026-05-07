@@ -69,6 +69,7 @@
 #include <QMessageBox>
 #include <QMimeData>
 #include <QDir>
+#include <QCryptographicHash>
 #include <QInputDialog>
 #include <QLineEdit>
 #include <QPushButton>
@@ -1237,7 +1238,64 @@ void MainWindow::openRecent(const QString &path)
 
 void MainWindow::toggleShowMode()
 {
-    m_showMode = m_actShowMode ? m_actShowMode->isChecked() : !m_showMode;
+    const bool wantOn = m_actShowMode ? m_actShowMode->isChecked() : !m_showMode;
+
+    // Password gate. The operator can set a 4+ digit code in QSettings
+    // (or via the prompt the first time they enter Show Mode) so an
+    // accidental Ctrl+Shift+L mid-show doesn't drop them back into
+    // Edit. Empty stored hash = no password, behaviour matches v0.6.
+    QSettings s(QStringLiteral("ServeGaming"), QStringLiteral("quewi"));
+    const QByteArray storedHash =
+        s.value(QStringLiteral("showMode/passwordHash")).toByteArray();
+
+    auto hashOf = [](const QString &pw) -> QByteArray {
+        return QCryptographicHash::hash(pw.toUtf8(),
+            QCryptographicHash::Sha256).toHex();
+    };
+
+    if (wantOn && !m_showMode) {
+        // Entering: if no password set, offer to set one (skippable).
+        if (storedHash.isEmpty()) {
+            const auto answer = QMessageBox::question(this, tr("Set Show Mode password?"),
+                tr("Set a password to require confirmation when leaving Show Mode "
+                   "during a show. Skip if you don't want a lock."),
+                QMessageBox::Yes | QMessageBox::No);
+            if (answer == QMessageBox::Yes) {
+                bool ok = false;
+                const auto pw = QInputDialog::getText(this, tr("Set Show Mode password"),
+                    tr("Enter a password (4+ characters):"),
+                    QLineEdit::Password, QString(), &ok).trimmed();
+                if (ok && pw.size() >= 4) {
+                    s.setValue(QStringLiteral("showMode/passwordHash"), hashOf(pw));
+                } else if (ok) {
+                    QMessageBox::warning(this, tr("Show Mode password"),
+                        tr("Password must be at least 4 characters. No password set."));
+                }
+            }
+        }
+        m_showMode = true;
+    } else if (!wantOn && m_showMode) {
+        // Exiting: require password if one is set.
+        if (!storedHash.isEmpty()) {
+            bool ok = false;
+            const auto pw = QInputDialog::getText(this, tr("Exit Show Mode"),
+                tr("Enter Show Mode password:"),
+                QLineEdit::Password, QString(), &ok);
+            if (!ok) {
+                if (m_actShowMode) m_actShowMode->setChecked(true);   // revert
+                return;
+            }
+            if (hashOf(pw) != storedHash) {
+                QMessageBox::warning(this, tr("Show Mode"),
+                    tr("Incorrect password. Show Mode stays locked."));
+                if (m_actShowMode) m_actShowMode->setChecked(true);   // revert
+                return;
+            }
+        }
+        m_showMode = false;
+    } else {
+        m_showMode = wantOn;
+    }
     applyShowMode();
 }
 

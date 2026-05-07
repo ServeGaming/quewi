@@ -2,7 +2,10 @@
 
 #include "audio/AudioCue.h"
 #include "audio/AudioFile.h"
+#include "audio/SpeakerPatch.h"
 #include "core/CueList.h"
+#include "core/PatchManager.h"
+#include "core/ScriptModel.h"
 #include "core/Workspace.h"
 #include "cues/Cue.h"
 #include "cues/FadeCue.h"
@@ -43,6 +46,16 @@ QList<Issue> walk(core::Workspace *ws)
 {
     QList<Issue> out;
     if (!ws) return out;
+
+    // Workspace-level checks — script path resolution.
+    if (auto *sm = ws->scriptModel(); sm && sm->hasScript()) {
+        const auto p = sm->path();
+        if (!QFileInfo::exists(p)) {
+            out.append({Issue::Warning, QStringLiteral("script"),
+                QObject::tr("script file missing on disk — %1").arg(p)});
+        }
+    }
+
     for (const auto &list : ws->cueLists()) {
         for (int row = 0; row < list->cueCount(); ++row) {
             auto *c = list->cueAt(row);
@@ -54,9 +67,28 @@ QList<Issue> walk(core::Workspace *ws)
                     out.append({Issue::Error, label, QObject::tr("audio: no file selected")});
                 } else if (!QFileInfo::exists(ac->filePath())) {
                     out.append({Issue::Error, label, QObject::tr("audio: file missing — %1").arg(ac->filePath())});
+                } else if (QFileInfo(ac->filePath()).size() == 0) {
+                    out.append({Issue::Error, label, QObject::tr("audio: file is zero bytes — %1").arg(ac->filePath())});
                 } else if (auto file = ac->audioFile();
                            file && file->state() == audio::AudioFile::State::Failed) {
                     out.append({Issue::Error, label, QObject::tr("audio: decode failed — %1").arg(file->errorString())});
+                }
+                // Object-audio cue must resolve to a real speaker patch.
+                if (ac->objectAudioEnabled() && ws && ws->patches()) {
+                    const auto speakers = audio::readSpeakers(ws->patches(),
+                                                              ac->speakerPatchId());
+                    if (speakers.isEmpty()) {
+                        out.append({Issue::Warning, label,
+                            QObject::tr("audio: object-audio is on but speaker patch is empty")});
+                    }
+                }
+                // Trim sanity check.
+                const auto fIn  = ac->trimInSeconds();
+                const auto fOut = ac->trimOutSeconds();
+                if (fOut > 0.0 && fIn >= fOut) {
+                    out.append({Issue::Warning, label,
+                        QObject::tr("audio: trim-in (%1 s) >= trim-out (%2 s) — cue won't play")
+                            .arg(fIn).arg(fOut)});
                 }
             } else if (auto *oc = qobject_cast<osc::OscCue *>(c)) {
                 const auto dv = oc->destination();
