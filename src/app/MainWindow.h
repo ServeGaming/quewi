@@ -23,7 +23,7 @@ namespace quewi::osc  { class OscEngine; }
 namespace quewi::audio { class AudioEngine; }
 namespace quewi::lighting { class LightingEngine; }
 namespace quewi::video { class VideoEngine; }
-namespace quewi::midi  { class MidiEngine; }
+namespace quewi::midi  { class MidiEngine; class MidiInputEngine; }
 
 namespace quewi {
 
@@ -89,6 +89,7 @@ private slots:
     void showNotifications();
     void openRecent(const QString &path);
     void rebuildRecentMenu();
+    void onMidiTrigger(quint8 status, const QByteArray &bytes);
 
 public:
     bool loadShowFromPath(const QString &path);
@@ -118,6 +119,7 @@ private:
     std::unique_ptr<lighting::LightingEngine> m_lightingEngine;
     std::unique_ptr<video::VideoEngine>       m_videoEngine;
     std::unique_ptr<midi::MidiEngine>         m_midiEngine;
+    std::unique_ptr<midi::MidiInputEngine>    m_midiInput;
     std::unique_ptr<GoEngine>                 m_goEngine;
 
     ui::CueListView *m_cueListView = nullptr;

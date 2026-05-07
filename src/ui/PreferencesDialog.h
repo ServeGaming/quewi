@@ -3,6 +3,7 @@
 #include <QDialog>
 
 namespace quewi::audio { class AudioEngine; }
+namespace quewi::midi  { class MidiInputEngine; }
 
 namespace quewi::ui {
 
@@ -12,6 +13,7 @@ class PreferencesDialog : public QDialog {
     Q_OBJECT
 public:
     explicit PreferencesDialog(audio::AudioEngine *audioEngine,
+                               midi::MidiInputEngine *midiInput,
                                QWidget *parent = nullptr);
     ~PreferencesDialog() override;
 

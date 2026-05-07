@@ -20,6 +20,7 @@
 #include "lighting/LightingEngine.h"
 #include "midi/MidiCue.h"
 #include "midi/MidiEngine.h"
+#include "midi/MidiInputEngine.h"
 #include "osc/OscCue.h"
 #include "osc/OscEngine.h"
 #include "show/ShowFile.h"
@@ -132,6 +133,16 @@ MainWindow::MainWindow(QWidget *parent)
     // visual cue lands but the per-screen quads are pre-loaded.
     ui::ProjectionMappingDialog::applyPersistedQuads(m_videoEngine.get());
     m_midiEngine     = std::make_unique<midi::MidiEngine>(this);
+    m_midiInput      = std::make_unique<midi::MidiInputEngine>(this);
+    connect(m_midiInput.get(), &midi::MidiInputEngine::messageReceived,
+            this, &MainWindow::onMidiTrigger);
+    {
+        // Open the persisted input port (set in Preferences). Ignored if
+        // the device isn't connected; the user can pick it again later.
+        QSettings s(QStringLiteral("ServeGaming"), QStringLiteral("quewi"));
+        const auto port = s.value(QStringLiteral("midi/inputPort")).toString();
+        if (!port.isEmpty()) m_midiInput->openPort(port);
+    }
 
     m_goEngine = std::make_unique<GoEngine>(this);
     m_goEngine->setAudioEngine(m_audioEngine.get());
@@ -656,7 +667,7 @@ bool MainWindow::saveShowAs()
 
 void MainWindow::showPreferences()
 {
-    ui::PreferencesDialog dlg(m_audioEngine.get(), this);
+    ui::PreferencesDialog dlg(m_audioEngine.get(), m_midiInput.get(), this);
     connect(&dlg, &ui::PreferencesDialog::cueListColumnsChanged,
             this, [this] { if (m_cueListView) m_cueListView->applyColumnVisibility(); });
     dlg.exec();
@@ -1412,6 +1423,36 @@ void MainWindow::updateTitle()
     const QString dirty = m_workspace && m_workspace->isDirty() ? QStringLiteral("*") : QString();
     setWindowTitle(QStringLiteral("%1%2 — quewi v%3")
         .arg(fileName, dirty, QStringLiteral(QUEWI_VERSION)));
+}
+
+void MainWindow::onMidiTrigger(quint8 status, const QByteArray &bytes)
+{
+    if (bytes.size() < 2) return;
+    // Note Off (0x80) and zero-velocity Note On (0x90 with byte 2 == 0)
+    // both mean "key released" — ignore so press-then-hold doesn't
+    // double-fire when the operator lifts their finger.
+    const quint8 high = status & 0xF0;
+    if (high == 0x80) return;
+    if (high == 0x90 && bytes.size() >= 3 && quint8(bytes[2]) == 0) return;
+
+    // Match on (status nibble, channel, second byte). Channel 0 is
+    // encoded as 0 in the lower nibble; we keep it in the binding key
+    // so different controllers on different channels don't clash.
+    const QString key = QStringLiteral("%1:%2")
+        .arg(int(status), 2, 16, QChar('0'))
+        .arg(int(quint8(bytes[1])));
+
+    QSettings s(QStringLiteral("ServeGaming"), QStringLiteral("quewi"));
+    auto fire = [&](const QString &binding, QAction *act) {
+        if (!act) return;
+        const auto stored = s.value(QStringLiteral("midi/binding/%1").arg(binding))
+                              .toString();
+        if (stored == key) act->trigger();
+    };
+    fire(QStringLiteral("go"),      m_actGo);
+    fire(QStringLiteral("pause"),   m_actPause);
+    fire(QStringLiteral("fadeAll"), m_actFadeAll);
+    fire(QStringLiteral("panic"),   m_actPanic);
 }
 
 void MainWindow::checkForUpdates(bool manual)

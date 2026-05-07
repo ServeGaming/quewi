@@ -1,6 +1,8 @@
 add_library(quewi_midi STATIC
     MidiEngine.h
     MidiEngine.cpp
+    MidiInputEngine.h
+    MidiInputEngine.cpp
     MidiCue.h
     MidiCue.cpp
 )
