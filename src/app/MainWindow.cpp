@@ -814,7 +814,18 @@ void MainWindow::refreshMemReadout()
     const qint64 budget = audioMemoryBudgetBytes();
     const int usedMB    = int(used / (1024 * 1024));
     const int budgetMB  = int(budget / (1024 * 1024));
-    m_memLabel->setText(tr("Audio: %1 / %2 MB").arg(usedMB).arg(budgetMB));
+    const int voices    = m_audioEngine ? m_audioEngine->activeVoiceCount() : 0;
+    m_memLabel->setText(tr("Audio: %1 / %2 MB · %3 voice%4")
+        .arg(usedMB).arg(budgetMB).arg(voices)
+        .arg(voices == 1 ? QString() : QStringLiteral("s")));
+    // Tooltip explains what each number means so the operator can
+    // tell the difference between "decoded files in RAM" (mostly
+    // static) and "voices currently mixing" (rises with each fire,
+    // should fall back to 0 after PANIC).
+    m_memLabel->setToolTip(tr(
+        "Decoded audio in RAM: %1 MB of %2 MB cap.\n"
+        "Active voices: %3 — should fall to 0 within ~50 ms of PANIC.")
+        .arg(usedMB).arg(budgetMB).arg(voices));
     // Warn-tinted when within 10% of the cap, red over.
     const float frac = budget > 0 ? float(used) / float(budget) : 0.f;
     QString colour = QStringLiteral("#7A828F");

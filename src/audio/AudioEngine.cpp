@@ -152,6 +152,24 @@ public:
         }
     }
 
+    // Voice-cap eviction. Walks m_voices in insertion order (oldest
+    // first) and fade-stops the first one that isn't already stopping.
+    // Used by AudioEngine::fire when too many voices are already live.
+    void stopOldestUnstopped(double fadeOutSeconds)
+    {
+        const qint64 samples = static_cast<qint64>(fadeOutSeconds * m_outputSampleRate);
+        std::lock_guard<std::mutex> lock(m_mutex);
+        for (auto &v : m_voices) {
+            if (!v.stopRequested && !v.finished) {
+                v.stopRequested = true;
+                v.fadeOutSamples = std::max<qint64>(samples, 1);
+                v.fadeOutFromGain = v.currentGain.load(std::memory_order_relaxed);
+                v.fadeOutCounter = 0;
+                return;
+            }
+        }
+    }
+
     void fadeGain(VoiceId id, double targetDb, double durationSeconds)
     {
         std::lock_guard<std::mutex> lock(m_mutex);
@@ -751,6 +769,16 @@ VoiceId AudioEngine::fire(const std::shared_ptr<const AudioFile> &file,
     const QAudioDevice dev = resolveDevice(params.outputDeviceId);
     auto *ctx = ensureContextForDevice(dev);
     if (!ctx) return 0;
+
+    // Soft voice cap. Stops a runaway "spam GO 500 times on one cue"
+    // from piling unbounded voices in the mixer. When at the cap, the
+    // oldest still-running voice gets a 100 ms fade-stop to make room
+    // for the new one. 64 is generous for any real cueing show — pro
+    // tools tend to cap around 32-64.
+    constexpr int kVoiceCap = 64;
+    if (ctx->mixer && ctx->mixer->activeCount() >= kVoiceCap) {
+        ctx->mixer->stopOldestUnstopped(0.10);
+    }
 
     const VoiceId id = ++s_globalNextVoiceId;
     return ctx->mixer->addVoice(id, file, params, dev.id());
