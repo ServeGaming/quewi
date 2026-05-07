@@ -10,6 +10,7 @@
 
 #include "audio/AudioCue.h"
 #include "audio/AudioEngine.h"
+#include "core/CartGrid.h"
 #include "core/CueList.h"
 #include "core/CueListModel.h"
 #include "core/UndoCommands.h"
@@ -31,6 +32,7 @@
 #include "video/VideoEngine.h"
 #include "ui/AboutDialog.h"
 #include "ui/ActiveCuesPanel.h"
+#include "ui/CartView.h"
 #include "ui/AudioEditorWindow.h"
 #include "ui/CommandPalette.h"
 #include "ui/Notifications.h"
@@ -78,6 +80,7 @@
 #include <QLineEdit>
 #include <QPushButton>
 #include <QSplitter>
+#include <QStackedWidget>
 #include <QStandardPaths>
 #include <QTimer>
 #include <QUuid>
@@ -318,9 +321,23 @@ void MainWindow::buildLayout()
     connect(filterEdit, &QLineEdit::textChanged, m_cueListView,
             &ui::CueListView::setFilterText);
 
+    // Cart view sits side-by-side with the cue list inside a
+    // QStackedWidget. The View menu toggles which one's visible —
+    // they share the workspace data, so the same GO logic, undo
+    // stack, and inspector all work in either mode.
+    m_cartView = new ui::CartView(m_mainSplitter);
+    connect(m_cartView, &ui::CartView::fireRequested, this,
+        [this](cues::Cue *c) { if (m_goEngine && c) m_goEngine->fire(c); });
+    connect(m_cartView, &ui::CartView::fileDropped,
+            this, &MainWindow::onCartFileDropped);
+
+    m_centerStack = new QStackedWidget(m_mainSplitter);
+    m_centerStack->addWidget(cuePane);     // index 0 = list view
+    m_centerStack->addWidget(m_cartView);  // index 1 = cart view
+
     m_inspector = new ui::Inspector(m_mainSplitter);
 
-    m_mainSplitter->addWidget(cuePane);
+    m_mainSplitter->addWidget(m_centerStack);
     m_mainSplitter->addWidget(m_inspector);
     m_mainSplitter->setStretchFactor(0, 3);
     m_mainSplitter->setStretchFactor(1, 2);
@@ -482,6 +499,20 @@ void MainWindow::buildMenus()
     themeMenu->addAction(tr("&High contrast"),
                          this, [applyTheme]{ applyTheme(QStringLiteral("quewi-highcontrast")); });
 
+    viewMenu->addSeparator();
+    auto *cartToggle = viewMenu->addAction(tr("&Cart view"));
+    cartToggle->setCheckable(true);
+    cartToggle->setShortcut(QKeySequence(QStringLiteral("Ctrl+Shift+C")));
+    connect(cartToggle, &QAction::toggled, this, [this](bool on) {
+        if (m_centerStack) m_centerStack->setCurrentIndex(on ? 1 : 0);
+        QSettings s(QStringLiteral("ServeGaming"), QStringLiteral("quewi"));
+        s.setValue(QStringLiteral("ui/cartView"), on);
+    });
+    {
+        QSettings s(QStringLiteral("ServeGaming"), QStringLiteral("quewi"));
+        cartToggle->setChecked(s.value(QStringLiteral("ui/cartView"), false).toBool());
+    }
+
     auto *listMenu = menuBar()->addMenu(tr("&List"));
     listMenu->addAction(tr("&New cue list…"),    this, &MainWindow::addCueListTab);
     listMenu->addAction(tr("&Rename current…"),  this, &MainWindow::renameCueListTab);
@@ -564,6 +595,10 @@ void MainWindow::rebindModel()
     m_model->setCueList(list);
     m_cueListView->setWorkspace(m_workspace.get());
     m_cueListView->setModel(m_model.get());
+    if (m_cartView) {
+        m_cartView->setWorkspace(m_workspace.get());
+        m_cartView->setGoEngine(m_goEngine.get());
+    }
     if (m_model->rowCount() > 0)
         m_cueListView->setCurrentIndex(m_model->index(0, 0));
 }
@@ -1474,6 +1509,24 @@ void MainWindow::runInAppInstall(const QString &msiUrl)
         [installer]{ installer->deleteLater(); });
 
     installer->download(msiUrl);
+}
+
+void MainWindow::onCartFileDropped(int row, int col, const QString &path)
+{
+    if (!m_workspace) return;
+    auto *list = m_workspace->activeCueList();
+    if (!list) return;
+
+    // Re-use the existing drag-import path that knows how to make a
+    // cue from any supported file type, then bind whichever cue id
+    // came back to the dropped cart cell.
+    const auto added = insertCuesFromUrls({ QUrl::fromLocalFile(path) }, -1);
+    if (added <= 0) return;
+    auto *newCue = list->cueAt(list->cueCount() - 1);
+    if (!newCue) return;
+    if (auto *cart = m_workspace->cart()) {
+        cart->setCell(row, col, newCue->id());
+    }
 }
 
 void MainWindow::onMidiTrigger(quint8 status, const QByteArray &bytes)

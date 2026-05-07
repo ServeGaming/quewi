@@ -55,6 +55,8 @@ add_library(quewi_ui STATIC
     CornerPinEditor.cpp
     ProjectionMappingDialog.h
     ProjectionMappingDialog.cpp
+    CartView.h
+    CartView.cpp
     ScriptViewer.h
     ScriptViewer.cpp
     ScriptPdfView.h

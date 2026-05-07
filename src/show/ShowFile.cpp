@@ -1,5 +1,6 @@
 #include "show/ShowFile.h"
 
+#include "core/CartGrid.h"
 #include "core/CueList.h"
 #include "core/PatchManager.h"
 #include "core/ScriptModel.h"
@@ -252,6 +253,14 @@ bool ShowFile::load(const QString &path, core::Workspace &workspace)
             if (doc.isObject()) workspace.scriptModel()->fromJson(doc.object());
         }
 
+        // Cart layout from meta.
+        QSqlQuery cgq(db);
+        if (cgq.exec(QStringLiteral("SELECT value FROM meta WHERE key='cart_json'"))
+            && cgq.next() && workspace.cart()) {
+            const auto doc = QJsonDocument::fromJson(cgq.value(0).toString().toUtf8());
+            if (doc.isObject()) workspace.cart()->fromJson(doc.object());
+        }
+
         db.close();
     }
     QSqlDatabase::removeDatabase(conn);
@@ -320,6 +329,12 @@ bool ShowFile::save(const QString &path, const core::Workspace &workspace)
         if (auto *script = workspace.scriptModel()) {
             const auto json = QJsonDocument(script->toJson()).toJson(QJsonDocument::Compact);
             mq.bindValue(0, QStringLiteral("script_json"));
+            mq.bindValue(1, QString::fromUtf8(json));
+            mq.exec();
+        }
+        if (auto *cart = workspace.cart()) {
+            const auto json = QJsonDocument(cart->toJson()).toJson(QJsonDocument::Compact);
+            mq.bindValue(0, QStringLiteral("cart_json"));
             mq.bindValue(1, QString::fromUtf8(json));
             mq.exec();
         }

@@ -13,6 +13,7 @@ namespace quewi::core {
 
 class PatchManager;
 class ScriptModel;
+class CartGrid;
 
 using CueId = QUuid;
 using CueListId = QUuid;
@@ -49,6 +50,11 @@ public:
     // empty until a script is loaded via ScriptModel::loadFromFile.
     ScriptModel *scriptModel() const { return m_script.get(); }
 
+    // Cart-view layout — alternate UI for SFX shows. Cells point at
+    // cue ids that still live in a CueList, so the cart never
+    // duplicates show data.
+    CartGrid *cart() const { return m_cart.get(); }
+
     bool isDirty() const { return m_undoStack.isClean() == false; }
     void markClean() { m_undoStack.setClean(); }
 
@@ -65,6 +71,7 @@ private:
     QUndoStack m_undoStack;
     std::unique_ptr<PatchManager> m_patches;
     std::unique_ptr<ScriptModel> m_script;
+    std::unique_ptr<CartGrid>    m_cart;
 };
 
 } // namespace quewi::core

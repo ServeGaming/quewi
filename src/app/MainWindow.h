@@ -9,6 +9,7 @@ class QHBoxLayout;
 class QLabel;
 class QPushButton;
 class QSplitter;
+class QStackedWidget;
 class QDragEnterEvent;
 class QDragMoveEvent;
 class QDropEvent;
@@ -18,7 +19,7 @@ class QUrl;
 
 namespace quewi::core { class Workspace; class CueListModel; }
 namespace quewi::cues { class Cue; }
-namespace quewi::ui   { class ActiveCuesPanel; class CueListView; class Inspector; class ShortcutManager; class TransportBar; class OscMonitor; class ScriptWindow; }
+namespace quewi::ui   { class ActiveCuesPanel; class CartView; class CueListView; class Inspector; class ShortcutManager; class TransportBar; class OscMonitor; class ScriptWindow; }
 namespace quewi::osc  { class OscEngine; }
 namespace quewi::audio { class AudioEngine; }
 namespace quewi::lighting { class LightingEngine; }
@@ -90,6 +91,7 @@ private slots:
     void openRecent(const QString &path);
     void rebuildRecentMenu();
     void onMidiTrigger(quint8 status, const QByteArray &bytes);
+    void onCartFileDropped(int row, int col, const QString &path);
 
 public:
     bool loadShowFromPath(const QString &path);
@@ -124,6 +126,8 @@ private:
     std::unique_ptr<GoEngine>                 m_goEngine;
 
     ui::CueListView *m_cueListView = nullptr;
+    ui::CartView    *m_cartView    = nullptr;
+    QStackedWidget  *m_centerStack = nullptr;
     ui::Inspector   *m_inspector   = nullptr;
     ui::TransportBar *m_transport  = nullptr;
     ui::ActiveCuesPanel *m_activePanel = nullptr;

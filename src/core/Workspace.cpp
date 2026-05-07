@@ -1,5 +1,6 @@
 #include "core/Workspace.h"
 
+#include "core/CartGrid.h"
 #include "core/CueList.h"
 #include "core/PatchManager.h"
 #include "core/ScriptModel.h"
@@ -12,6 +13,7 @@ Workspace::Workspace(QObject *parent)
     : QObject(parent)
     , m_patches(std::make_unique<PatchManager>(this))
     , m_script(std::make_unique<ScriptModel>(this))
+    , m_cart(std::make_unique<CartGrid>(this))
 {
     connect(&m_undoStack, &QUndoStack::cleanChanged, this, &Workspace::dirtyChanged);
 }
