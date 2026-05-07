@@ -279,7 +279,12 @@ bool ShowFile::save(const QString &path, const core::Workspace &workspace)
 
         QSqlQuery pragma(db);
         pragma.exec(QStringLiteral("PRAGMA foreign_keys = ON"));
-        pragma.exec(QStringLiteral("PRAGMA journal_mode = WAL"));
+        // Default journal mode (DELETE) — NOT WAL. We're writing the
+        // whole show into a fresh .tmp file then renaming; WAL leaves
+        // a -wal sidecar that doesn't get carried along by QFile::rename
+        // and, on some Qt builds, isn't checkpointed before close, so
+        // the rename target ends up zero bytes. DELETE keeps everything
+        // in the one file we're about to atomically swap into place.
 
         // Schema
         for (const auto &stmt : QString::fromUtf8(kDdl).split(';', Qt::SkipEmptyParts)) {
@@ -361,10 +366,25 @@ bool ShowFile::save(const QString &path, const core::Workspace &workspace)
             }
         }
 
-        db.commit();
+        if (!db.commit()) {
+            setError(QStringLiteral("Commit failed"), db.lastError());
+            db.close();
+            QSqlDatabase::removeDatabase(conn);
+            QFile::remove(tmp);
+            return false;
+        }
         db.close();
     }
     QSqlDatabase::removeDatabase(conn);
+
+    // Sanity check before swap: a zero-byte tmp file means SQLite
+    // didn't actually write the database. Bail out instead of
+    // overwriting a good show file with nothing.
+    if (QFile(tmp).size() == 0) {
+        setError(QStringLiteral("Database wrote zero bytes — refusing to overwrite show"));
+        QFile::remove(tmp);
+        return false;
+    }
 
     // Atomic rename
     QFile::remove(path);
