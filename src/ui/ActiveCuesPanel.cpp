@@ -32,11 +32,19 @@ public:
     }
     void setChannels(int n) {
         n = std::clamp(n, 1, 16);
-        if (n == m_channels) return;
+        // Resize the buffers whenever they don't already match — the
+        // previous "if (n == m_channels) return" short-circuit treated
+        // m_channels (default-initialised to 2) as proof the buffers
+        // were sized, but the buffers start empty, so the first
+        // setPeaks for a stereo cue read past the end of zero-length
+        // m_disp / m_hold / m_age vectors.
+        const bool resized = (m_channels != n)
+                          || (int(m_disp.size()) != n);
         m_channels = n;
-        m_disp.assign(n, 0.f);
-        m_hold.assign(n, 0.f);
-        m_age.assign(n, 0);
+        if (int(m_disp.size()) != n) m_disp.assign(n, 0.f);
+        if (int(m_hold.size()) != n) m_hold.assign(n, 0.f);
+        if (int(m_age.size())  != n) m_age.assign(n, 0);
+        if (!resized) return;
         // 7px per channel + 1px gaps; minimum ~18 px for stereo.
         const int h = std::max(18, n * 8 + 2);
         setFixedSize(48, h);
