@@ -21,8 +21,20 @@ ScriptPdfView::ScriptPdfView(QWidget *parent)
 {
     m_doc = new QPdfDocument(this);
     setDocument(m_doc);
-    setPageMode(QPdfView::PageMode::MultiPage);
+    // Single-page mode keeps the math simple — one page fills the
+    // scroll area at FitToWidth, so a cue's y-fraction maps directly
+    // to a fixed point on a fixed page even as the operator scrolls
+    // up and down. MultiPage looked nice but every page had a
+    // different rendered height and pixel offset, which made
+    // round-tripping (page, yFraction) fragile.
+    setPageMode(QPdfView::PageMode::SinglePage);
     setZoomMode(QPdfView::ZoomMode::FitToWidth);
+
+    // Repaint the overlay when the user scrolls so cue tabs stay
+    // pinned to their page positions instead of floating with the
+    // viewport.
+    connect(verticalScrollBar(), &QScrollBar::valueChanged,
+            this, [this]{ viewport()->update(); });
 }
 
 ScriptPdfView::~ScriptPdfView() = default;
@@ -100,17 +112,19 @@ void ScriptPdfView::scrollToCue(const QUuid &cueId)
 bool ScriptPdfView::pointToLocation(const QPoint &viewportPoint,
                                     int *pageOut, double *yFracOut) const
 {
-    // Unfortunately QPdfView has no public hit-test from viewport coords
-    // to (page, point). We approximate using the navigator's currentPage
-    // plus the viewport position relative to a fixed anchor. This is a
-    // 90% solution: clicking inside the currently dominant page binds
-    // to that page; y is measured against the viewport height.
+    // SinglePage mode: the scrollable canvas equals exactly one page
+    // rendered at FitToWidth. Total page height in pixels is
+    // viewport-height + scrollbar-range; the click's y-within-page is
+    // the click's viewport-y plus the current scroll offset.
     if (!m_doc || m_doc->pageCount() <= 0) return false;
     auto *nav = const_cast<ScriptPdfView*>(this)->pageNavigator();
     if (!nav) return false;
-    *pageOut  = nav->currentPage();
-    const double h = std::max(1, viewport()->height());
-    *yFracOut = qBound(0.0, double(viewportPoint.y()) / h, 1.0);
+    *pageOut = nav->currentPage();
+    auto *vsb = const_cast<ScriptPdfView*>(this)->verticalScrollBar();
+    const double pageHeightPx = double(viewport()->height()) + double(vsb->maximum());
+    if (pageHeightPx < 1.0) return false;
+    const double yWithinPage = double(viewportPoint.y()) + double(vsb->value());
+    *yFracOut = qBound(0.0, yWithinPage / pageHeightPx, 1.0);
     return true;
 }
 
@@ -120,9 +134,12 @@ QRect ScriptPdfView::locationToRect(int page, double yFraction) const
     auto *nav = const_cast<ScriptPdfView*>(this)->pageNavigator();
     if (!nav) return {};
     if (nav->currentPage() != page) return {};   // not visible
-    const double h = viewport()->height();
-    const int y = qBound(0, int(yFraction * h), int(h) - 4);
-    return QRect(0, y - 1, viewport()->width(), 3);
+    auto *vsb = const_cast<ScriptPdfView*>(this)->verticalScrollBar();
+    const double pageHeightPx = double(viewport()->height()) + double(vsb->maximum());
+    const int yPage = qRound(yFraction * pageHeightPx);
+    const int yView = yPage - vsb->value();
+    if (yView < 0 || yView > viewport()->height()) return {};
+    return QRect(0, yView - 1, viewport()->width(), 3);
 }
 
 void ScriptPdfView::mousePressEvent(QMouseEvent *event)
