@@ -279,6 +279,13 @@ void ActiveCuesPanel::refresh()
     if (!m_engine) return;
     const auto voices = m_engine->activeVoices();
 
+    // Idle fast-path: nothing playing, nothing to clean up. Skip the
+    // workspace walk and the signal emissions entirely so the 30 Hz
+    // tick costs ~zero when the show is sitting still. The CueListModel
+    // also bails on empty-then-empty in setPeakLevels, but stopping
+    // here is even cheaper and avoids hover-repaint stutter.
+    if (voices.isEmpty() && m_rowMap.isEmpty()) return;
+
     QSet<quint64> live;
     QSet<QUuid>   runningCueIds;
     QHash<QUuid, QPair<float, float>> peakByCue;

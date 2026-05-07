@@ -134,6 +134,12 @@ void CueListModel::setPeakLevels(const QHash<QUuid, QPair<float, float>> &peaks)
     // Cheap merge — replace the table wholesale; the polling caller
     // already decays old peaks via setPeaks-style hold logic so we
     // never need to read-modify-write here.
+    //
+    // Idle-bail: if there are no peaks now AND there were none last
+    // time, skip the dataChanged. Without this the 30 Hz refresh tick
+    // repaints every Level cell forever even with nothing playing,
+    // which surfaces as window-drag jitter and laggy hover.
+    if (peaks.isEmpty() && m_peaks.isEmpty()) return;
     m_peaks = peaks;
     if (m_list && m_list->cueCount() > 0) {
         emit dataChanged(index(0, ColumnLevel),
