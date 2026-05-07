@@ -35,7 +35,29 @@ void AudioFile::clear()
     m_peakFramesProcessed = 0;
     m_path.clear();
     m_error.clear();
+    clearSnapshot();
     setState(State::Empty);
+}
+
+std::shared_ptr<const AudioBufferSnapshot> AudioFile::snapshot() const
+{
+    return m_published.load(std::memory_order_acquire);
+}
+
+void AudioFile::publishSnapshot()
+{
+    auto snap = std::make_shared<AudioBufferSnapshot>();
+    snap->samples      = m_samples;            // copy once at publish time
+    snap->channelCount = m_channelCount;
+    snap->sampleRate   = m_sampleRate;
+    snap->frameCount   = m_frameCount;
+    m_published.store(std::shared_ptr<const AudioBufferSnapshot>(std::move(snap)),
+                      std::memory_order_release);
+}
+
+void AudioFile::clearSnapshot()
+{
+    m_published.store(nullptr, std::memory_order_release);
 }
 
 void AudioFile::load(const QString &path)
@@ -164,6 +186,7 @@ void AudioFile::onFinished()
         m_peaks.insert(m_peaks.end(), peakRow.begin(), peakRow.end());
         m_peakFramesProcessed = m_frameCount;
     }
+    publishSnapshot();   // before Loaded — readers must see a valid snapshot
     setState(State::Loaded);
 }
 
@@ -192,6 +215,7 @@ void AudioFile::reverseSamples()
     m_peaks.reserve(static_cast<size_t>((m_frameCount / kPeakBlock + 1) * m_channelCount));
     m_peakFramesProcessed = 0;
     buildPeaksIncrementally(m_frameCount);
+    publishSnapshot();
     emit stateChanged(m_state);
 }
 
@@ -210,6 +234,7 @@ void AudioFile::normaliseSamples(float targetPeak)
     m_peaks.reserve(static_cast<size_t>((m_frameCount / kPeakBlock + 1) * m_channelCount));
     m_peakFramesProcessed = 0;
     buildPeaksIncrementally(m_frameCount);
+    publishSnapshot();
     emit stateChanged(m_state);
 }
 

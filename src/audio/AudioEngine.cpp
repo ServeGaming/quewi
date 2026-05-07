@@ -48,12 +48,20 @@ public:
                      const QByteArray &deviceId)
     {
         if (!file) return 0;
+        // Capture an immutable snapshot of the decoded buffer for the
+        // voice's lifetime. The audio callback reads only this snapshot
+        // — concurrent edits on the GUI thread (clear / reverseSamples /
+        // normaliseSamples / re-load) publish a fresh snapshot but never
+        // touch the one this voice already holds.
+        auto buf = file->snapshot();
+        if (!buf) return 0;
 
         Voice v;
         v.id = id;
         v.deviceId = deviceId;
-        const double srcSr = file->sampleRate();
+        const double srcSr = buf->sampleRate;
         v.file = std::move(file);
+        v.buf  = std::move(buf);
         v.gain.store(dbToLinear(params.gainDb), std::memory_order_relaxed);
         v.currentGain.store(dbToLinear(params.gainDb), std::memory_order_relaxed);
         v.targetGain.store(dbToLinear(params.gainDb), std::memory_order_relaxed);
@@ -208,7 +216,7 @@ public:
     {
         std::lock_guard<std::mutex> lock(m_mutex);
         for (const auto &v : m_voices) {
-            if (!v.file) continue;
+            if (!v.buf) continue;
             ActiveVoice a;
             a.id = v.id;
             a.deviceId = v.deviceId;
@@ -217,7 +225,7 @@ public:
             a.positionSeconds = (v.srcSampleRate > 0)
                 ? static_cast<double>(v.readPos) / v.srcSampleRate : 0.0;
             const qint64 endFrame = (v.endFrame > 0) ? v.endFrame
-                                                     : v.file->frameCount();
+                                                     : v.buf->frameCount;
             a.durationSeconds = (v.srcSampleRate > 0 && endFrame > 0)
                 ? static_cast<double>(endFrame) / v.srcSampleRate : 0.0;
             a.loop = v.loop;
@@ -245,6 +253,11 @@ private:
         VoiceId  id = 0;
         QByteArray deviceId;
         std::shared_ptr<const AudioFile> file;
+        // Real-time-safe immutable PCM snapshot. The audio callback
+        // reads exclusively through this; v.file is kept around only
+        // for the GUI thread's queries (state, path) and to extend the
+        // file's lifetime.
+        std::shared_ptr<const AudioBufferSnapshot> buf;
         qint64   readPos = 0;
         qint64   endFrame = 0;
         double   srcSampleRate = 0.0;
@@ -293,6 +306,7 @@ private:
             : id(other.id)
             , deviceId(std::move(other.deviceId))
             , file(std::move(other.file))
+            , buf(std::move(other.buf))
             , readPos(other.readPos)
             , endFrame(other.endFrame)
             , srcSampleRate(other.srcSampleRate)
@@ -322,6 +336,7 @@ private:
             id = other.id;
             deviceId = std::move(other.deviceId);
             file = std::move(other.file);
+            buf  = std::move(other.buf);
             readPos = other.readPos;
             endFrame = other.endFrame;
             srcSampleRate = other.srcSampleRate;
@@ -373,7 +388,11 @@ qint64 AudioEngine::Mixer::readData(char *data, qint64 maxlen)
     {
         std::lock_guard<std::mutex> lock(m_mutex);
         for (auto &v : m_voices) {
-            if (!v.file || v.file->state() != AudioFile::State::Loaded) continue;
+            // Read exclusively through the immutable snapshot captured
+            // at fire() time. v.buf can never be mutated after addVoice
+            // returns, so the GUI thread is free to clear / reverse /
+            // re-load the source file without affecting in-flight audio.
+            if (!v.buf) continue;
             // Paused voice — emit silence, don't advance readPos.
             // peakPerChannel decays via the UI smoothing.
             if (v.paused) {
@@ -382,14 +401,14 @@ qint64 AudioEngine::Mixer::readData(char *data, qint64 maxlen)
                 continue;
             }
 
-            const auto &samples = v.file->samples();
-            const int   inChans  = v.file->channelCount();
-            const qint64 totalFrames = v.file->frameCount();
+            const auto &samples = v.buf->samples;
+            const int   inChans  = v.buf->channelCount;
+            const qint64 totalFrames = v.buf->frameCount;
             if (inChans <= 0 || totalFrames <= 0) continue;
             const qint64 effectiveEnd = (v.endFrame > 0)
                 ? std::min(v.endFrame, totalFrames) : totalFrames;
 
-            const double srcSr = v.file->sampleRate();
+            const double srcSr = v.buf->sampleRate;
             const double dstSr = m_outputSampleRate;
             const double rate  = srcSr / dstSr;
 
