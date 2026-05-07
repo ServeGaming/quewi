@@ -99,6 +99,32 @@ if(WIN32)
     if(EXISTS "${CMAKE_SOURCE_DIR}/resources/icons/quewi.ico")
         set(CPACK_WIX_PRODUCT_ICON "${CMAKE_SOURCE_DIR}/resources/icons/quewi.ico")
     endif()
+
+    # Branded installer artwork. WiX is fussy about format: both must
+    # be 24-bit BMP (no transparency), exact pixel dimensions, no
+    # compression. If the files aren't present, WiX falls back to its
+    # plain blue gradient which we definitely want to escape.
+    #
+    #   banner.bmp — 493 × 58 px — runs across the top of every
+    #                non-welcome dialog (license, install dir,
+    #                progress).
+    #   dialog.bmp — 493 × 312 px — full background of the Welcome
+    #                and Finish dialogs.
+    if(EXISTS "${CMAKE_SOURCE_DIR}/resources/installer/banner.bmp")
+        set(CPACK_WIX_UI_BANNER
+            "${CMAKE_SOURCE_DIR}/resources/installer/banner.bmp")
+    endif()
+    if(EXISTS "${CMAKE_SOURCE_DIR}/resources/installer/dialog.bmp")
+        set(CPACK_WIX_UI_DIALOG
+            "${CMAKE_SOURCE_DIR}/resources/installer/dialog.bmp")
+    endif()
+    # RTF license is shown verbatim in the EULA dialog. If we ship a
+    # styled .rtf alongside LICENSE, prefer it over the plain text
+    # the WIX generator stages from CPACK_RESOURCE_FILE_LICENSE above.
+    if(EXISTS "${CMAKE_SOURCE_DIR}/resources/installer/license.rtf")
+        set(CPACK_RESOURCE_FILE_LICENSE
+            "${CMAKE_SOURCE_DIR}/resources/installer/license.rtf")
+    endif()
     set(CPACK_PACKAGE_EXECUTABLES "quewi" "quewi")
     set(CPACK_CREATE_DESKTOP_LINKS "quewi")
 
