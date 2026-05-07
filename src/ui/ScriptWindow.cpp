@@ -178,11 +178,21 @@ void ScriptWindow::updateStatus()
     }
     auto *m = m_workspace->scriptModel();
     if (!m->hasScript()) {
-        m_status->setText(tr("No script loaded — drop a .txt or click Open script…"));
+        m_status->setText(tr("No script loaded — drop a .txt / .pdf or click Open script…"));
         return;
     }
-    if (m->text().isEmpty()) {
-        m_status->setText(tr("⚠ Script file missing on disk."));
+    // "Missing" is decided by the file system, not by the in-memory
+    // text buffer — PDFs are rendered by QPdfView and never populate
+    // m_text.
+    if (!QFileInfo::exists(m->path())) {
+        m_status->setText(tr("⚠ Script file missing on disk: %1").arg(m->path()));
+        return;
+    }
+    if (m->format() == core::ScriptModel::Format::Pdf) {
+        m_status->setText(tr("%1 · PDF · %2 cue%3 bound")
+            .arg(m->fileName())
+            .arg(m->annotations().size())
+            .arg(m->annotations().size() == 1 ? QString() : QStringLiteral("s")));
         return;
     }
     m_status->setText(tr("%1 · %2 lines · %3 cue%4 bound")

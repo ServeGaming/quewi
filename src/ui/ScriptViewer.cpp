@@ -83,7 +83,12 @@ void ScriptViewer::onScriptChanged()
         return;
     }
     auto *m = m_workspace->scriptModel();
-    if (!m->hasScript()) {
+    // PDFs are rendered by ScriptPdfView; this widget is hidden behind
+    // the QStackedWidget when a PDF is active, so don't paint a
+    // misleading "missing" message for them.
+    if (m->format() == core::ScriptModel::Format::Pdf) {
+        setPlainText(QString());
+    } else if (!m->hasScript()) {
         setPlainText(QString());
     } else if (m->text().isEmpty()) {
         setPlainText(tr("Script file not found:\n%1\n\n"
