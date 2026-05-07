@@ -281,11 +281,12 @@ void ActiveCuesPanel::refresh()
 
     QSet<quint64> live;
     QSet<QUuid>   runningCueIds;
+    QHash<QUuid, QPair<float, float>> peakByCue;
     for (const auto &v : voices) {
         live.insert(v.id);
         auto *row = findOrCreateRow(v.id);
         row->update(v, cueLabelForVoice(v.id));
-        // Map voice → cue id for the cue-list state column.
+        // Map voice → cue id for the cue-list state column + meters.
         if (m_workspace) {
             auto *list = m_workspace->activeCueList();
             if (list) {
@@ -293,6 +294,8 @@ void ActiveCuesPanel::refresh()
                     if (auto *ac = qobject_cast<audio::AudioCue *>(list->cueAt(i))) {
                         if (ac->currentVoiceId() == v.id) {
                             runningCueIds.insert(ac->id());
+                            peakByCue.insert(ac->id(),
+                                             { v.peakLeft, v.peakRight });
                             break;
                         }
                     }
@@ -301,6 +304,7 @@ void ActiveCuesPanel::refresh()
         }
     }
     emit runningCueIdsChanged(runningCueIds);
+    emit peakLevelsChanged(peakByCue);
 
     // Remove rows whose voices have ended.
     QList<quint64> toDrop;

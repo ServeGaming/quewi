@@ -351,6 +351,10 @@ void MainWindow::buildLayout()
             this, [this](const QSet<QUuid> &ids) {
                 if (m_model) m_model->setRunningCueIds(ids);
             });
+    connect(m_activePanel, &ui::ActiveCuesPanel::peakLevelsChanged,
+            this, [this](const QHash<QUuid, QPair<float, float>> &peaks) {
+                if (m_model) m_model->setPeakLevels(peaks);
+            });
 
     m_transport = new ui::TransportBar(central);
 

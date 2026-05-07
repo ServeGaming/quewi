@@ -1,6 +1,7 @@
 #pragma once
 
 #include <QHash>
+#include <QPair>
 #include <QPointer>
 #include <QSet>
 #include <QUuid>
@@ -33,6 +34,10 @@ signals:
     // Emitted on each refresh tick. The set lists the cues whose voices
     // are currently sounding, so the cue list view can repaint state dots.
     void runningCueIdsChanged(const QSet<QUuid> &ids);
+    // Per-cue stereo peaks for the inline VU meter in the cue list.
+    // Emits at the same 4 Hz refresh cadence; the model debounces
+    // dataChanged so the view doesn't repaint everything.
+    void peakLevelsChanged(const QHash<QUuid, QPair<float, float>> &peaks);
 
 private slots:
     void refresh();

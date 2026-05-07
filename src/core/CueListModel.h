@@ -3,6 +3,8 @@
 #include "core/CueList.h"
 
 #include <QAbstractItemModel>
+#include <QHash>
+#include <QPair>
 #include <QPointer>
 #include <QSet>
 #include <QUuid>
@@ -35,6 +37,7 @@ public:
         ColumnHost,        // OSC cues
         ColumnPort,        // OSC cues
         ColumnFile,        // audio / video cues
+        ColumnLevel,       // live VU bar for running audio cues
         ColumnCount,
     };
 
@@ -48,6 +51,8 @@ public:
     enum Role {
         CueIdRole = Qt::UserRole + 1,
         CuePointerRole,
+        PeakLeftRole,    // float 0..1 — for ColumnLevel painter
+        PeakRightRole,
     };
 
     explicit CueListModel(QObject *parent = nullptr);
@@ -61,6 +66,11 @@ public:
     // armed/disarmed grey is used. Call from the UI ~30 Hz.
     void setRunningCueIds(const QSet<QUuid> &running);
     void setLoadedCueIds(const QSet<QUuid> &loaded);
+
+    // Peak levels keyed by cue id. Polled from the audio engine at
+    // ~30 Hz; the model stores a small cue-id → (peakL, peakR) hash
+    // and emits dataChanged on the level column whenever it lands.
+    void setPeakLevels(const QHash<QUuid, QPair<float, float>> &peaks);
 
     // Painted 14×14 icon for a cue type-key. Cached per type.
     static QPixmap iconForType(const QString &typeKey);
@@ -94,6 +104,7 @@ private:
     QPointer<CueList> m_list;
     QSet<QUuid>       m_runningIds;
     QSet<QUuid>       m_loadedIds;
+    QHash<QUuid, QPair<float, float>> m_peaks;
 };
 
 } // namespace quewi::core

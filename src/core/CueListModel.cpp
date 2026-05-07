@@ -129,6 +129,19 @@ void CueListModel::setRunningCueIds(const QSet<QUuid> &running)
                          { Qt::DecorationRole, Qt::BackgroundRole });
 }
 
+void CueListModel::setPeakLevels(const QHash<QUuid, QPair<float, float>> &peaks)
+{
+    // Cheap merge — replace the table wholesale; the polling caller
+    // already decays old peaks via setPeaks-style hold logic so we
+    // never need to read-modify-write here.
+    m_peaks = peaks;
+    if (m_list && m_list->cueCount() > 0) {
+        emit dataChanged(index(0, ColumnLevel),
+                         index(m_list->cueCount() - 1, ColumnLevel),
+                         { Qt::DisplayRole, PeakLeftRole, PeakRightRole });
+    }
+}
+
 void CueListModel::setLoadedCueIds(const QSet<QUuid> &loaded)
 {
     if (m_loadedIds == loaded) return;
@@ -217,6 +230,14 @@ QVariant CueListModel::data(const QModelIndex &index, int role) const
 
     if (role == CueIdRole)      return QVariant::fromValue(cue->id());
     if (role == CuePointerRole) return QVariant::fromValue(static_cast<void *>(cue));
+    if (role == PeakLeftRole) {
+        const auto it = m_peaks.constFind(cue->id());
+        return (it != m_peaks.constEnd()) ? it->first : 0.0f;
+    }
+    if (role == PeakRightRole) {
+        const auto it = m_peaks.constFind(cue->id());
+        return (it != m_peaks.constEnd()) ? it->second : 0.0f;
+    }
 
     if (role == Qt::DisplayRole || role == Qt::EditRole) {
         auto fmtFieldDouble = [&](const QString &k, int decimals = 2) -> QVariant {
@@ -377,6 +398,7 @@ QString CueListModel::columnLabel(int section)
     case ColumnHost:     return tr("Host");
     case ColumnPort:     return tr("Port");
     case ColumnFile:     return tr("File");
+    case ColumnLevel:    return tr("Level");
     default:             return {};
     }
 }
@@ -393,6 +415,7 @@ QString CueListModel::columnSettingsKey(int section)
     case ColumnHost:    return QStringLiteral("host");
     case ColumnPort:    return QStringLiteral("port");
     case ColumnFile:    return QStringLiteral("file");
+    case ColumnLevel:   return QStringLiteral("level");
     default:            return {};
     }
 }

@@ -45,6 +45,45 @@ public:
     void paint(QPainter *p, const QStyleOptionViewItem &opt,
                const QModelIndex &idx) const override
     {
+        // Live VU bar in the Level column, painted in place of the
+        // default text. Audio cues that aren't currently playing get
+        // an empty cell — same row height, no jitter.
+        if (idx.column() == core::CueListModel::ColumnLevel) {
+            // Background first so hover/selected QSS still shows behind.
+            QStyleOptionViewItem fill = opt;
+            fill.text.clear();
+            QStyledItemDelegate::paint(p, fill, idx);
+
+            const float pl = idx.data(core::CueListModel::PeakLeftRole).toFloat();
+            const float pr = idx.data(core::CueListModel::PeakRightRole).toFloat();
+            if (pl <= 0.001f && pr <= 0.001f) return;
+
+            auto dbToFrac = [](float lin) -> float {
+                if (lin <= 0.001f) return 0.f;
+                float db = 20.f * std::log10(lin);
+                if (db < -60.f) db = -60.f;
+                if (db >  0.f)  db = 0.f;
+                return (db + 60.f) / 60.f;
+            };
+            const QRect r = opt.rect.adjusted(4, 4, -4, -4);
+            const int barH = std::max(2, (r.height() - 1) / 2);
+            const int leftW  = int(dbToFrac(pl) * r.width());
+            const int rightW = int(dbToFrac(pr) * r.width());
+
+            auto bandColor = [](float lin) {
+                const float db = 20.f * std::log10(std::max(0.001f, lin));
+                if (db > -3.f)  return QColor(0xC2, 0x6A, 0x55);   // red
+                if (db > -12.f) return QColor(0xD7, 0xA2, 0x4E);   // amber
+                return QColor(0x6F, 0xAE, 0x63);                   // green
+            };
+            p->save();
+            p->fillRect(QRect(r.left(), r.top(), leftW,  barH), bandColor(pl));
+            p->fillRect(QRect(r.left(), r.top() + barH + 1, rightW, barH),
+                        bandColor(pr));
+            p->restore();
+            return;
+        }
+
         QStyledItemDelegate::paint(p, opt, idx);
 
         // Running wash — the model returns a green QBrush via the
@@ -153,6 +192,7 @@ void CueListView::setModel(QAbstractItemModel *model)
         header()->resizeSection(CueListModel::ColumnHost,    130);
         header()->resizeSection(CueListModel::ColumnPort,     54);
         header()->resizeSection(CueListModel::ColumnFile,    220);
+        header()->resizeSection(CueListModel::ColumnLevel,    96);
         applyColumnVisibility();
     }
 }
@@ -164,7 +204,12 @@ void CueListView::applyColumnVisibility()
     s.beginGroup(QStringLiteral("ui/cueColumns"));
     for (int c = 0; c < CueListModel::ColumnCount; ++c) {
         if (!CueListModel::columnIsOptional(c)) continue;
-        bool visible = s.value(CueListModel::columnSettingsKey(c), false).toBool();
+        // Level column defaults ON — the inline VU meter is the
+        // single feature most operators want visible at a glance
+        // during a show. Other optional columns default off and
+        // stay user-toggled.
+        const bool defaultOn = (c == CueListModel::ColumnLevel);
+        bool visible = s.value(CueListModel::columnSettingsKey(c), defaultOn).toBool();
         setColumnHidden(c, !visible);
     }
     s.endGroup();
