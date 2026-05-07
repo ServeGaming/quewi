@@ -145,7 +145,14 @@ void GoEngine::doFire(cues::Cue *cue)
                 status(tr("GO: no file selected"));
             } else if (file->state() == audio::AudioFile::State::Failed) {
                 status(tr("GO: decode failed — %1").arg(file->errorString()));
-            } else if (file->state() != audio::AudioFile::State::Loaded) {
+            } else if (file->state() == audio::AudioFile::State::Empty
+                       || !file->snapshot()) {
+                // No published snapshot yet — the QAudioDecoder hasn't
+                // delivered the first buffer. This is brief (< 200 ms
+                // typically) and only happens if GO arrives faster
+                // than the first decoded chunk. With progressive
+                // snapshots from v0.9.4 onward, Loading-with-snapshot
+                // is now a valid play state.
                 status(tr("GO: audio still decoding"));
             } else {
                 audio::VoiceParams p;

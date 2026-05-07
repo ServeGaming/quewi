@@ -47,6 +47,7 @@ void AudioFile::clear()
     m_channelCount = 0;
     m_frameCount = 0;
     m_peakFramesProcessed = 0;
+    m_lastPublishedFrames = 0;
     m_path.clear();
     m_error.clear();
     clearSnapshot();
@@ -159,6 +160,21 @@ void AudioFile::onBufferReady()
 
         m_frameCount += frames;
         buildPeaksIncrementally(m_frameCount);
+    }
+
+    // Progressive snapshot publication. Without this a cue fired
+    // mid-decode reads from a stale published snapshot whose
+    // frameCount is whatever was published last (possibly 0).
+    // Publish every ~2 seconds of audio so a voice can keep playing
+    // a freshly-fired huge file without ever seeing "still
+    // decoding". Voices refresh their snapshot in the mixer when
+    // their readPos approaches the end of the captured one.
+    if (m_sampleRate > 0) {
+        const qint64 publishStride = qint64(m_sampleRate) * 2;
+        if (m_frameCount - m_lastPublishedFrames >= publishStride) {
+            publishSnapshot();
+            m_lastPublishedFrames = m_frameCount;
+        }
     }
 }
 

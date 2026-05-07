@@ -116,6 +116,10 @@ private:
     std::vector<float>             m_samples;
     std::vector<float>             m_peaks;
     qint64                         m_peakFramesProcessed = 0;
+    // Progressive publication cursor. publishSnapshot() runs every
+    // ~2 seconds of decoded audio so cues fired mid-decode have a
+    // valid (partial) snapshot to play.
+    qint64                         m_lastPublishedFrames = 0;
 };
 
 } // namespace quewi::audio

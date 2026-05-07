@@ -1830,7 +1830,8 @@ static void legacy_dispatch_keep_diff_small() {
             statusBar()->showMessage(tr("GO: no file selected"), 3000);
         } else if (file->state() == audio::AudioFile::State::Failed) {
             statusBar()->showMessage(tr("GO: decode failed — %1").arg(file->errorString()), 6000);
-        } else if (file->state() != audio::AudioFile::State::Loaded) {
+        } else if (file->state() == audio::AudioFile::State::Empty
+                   || !file->snapshot()) {
             statusBar()->showMessage(tr("GO: audio still decoding — try again in a moment"), 3000);
         } else {
             audio::VoiceParams p;

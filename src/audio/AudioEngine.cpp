@@ -420,6 +420,21 @@ qint64 AudioEngine::Mixer::readData(char *data, qint64 maxlen)
             // returns, so the GUI thread is free to clear / reverse /
             // re-load the source file without affecting in-flight audio.
             if (!v.buf) continue;
+
+            // Streaming refresh — if decode has produced more frames
+            // since this voice captured its snapshot, swap to the
+            // newer one. The new snapshot is a strict superset of
+            // the old (decode is append-only) so readPos stays valid.
+            // Cheap: one atomic load per buffer per voice. Skipped
+            // once the file is fully decoded (m_published stops
+            // changing after onFinished).
+            if (v.file && v.buf->frameCount > 0) {
+                if (auto fresh = v.file->snapshot();
+                    fresh && fresh->frameCount > v.buf->frameCount) {
+                    v.buf = fresh;
+                }
+            }
+
             // Paused voice — emit silence, don't advance readPos.
             // peakPerChannel decays via the UI smoothing.
             if (v.paused) {
@@ -434,6 +449,14 @@ qint64 AudioEngine::Mixer::readData(char *data, qint64 maxlen)
             if (inChans <= 0 || totalFrames <= 0) continue;
             const qint64 effectiveEnd = (v.endFrame > 0)
                 ? std::min(v.endFrame, totalFrames) : totalFrames;
+            // If decode is still in flight, treat end-of-snapshot as
+            // "wait for more" instead of "voice finished". Reading
+                // state() on the audio thread is a benign race: aligned
+            // enum reads are atomic on x86/x64 and the worst-case
+            // outcome is one buffer (~10 ms) of silence at a decode
+            // catch-up boundary.
+            const bool decodeOngoing = v.file
+                && v.file->state() == AudioFile::State::Loading;
 
             const double srcSr = v.buf->sampleRate;
             const double dstSr = m_outputSampleRate;
@@ -453,6 +476,12 @@ qint64 AudioEngine::Mixer::readData(char *data, qint64 maxlen)
             // Per-channel peaks for this buffer. The mixer caps at 16
             // because the engine itself caps device channel count there.
             std::array<float, 16> bufPeaks{};
+            // Tracks how many output frames were actually written, so
+            // the readPos advance below only counts real progress —
+            // important when the decode-ongoing stall breaks the loop
+            // early and we must stay parked at end-of-decoded-data
+            // until more arrives.
+            qint64 framesWritten = 0;
             for (qint64 f = 0; f < framesWanted; ++f) {
                 if (v.finished) break;
 
@@ -468,10 +497,15 @@ qint64 AudioEngine::Mixer::readData(char *data, qint64 maxlen)
                 }
                 if (i0 >= effectiveEnd) {
                     if (!v.loop) {
+                        // Stall instead of finish if decode is still
+                        // in progress — the next buffer will refresh
+                        // the snapshot and pick up new data.
+                        if (decodeOngoing) break;
                         v.finished = true;
                         break;
                     }
                 }
+                ++framesWritten;
 
                 double envGain = 1.0;
                 const qint64 absSamp = v.readPos + f * static_cast<qint64>(rate);
@@ -587,10 +621,16 @@ qint64 AudioEngine::Mixer::readData(char *data, qint64 maxlen)
             const int copyN = std::min<int>(outChans, v.peakPerChannel.size());
             for (int oc = 0; oc < copyN; ++oc) v.peakPerChannel[oc] = bufPeaks[oc];
 
-            const qint64 advanced = static_cast<qint64>(framesWanted * rate);
+            // Advance by the frames we actually rendered. When the
+            // decode-ongoing stall broke the inner loop early,
+            // framesWritten < framesWanted and we keep readPos parked
+            // so the next buffer resumes exactly where we paused.
+            const qint64 advanced = static_cast<qint64>(framesWritten * rate);
             v.readPos += advanced;
             if (v.loop && effectiveEnd > 0) v.readPos %= effectiveEnd;
-            else if (v.readPos >= effectiveEnd) v.finished = true;
+            else if (v.readPos >= effectiveEnd && !decodeOngoing) {
+                v.finished = true;
+            }
 
             if (v.stopRequested) v.fadeOutCounter += framesWanted;
 
@@ -764,7 +804,15 @@ void AudioEngine::shutdown()
 VoiceId AudioEngine::fire(const std::shared_ptr<const AudioFile> &file,
                           const VoiceParams &params)
 {
-    if (!file || file->state() != AudioFile::State::Loaded) return 0;
+    // Allow firing on a partially-decoded file as long as it has
+    // published at least one snapshot. The mixer will refresh the
+    // voice's snapshot as more decode arrives, so a cue fired during
+    // decode plays the head immediately and continues seamlessly.
+    // Failed/empty files still bail.
+    if (!file) return 0;
+    if (file->state() == AudioFile::State::Failed
+        || file->state() == AudioFile::State::Empty) return 0;
+    if (!file->snapshot()) return 0;
 
     const QAudioDevice dev = resolveDevice(params.outputDeviceId);
     auto *ctx = ensureContextForDevice(dev);
