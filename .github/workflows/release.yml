@@ -150,3 +150,79 @@ jobs:
           generate_release_notes: true
           draft: false
           prerelease: ${{ contains(github.ref, '-rc') || contains(github.ref, '-alpha') || contains(github.ref, '-beta') }}
+
+  build-appimage:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install build deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ninja-build libgl1-mesa-dev \
+            libxkbcommon-dev libfontconfig1 libfuse2
+
+      - name: Install Qt
+        uses: jurplel/install-qt-action@v4
+        with:
+          version: "6.8.3"
+          host: linux
+          target: desktop
+          modules: "qtmultimedia qtwebsockets qtpdf"
+          cache: true
+
+      - name: Configure (Release)
+        run: cmake --preset linux-release
+
+      - name: Build
+        run: cmake --build --preset linux-release
+
+      - name: Stage AppDir
+        run: |
+          cmake --install build/linux-release \
+            --prefix build/linux-release/AppDir/usr
+
+      - name: Fetch linuxdeploy + Qt plugin
+        run: |
+          curl -L -o linuxdeploy \
+            https://github.com/linuxdeploy/linuxdeploy/releases/download/continuous/linuxdeploy-x86_64.AppImage
+          curl -L -o linuxdeploy-plugin-qt \
+            https://github.com/linuxdeploy/linuxdeploy-plugin-qt/releases/download/continuous/linuxdeploy-plugin-qt-x86_64.AppImage
+          chmod +x linuxdeploy linuxdeploy-plugin-qt
+
+      - name: Build AppImage
+        env:
+          # linuxdeploy-plugin-qt finds Qt via QMAKE/QT_ROOT — point
+          # it at the aqtinstall location so it bundles 6.8.3 plugins
+          # not whatever (if anything) is in /usr.
+          QMAKE: ${{ env.Qt6_DIR }}/bin/qmake
+          OUTPUT: quewi-${{ github.ref_name }}-linux-x86_64.AppImage
+        run: |
+          export VERSION="${GITHUB_REF_NAME#v}"
+          ./linuxdeploy \
+            --appdir build/linux-release/AppDir \
+            --plugin qt \
+            --output appimage \
+            --desktop-file build/linux-release/AppDir/usr/share/applications/quewi.desktop \
+            --icon-file build/linux-release/AppDir/usr/share/icons/hicolor/512x512/apps/quewi.png
+
+      - name: Show artifacts
+        run: ls -la *.AppImage
+
+      - name: Upload AppImage artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: quewi-linux-appimage
+          path: "*.AppImage"
+          if-no-files-found: error
+
+      - name: Attach to GitHub Release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: "*.AppImage"
+          generate_release_notes: true
+          draft: false
+          prerelease: ${{ contains(github.ref, '-rc') || contains(github.ref, '-alpha') || contains(github.ref, '-beta') }}

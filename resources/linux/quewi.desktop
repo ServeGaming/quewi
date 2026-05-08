@@ -1,0 +1,13 @@
+[Desktop Entry]
+Type=Application
+Name=quewi
+GenericName=Theatre Cueing Software
+Comment=Cue-driven playback for sound, lighting, and projection
+Exec=quewi %F
+Icon=quewi
+Categories=AudioVideo;Audio;Player;Recorder;
+Terminal=false
+StartupNotify=true
+StartupWMClass=quewi
+MimeType=application/x-quewi-show;
+Keywords=cue;qlab;theatre;theater;sound;lighting;projection;show;

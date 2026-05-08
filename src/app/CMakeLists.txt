@@ -79,6 +79,13 @@ if(WIN32)
             COMMAND_ERROR_IS_FATAL ANY
         )
     ")
+elseif(UNIX AND NOT APPLE)
+    # Linux: stage standard FHS layout under the install prefix so
+    # linuxdeploy (run from CI) can fold it into an AppImage.
+    install(FILES "${CMAKE_SOURCE_DIR}/resources/linux/quewi.desktop"
+        DESTINATION share/applications)
+    install(FILES "${CMAKE_SOURCE_DIR}/resources/icons/quewi.png"
+        DESTINATION share/icons/hicolor/512x512/apps RENAME quewi.png)
 elseif(APPLE)
     # macOS: stamp Info.plist values onto the .app bundle and run
     # macdeployqt against it post-install so the .dmg ships every Qt
