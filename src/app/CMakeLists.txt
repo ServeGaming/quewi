@@ -79,4 +79,33 @@ if(WIN32)
             COMMAND_ERROR_IS_FATAL ANY
         )
     ")
+elseif(APPLE)
+    # macOS: stamp Info.plist values onto the .app bundle and run
+    # macdeployqt against it post-install so the .dmg ships every Qt
+    # framework the binary links against.
+    set_target_properties(quewi PROPERTIES
+        MACOSX_BUNDLE_BUNDLE_NAME           "quewi"
+        MACOSX_BUNDLE_GUI_IDENTIFIER        "com.servegaming.quewi"
+        MACOSX_BUNDLE_BUNDLE_VERSION        "${PROJECT_VERSION}"
+        MACOSX_BUNDLE_SHORT_VERSION_STRING  "${PROJECT_VERSION}"
+        MACOSX_BUNDLE_COPYRIGHT             "© ServeGaming"
+    )
+    get_target_property(_qmake_exec Qt6::qmake IMPORTED_LOCATION)
+    get_filename_component(_qt_bin_dir "${_qmake_exec}" DIRECTORY)
+    find_program(MACDEPLOYQT_EXECUTABLE macdeployqt
+        HINTS "${_qt_bin_dir}"
+        REQUIRED
+    )
+    # The bundle lands at ${CMAKE_INSTALL_PREFIX}/quewi.app (BUNDLE
+    # DESTINATION "."). macdeployqt rewrites Mach-O rpaths and copies
+    # frameworks/plugins into Contents/Frameworks and Contents/PlugIns.
+    install(CODE "
+        message(STATUS \"Running macdeployqt on \${CMAKE_INSTALL_PREFIX}/quewi.app\")
+        execute_process(
+            COMMAND \"${MACDEPLOYQT_EXECUTABLE}\"
+                \"\${CMAKE_INSTALL_PREFIX}/quewi.app\"
+                -always-overwrite
+            COMMAND_ERROR_IS_FATAL ANY
+        )
+    ")
 endif()

@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.24)
 project(quewi
-    VERSION 0.9.11
+    VERSION 0.9.12
     DESCRIPTION "Theatre cueing software"
     HOMEPAGE_URL "https://github.com/ServeGaming/quewi"
     LANGUAGES CXX
@@ -142,6 +142,33 @@ if(WIN32)
     # to the Start Menu folder (id=UNINSTALL) — see
     # CPackWIX.cmake's WixSource fragment. So an explicit patch isn't
     # needed; the MSI also registers normally with Apps & Features.
+
+    include(CPack)
+endif()
+
+# ── CPack — macOS .dmg via DragNDrop ─────────────────────────────────
+# Run `cpack -G DragNDrop` from build/macos-release after installing
+# to produce quewi-<version>-macos.dmg with the .app bundle and a
+# symlink to /Applications for drag-to-install. macdeployqt has
+# already copied Qt frameworks/plugins into the bundle (see
+# src/app/CMakeLists.txt's install CODE block), so the .dmg is fully
+# self-contained.
+if(APPLE)
+    set(CPACK_GENERATOR "DragNDrop")
+    set(CPACK_PACKAGE_NAME              "quewi")
+    set(CPACK_PACKAGE_VENDOR            "ServeGaming")
+    set(CPACK_PACKAGE_VERSION           "${PROJECT_VERSION}")
+    set(CPACK_PACKAGE_DESCRIPTION_SUMMARY "${PROJECT_DESCRIPTION}")
+    set(CPACK_PACKAGE_HOMEPAGE_URL      "${PROJECT_HOMEPAGE_URL}")
+    set(CPACK_PACKAGE_FILE_NAME         "quewi-${PROJECT_VERSION}-macos")
+    set(CPACK_RESOURCE_FILE_LICENSE     "${CMAKE_SOURCE_DIR}/LICENSE")
+
+    # DragNDrop volume label shown when the .dmg is mounted in Finder.
+    set(CPACK_DMG_VOLUME_NAME           "quewi ${PROJECT_VERSION}")
+    # Background image + .DS_Store layout would go here once we have
+    # real mac hardware to design and test them on. Without these
+    # CPack falls back to a plain Finder window which is fine for
+    # v1.0 — drag-to-install still works.
 
     include(CPack)
 endif()
