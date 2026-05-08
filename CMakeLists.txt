@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.24)
 project(quewi
-    VERSION 0.9.8
+    VERSION 0.9.9
     DESCRIPTION "Theatre cueing software"
     HOMEPAGE_URL "https://github.com/ServeGaming/quewi"
     LANGUAGES CXX
@@ -98,6 +98,16 @@ if(WIN32)
     # App icon shown in Add/Remove Programs and on Start Menu shortcuts.
     if(EXISTS "${CMAKE_SOURCE_DIR}/resources/icons/quewi.ico")
         set(CPACK_WIX_PRODUCT_ICON "${CMAKE_SOURCE_DIR}/resources/icons/quewi.ico")
+    endif()
+
+    # Extra WiX fragment that overrides WixUIInfoIco so the installer
+    # wizard's title-bar icon is the kiwi instead of the generic
+    # Windows Installer icon. Note: the icon shown on the .msi file
+    # itself in Explorer is owned by the Windows shell and can't be
+    # customised through WiX — that would require a Burn .exe bundle.
+    if(EXISTS "${CMAKE_SOURCE_DIR}/resources/installer/branding.wxs")
+        list(APPEND CPACK_WIX_EXTRA_SOURCES
+            "${CMAKE_SOURCE_DIR}/resources/installer/branding.wxs")
     endif()
 
     # Branded installer artwork. WiX is fussy about format: both must

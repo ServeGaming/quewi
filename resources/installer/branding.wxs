@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+    Extra WiX source compiled into the installer alongside CPack's
+    generated .wxs. WixVariables defined here are picked up by the
+    standard WixUI dialogs at link time.
+
+    WixUIInfoIco — the icon shown in the title bar of every wizard
+    dialog (Welcome, License, InstallDir, Progress, Finish). Without
+    this it falls back to the generic Windows Installer icon which
+    breaks the kiwi theming we set up everywhere else.
+
+    Path is interpolated at candle/light time. CPack invokes them with
+    the source dir on the search path, so a project-relative path works.
+-->
+<Wix xmlns="http://schemas.microsoft.com/wix/2006/wi">
+    <Fragment>
+        <WixVariable Id="WixUIInfoIco"
+                     Value="resources/icons/quewi.ico" />
+    </Fragment>
+</Wix>
