@@ -16,7 +16,13 @@ namespace quewi::audio {
 // risk of the GUI thread pulling the samples out from under the
 // real-time callback (e.g. clear / reverseSamples / re-load).
 struct AudioBufferSnapshot {
-    std::vector<float> samples;
+    // Shared, immutable backing buffer. Holding a shared_ptr keeps the
+    // bytes alive for the voice's lifetime even if AudioFile cow-swaps
+    // its m_samples to a bigger backing on capacity overflow. Lets
+    // publishSnapshot() copy a pointer instead of megabytes of audio,
+    // which was the cause of the heap churn that looked like a leak
+    // when the GO button was spammed mid-decode.
+    std::shared_ptr<const std::vector<float>> samples;
     int    channelCount = 0;
     int    sampleRate   = 0;
     qint64 frameCount   = 0;
@@ -60,7 +66,7 @@ public:
     double durationSeconds() const;
 
     // Interleaved float32 buffer. Size == frameCount * channelCount.
-    const std::vector<float> &samples() const { return m_samples; }
+    const std::vector<float> &samples() const { return *m_samples; }
 
     // Resident memory cost — what this file currently holds in RAM,
     // including the published snapshot (which holds a copy until the
@@ -113,7 +119,11 @@ private:
     int                            m_channelCount = 0;
     qint64                         m_frameCount = 0;
 
-    std::vector<float>             m_samples;
+    // Shared, mutable-only-on-GUI-thread backing. The audio thread reads
+    // through immutable snapshots that share this pointer, so capacity
+    // overflows during decode COW into a fresh backing rather than
+    // realloc'ing under live readers.
+    std::shared_ptr<std::vector<float>> m_samples;
     std::vector<float>             m_peaks;
     qint64                         m_peakFramesProcessed = 0;
     // Progressive publication cursor. publishSnapshot() runs every

@@ -443,7 +443,11 @@ qint64 AudioEngine::Mixer::readData(char *data, qint64 maxlen)
                 continue;
             }
 
-            const auto &samples = v.buf->samples;
+            // Dereference the snapshot's shared_ptr<vector<float>> once;
+            // the rest of the loop indexes through this reference. The
+            // shared_ptr keeps the backing alive for the voice's
+            // lifetime even if AudioFile cow-swaps to a bigger buffer.
+            const auto &samples = *v.buf->samples;
             const int   inChans  = v.buf->channelCount;
             const qint64 totalFrames = v.buf->frameCount;
             if (inChans <= 0 || totalFrames <= 0) continue;
