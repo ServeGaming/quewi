@@ -184,30 +184,29 @@ void UpdateInstaller::onReplyFinished()
 
 bool UpdateInstaller::launchAndQuit(const QString &msiPath)
 {
-    // The previous implementation spawned msiexec detached and quit
-    // immediately. On unsigned MSIs (we don't sign yet) SmartScreen
-    // can silently block the launch, leaving the user with nothing —
-    // quewi closes, no installer ever shows. Fix:
-    //   1. Use ShellExecuteW with the default verb — this is exactly
-    //      what double-clicking the .msi in Explorer does. UAC and
-    //      SmartScreen prompts surface visibly.
-    //   2. Fall back to msiexec resolved from %SystemRoot%\System32
-    //      so we don't depend on PATH.
-    //   3. Final fallback: open Explorer pointing at the MSI so the
-    //      user can run it manually.
-    // We only quit if launch is confirmed. Otherwise the user keeps
-    // quewi open with a clear error path instead of a blank desktop.
+    // Per-platform handoff:
+    //   Windows: ShellExecuteW with the default verb — exactly what a
+    //            double-click in Explorer does. SmartScreen / UAC
+    //            prompts surface visibly. Falls back to an explicit
+    //            msiexec resolved from %SystemRoot%\System32, then to
+    //            Explorer pointing at the file as a last resort.
+    //   macOS:   /usr/bin/open hands the file to LaunchServices, which
+    //            mounts a .dmg or runs a .pkg the same way Finder
+    //            would. Falls back to opening the containing folder.
+    //   Linux:   xdg-open hands the file to the desktop's default
+    //            handler. AppImage paths get +x first since the
+    //            download arrives without exec bits. Falls back to
+    //            opening the containing folder.
+    // We only quit on confirmed launch — otherwise the user keeps the
+    // app open with a clear path forward (the "Open folder" button on
+    // the failure dialog) instead of a blank desktop.
     const QString native = QDir::toNativeSeparators(msiPath);
-    // Last-line guard: between download-validation and this call, the
-    // user could close & reopen quewi (forgetting where the staged
-    // file was), or antivirus could have swept the file. If it's gone
-    // there's no point quitting the app.
     if (!QFileInfo::exists(msiPath)) {
         return false;
     }
     bool started = false;
 
-#ifdef Q_OS_WIN
+#if defined(Q_OS_WIN)
     {
         const std::wstring wpath = native.toStdWString();
         const HINSTANCE rc = ShellExecuteW(nullptr, nullptr, wpath.c_str(),
@@ -215,8 +214,6 @@ bool UpdateInstaller::launchAndQuit(const QString &msiPath)
         // ShellExecute returns >32 on success, an error code <=32 on failure.
         started = reinterpret_cast<INT_PTR>(rc) > 32;
     }
-#endif
-
     if (!started) {
         const QString sysroot = qEnvironmentVariable("SystemRoot",
                                     QStringLiteral("C:/Windows"));
@@ -225,18 +222,52 @@ bool UpdateInstaller::launchAndQuit(const QString &msiPath)
         started = QProcess::startDetached(msiexec,
             { QStringLiteral("/i"), native });
     }
-
     if (!started) {
-        // Last resort — open Explorer so the user can find and run
-        // the file themselves. Don't quit; leaving them with neither
-        // installer nor app is the failure mode we just hit.
         QProcess::startDetached(QStringLiteral("explorer.exe"),
             { QStringLiteral("/select,") + native });
         return false;
     }
+#elif defined(Q_OS_MACOS)
+    started = QProcess::startDetached(
+        QStringLiteral("/usr/bin/open"),
+        { msiPath });
+    if (!started) {
+        // Fall back to revealing the file in Finder.
+        QProcess::startDetached(
+            QStringLiteral("/usr/bin/open"),
+            { QStringLiteral("-R"), msiPath });
+        return false;
+    }
+#elif defined(Q_OS_LINUX)
+    // AppImage downloads arrive without the executable bit. Set it
+    // before handing off so the desktop's xdg-open can run it. .deb /
+    // .rpm / .tar.* go straight to xdg-open.
+    if (msiPath.endsWith(QStringLiteral(".AppImage"),
+                         Qt::CaseInsensitive)) {
+        QFile f(msiPath);
+        f.setPermissions(f.permissions()
+            | QFileDevice::ExeOwner | QFileDevice::ExeUser
+            | QFileDevice::ExeGroup | QFileDevice::ExeOther);
+        started = QProcess::startDetached(msiPath, {});
+    }
+    if (!started) {
+        started = QProcess::startDetached(
+            QStringLiteral("xdg-open"), { msiPath });
+    }
+    if (!started) {
+        QProcess::startDetached(
+            QStringLiteral("xdg-open"),
+            { QFileInfo(msiPath).absolutePath() });
+        return false;
+    }
+#else
+    // Unknown platform — surface the path and let the user run it.
+    return false;
+#endif
 
     // Give the new process a moment to claim the install session and
-    // its UI before we vacate the running exe so MSI can replace it.
+    // its UI before we vacate the running exe so the installer can
+    // replace it on platforms where in-place replacement isn't allowed.
     QTimer::singleShot(1500, qApp, &QCoreApplication::quit);
     return true;
 }
