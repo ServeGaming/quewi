@@ -167,14 +167,38 @@ void UpdateInstaller::onReplyFinished()
         if (probe.open(QIODevice::ReadOnly)) {
             const QByteArray head = probe.read(8);
             probe.close();
-            static const QByteArray kOle2Magic =
+            // Per-platform magic header check. Each format has a
+            // stable signature in its first few bytes that an HTML
+            // error page or partial download can't accidentally
+            // satisfy.
+            //   .msi      OLE2 compound document → D0 CF 11 E0 A1 B1 1A E1
+            //   .dmg      koly trailer + bzip2/UDIF; first bytes are
+            //             usually "x" (78) for bzip2 streams or 0xED
+            //             for UDIF — too variable to fingerprint
+            //             reliably from the head, so we skip.
+            //   AppImage  ELF executable → 7F 45 4C 46 (\x7fELF).
+            bool ok = true;
+            QString why;
+#if defined(Q_OS_WIN)
+            static const QByteArray kMagic =
                 QByteArray::fromHex("d0cf11e0a1b11ae1");
-            if (head != kOle2Magic) {
+            if (head != kMagic) {
+                ok = false;
+                why = tr("Downloaded file isn't a valid MSI "
+                         "(magic header mismatch).");
+            }
+#elif defined(Q_OS_LINUX)
+            static const QByteArray kMagic = QByteArray::fromHex("7f454c46");
+            if (!head.startsWith(kMagic)) {
+                ok = false;
+                why = tr("Downloaded file isn't a valid AppImage "
+                         "(ELF header missing).");
+            }
+#endif
+            if (!ok) {
                 QFile::remove(m_localPath);
-                emit downloadFailed(tr("Downloaded file isn't a valid MSI "
-                                       "(magic header mismatch). Try again, "
-                                       "or download manually from the "
-                                       "release page."));
+                emit downloadFailed(why + QStringLiteral(" ")
+                    + tr("Try again, or download manually from the release page."));
                 return;
             }
         }

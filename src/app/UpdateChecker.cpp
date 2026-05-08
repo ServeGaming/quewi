@@ -114,15 +114,28 @@ void UpdateChecker::onReplyFinished()
         return;
     }
 
-    // Find the .msi asset (Windows installer) for the download URL.
-    // Fall back to the release page if no MSI is attached yet —
-    // sometimes CI is mid-build when a manual check fires.
+    // Find the platform-appropriate installer asset:
+    //   Windows → .msi, macOS → .dmg, Linux → .AppImage.
+    // Fall back to the release page if the matching asset hasn't
+    // been attached yet (CI may still be building when a manual
+    // check fires immediately after a tag push).
+#if defined(Q_OS_WIN)
+    static const QString kInstallerExt = QStringLiteral(".msi");
+#elif defined(Q_OS_MACOS)
+    static const QString kInstallerExt = QStringLiteral(".dmg");
+#elif defined(Q_OS_LINUX)
+    static const QString kInstallerExt = QStringLiteral(".AppImage");
+#else
+    static const QString kInstallerExt;   // empty → falls through to page URL
+#endif
+
     QString msiUrl;
     const auto assets = obj.value(QStringLiteral("assets")).toArray();
     for (const auto &v : assets) {
         const auto a = v.toObject();
         const auto name = a.value(QStringLiteral("name")).toString();
-        if (name.endsWith(QStringLiteral(".msi"), Qt::CaseInsensitive)) {
+        if (!kInstallerExt.isEmpty()
+            && name.endsWith(kInstallerExt, Qt::CaseInsensitive)) {
             msiUrl = a.value(QStringLiteral("browser_download_url")).toString();
             break;
         }
