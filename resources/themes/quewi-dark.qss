@@ -84,6 +84,37 @@ QMenu::separator {
     margin: 4px 8px;
 }
 
+/* ============================ Checkbox ============================ */
+/* Explicit indicator styling — Qt's default checkbox indicator on a
+   dark theme is barely visible (the inspector Loop control was
+   reading as "no widget present" in v0.9.x). Hard 1px outline plus
+   a clear filled state. */
+QCheckBox {
+    color: @ink100;
+    spacing: 8px;
+    padding: 2px 0;
+}
+QCheckBox::indicator {
+    width: 16px;
+    height: 16px;
+    border-radius: 3px;
+    border: 1px solid @outline;
+    background: @bgInteractive;
+}
+QCheckBox::indicator:hover {
+    border-color: @ink60;
+}
+QCheckBox::indicator:checked {
+    background: @accent;
+    border-color: @accent;
+    /* "✓" via image would be nicer but we don't ship a glyph yet —
+       the solid fill on amber against the dark bg is unambiguous. */
+}
+QCheckBox::indicator:disabled {
+    border-color: @divider;
+    background: @bgPanel;
+}
+
 /* ============================ Splitter ============================ */
 /* Wide handles in the deep-bg colour — makes the panes feel like
    floating cards on a calmer canvas rather than welded boxes. */

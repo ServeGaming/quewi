@@ -84,11 +84,16 @@ protected:
                 return int((db + 60.f) / 60.f * (W - 2));
             };
             const int wDisp = pos(m_disp[i]);
+            // Band thresholds in dBFS, matching CueRowDelegate. The
+            // -60..0 dBFS scale → 0..W mapping puts -12 dB at t=0.8
+            // and -3 dB at t=0.95. Earlier code used 0.7 / 0.9 which
+            // tinted amber from ~-18 dB and red from ~-6 dB — same
+            // peak read green in the cue list and amber here.
             for (int x = 0; x < wDisp; ++x) {
                 float t = float(x) / float(W - 2);
-                QColor c = (t < 0.7f) ? QColor(0x6F, 0xAE, 0x63)
-                          : (t < 0.9f) ? QColor(0xD7, 0xA2, 0x4E)
-                                       : QColor(0xC2, 0x6A, 0x55);
+                QColor c = (t < 0.8f)  ? QColor(0x6F, 0xAE, 0x63)   // green  < -12 dB
+                          : (t < 0.95f) ? QColor(0xD7, 0xA2, 0x4E)  // amber  -12 .. -3 dB
+                                        : QColor(0xC2, 0x6A, 0x55); // red    > -3 dB
                 p.setPen(c);
                 p.drawLine(1 + x, y, 1 + x, y + barH - 1);
             }

@@ -48,6 +48,7 @@
 #include <QPlainTextEdit>
 #include <QPushButton>
 #include <QScrollArea>
+#include <QScrollBar>
 #include <QSpinBox>
 #include <QUndoStack>
 #include <QVBoxLayout>
@@ -371,48 +372,68 @@ Inspector::Inspector(QWidget *parent)
     audioForm->setVerticalSpacing(8);
     audioForm->setLabelAlignment(Qt::AlignRight | Qt::AlignVCenter);
 
+    // Paired in/out fields go on a single row each — same field count
+    // as before, half the vertical space, and the "in → out"
+    // relationship is visually reinforced.
+    auto makeArrowLabel = [&](QWidget *parent) {
+        auto *l = new QLabel(QStringLiteral("→"), parent);
+        l->setStyleSheet(QStringLiteral("color:#A8AEBA;"));
+        l->setAlignment(Qt::AlignCenter);
+        l->setFixedWidth(16);
+        return l;
+    };
+
     m_audioFadeIn = new QDoubleSpinBox(m_audioGroup);
     m_audioFadeIn->setDecimals(2);
     m_audioFadeIn->setRange(0.0, 600.0);
     m_audioFadeIn->setSuffix(QStringLiteral(" s"));
-    audioForm->addRow(tr("Fade in"), m_audioFadeIn);
-
     m_audioFadeOut = new QDoubleSpinBox(m_audioGroup);
     m_audioFadeOut->setDecimals(2);
     m_audioFadeOut->setRange(0.0, 600.0);
     m_audioFadeOut->setSuffix(QStringLiteral(" s"));
-    audioForm->addRow(tr("Fade out"), m_audioFadeOut);
+    {
+        auto *fadeRow = new QHBoxLayout();
+        fadeRow->setContentsMargins(0, 0, 0, 0);
+        fadeRow->addWidget(m_audioFadeIn, 1);
+        fadeRow->addWidget(makeArrowLabel(m_audioGroup));
+        fadeRow->addWidget(m_audioFadeOut, 1);
+        audioForm->addRow(tr("Fade"), fadeRow);
+    }
 
     m_audioTrimIn = new QDoubleSpinBox(m_audioGroup);
     m_audioTrimIn->setDecimals(3);
     m_audioTrimIn->setRange(0.0, 86400.0);
     m_audioTrimIn->setSuffix(QStringLiteral(" s"));
-    audioForm->addRow(tr("Trim in"), m_audioTrimIn);
-
     m_audioTrimOut = new QDoubleSpinBox(m_audioGroup);
     m_audioTrimOut->setDecimals(3);
     m_audioTrimOut->setRange(0.0, 86400.0);
     m_audioTrimOut->setSuffix(QStringLiteral(" s"));
     m_audioTrimOut->setSpecialValueText(tr("(end)"));
-    audioForm->addRow(tr("Trim out"), m_audioTrimOut);
+    {
+        auto *trimRow = new QHBoxLayout();
+        trimRow->setContentsMargins(0, 0, 0, 0);
+        trimRow->addWidget(m_audioTrimIn, 1);
+        trimRow->addWidget(makeArrowLabel(m_audioGroup));
+        trimRow->addWidget(m_audioTrimOut, 1);
+        audioForm->addRow(tr("Trim"), trimRow);
+    }
 
-    // Horizontal pan fader with label.
+    // Pan: readout sits to the LEFT of the slider so it never reads
+    // like a fourth endpoint past R. The slider's tick at the centre
+    // (interval=50) carries the L/R orientation visually; explicit L/R
+    // bracket labels were redundant and pushed the readout off the
+    // logical axis. Readout text stays "Centre"/"L 25%"/"R 50%".
     auto *panRow = new QHBoxLayout();
-    auto *panL = new QLabel(QStringLiteral("L"), m_audioGroup);
-    auto *panR = new QLabel(QStringLiteral("R"), m_audioGroup);
-    panL->setStyleSheet(QStringLiteral("color:#A8AEBA;"));
-    panR->setStyleSheet(QStringLiteral("color:#A8AEBA;"));
+    m_audioPanLabel = new QLabel(tr("Centre"), m_audioGroup);
+    m_audioPanLabel->setMinimumWidth(64);
+    m_audioPanLabel->setAlignment(Qt::AlignLeft | Qt::AlignVCenter);
+    m_audioPanLabel->setStyleSheet(QStringLiteral("color:#A8AEBA;"));
     m_audioPanSlider = new QSlider(Qt::Horizontal, m_audioGroup);
     m_audioPanSlider->setRange(-100, 100); // hundredths
     m_audioPanSlider->setTickPosition(QSlider::TicksBelow);
     m_audioPanSlider->setTickInterval(50);
-    m_audioPanLabel = new QLabel(QStringLiteral("C"), m_audioGroup);
-    m_audioPanLabel->setMinimumWidth(40);
-    m_audioPanLabel->setAlignment(Qt::AlignCenter);
-    panRow->addWidget(panL);
-    panRow->addWidget(m_audioPanSlider, 1);
-    panRow->addWidget(panR);
     panRow->addWidget(m_audioPanLabel);
+    panRow->addWidget(m_audioPanSlider, 1);
     audioForm->addRow(tr("Pan"), panRow);
 
     m_audioLoop = new QCheckBox(tr("Loop"), m_audioGroup);
@@ -827,6 +848,14 @@ void Inspector::setCue(cues::Cue *cue)
     m_cue = cue;
     if (m_cue) connect(m_cue, &cues::Cue::changed, this, &Inspector::onCueChanged);
     rebuild();
+    // Reset scroll on every selection so the cue header is always
+    // visible from the top — without this the scroll position is
+    // sticky across selections, which read as a "clipped at top"
+    // layout glitch when the view was scrolled to expose the audio
+    // group on a previous cue.
+    if (auto *sa = findChild<QScrollArea *>(QStringLiteral("inspectorScroll"))) {
+        if (auto *bar = sa->verticalScrollBar()) bar->setValue(0);
+    }
 }
 
 void Inspector::onCueChanged()
@@ -1053,9 +1082,10 @@ void Inspector::rebuild()
         m_audioPanSlider->setValue(static_cast<int>(audioCue->pan() * 100.0));
         const double pv = audioCue->pan();
         m_audioPanLabel->setText(qFuzzyIsNull(pv)
-            ? QStringLiteral("C")
-            : (pv < 0 ? QStringLiteral("L %1").arg(QString::number(std::abs(pv), 'f', 2))
-                      : QStringLiteral("R %1").arg(QString::number(pv, 'f', 2))));
+            ? tr("Centre")
+            : (pv < 0
+               ? tr("L %1%").arg(int(std::round(std::abs(pv) * 100.0)))
+               : tr("R %1%").arg(int(std::round(pv * 100.0)))));
         m_audioFadeIn->setValue(audioCue->fadeInSeconds());
         m_audioFadeOut->setValue(audioCue->fadeOutSeconds());
         m_audioTrimIn->setValue(audioCue->trimInSeconds());
@@ -1405,9 +1435,10 @@ void Inspector::onPanSliderChanged(int hundredths)
 {
     const double pv = hundredths / 100.0;
     m_audioPanLabel->setText(qFuzzyIsNull(pv)
-        ? QStringLiteral("C")
-        : (pv < 0 ? QStringLiteral("L %1").arg(QString::number(std::abs(pv), 'f', 2))
-                  : QStringLiteral("R %1").arg(QString::number(pv, 'f', 2))));
+        ? tr("Centre")
+        : (pv < 0
+           ? tr("L %1%").arg(int(std::round(std::abs(pv) * 100.0)))
+           : tr("R %1%").arg(int(std::round(pv * 100.0)))));
     if (m_loading) return;
     pushFieldEdit(QStringLiteral("pan"), pv);
     if (m_audioEngine) {
