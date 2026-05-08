@@ -1658,13 +1658,35 @@ void MainWindow::runInAppInstall(const QString &msiUrl)
                 QMessageBox::Yes | QMessageBox::No);
             if (answer == QMessageBox::Yes) {
                 if (!UpdateInstaller::launchAndQuit(localPath)) {
-                    QMessageBox::warning(this, tr("Couldn't launch installer"),
-                        tr("Quewi couldn't start the installer automatically. "
-                           "An Explorer window has been opened to the file:\n\n%1\n\n"
-                           "Double-click it to install. (Windows may prompt for "
-                           "administrator permission and warn about an unsigned "
-                           "installer; that's expected for now.)")
-                            .arg(QDir::toNativeSeparators(localPath)));
+                    // Canonicalize and force plain text — earlier reports
+                    // showed mojibake here, which we suspect was Qt's
+                    // rich-text auto-detect tripping on the path string.
+                    // Also log the actual bytes so future reports can be
+                    // diagnosed instead of guessed at.
+                    const QString shown = QDir::toNativeSeparators(
+                        QFileInfo(localPath).absoluteFilePath());
+                    qWarning("UpdateInstaller: launch failed, path=%s",
+                             qUtf8Printable(shown));
+                    QMessageBox box(this);
+                    box.setIcon(QMessageBox::Warning);
+                    box.setWindowTitle(tr("Couldn't launch installer"));
+                    box.setTextFormat(Qt::PlainText);
+                    box.setText(tr("Quewi couldn't start the installer "
+                                   "automatically. The file is here:"));
+                    box.setInformativeText(shown);
+                    box.setDetailedText(tr(
+                        "Double-click the .msi to install. Windows may "
+                        "prompt for administrator permission and warn "
+                        "about an unsigned installer; that's expected "
+                        "for now."));
+                    auto *openBtn = box.addButton(tr("Open folder"),
+                                                  QMessageBox::ActionRole);
+                    box.addButton(QMessageBox::Ok);
+                    box.exec();
+                    if (box.clickedButton() == openBtn) {
+                        const QString dir = QFileInfo(localPath).absolutePath();
+                        QDesktopServices::openUrl(QUrl::fromLocalFile(dir));
+                    }
                 }
             }
         });
