@@ -81,7 +81,9 @@
 #include <QPushButton>
 #include <QSplitter>
 #include <QStackedWidget>
+#include <QDateTime>
 #include <QStandardPaths>
+#include <QTextStream>
 #include <QTimer>
 #include <QUuid>
 #include <QStatusBar>
@@ -1715,34 +1717,71 @@ void MainWindow::runInAppInstall(const QString &msiUrl)
                 QMessageBox::Yes | QMessageBox::No);
             if (answer == QMessageBox::Yes) {
                 if (!UpdateInstaller::launchAndQuit(localPath)) {
-                    // Canonicalize and force plain text — earlier reports
-                    // showed mojibake here, which we suspect was Qt's
-                    // rich-text auto-detect tripping on the path string.
-                    // Also log the actual bytes so future reports can be
-                    // diagnosed instead of guessed at.
-                    const QString shown = QDir::toNativeSeparators(
-                        QFileInfo(localPath).absoluteFilePath());
-                    qWarning("UpdateInstaller: launch failed, path=%s",
-                             qUtf8Printable(shown));
+                    // Two recurring bug reports said this dialog showed
+                    // a corrupted-looking path. Defensive rewrite:
+                    //   1. Don't put the path in the dialog at all —
+                    //      derive the folder fresh from QStandardPaths
+                    //      so it's guaranteed-valid even if localPath
+                    //      itself is somehow garbage.
+                    //   2. Log the raw localPath bytes to a known file
+                    //      so future reports include actual evidence
+                    //      instead of relying on dialog screenshots.
+                    //   3. Open folder uses the SAME guaranteed-valid
+                    //      Downloads path, not localPath.
+                    const QString downloadsDir =
+                        QStandardPaths::writableLocation(
+                            QStandardPaths::DownloadLocation);
+                    const QString fileName =
+                        QFileInfo(localPath).fileName();
+                    const QString logDir =
+                        QStandardPaths::writableLocation(
+                            QStandardPaths::AppDataLocation);
+                    QDir().mkpath(logDir);
+                    const QString logPath =
+                        logDir + QStringLiteral("/update-debug.log");
+                    if (QFile log(logPath); log.open(QIODevice::Append
+                                                    | QIODevice::Text)) {
+                        QTextStream ts(&log);
+                        ts << QDateTime::currentDateTime().toString(Qt::ISODate)
+                           << " launch failed\n"
+                           << "  localPath bytes: " << localPath << "\n"
+                           << "  localPath utf8 hex: "
+                           << localPath.toUtf8().toHex(' ') << "\n"
+                           << "  downloadsDir: " << downloadsDir << "\n"
+                           << "  fileName: " << fileName << "\n\n";
+                    }
+                    qWarning() << "UpdateInstaller: launch failed."
+                               << "localPath=" << localPath
+                               << "downloads=" << downloadsDir
+                               << "fileName=" << fileName;
+
                     QMessageBox box(this);
                     box.setIcon(QMessageBox::Warning);
                     box.setWindowTitle(tr("Couldn't launch installer"));
                     box.setTextFormat(Qt::PlainText);
                     box.setText(tr("Quewi couldn't start the installer "
-                                   "automatically. The file is here:"));
-                    box.setInformativeText(shown);
+                                   "automatically."));
+                    box.setInformativeText(tr(
+                        "The installer is in your Downloads folder. "
+                        "Click Open folder to find it and double-click "
+                        "the .msi to install."));
                     box.setDetailedText(tr(
-                        "Double-click the .msi to install. Windows may "
-                        "prompt for administrator permission and warn "
-                        "about an unsigned installer; that's expected "
-                        "for now."));
+                        "Windows may prompt for administrator permission "
+                        "and warn about an unsigned installer; that's "
+                        "expected for now.\n\nA debug log was written to:\n%1")
+                        .arg(QDir::toNativeSeparators(logPath)));
                     auto *openBtn = box.addButton(tr("Open folder"),
                                                   QMessageBox::ActionRole);
+                    auto *logBtn = box.addButton(tr("Open log"),
+                                                 QMessageBox::ActionRole);
                     box.addButton(QMessageBox::Ok);
                     box.exec();
                     if (box.clickedButton() == openBtn) {
-                        const QString dir = QFileInfo(localPath).absolutePath();
-                        QDesktopServices::openUrl(QUrl::fromLocalFile(dir));
+                        QDesktopServices::openUrl(
+                            QUrl::fromLocalFile(downloadsDir));
+                    } else if (box.clickedButton() == logBtn) {
+                        QDesktopServices::openUrl(
+                            QUrl::fromLocalFile(logPath));
                     }
                 }
             }
