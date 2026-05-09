@@ -4,6 +4,7 @@
 #include <QString>
 #include <atomic>
 #include <memory>
+#include <mutex>
 #include <vector>
 
 class QAudioDecoder;
@@ -105,10 +106,17 @@ private:
     void publishSnapshot();
     void clearSnapshot();
 
-    // Atomic shared_ptr — readers (audio thread) load lock-free, writers
-    // (GUI thread, only in onFinished / reverseSamples / normaliseSamples
-    // / clear) atomically swap a freshly-built immutable buffer in.
-    std::atomic<std::shared_ptr<const AudioBufferSnapshot>> m_published;
+    // Mutex-guarded shared_ptr. We'd rather have std::atomic<shared_ptr>
+    // (C++20, P0718) but libc++ on macOS hasn't implemented it as of
+    // Xcode 15 / Qt 6.8 — its primary std::atomic<T> demands T be
+    // trivially copyable, which shared_ptr isn't. Mutex is portable
+    // and effectively as fast: the audio thread takes an uncontended
+    // mutex once per buffer (~10 ms) and the GUI thread takes it
+    // every ~2 s during decode for the publish swap. Uncontended on
+    // every modern platform is a single CAS, comparable to an atomic
+    // load.
+    mutable std::mutex                          m_publishMutex;
+    std::shared_ptr<const AudioBufferSnapshot>  m_published;
 
     State                          m_state = State::Empty;
     QString                        m_path;

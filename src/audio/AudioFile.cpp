@@ -56,7 +56,8 @@ void AudioFile::clear()
 
 std::shared_ptr<const AudioBufferSnapshot> AudioFile::snapshot() const
 {
-    return m_published.load(std::memory_order_acquire);
+    std::lock_guard<std::mutex> lock(m_publishMutex);
+    return m_published;   // shared_ptr copy bumps refcount under the lock
 }
 
 void AudioFile::publishSnapshot()
@@ -66,13 +67,14 @@ void AudioFile::publishSnapshot()
     snap->channelCount = m_channelCount;
     snap->sampleRate   = m_sampleRate;
     snap->frameCount   = m_frameCount;
-    m_published.store(std::shared_ptr<const AudioBufferSnapshot>(std::move(snap)),
-                      std::memory_order_release);
+    std::lock_guard<std::mutex> lock(m_publishMutex);
+    m_published = std::move(snap);
 }
 
 void AudioFile::clearSnapshot()
 {
-    m_published.store(nullptr, std::memory_order_release);
+    std::lock_guard<std::mutex> lock(m_publishMutex);
+    m_published.reset();
 }
 
 void AudioFile::load(const QString &path)
