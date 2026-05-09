@@ -21,6 +21,11 @@ signals:
     // Emitted when the user toggles cue-list column visibility, so the
     // owning window can refresh its open list views without a restart.
     void cueListColumnsChanged();
+    // Theme picker on the Theme page. MainWindow reapplies the QSS.
+    void themeChanged(const QString &name);
+    // Cue row density change on the Theme page. MainWindow rewires the
+    // CueListView's row height delegate.
+    void rowDensityChanged(const QString &density);
 };
 
 } // namespace quewi::ui

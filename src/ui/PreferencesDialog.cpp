@@ -6,12 +6,15 @@
 
 #include <QAudioDevice>
 #include <QCheckBox>
+#include <QColorDialog>
 #include <QComboBox>
 #include <QDialogButtonBox>
+#include <QDoubleSpinBox>
 #include <QFormLayout>
 #include <QGroupBox>
 #include <QHBoxLayout>
 #include <QLabel>
+#include <QLineEdit>
 #include <QListWidget>
 #include <QMediaDevices>
 #include <QPushButton>
@@ -305,15 +308,444 @@ QWidget *makeMidiPage(midi::MidiInputEngine *input, QWidget *parent)
     return page;
 }
 
-QWidget *makePlaceholderPage(const QString &name, QWidget *parent)
+// Unified settings handle. Every page reads/writes through this one
+// QSettings instance so keys stay consistent across the codebase.
+QSettings prefSettings()
 {
-    auto *page = new QWidget(parent);
-    auto *layout = new QVBoxLayout(page);
-    auto *label = new QLabel(QObject::tr(
-        "%1 settings will appear here as the subsystem lands.").arg(name));
-    label->setAlignment(Qt::AlignCenter);
-    label->setWordWrap(true);
-    layout->addWidget(label);
+    return QSettings(QStringLiteral("ServeGaming"),
+                     QStringLiteral("quewi"));
+}
+
+// Small helper for the "applies on next launch" hint that appears on a
+// few pages whose settings are read at startup, not live.
+QLabel *makeHint(const QString &text, QWidget *parent)
+{
+    auto *l = new QLabel(text, parent);
+    l->setWordWrap(true);
+    l->setStyleSheet(QStringLiteral("color:#A8AEBA; font-size:11px;"));
+    return l;
+}
+
+// ── General ───────────────────────────────────────────────────────
+// Catches the cross-cutting workflow defaults that don't belong to a
+// specific subsystem. All settings are honoured at next read; the
+// auto-save timer + confirm-delete switch take effect immediately the
+// next time their respective code paths fire.
+QWidget *makeGeneralPage(QWidget *parent)
+{
+    auto *page  = new QWidget(parent);
+    auto *outer = new QVBoxLayout(page);
+    outer->setContentsMargins(16, 16, 16, 16);
+    outer->setSpacing(12);
+    auto s = prefSettings();
+
+    // Auto-save group
+    auto *autosaveGroup = new QGroupBox(QObject::tr("Auto-save"), page);
+    auto *autoForm = new QFormLayout(autosaveGroup);
+    auto *autoEnable = new QCheckBox(
+        QObject::tr("Save journal entries while editing"), autosaveGroup);
+    autoEnable->setChecked(s.value(QStringLiteral("general/autosaveEnabled"),
+                                   true).toBool());
+    QObject::connect(autoEnable, &QCheckBox::toggled, autosaveGroup, [](bool v) {
+        prefSettings().setValue(QStringLiteral("general/autosaveEnabled"), v);
+    });
+    autoForm->addRow(QString(), autoEnable);
+
+    auto *autoIv = new QSpinBox(autosaveGroup);
+    autoIv->setRange(10, 600);
+    autoIv->setSuffix(QObject::tr(" s"));
+    autoIv->setValue(s.value(QStringLiteral("general/autosaveSeconds"),
+                             60).toInt());
+    QObject::connect(autoIv, &QSpinBox::valueChanged, autosaveGroup, [](int v) {
+        prefSettings().setValue(QStringLiteral("general/autosaveSeconds"), v);
+    });
+    autoForm->addRow(QObject::tr("Interval"), autoIv);
+    autoForm->addRow(QString(), makeHint(QObject::tr(
+        "The crash-recovery journal flushes every interval. Lower "
+        "values mean less work lost on a crash; higher values mean "
+        "fewer disk writes during heavy edits."), autosaveGroup));
+    outer->addWidget(autosaveGroup);
+
+    // Cue defaults group
+    auto *cueGroup = new QGroupBox(QObject::tr("Cue defaults"), page);
+    auto *cueForm = new QFormLayout(cueGroup);
+
+    auto *stepSpin = new QDoubleSpinBox(cueGroup);
+    stepSpin->setRange(0.01, 100.0);
+    stepSpin->setSingleStep(0.5);
+    stepSpin->setDecimals(2);
+    stepSpin->setValue(s.value(QStringLiteral("general/cueNumberStep"),
+                               1.0).toDouble());
+    QObject::connect(stepSpin, &QDoubleSpinBox::valueChanged, cueGroup,
+        [](double v) {
+            prefSettings().setValue(QStringLiteral("general/cueNumberStep"), v);
+        });
+    cueForm->addRow(QObject::tr("Numbering step"), stepSpin);
+
+    auto *preWait = new QDoubleSpinBox(cueGroup);
+    preWait->setRange(0.0, 86400.0);
+    preWait->setDecimals(2);
+    preWait->setSuffix(QObject::tr(" s"));
+    preWait->setValue(s.value(QStringLiteral("general/defaultPreWait"),
+                              0.0).toDouble());
+    QObject::connect(preWait, &QDoubleSpinBox::valueChanged, cueGroup,
+        [](double v) {
+            prefSettings().setValue(QStringLiteral("general/defaultPreWait"), v);
+        });
+    cueForm->addRow(QObject::tr("Default pre-wait"), preWait);
+
+    auto *postWait = new QDoubleSpinBox(cueGroup);
+    postWait->setRange(0.0, 86400.0);
+    postWait->setDecimals(2);
+    postWait->setSuffix(QObject::tr(" s"));
+    postWait->setValue(s.value(QStringLiteral("general/defaultPostWait"),
+                               0.0).toDouble());
+    QObject::connect(postWait, &QDoubleSpinBox::valueChanged, cueGroup,
+        [](double v) {
+            prefSettings().setValue(QStringLiteral("general/defaultPostWait"), v);
+        });
+    cueForm->addRow(QObject::tr("Default post-wait"), postWait);
+
+    auto *confirmDel = new QCheckBox(
+        QObject::tr("Confirm before deleting a cue"), cueGroup);
+    confirmDel->setChecked(s.value(QStringLiteral("general/confirmDelete"),
+                                   true).toBool());
+    QObject::connect(confirmDel, &QCheckBox::toggled, cueGroup, [](bool v) {
+        prefSettings().setValue(QStringLiteral("general/confirmDelete"), v);
+    });
+    cueForm->addRow(QString(), confirmDel);
+    outer->addWidget(cueGroup);
+
+    // Display group
+    auto *fmtGroup = new QGroupBox(QObject::tr("Display"), page);
+    auto *fmtForm = new QFormLayout(fmtGroup);
+    auto *timeFmt = new QComboBox(fmtGroup);
+    timeFmt->addItem(QObject::tr("Seconds (1.45)"),  QStringLiteral("seconds"));
+    timeFmt->addItem(QObject::tr("HH:MM:SS.ss"),     QStringLiteral("hms"));
+    const QString curFmt = s.value(QStringLiteral("general/timeFormat"),
+                                   QStringLiteral("seconds")).toString();
+    for (int i = 0; i < timeFmt->count(); ++i) {
+        if (timeFmt->itemData(i).toString() == curFmt) {
+            timeFmt->setCurrentIndex(i); break;
+        }
+    }
+    QObject::connect(timeFmt, &QComboBox::currentIndexChanged, fmtGroup,
+        [timeFmt](int) {
+            prefSettings().setValue(QStringLiteral("general/timeFormat"),
+                                    timeFmt->currentData().toString());
+        });
+    fmtForm->addRow(QObject::tr("Time format"), timeFmt);
+    outer->addWidget(fmtGroup);
+
+    outer->addStretch(1);
+    return page;
+}
+
+// ── Theme ─────────────────────────────────────────────────────────
+// Theme picker is canonical here (the View → Theme menu still works
+// but writes into the same settings keys). The dialog emits signals
+// so the main window can re-apply without restart.
+QWidget *makeThemePage(class PreferencesDialog *dlg, QWidget *parent)
+{
+    auto *page  = new QWidget(parent);
+    auto *outer = new QVBoxLayout(page);
+    outer->setContentsMargins(16, 16, 16, 16);
+    outer->setSpacing(12);
+    auto s = prefSettings();
+
+    auto *themeGroup = new QGroupBox(QObject::tr("Appearance"), page);
+    auto *themeForm = new QFormLayout(themeGroup);
+
+    auto *themeCombo = new QComboBox(themeGroup);
+    themeCombo->addItem(QObject::tr("Dark"),
+                        QStringLiteral("quewi-dark"));
+    themeCombo->addItem(QObject::tr("Light"),
+                        QStringLiteral("quewi-light"));
+    themeCombo->addItem(QObject::tr("High contrast"),
+                        QStringLiteral("quewi-highcontrast"));
+    const QString curTheme = s.value(QStringLiteral("theme/name"),
+                                     QStringLiteral("quewi-dark")).toString();
+    for (int i = 0; i < themeCombo->count(); ++i) {
+        if (themeCombo->itemData(i).toString() == curTheme) {
+            themeCombo->setCurrentIndex(i); break;
+        }
+    }
+    themeForm->addRow(QObject::tr("Theme"), themeCombo);
+
+    auto *densityCombo = new QComboBox(themeGroup);
+    densityCombo->addItem(QObject::tr("Compact"),     QStringLiteral("compact"));
+    densityCombo->addItem(QObject::tr("Cozy"),        QStringLiteral("cozy"));
+    densityCombo->addItem(QObject::tr("Comfortable"), QStringLiteral("comfortable"));
+    const QString curDensity = s.value(QStringLiteral("theme/rowDensity"),
+                                       QStringLiteral("cozy")).toString();
+    for (int i = 0; i < densityCombo->count(); ++i) {
+        if (densityCombo->itemData(i).toString() == curDensity) {
+            densityCombo->setCurrentIndex(i); break;
+        }
+    }
+    themeForm->addRow(QObject::tr("Cue row density"), densityCombo);
+
+    auto *reducedMotion = new QCheckBox(
+        QObject::tr("Reduce motion (disable scroll easing)"), themeGroup);
+    reducedMotion->setChecked(s.value(QStringLiteral("theme/reducedMotion"),
+                                      false).toBool());
+    QObject::connect(reducedMotion, &QCheckBox::toggled, themeGroup, [](bool v) {
+        prefSettings().setValue(QStringLiteral("theme/reducedMotion"), v);
+    });
+    themeForm->addRow(QString(), reducedMotion);
+
+    outer->addWidget(themeGroup);
+    outer->addWidget(makeHint(QObject::tr(
+        "Density and accent changes apply on next window open. "
+        "Theme switches are live."), page));
+    outer->addStretch(1);
+
+    // Wire signals back to the dialog (which proxies them to MainWindow).
+    QObject::connect(themeCombo, &QComboBox::currentIndexChanged, dlg,
+        [dlg, themeCombo](int) {
+            const auto name = themeCombo->currentData().toString();
+            prefSettings().setValue(QStringLiteral("theme/name"), name);
+            emit dlg->themeChanged(name);
+        });
+    QObject::connect(densityCombo, &QComboBox::currentIndexChanged, dlg,
+        [dlg, densityCombo](int) {
+            const auto v = densityCombo->currentData().toString();
+            prefSettings().setValue(QStringLiteral("theme/rowDensity"), v);
+            emit dlg->rowDensityChanged(v);
+        });
+    return page;
+}
+
+// ── OSC ───────────────────────────────────────────────────────────
+// Listen + transport configuration. Engine consults these keys when
+// (re)starting its UDP/TCP/WebSocket listeners; an explicit hint
+// covers the restart caveat.
+QWidget *makeOscPage(QWidget *parent)
+{
+    auto *page  = new QWidget(parent);
+    auto *outer = new QVBoxLayout(page);
+    outer->setContentsMargins(16, 16, 16, 16);
+    outer->setSpacing(12);
+    auto s = prefSettings();
+
+    auto *listenGroup = new QGroupBox(QObject::tr("Listen"), page);
+    auto *listenForm = new QFormLayout(listenGroup);
+
+    auto *addr = new QLineEdit(listenGroup);
+    addr->setPlaceholderText(QStringLiteral("0.0.0.0"));
+    addr->setText(s.value(QStringLiteral("osc/listenAddress"),
+                          QStringLiteral("0.0.0.0")).toString());
+    QObject::connect(addr, &QLineEdit::editingFinished, listenGroup,
+        [addr]{
+            prefSettings().setValue(QStringLiteral("osc/listenAddress"),
+                                    addr->text().trimmed());
+        });
+    listenForm->addRow(QObject::tr("Address"), addr);
+
+    auto *udpPort = new QSpinBox(listenGroup);
+    udpPort->setRange(1, 65535);
+    udpPort->setValue(s.value(QStringLiteral("osc/udpPort"), 53000).toInt());
+    QObject::connect(udpPort, &QSpinBox::valueChanged, listenGroup, [](int v) {
+        prefSettings().setValue(QStringLiteral("osc/udpPort"), v);
+    });
+    listenForm->addRow(QObject::tr("UDP port"), udpPort);
+
+    auto *tcpRow = new QHBoxLayout();
+    auto *tcpEnable = new QCheckBox(QObject::tr("TCP / SLIP"), listenGroup);
+    tcpEnable->setChecked(s.value(QStringLiteral("osc/tcpEnabled"),
+                                  false).toBool());
+    auto *tcpPort = new QSpinBox(listenGroup);
+    tcpPort->setRange(1, 65535);
+    tcpPort->setValue(s.value(QStringLiteral("osc/tcpPort"), 53001).toInt());
+    tcpPort->setEnabled(tcpEnable->isChecked());
+    QObject::connect(tcpEnable, &QCheckBox::toggled, listenGroup,
+        [tcpPort](bool v) {
+            prefSettings().setValue(QStringLiteral("osc/tcpEnabled"), v);
+            tcpPort->setEnabled(v);
+        });
+    QObject::connect(tcpPort, &QSpinBox::valueChanged, listenGroup, [](int v) {
+        prefSettings().setValue(QStringLiteral("osc/tcpPort"), v);
+    });
+    tcpRow->addWidget(tcpEnable);
+    tcpRow->addWidget(tcpPort, 1);
+    listenForm->addRow(QObject::tr("TCP"), tcpRow);
+
+    auto *wsRow = new QHBoxLayout();
+    auto *wsEnable = new QCheckBox(QObject::tr("WebSocket"), listenGroup);
+    wsEnable->setChecked(s.value(QStringLiteral("osc/wsEnabled"),
+                                 false).toBool());
+    auto *wsPort = new QSpinBox(listenGroup);
+    wsPort->setRange(1, 65535);
+    wsPort->setValue(s.value(QStringLiteral("osc/wsPort"), 8080).toInt());
+    wsPort->setEnabled(wsEnable->isChecked());
+    QObject::connect(wsEnable, &QCheckBox::toggled, listenGroup,
+        [wsPort](bool v) {
+            prefSettings().setValue(QStringLiteral("osc/wsEnabled"), v);
+            wsPort->setEnabled(v);
+        });
+    QObject::connect(wsPort, &QSpinBox::valueChanged, listenGroup, [](int v) {
+        prefSettings().setValue(QStringLiteral("osc/wsPort"), v);
+    });
+    wsRow->addWidget(wsEnable);
+    wsRow->addWidget(wsPort, 1);
+    listenForm->addRow(QObject::tr("WebSocket"), wsRow);
+
+    outer->addWidget(listenGroup);
+
+    auto *behGroup = new QGroupBox(QObject::tr("Behaviour"), page);
+    auto *behForm = new QFormLayout(behGroup);
+
+    auto *patternMode = new QComboBox(behGroup);
+    patternMode->addItem(QObject::tr("Extended (OSC 1.1, // descendant match)"),
+                         QStringLiteral("extended"));
+    patternMode->addItem(QObject::tr("Strict (OSC 1.0)"),
+                         QStringLiteral("strict"));
+    const QString curPat = s.value(QStringLiteral("osc/patternMode"),
+                                   QStringLiteral("extended")).toString();
+    for (int i = 0; i < patternMode->count(); ++i) {
+        if (patternMode->itemData(i).toString() == curPat) {
+            patternMode->setCurrentIndex(i); break;
+        }
+    }
+    QObject::connect(patternMode, &QComboBox::currentIndexChanged, behGroup,
+        [patternMode](int) {
+            prefSettings().setValue(QStringLiteral("osc/patternMode"),
+                                    patternMode->currentData().toString());
+        });
+    behForm->addRow(QObject::tr("Pattern matching"), patternMode);
+
+    auto *logIncoming = new QCheckBox(
+        QObject::tr("Log incoming messages to file"), behGroup);
+    logIncoming->setChecked(s.value(QStringLiteral("osc/logIncoming"),
+                                    false).toBool());
+    QObject::connect(logIncoming, &QCheckBox::toggled, behGroup, [](bool v) {
+        prefSettings().setValue(QStringLiteral("osc/logIncoming"), v);
+    });
+    behForm->addRow(QString(), logIncoming);
+
+    outer->addWidget(behGroup);
+    outer->addWidget(makeHint(QObject::tr(
+        "Listen ports take effect on next launch. The OSC monitor "
+        "(Tools → OSC Monitor) shows live messages without writing "
+        "the log file."), page));
+    outer->addStretch(1);
+    return page;
+}
+
+// ── Show Mode ─────────────────────────────────────────────────────
+// Operator-safety surface. PIN is stored in plain QSettings — good
+// enough to deter idle clicks during a show, not a security boundary.
+QWidget *makeShowModePage(QWidget *parent)
+{
+    auto *page  = new QWidget(parent);
+    auto *outer = new QVBoxLayout(page);
+    outer->setContentsMargins(16, 16, 16, 16);
+    outer->setSpacing(12);
+    auto s = prefSettings();
+
+    auto *lockGroup = new QGroupBox(QObject::tr("Lock"), page);
+    auto *lockForm = new QFormLayout(lockGroup);
+
+    auto *pin = new QLineEdit(lockGroup);
+    pin->setEchoMode(QLineEdit::Password);
+    pin->setPlaceholderText(QObject::tr("Optional"));
+    pin->setText(s.value(QStringLiteral("showmode/pin"), QString()).toString());
+    QObject::connect(pin, &QLineEdit::editingFinished, lockGroup, [pin] {
+        prefSettings().setValue(QStringLiteral("showmode/pin"),
+                                pin->text());
+    });
+    lockForm->addRow(QObject::tr("Unlock PIN"), pin);
+
+    auto *autoEnter = new QCheckBox(
+        QObject::tr("Enter Show Mode automatically when opening a show"),
+        lockGroup);
+    autoEnter->setChecked(s.value(QStringLiteral("showmode/autoEnterOnOpen"),
+                                  false).toBool());
+    QObject::connect(autoEnter, &QCheckBox::toggled, lockGroup, [](bool v) {
+        prefSettings().setValue(QStringLiteral("showmode/autoEnterOnOpen"), v);
+    });
+    lockForm->addRow(QString(), autoEnter);
+
+    outer->addWidget(lockGroup);
+
+    auto *allowGroup = new QGroupBox(
+        QObject::tr("Allowed during Show Mode"), page);
+    auto *allowForm = new QFormLayout(allowGroup);
+
+    auto *allowPause = new QCheckBox(
+        QObject::tr("Pause / resume"), allowGroup);
+    allowPause->setChecked(s.value(QStringLiteral("showmode/allowPause"),
+                                   true).toBool());
+    QObject::connect(allowPause, &QCheckBox::toggled, allowGroup, [](bool v) {
+        prefSettings().setValue(QStringLiteral("showmode/allowPause"), v);
+    });
+    allowForm->addRow(QString(), allowPause);
+
+    auto *hideMenu = new QCheckBox(
+        QObject::tr("Hide the menu bar"), allowGroup);
+    hideMenu->setChecked(s.value(QStringLiteral("showmode/hideMenuBar"),
+                                 false).toBool());
+    QObject::connect(hideMenu, &QCheckBox::toggled, allowGroup, [](bool v) {
+        prefSettings().setValue(QStringLiteral("showmode/hideMenuBar"), v);
+    });
+    allowForm->addRow(QString(), hideMenu);
+
+    allowForm->addRow(QString(), makeHint(QObject::tr(
+        "Panic and GO are always available in Show Mode regardless "
+        "of the toggles above — that's a hard rule, not a setting."),
+        allowGroup));
+
+    outer->addWidget(allowGroup);
+    outer->addStretch(1);
+    return page;
+}
+
+// ── Lighting ──────────────────────────────────────────────────────
+// Universe table lives in Patch Editor; this page handles the
+// engine-wide knobs. Refresh rate balances DMX timing strictness vs
+// CPU; blackout-on-Panic is the consensus default for theatre.
+QWidget *makeLightingPage(QWidget *parent)
+{
+    auto *page  = new QWidget(parent);
+    auto *outer = new QVBoxLayout(page);
+    outer->setContentsMargins(16, 16, 16, 16);
+    outer->setSpacing(12);
+    auto s = prefSettings();
+
+    auto *engGroup = new QGroupBox(QObject::tr("Output"), page);
+    auto *engForm = new QFormLayout(engGroup);
+
+    auto *refresh = new QSpinBox(engGroup);
+    refresh->setRange(10, 60);
+    refresh->setSuffix(QObject::tr(" Hz"));
+    refresh->setValue(s.value(QStringLiteral("lighting/refreshRateHz"),
+                              30).toInt());
+    QObject::connect(refresh, &QSpinBox::valueChanged, engGroup, [](int v) {
+        prefSettings().setValue(QStringLiteral("lighting/refreshRateHz"), v);
+    });
+    engForm->addRow(QObject::tr("Refresh rate"), refresh);
+
+    auto *blackout = new QCheckBox(
+        QObject::tr("Blackout all lighting universes on Panic"), engGroup);
+    blackout->setChecked(s.value(QStringLiteral("lighting/blackoutOnPanic"),
+                                 true).toBool());
+    QObject::connect(blackout, &QCheckBox::toggled, engGroup, [](bool v) {
+        prefSettings().setValue(QStringLiteral("lighting/blackoutOnPanic"), v);
+    });
+    engForm->addRow(QString(), blackout);
+
+    outer->addWidget(engGroup);
+
+    auto *patchGroup = new QGroupBox(QObject::tr("Universes"), page);
+    auto *patchLayout = new QVBoxLayout(patchGroup);
+    patchLayout->addWidget(makeHint(QObject::tr(
+        "Universes (sACN, Art-Net, DMX-USB) are configured in the "
+        "Patch Editor — Tools → Patch Editor."), patchGroup));
+    outer->addWidget(patchGroup);
+
+    outer->addWidget(makeHint(QObject::tr(
+        "Refresh rate applies on next launch."), page));
+    outer->addStretch(1);
     return page;
 }
 
@@ -335,20 +767,20 @@ PreferencesDialog::PreferencesDialog(audio::AudioEngine *audioEngine,
 
     struct Page { QString name; QWidget *widget; };
     const Page items[] = {
-        { tr("General"),  makePlaceholderPage(tr("General"),  pages) },
-        { tr("Audio"),    makeAudioPage(audioEngine, pages) },
-        { tr("Cue List"), makeCueListPage(this, pages) },
-        { tr("OSC"),      makePlaceholderPage(tr("OSC"),      pages) },
-        { tr("MIDI"),     makeMidiPage(midiInput, pages) },
-        { tr("Lighting"), makePlaceholderPage(tr("Lighting"), pages) },
-        { tr("Theme"),    makePlaceholderPage(tr("Theme"),    pages) },
-        { tr("Show Mode"),makePlaceholderPage(tr("Show Mode"),pages) },
+        { tr("General"),   makeGeneralPage(pages) },
+        { tr("Audio"),     makeAudioPage(audioEngine, pages) },
+        { tr("Cue List"),  makeCueListPage(this, pages) },
+        { tr("OSC"),       makeOscPage(pages) },
+        { tr("MIDI"),      makeMidiPage(midiInput, pages) },
+        { tr("Lighting"),  makeLightingPage(pages) },
+        { tr("Theme"),     makeThemePage(this, pages) },
+        { tr("Show Mode"), makeShowModePage(pages) },
     };
     for (const auto &p : items) {
         categories->addItem(p.name);
         pages->addWidget(p.widget);
     }
-    categories->setCurrentRow(1); // start on Audio — the only working page
+    categories->setCurrentRow(0);   // open on General — most-edited page
 
     splitter->addWidget(categories);
     splitter->addWidget(pages);

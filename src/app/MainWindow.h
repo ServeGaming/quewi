@@ -104,6 +104,9 @@ public:
 private:
     void buildLayout();
     void buildMenus();
+    void applyTheme(const QString &name);
+    void closeShow();
+    void revealShowInFolder();
     void resetWorkspace();
     void rebindModel();
     bool maybeSaveChanges();

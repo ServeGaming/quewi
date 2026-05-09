@@ -193,14 +193,18 @@ jobs:
           chmod +x linuxdeploy linuxdeploy-plugin-qt
 
       - name: Build AppImage
-        env:
-          # linuxdeploy-plugin-qt finds Qt via QMAKE/QT_ROOT — point
-          # it at the aqtinstall location so it bundles 6.8.3 plugins
-          # not whatever (if anything) is in /usr.
-          QMAKE: ${{ env.Qt6_DIR }}/bin/qmake
-          OUTPUT: quewi-${{ github.ref_name }}-linux-x86_64.AppImage
+        # QMAKE has to resolve at shell time — install-qt-action sets
+        # $Qt6_DIR (and $QT_ROOT_DIR) into the runner env, but those
+        # aren't visible to YAML's ${{ env.* }} which evaluates before
+        # the previous step's env mutations land. Exporting in the
+        # run script picks up the live value. linuxdeploy-plugin-qt
+        # also accepts $QMAKE without the trailing /bin/qmake on some
+        # versions; passing the full path is the safe form.
         run: |
+          export QMAKE="$Qt6_DIR/bin/qmake"
           export VERSION="${GITHUB_REF_NAME#v}"
+          export OUTPUT="quewi-${VERSION}-linux-x86_64.AppImage"
+          echo "Using QMAKE=$QMAKE"
           ./linuxdeploy \
             --appdir build/linux-release/AppDir \
             --plugin qt \

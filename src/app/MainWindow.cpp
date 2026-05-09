@@ -443,6 +443,11 @@ void MainWindow::buildMenus()
     file->addSeparator();
     m_actSave = file->addAction(tr("&Save"), QKeySequence::Save, this, [this]{ saveShow(); });
     file->addAction(tr("Save &As…"), QKeySequence::SaveAs, this, [this]{ saveShowAs(); });
+    file->addAction(tr("&Close show"), QKeySequence(QStringLiteral("Ctrl+W")),
+                    this, &MainWindow::closeShow);
+    file->addAction(tr("Reveal in Explorer/Finder"),
+                    this, &MainWindow::revealShowInFolder);
+    file->addSeparator();
     file->addSeparator();
     file->addAction(tr("&Preferences…"), this, &MainWindow::showPreferences);
     file->addAction(tr("Check for &updates…"),
@@ -496,29 +501,10 @@ void MainWindow::buildMenus()
 
     auto *viewMenu = menuBar()->addMenu(tr("&View"));
     auto *themeMenu = viewMenu->addMenu(tr("&Theme"));
-    auto applyTheme = [this](const QString &name) {
-        const auto qss = ui::Theme::load(name);
-        if (qss.isEmpty()) return;
-
-        // setStyleSheet() re-polishes every visible widget on the GUI
-        // thread — perceptibly choppy on a dense show. Suppress paints
-        // while the swap happens so the user sees a single clean redraw
-        // instead of widgets rebuilding piecemeal. The wait cursor
-        // signals the brief hitch is intentional.
-        QGuiApplication::setOverrideCursor(Qt::WaitCursor);
-        setUpdatesEnabled(false);
-        qApp->setStyleSheet(qss);
-        setUpdatesEnabled(true);
-        update();
-        QGuiApplication::restoreOverrideCursor();
-
-        QSettings s(QStringLiteral("ServeGaming"), QStringLiteral("quewi"));
-        s.setValue(QStringLiteral("ui/theme"), name);
-    };
-    themeMenu->addAction(tr("&Dark"),  this, [applyTheme]{ applyTheme(QStringLiteral("quewi-dark")); });
-    themeMenu->addAction(tr("&Light"), this, [applyTheme]{ applyTheme(QStringLiteral("quewi-light")); });
+    themeMenu->addAction(tr("&Dark"),  this, [this]{ applyTheme(QStringLiteral("quewi-dark")); });
+    themeMenu->addAction(tr("&Light"), this, [this]{ applyTheme(QStringLiteral("quewi-light")); });
     themeMenu->addAction(tr("&High contrast"),
-                         this, [applyTheme]{ applyTheme(QStringLiteral("quewi-highcontrast")); });
+                         this, [this]{ applyTheme(QStringLiteral("quewi-highcontrast")); });
 
     viewMenu->addSeparator();
     auto *cartToggle = viewMenu->addAction(tr("&Cart view"));
@@ -865,9 +851,61 @@ bool MainWindow::saveShowAs()
     return saveTo(path);
 }
 
+void MainWindow::applyTheme(const QString &name)
+{
+    const auto qss = ui::Theme::load(name);
+    if (qss.isEmpty()) return;
+    // setStyleSheet() re-polishes every visible widget on the GUI
+    // thread — choppy on a dense show. Suppress paints during the
+    // swap so the user sees one clean redraw rather than widgets
+    // rebuilding piecemeal.
+    QGuiApplication::setOverrideCursor(Qt::WaitCursor);
+    setUpdatesEnabled(false);
+    qApp->setStyleSheet(qss);
+    setUpdatesEnabled(true);
+    update();
+    QGuiApplication::restoreOverrideCursor();
+    QSettings s(QStringLiteral("ServeGaming"), QStringLiteral("quewi"));
+    s.setValue(QStringLiteral("ui/theme"), name);
+    s.setValue(QStringLiteral("theme/name"), name);  // canonical key
+}
+
+void MainWindow::closeShow()
+{
+    if (!maybeSaveChanges()) return;
+    resetWorkspace();
+    rebindModel();
+    m_currentPath.clear();
+    setWindowTitle(QStringLiteral("quewi"));
+    if (m_activePanel) m_activePanel->setWorkspace(m_workspace.get());
+}
+
+void MainWindow::revealShowInFolder()
+{
+    if (m_currentPath.isEmpty()) {
+        QMessageBox::information(this, tr("Reveal show"),
+            tr("No show file open yet. Save the show first."));
+        return;
+    }
+    const QString dir = QFileInfo(m_currentPath).absolutePath();
+    QDesktopServices::openUrl(QUrl::fromLocalFile(dir));
+}
+
 void MainWindow::showPreferences()
 {
     ui::PreferencesDialog dlg(m_audioEngine.get(), m_midiInput.get(), this);
+    connect(&dlg, &ui::PreferencesDialog::themeChanged,
+            this, &MainWindow::applyTheme);
+    connect(&dlg, &ui::PreferencesDialog::rowDensityChanged, this,
+            [this](const QString &) {
+                // Re-apply current theme so any density-driven QSS
+                // tweaks repolish. Cue row delegate respects the
+                // density setting on next view rebuild.
+                QSettings s(QStringLiteral("ServeGaming"),
+                            QStringLiteral("quewi"));
+                applyTheme(s.value(QStringLiteral("theme/name"),
+                                   QStringLiteral("quewi-dark")).toString());
+            });
     connect(&dlg, &ui::PreferencesDialog::cueListColumnsChanged,
             this, [this] { if (m_cueListView) m_cueListView->applyColumnVisibility(); });
     dlg.exec();
@@ -1251,6 +1289,25 @@ void MainWindow::deleteSelectedCue()
     // Sort descending so each removal doesn't shift the rows still to come.
     QList<int> rows(rowSet.begin(), rowSet.end());
     std::sort(rows.begin(), rows.end(), std::greater<int>());
+
+    // Optional confirmation — opt-out via Preferences → General. Only
+    // prompt when actually deleting more than one cue OR when the user
+    // hasn't disabled the prompt; single-cue Delete with the prompt
+    // off is one tap, undo-able, no friction needed.
+    {
+        QSettings s(QStringLiteral("ServeGaming"), QStringLiteral("quewi"));
+        const bool confirm = s.value(QStringLiteral("general/confirmDelete"),
+                                     true).toBool();
+        if (confirm) {
+            const QString msg = rows.size() == 1
+                ? tr("Delete this cue?")
+                : tr("Delete %1 cues?").arg(rows.size());
+            const auto ans = QMessageBox::question(this, tr("Delete cue"),
+                msg + QStringLiteral("\n\n") + tr("This is undoable."),
+                QMessageBox::Yes | QMessageBox::No, QMessageBox::Yes);
+            if (ans != QMessageBox::Yes) return;
+        }
+    }
 
     auto *stack = m_workspace->undoStack();
     if (rows.size() > 1) {
