@@ -7,6 +7,7 @@
 #include <QFile>
 #include <QIcon>
 #include <QSettings>
+#include <QComboBox>
 #include <QStandardPaths>
 #include <QSurfaceFormat>
 #include <QTimer>
@@ -142,6 +143,29 @@ int main(int argc, char *argv[])
     if (!qss.isEmpty()) app.setStyleSheet(qss);
 
     quewi::ui::SmoothScroll::install(&app);
+
+    // Make every QComboBox dropdown show its full item list rather
+    // than scrolling at Qt's default of 10. Combined with
+    // `combobox-popup: 0` in the theme QSS this gives the Qt-drawn
+    // popup permission to grow up to the screen edge. We catch the
+    // boxes via an application-level event filter on QEvent::Show
+    // so freshly-built dialogs (Preferences, Inspector children,
+    // device pickers) inherit the behaviour without each call site
+    // having to remember setMaxVisibleItems.
+    class ComboFilter : public QObject {
+    public:
+        using QObject::QObject;
+        bool eventFilter(QObject *obj, QEvent *ev) override {
+            if (ev->type() == QEvent::Show) {
+                if (auto *cb = qobject_cast<QComboBox *>(obj)) {
+                    cb->setMaxVisibleItems(999);
+                }
+            }
+            return QObject::eventFilter(obj, ev);
+        }
+    };
+    auto *comboFilter = new ComboFilter(&app);
+    app.installEventFilter(comboFilter);
 
     quewi::MainWindow w;
     w.show();

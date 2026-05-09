@@ -187,6 +187,23 @@ QComboBox {
     selection-background-color: @accent;
     selection-color: @bgDeep;
     min-height: 22px;
+    /* combobox-popup: 0 switches Qt off its native popup and onto the
+       Qt-drawn one, which honours maxVisibleItems and grows to fit
+       all items up to the screen edge. Without this Qt wraps long
+       lists in a scrollbar at ~10 items on Windows regardless of
+       maxVisibleItems. Pair with a generous default below so device
+       lists and theme pickers show everything at once. */
+    combobox-popup: 0;
+}
+QComboBox QAbstractItemView {
+    background: @bgPanel;
+    color: @ink100;
+    border: 1px solid @outline;
+    border-radius: 6px;
+    padding: 4px;
+    selection-background-color: @bgRowSelected;
+    selection-color: @ink100;
+    outline: 0;
 }
 QLineEdit:hover,
 QSpinBox:hover,

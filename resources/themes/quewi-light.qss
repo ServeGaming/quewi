@@ -96,6 +96,18 @@ QLineEdit:focus, QSpinBox:focus, QDoubleSpinBox:focus,
 QPlainTextEdit:focus, QComboBox:focus {
     border: 2px solid #2563EB; padding: 4px 7px;
 }
+/* Switch off the native popup so maxVisibleItems is honoured. */
+QComboBox { combobox-popup: 0; }
+QComboBox QAbstractItemView {
+    background: #FFFFFF;
+    color: #1A1D24;
+    border: 1px solid #C7CAD2;
+    border-radius: 6px;
+    padding: 4px;
+    selection-background-color: #CFE2FF;
+    selection-color: #1A1D24;
+    outline: 0;
+}
 
 QGroupBox {
     background: transparent;
