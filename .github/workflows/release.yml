@@ -193,18 +193,32 @@ jobs:
           chmod +x linuxdeploy linuxdeploy-plugin-qt
 
       - name: Build AppImage
-        # QMAKE has to resolve at shell time — install-qt-action sets
-        # $Qt6_DIR (and $QT_ROOT_DIR) into the runner env, but those
-        # aren't visible to YAML's ${{ env.* }} which evaluates before
-        # the previous step's env mutations land. Exporting in the
-        # run script picks up the live value. linuxdeploy-plugin-qt
-        # also accepts $QMAKE without the trailing /bin/qmake on some
-        # versions; passing the full path is the safe form.
+        # install-qt-action's variable name has churned across major
+        # versions: v2 set $Qt6_DIR, v3+ set $QT_ROOT_DIR (and may
+        # also set $Qt6_DIR depending on phase). Trying multiple
+        # candidates and falling back to a filesystem search means
+        # this step survives the next rename without another fix
+        # commit. Last-resort find scopes to the runner workspace
+        # so it isn't slow.
         run: |
-          export QMAKE="$Qt6_DIR/bin/qmake"
+          QT_ROOT="${QT_ROOT_DIR:-${Qt6_DIR:-${QT_DIR:-}}}"
+          if [ -n "$QT_ROOT" ] && [ -x "$QT_ROOT/bin/qmake" ]; then
+            export QMAKE="$QT_ROOT/bin/qmake"
+          else
+            echo "QT_ROOT_DIR/Qt6_DIR/QT_DIR all empty or qmake missing,"
+            echo "falling back to filesystem search."
+            export QMAKE="$(find /home/runner/work -type f -name qmake \
+                            -path '*/Qt/*/bin/qmake' 2>/dev/null \
+                            | head -n 1)"
+          fi
+          if [ -z "$QMAKE" ] || [ ! -x "$QMAKE" ]; then
+            echo "::error::qmake could not be located. Searched env vars + filesystem."
+            env | grep -iE 'qt|qmake' || true
+            exit 1
+          fi
+          echo "Using QMAKE=$QMAKE"
           export VERSION="${GITHUB_REF_NAME#v}"
           export OUTPUT="quewi-${VERSION}-linux-x86_64.AppImage"
-          echo "Using QMAKE=$QMAKE"
           ./linuxdeploy \
             --appdir build/linux-release/AppDir \
             --plugin qt \
