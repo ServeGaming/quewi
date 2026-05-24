@@ -1,6 +1,7 @@
 #include "ui/WelcomeDialog.h"
 
 #include <QCheckBox>
+#include <QCoreApplication>
 #include <QFileDialog>
 #include <QFileInfo>
 #include <QHBoxLayout>
@@ -11,10 +12,6 @@
 #include <QPushButton>
 #include <QSettings>
 #include <QVBoxLayout>
-
-#ifndef QUEWI_VERSION
-#  define QUEWI_VERSION "0.0.0"
-#endif
 
 namespace quewi::ui {
 
@@ -82,7 +79,11 @@ void WelcomeDialog::buildLayout()
     word->setObjectName(QStringLiteral("welcomeWord"));
     word->setAlignment(Qt::AlignCenter);
     leftLayout->addWidget(word);
-    auto *ver = new QLabel(tr("Version %1").arg(QStringLiteral(QUEWI_VERSION)),
+    // Pull version from QCoreApplication (set in main.cpp). The
+    // QUEWI_VERSION compile define is only on the app target, not
+    // quewi_ui, so reading the macro here would always show 0.0.0.
+    auto *ver = new QLabel(tr("Version %1").arg(
+                               QCoreApplication::applicationVersion()),
                            left);
     ver->setObjectName(QStringLiteral("welcomeVer"));
     ver->setAlignment(Qt::AlignCenter);

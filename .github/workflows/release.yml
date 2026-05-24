@@ -179,7 +179,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y ninja-build libgl1-mesa-dev \
-            libxkbcommon-dev libfontconfig1 libfuse2
+            libxkbcommon-dev libfontconfig1 libfuse2 imagemagick
 
       - name: Install Qt
         uses: jurplel/install-qt-action@v4
@@ -200,6 +200,15 @@ jobs:
         run: |
           cmake --install build/linux-release \
             --prefix build/linux-release/AppDir/usr
+          # The source quewi.png is 1024×1024, but the install drops it
+          # into hicolor/512x512/apps/. linuxdeploy validates that the
+          # actual pixel size matches the directory name and aborts
+          # otherwise. Resize in place so the file IS 512×512.
+          ICON_PATH="build/linux-release/AppDir/usr/share/icons/hicolor/512x512/apps/quewi.png"
+          if [ -f "$ICON_PATH" ]; then
+            convert "$ICON_PATH" -resize 512x512 "$ICON_PATH"
+            identify "$ICON_PATH"
+          fi
 
       - name: Fetch linuxdeploy + Qt plugin
         run: |
