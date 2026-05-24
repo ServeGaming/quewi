@@ -80,6 +80,16 @@ public:
     int subscribe(const QString &pattern, Handler handler);
     void unsubscribe(int id);
 
+    // ---------------- Source info (during dispatch) ----------------
+    // Valid ONLY while a subscription handler is executing. Lets a
+    // handler reply back to whoever sent the request — needed for
+    // query/reply patterns where the remote app expects a response
+    // on the same channel it sent on. Calling these outside a
+    // dispatch returns the last-seen values; safe but stale.
+    QString   lastSenderHost()      const { return m_lastSenderHost; }
+    quint16   lastSenderPort()      const { return m_lastSenderPort; }
+    Transport lastSenderTransport() const { return m_lastSenderTransport; }
+
 signals:
     void sendError(const QString &reason);
     void packetSeen(const quewi::osc::PacketEvent &event);
@@ -120,6 +130,14 @@ private:
 
     std::vector<Subscription> m_subs;
     int m_nextSubId = 1;
+
+    // Source of the most recently dispatched packet. Set in
+    // handleIncomingPacket() before dispatch and read by handlers via
+    // lastSenderHost/Port. Single-threaded (dispatch runs on the GUI
+    // thread, driven by the socket signals).
+    QString   m_lastSenderHost;
+    quint16   m_lastSenderPort      = 0;
+    Transport m_lastSenderTransport = Transport::Udp;
 };
 
 } // namespace quewi::osc

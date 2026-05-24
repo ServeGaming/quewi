@@ -27,6 +27,7 @@
 #include "midi/MidiInputEngine.h"
 #include "osc/OscCue.h"
 #include "osc/OscEngine.h"
+#include "osc/OscPattern.h"
 #include "show/ShowFile.h"
 #include "video/VideoCue.h"
 #include "video/VideoEngine.h"
@@ -82,6 +83,9 @@
 #include <QSplitter>
 #include <QStackedWidget>
 #include <QDateTime>
+#include <QJsonArray>
+#include <QJsonDocument>
+#include <QJsonObject>
 #include <QStandardPaths>
 #include <QTextStream>
 #include <QTimer>
@@ -599,6 +603,7 @@ void MainWindow::resetWorkspace()
     m_currentPath.clear();
     updateTitle();
     onSelectionChanged();
+    wireOscNotifications();
 }
 
 void MainWindow::rebindModel()
@@ -681,6 +686,7 @@ bool MainWindow::loadShowFromPath(const QString &path)
     onSelectionChanged();
     noteRecentFile(path);
     prewarmAudioCues();
+    wireOscNotifications();
     statusBar()->showMessage(tr("Opened %1").arg(path), 3000);
     return true;
 }
@@ -2315,6 +2321,282 @@ void MainWindow::registerOscRemoteHandlers()
         }, Qt::QueuedConnection);
     });
     sub("/quewi/heartbeat", [](const osc::Message &) {});
+
+    // ============================================================
+    // Remote API v2 — query / subscribe / push
+    // ============================================================
+    //
+    // Address scheme (full spec in docs/osc-remote-api.md):
+    //
+    //   Queries (peer sends, server replies on /quewi/reply/...):
+    //     /quewi/query/version          → reply (s)
+    //     /quewi/query/showName         → reply (s)
+    //     /quewi/query/cueLists         → reply (s s s s …)  id, name pairs
+    //     /quewi/query/cues             → reply (s) — JSON array of every
+    //                                       cue in the active list
+    //     /quewi/query/cue <number f>   → reply (s) — JSON of one cue
+    //
+    //   Subscribe / unsubscribe (reply target = packet's source):
+    //     /quewi/subscribe   [pattern s]   — default "/quewi/notify/*"
+    //     /quewi/unsubscribe [pattern s]
+    //
+    //   Field setters (per cue, by number):
+    //     /quewi/cue/<num>/set/<field> <value>
+    //
+    // Subscribers receive pushes on:
+    //     /quewi/notify/cue/state <cueId s> <state s>
+    //     /quewi/notify/cue/changed <cueId s> <json s>
+    //     /quewi/notify/cue/added <cueId s> <row i>
+    //     /quewi/notify/cue/removed <cueId s>
+    //     /quewi/notify/cueList/active <listId s> <name s>
+    //     /quewi/notify/workspace/changed
+
+    // Helper: reply to whoever sent the current packet. UDP only for
+    // now — TCP/WS reply would need the original socket pointer, which
+    // the engine doesn't surface yet (Phase 7).
+    auto replyToSender = [this](const QString &address,
+                                std::vector<osc::Argument> args) {
+        osc::Destination d;
+        d.host = m_oscEngine->lastSenderHost();
+        d.port = m_oscEngine->lastSenderPort();
+        d.transport = osc::Destination::Udp;
+        osc::Message msg;
+        msg.address = address;
+        msg.args = std::move(args);
+        m_oscEngine->send(d, msg);
+    };
+
+    // Helper: serialise a cue + its payload to a JSON string suitable
+    // for transport as a single OSC string argument.
+    auto cueToJson = [](const cues::Cue *c) -> QString {
+        if (!c) return QString();
+        QJsonObject o = c->toPayload();
+        // Common fields aren't in toPayload by convention — add them
+        // explicitly so the remote sees one self-contained record.
+        o.insert(QStringLiteral("id"), c->id().toString());
+        o.insert(QStringLiteral("number"), c->number());
+        o.insert(QStringLiteral("name"), c->name());
+        o.insert(QStringLiteral("type"), c->typeKey());
+        o.insert(QStringLiteral("preWait"), c->preWait());
+        o.insert(QStringLiteral("postWait"), c->postWait());
+        o.insert(QStringLiteral("notes"), c->notes());
+        o.insert(QStringLiteral("armed"), c->isArmed());
+        return QString::fromUtf8(QJsonDocument(o).toJson(QJsonDocument::Compact));
+    };
+
+    sub("/quewi/query/version", [this, replyToSender](const osc::Message &) {
+        replyToSender(QStringLiteral("/quewi/reply/version"),
+            { osc::Argument::s(QStringLiteral(QUEWI_VERSION)) });
+    });
+
+    sub("/quewi/query/showName", [this, replyToSender](const osc::Message &) {
+        const auto name = m_workspace ? m_workspace->name() : QString();
+        replyToSender(QStringLiteral("/quewi/reply/showName"),
+            { osc::Argument::s(name) });
+    });
+
+    sub("/quewi/query/cueLists", [this, replyToSender](const osc::Message &) {
+        std::vector<osc::Argument> args;
+        if (m_workspace) {
+            for (const auto &up : m_workspace->cueLists()) {
+                args.push_back(osc::Argument::s(up->id().toString()));
+                args.push_back(osc::Argument::s(up->name()));
+            }
+        }
+        replyToSender(QStringLiteral("/quewi/reply/cueLists"), std::move(args));
+    });
+
+    sub("/quewi/query/cues", [this, replyToSender, cueToJson](const osc::Message &) {
+        QJsonArray arr;
+        if (m_workspace) {
+            if (auto *list = m_workspace->activeCueList()) {
+                for (int r = 0; r < list->cueCount(); ++r) {
+                    if (auto *c = list->cueAt(r)) {
+                        arr.append(QJsonDocument::fromJson(
+                            cueToJson(c).toUtf8()).object());
+                    }
+                }
+            }
+        }
+        const QString json = QString::fromUtf8(
+            QJsonDocument(arr).toJson(QJsonDocument::Compact));
+        replyToSender(QStringLiteral("/quewi/reply/cues"),
+            { osc::Argument::s(json) });
+    });
+
+    sub("/quewi/query/cue", [this, replyToSender, cueToJson](const osc::Message &m) {
+        if (m.args.empty()) return;
+        double num = 0.0;
+        const auto &a = m.args.front();
+        switch (a.tag) {
+        case osc::Argument::Tag::Int32:   num = std::get<qint32>(a.value); break;
+        case osc::Argument::Tag::Float32: num = std::get<float>(a.value);  break;
+        case osc::Argument::Tag::Int64:   num = static_cast<double>(std::get<qint64>(a.value)); break;
+        case osc::Argument::Tag::Double:  num = std::get<double>(a.value); break;
+        default: return;
+        }
+        if (!m_workspace) return;
+        auto *list = m_workspace->activeCueList();
+        if (!list) return;
+        for (int r = 0; r < list->cueCount(); ++r) {
+            if (auto *c = list->cueAt(r); c && qFuzzyCompare(c->number(), num)) {
+                replyToSender(QStringLiteral("/quewi/reply/cue"),
+                    { osc::Argument::s(cueToJson(c)) });
+                return;
+            }
+        }
+    });
+
+    // Subscribe / unsubscribe — peer wants notifications. Subscriber
+    // identity = host:port of the source UDP packet. Optional first
+    // arg is the address pattern (default "/quewi/notify/*").
+    sub("/quewi/subscribe", [this](const osc::Message &m) {
+        QString pattern = QStringLiteral("/quewi/notify/*");
+        if (!m.args.empty() && m.args.front().tag == osc::Argument::Tag::String) {
+            pattern = std::get<QString>(m.args.front().value);
+        }
+        const QString host = m_oscEngine->lastSenderHost();
+        const quint16 port = m_oscEngine->lastSenderPort();
+        // Dedup by host:port + pattern
+        for (const auto &s : m_oscSubscribers) {
+            if (s.host == host && s.port == port && s.pattern == pattern)
+                return;
+        }
+        m_oscSubscribers.push_back({ host, port, pattern });
+        statusBar()->showMessage(
+            tr("OSC subscriber: %1:%2 → %3").arg(host).arg(port).arg(pattern),
+            2500);
+    });
+    sub("/quewi/unsubscribe", [this](const osc::Message &m) {
+        const QString host = m_oscEngine->lastSenderHost();
+        const quint16 port = m_oscEngine->lastSenderPort();
+        QString pattern;
+        if (!m.args.empty() && m.args.front().tag == osc::Argument::Tag::String) {
+            pattern = std::get<QString>(m.args.front().value);
+        }
+        m_oscSubscribers.erase(std::remove_if(m_oscSubscribers.begin(),
+            m_oscSubscribers.end(),
+            [&](const OscSubscriberRec &s) {
+                return s.host == host && s.port == port
+                    && (pattern.isEmpty() || s.pattern == pattern);
+            }), m_oscSubscribers.end());
+    });
+
+    // Generic field setter: /quewi/cue/<num>/set/<field> <value>
+    // Subscribed via wildcard pattern; handler parses the address.
+    sub("/quewi/cue/*/set/*", [this](const osc::Message &m) {
+        // Address like "/quewi/cue/3.5/set/name"
+        const auto parts = m.address.split(QChar('/'), Qt::SkipEmptyParts);
+        if (parts.size() < 5) return;
+        bool ok = false;
+        const double num = parts.value(2).toDouble(&ok);
+        if (!ok) return;
+        const QString field = parts.value(4);
+        if (m.args.empty()) return;
+        QVariant v;
+        const auto &a = m.args.front();
+        switch (a.tag) {
+        case osc::Argument::Tag::Int32:   v = std::get<qint32>(a.value); break;
+        case osc::Argument::Tag::Int64:   v = static_cast<qlonglong>(std::get<qint64>(a.value)); break;
+        case osc::Argument::Tag::Float32: v = std::get<float>(a.value); break;
+        case osc::Argument::Tag::Double:  v = std::get<double>(a.value); break;
+        case osc::Argument::Tag::String:  v = std::get<QString>(a.value); break;
+        case osc::Argument::Tag::True:    v = true; break;
+        case osc::Argument::Tag::False:   v = false; break;
+        default: return;
+        }
+        QMetaObject::invokeMethod(this, [this, num, field, v]{
+            if (!m_workspace) return;
+            auto *list = m_workspace->activeCueList();
+            if (!list) return;
+            for (int r = 0; r < list->cueCount(); ++r) {
+                if (auto *c = list->cueAt(r); c && qFuzzyCompare(c->number(), num)) {
+                    c->setField(field, v);
+                    return;
+                }
+            }
+        }, Qt::QueuedConnection);
+    });
+}
+
+void MainWindow::pushOscNotify(const QString &address,
+                               std::vector<osc::Argument> args)
+{
+    if (m_oscSubscribers.empty()) return;
+    osc::Message msg;
+    msg.address = address;
+    msg.args = std::move(args);
+    for (const auto &s : m_oscSubscribers) {
+        if (!osc::Pattern::matches(s.pattern, address)) continue;
+        osc::Destination d;
+        d.host = s.host;
+        d.port = s.port;
+        d.transport = osc::Destination::Udp;
+        m_oscEngine->send(d, msg);
+    }
+}
+
+void MainWindow::wireOscNotifications()
+{
+    // Disconnect anything we wired against the previous workspace —
+    // resetWorkspace replaces the unique_ptr, so the old connections
+    // are dead anyway, but clearing the list keeps the bookkeeping
+    // honest and avoids accidental double-fires.
+    for (auto &c : m_oscNotifyConnections) QObject::disconnect(c);
+    m_oscNotifyConnections.clear();
+    if (!m_workspace) return;
+
+    auto *list = m_workspace->activeCueList();
+    if (!list) return;
+
+    // List-level: rows added, removed, changed.
+    m_oscNotifyConnections.append(connect(list, &core::CueList::cueInserted, this,
+        [this, list](int row) {
+            if (auto *c = list->cueAt(row)) {
+                pushOscNotify(QStringLiteral("/quewi/notify/cue/added"),
+                    { osc::Argument::s(c->id().toString()),
+                      osc::Argument::i(row) });
+            }
+        }));
+    m_oscNotifyConnections.append(connect(list, &core::CueList::cueChanged, this,
+        [this, list](int row) {
+            auto *c = list->cueAt(row);
+            if (!c) return;
+            QJsonObject o = c->toPayload();
+            o.insert(QStringLiteral("id"), c->id().toString());
+            o.insert(QStringLiteral("number"), c->number());
+            o.insert(QStringLiteral("name"), c->name());
+            o.insert(QStringLiteral("type"), c->typeKey());
+            o.insert(QStringLiteral("preWait"), c->preWait());
+            o.insert(QStringLiteral("postWait"), c->postWait());
+            o.insert(QStringLiteral("notes"), c->notes());
+            o.insert(QStringLiteral("armed"), c->isArmed());
+            pushOscNotify(QStringLiteral("/quewi/notify/cue/changed"),
+                { osc::Argument::s(c->id().toString()),
+                  osc::Argument::s(QString::fromUtf8(
+                      QJsonDocument(o).toJson(QJsonDocument::Compact))) });
+        }));
+    m_oscNotifyConnections.append(connect(list, &core::CueList::aboutToRemoveCue, this,
+        [this, list](int row) {
+            if (auto *c = list->cueAt(row)) {
+                pushOscNotify(QStringLiteral("/quewi/notify/cue/removed"),
+                    { osc::Argument::s(c->id().toString()) });
+            }
+        }));
+
+    // Workspace-level: active list switched.
+    m_oscNotifyConnections.append(connect(m_workspace.get(),
+        &core::Workspace::activeCueListChanged, this, [this] {
+            if (auto *l = m_workspace->activeCueList()) {
+                pushOscNotify(QStringLiteral("/quewi/notify/cueList/active"),
+                    { osc::Argument::s(l->id().toString()),
+                      osc::Argument::s(l->name()) });
+            }
+        }));
+
+    // One-shot: tell subscribers the workspace just changed (e.g.,
+    // file loaded) so they can re-query.
+    pushOscNotify(QStringLiteral("/quewi/notify/workspace/changed"), {});
 }
 
 void MainWindow::selectCueByNumber(double number)

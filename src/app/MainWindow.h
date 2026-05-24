@@ -1,8 +1,11 @@
 #pragma once
 
+#include "osc/OscMessage.h"
+
 #include <QMainWindow>
 #include <QString>
 #include <memory>
+#include <vector>
 
 class QAction;
 class QHBoxLayout;
@@ -135,6 +138,26 @@ private:
     void reportBug();
 
     void registerOscRemoteHandlers();
+    // Wire workspace + cue-list + cue signals into OSC push
+    // notifications. Reattaches after every resetWorkspace.
+    void wireOscNotifications();
+    // Push an OSC notification to every subscribed peer whose pattern
+    // matches the address. No-op when there are no subscribers.
+    void pushOscNotify(const QString &address,
+                       std::vector<quewi::osc::Argument> args = {});
+
+    // Peers that asked to receive notifications. Keyed by host:port so
+    // a single peer subscribing twice doesn't get duplicates. Pattern
+    // is the OSC pattern they want to match (default "/quewi/notify/*").
+    struct OscSubscriberRec {
+        QString host;
+        quint16 port = 0;
+        QString pattern;
+    };
+    std::vector<OscSubscriberRec> m_oscSubscribers;
+    // Per-cue and per-list signal connections we own so that
+    // resetWorkspace can disconnect them cleanly before rebinding.
+    QList<QMetaObject::Connection> m_oscNotifyConnections;
     void selectCueByNumber(double number);
     void fireCueByNumber(double number);
 

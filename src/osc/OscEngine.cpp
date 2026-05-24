@@ -295,6 +295,12 @@ void OscEngine::handleIncomingPacket(Transport tr, const QByteArray &bytes,
     emitEvent(this, Direction::Inbound, tr, bytes, peerHost, peerPort);
 
     if (auto decoded = Codec::decode(bytes)) {
+        // Stash sender info so query handlers can reply back to the
+        // peer that sent the request. Single-threaded — dispatch runs
+        // synchronously on the GUI thread, the socket signals serialize.
+        m_lastSenderHost      = peerHost;
+        m_lastSenderPort      = peerPort;
+        m_lastSenderTransport = tr;
         dispatch(*decoded);
     }
 }
