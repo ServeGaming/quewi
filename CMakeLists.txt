@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.24)
 project(quewi
-    VERSION 0.9.20
+    VERSION 0.9.21
     DESCRIPTION "Theatre cueing software"
     HOMEPAGE_URL "https://github.com/ServeGaming/quewi"
     LANGUAGES CXX
@@ -165,10 +165,14 @@ if(APPLE)
 
     # DragNDrop volume label shown when the .dmg is mounted in Finder.
     set(CPACK_DMG_VOLUME_NAME           "quewi ${PROJECT_VERSION}")
-    # Background image + .DS_Store layout would go here once we have
-    # real mac hardware to design and test them on. Without these
-    # CPack falls back to a plain Finder window which is fine for
-    # v1.0 — drag-to-install still works.
+
+    # CPack mounts the staging DMG, runs this AppleScript against it
+    # (icon arrangement + /Applications symlink), then re-seals to
+    # the final compressed image. Without this the .dmg opens as a
+    # plain folder view with no install hint — the user reported
+    # "opens as a folder" before this landed.
+    set(CPACK_DMG_DS_STORE_SETUP_SCRIPT
+        "${CMAKE_SOURCE_DIR}/resources/macos/dmg_setup.applescript")
 
     include(CPack)
 endif()

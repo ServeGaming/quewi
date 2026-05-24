@@ -1717,9 +1717,21 @@ void MainWindow::runInAppInstall(const QString &msiUrl)
         [this, prog, installer](const QString &localPath) {
             prog->close();
             installer->deleteLater();
-            const auto answer = QMessageBox::question(this, tr("Install update"),
+            const QString installPrompt =
+#if defined(Q_OS_WIN)
                 tr("Download complete. Quewi will close and the Windows "
-                   "installer will start. Continue?"),
+                   "installer will start. Continue?");
+#elif defined(Q_OS_MACOS)
+                tr("Download complete. Quewi will close and the installer "
+                   "disk image will mount in Finder. Drag quewi into the "
+                   "Applications folder to replace the old version, then "
+                   "relaunch from your Applications. Continue?");
+#else
+                tr("Download complete. Quewi will close and the new "
+                   "AppImage will open. Continue?");
+#endif
+            const auto answer = QMessageBox::question(this, tr("Install update"),
+                installPrompt,
                 QMessageBox::Yes | QMessageBox::No);
             if (answer == QMessageBox::Yes) {
                 if (!UpdateInstaller::launchAndQuit(localPath)) {

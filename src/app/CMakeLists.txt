@@ -90,12 +90,28 @@ elseif(APPLE)
     # macOS: stamp Info.plist values onto the .app bundle and run
     # macdeployqt against it post-install so the .dmg ships every Qt
     # framework the binary links against.
+
+    # App icon. The CI mac job generates resources/icons/quewi.icns
+    # from quewi.png with sips + iconutil before configure. Locally
+    # (no .icns generated) the bundle just falls back to Qt's generic
+    # icon, which is fine for dev builds.
+    set(_quewi_icns "${CMAKE_SOURCE_DIR}/resources/icons/quewi.icns")
+    if(EXISTS "${_quewi_icns}")
+        target_sources(quewi PRIVATE "${_quewi_icns}")
+        set_source_files_properties("${_quewi_icns}" PROPERTIES
+            MACOSX_PACKAGE_LOCATION "Resources")
+        set(_quewi_bundle_icon_file "quewi.icns")
+    else()
+        set(_quewi_bundle_icon_file "")
+    endif()
+
     set_target_properties(quewi PROPERTIES
         MACOSX_BUNDLE_BUNDLE_NAME           "quewi"
         MACOSX_BUNDLE_GUI_IDENTIFIER        "com.servegaming.quewi"
         MACOSX_BUNDLE_BUNDLE_VERSION        "${PROJECT_VERSION}"
         MACOSX_BUNDLE_SHORT_VERSION_STRING  "${PROJECT_VERSION}"
         MACOSX_BUNDLE_COPYRIGHT             "© ServeGaming"
+        MACOSX_BUNDLE_ICON_FILE             "${_quewi_bundle_icon_file}"
     )
     get_target_property(_qmake_exec Qt6::qmake IMPORTED_LOCATION)
     get_filename_component(_qt_bin_dir "${_qmake_exec}" DIRECTORY)

@@ -119,6 +119,23 @@ jobs:
       - name: Install Ninja
         run: brew install ninja
 
+      # Generate the .icns app icon from the 1024px source PNG so the
+      # bundle has a real native icon instead of Qt's generic one.
+      # sips + iconutil are Apple-bundled, no extra install.
+      - name: Generate .icns app icon
+        run: |
+          set -e
+          SRC="resources/icons/quewi-1024.png"
+          if [ ! -f "$SRC" ]; then SRC="resources/icons/quewi.png"; fi
+          ICONSET="$(mktemp -d)/quewi.iconset"
+          mkdir -p "$ICONSET"
+          for px in 16 32 128 256 512; do
+            sips -z $px $px "$SRC" --out "$ICONSET/icon_${px}x${px}.png" >/dev/null
+            sips -z $((px*2)) $((px*2)) "$SRC" --out "$ICONSET/icon_${px}x${px}@2x.png" >/dev/null
+          done
+          iconutil -c icns "$ICONSET" -o resources/icons/quewi.icns
+          ls -la resources/icons/quewi.icns
+
       - name: Configure (Release)
         run: cmake --preset macos-release
 
