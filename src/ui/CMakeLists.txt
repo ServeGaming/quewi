@@ -43,6 +43,8 @@ add_library(quewi_ui STATIC
     FindReplaceDialog.cpp
     AboutDialog.h
     AboutDialog.cpp
+    WelcomeDialog.h
+    WelcomeDialog.cpp
     SpeakerPatchDialog.h
     SpeakerPatchDialog.cpp
     StageView.h

@@ -7,6 +7,8 @@
 #include <QFile>
 #include <QIcon>
 #include <QSettings>
+#include "ui/WelcomeDialog.h"
+
 #include <QComboBox>
 #include <QStandardPaths>
 #include <QSurfaceFormat>
@@ -168,12 +170,40 @@ int main(int argc, char *argv[])
     app.installEventFilter(comboFilter);
 
     quewi::MainWindow w;
+
+    // Welcome launchpad — Xcode-style picker so the operator's first
+    // surface is a deliberate choice (New / Open / Recent) rather
+    // than an empty Untitled cue list. Suppressed when:
+    //   - a show was passed on the command line (cue-driven workflows
+    //     and shell associations should land straight in the show);
+    //   - the user disabled it via the "Show on launch" checkbox;
+    //   - we're running --selftest (CI cold-start gate).
+    const auto positional = parser.positionalArguments();
+    QString welcomeChosenPath;
+    if (positional.isEmpty()
+        && !parser.isSet(selftestOpt)
+        && !parser.isSet(selftestIdleOpt)
+        && quewi::ui::WelcomeDialog::showOnLaunchEnabled())
+    {
+        quewi::ui::WelcomeDialog welcome;
+        welcome.exec();
+        if (welcome.action() == quewi::ui::WelcomeDialog::Action::OpenExisting
+            || welcome.action() == quewi::ui::WelcomeDialog::Action::OpenRecent) {
+            welcomeChosenPath = welcome.chosenPath();
+        }
+        // NewShow + None both fall through to the default Untitled
+        // state the MainWindow already creates.
+    }
+
     w.show();
 
-    const auto positional = parser.positionalArguments();
     if (!positional.isEmpty()) {
         QTimer::singleShot(0, &w, [&w, positional]{
             w.loadShowFromPath(positional.first());
+        });
+    } else if (!welcomeChosenPath.isEmpty()) {
+        QTimer::singleShot(0, &w, [&w, welcomeChosenPath]{
+            w.loadShowFromPath(welcomeChosenPath);
         });
     }
 

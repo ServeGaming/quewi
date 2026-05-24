@@ -83,6 +83,9 @@
 #include <QSplitter>
 #include <QStackedWidget>
 #include <QDateTime>
+#include <QDialogButtonBox>
+#include <QDoubleSpinBox>
+#include <QFormLayout>
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
@@ -503,6 +506,8 @@ void MainWindow::buildMenus()
             ui::FindReplaceDialog dlg(m_workspace.get(), this);
             dlg.exec();
         });
+        editMenuExt->addAction(tr("Renumber selection…"), this,
+                               &MainWindow::renumberSelection);
     }
 
     auto *viewMenu = menuBar()->addMenu(tr("&View"));
@@ -1326,6 +1331,84 @@ void MainWindow::deleteSelectedCue()
     } else {
         stack->push(new core::RemoveCueCommand(list, rows.first()));
     }
+}
+
+void MainWindow::renumberSelection()
+{
+    auto *list = m_workspace ? m_workspace->activeCueList() : nullptr;
+    if (!list) return;
+
+    // Collect selected rows in ascending order so renumbering walks
+    // top-to-bottom matching the operator's mental model.
+    QList<int> rows;
+    if (auto *sel = m_cueListView->selectionModel()) {
+        for (const auto &idx : sel->selectedRows()) {
+            if (idx.isValid()) rows.append(idx.row());
+        }
+    }
+    if (rows.isEmpty()) {
+        const auto idx = m_cueListView->currentIndex();
+        if (idx.isValid()) rows.append(idx.row());
+    }
+    if (rows.isEmpty()) {
+        QMessageBox::information(this, tr("Renumber selection"),
+            tr("Select one or more cues in the list first."));
+        return;
+    }
+    std::sort(rows.begin(), rows.end());
+
+    // Prompt for start + step. Default start = first selected cue's
+    // current number, default step = the configured cue-numbering
+    // step from Preferences → General (which defaults to 1.0).
+    auto *firstCue = list->cueAt(rows.first());
+    if (!firstCue) return;
+
+    QSettings s(QStringLiteral("ServeGaming"), QStringLiteral("quewi"));
+    const double defaultStep = s.value(
+        QStringLiteral("general/cueNumberStep"), 1.0).toDouble();
+
+    QDialog dlg(this);
+    dlg.setWindowTitle(tr("Renumber %1 cue(s)").arg(rows.size()));
+    auto *form = new QFormLayout(&dlg);
+
+    auto *startSpin = new QDoubleSpinBox(&dlg);
+    startSpin->setRange(0.0, 99999.0);
+    startSpin->setDecimals(2);
+    startSpin->setValue(firstCue->number());
+    form->addRow(tr("Start at"), startSpin);
+
+    auto *stepSpin = new QDoubleSpinBox(&dlg);
+    stepSpin->setRange(0.01, 1000.0);
+    stepSpin->setDecimals(2);
+    stepSpin->setValue(defaultStep);
+    form->addRow(tr("Step"), stepSpin);
+
+    auto *bb = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel,
+                                    &dlg);
+    connect(bb, &QDialogButtonBox::accepted, &dlg, &QDialog::accept);
+    connect(bb, &QDialogButtonBox::rejected, &dlg, &QDialog::reject);
+    form->addRow(bb);
+    if (dlg.exec() != QDialog::Accepted) return;
+
+    const double start = startSpin->value();
+    const double step  = stepSpin->value();
+
+    // Single undo macro so one Ctrl-Z reverts the whole renumber.
+    auto *stack = m_workspace->undoStack();
+    stack->beginMacro(tr("Renumber %1 cues").arg(rows.size()));
+    double n = start;
+    for (int row : rows) {
+        if (auto *c = list->cueAt(row)) {
+            stack->push(new core::EditCueFieldCommand(c,
+                QStringLiteral("number"),
+                QVariant(c->number()),
+                QVariant(n)));
+            n += step;
+        }
+    }
+    stack->endMacro();
+    statusBar()->showMessage(tr("Renumbered %1 cues from %2 step %3")
+        .arg(rows.size()).arg(start, 0, 'f', 2).arg(step, 0, 'f', 2), 3000);
 }
 
 // ---------- Auto-save journal -------------------------------------------
