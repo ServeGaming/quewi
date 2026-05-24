@@ -234,6 +234,23 @@ jobs:
             exit 1
           fi
           echo "Using QMAKE=$QMAKE"
+
+          # Prune SQL driver plugins we don't use. linuxdeploy-plugin-qt
+          # bundles every plugin in plugins/sqldrivers/ by default and
+          # chokes on libqsqlmimer.so because the proprietary Mimer
+          # runtime (libmimerapi.so) isn't installed on the GitHub
+          # runner. Quewi only uses SQLite (see ShowFile.cpp:
+          # QSQLITE), so the rest are dead weight even when they'd
+          # link cleanly. Same logic for the Oracle / DB2 / PSQL
+          # drivers — kept for future-proofing in case those become
+          # an issue on a future aqtinstall image.
+          QT_PLUGINS_DIR="$(dirname "$QMAKE")/../plugins"
+          for drv in libqsqlmimer.so libqsqlodbc.so libqsqlpsql.so \
+                     libqsqloci.so libqsqlibase.so; do
+            rm -f "$QT_PLUGINS_DIR/sqldrivers/$drv"
+          done
+          ls "$QT_PLUGINS_DIR/sqldrivers/" || true
+
           export VERSION="${GITHUB_REF_NAME#v}"
           export OUTPUT="quewi-${VERSION}-linux-x86_64.AppImage"
           ./linuxdeploy \
