@@ -517,9 +517,11 @@ QWidget *makeThemePage(class PreferencesDialog *dlg, QWidget *parent)
 }
 
 // ── OSC ───────────────────────────────────────────────────────────
-// Listen + transport configuration. Engine consults these keys when
-// (re)starting its UDP/TCP/WebSocket listeners; an explicit hint
-// covers the restart caveat.
+// Simplified: lead with the one knob that matters (UDP port for the
+// remote control API), park TCP/WebSocket/logging under an Advanced
+// group, drop the listen-address and pattern-mode fields entirely
+// (their defaults are right; the QSettings keys osc/listenAddress
+// and osc/patternMode still exist for power users editing config).
 QWidget *makeOscPage(QWidget *parent)
 {
     auto *page  = new QWidget(parent);
@@ -528,106 +530,92 @@ QWidget *makeOscPage(QWidget *parent)
     outer->setSpacing(12);
     auto s = prefSettings();
 
-    auto *listenGroup = new QGroupBox(QObject::tr("Listen"), page);
-    auto *listenForm = new QFormLayout(listenGroup);
+    // Header — the one sentence a user needs to read.
+    auto *header = new QLabel(QObject::tr(
+        "Quewi listens for OSC remote control on UDP. Any external "
+        "app — a lighting console, an iPad remote, your own script "
+        "— can send commands, query the cue list, and subscribe to "
+        "live updates. See docs/osc-remote-api.md for the full "
+        "message vocabulary."), page);
+    header->setWordWrap(true);
+    outer->addWidget(header);
 
-    auto *addr = new QLineEdit(listenGroup);
-    addr->setPlaceholderText(QStringLiteral("0.0.0.0"));
-    addr->setText(s.value(QStringLiteral("osc/listenAddress"),
-                          QStringLiteral("0.0.0.0")).toString());
-    QObject::connect(addr, &QLineEdit::editingFinished, listenGroup,
-        [addr]{
-            prefSettings().setValue(QStringLiteral("osc/listenAddress"),
-                                    addr->text().trimmed());
-        });
-    listenForm->addRow(QObject::tr("Address"), addr);
-
-    auto *udpPort = new QSpinBox(listenGroup);
+    // Main group — UDP port only.
+    auto *mainGroup = new QGroupBox(QObject::tr("Remote control"), page);
+    auto *mainForm = new QFormLayout(mainGroup);
+    auto *udpPort = new QSpinBox(mainGroup);
     udpPort->setRange(1, 65535);
-    udpPort->setValue(s.value(QStringLiteral("osc/udpPort"), 53000).toInt());
-    QObject::connect(udpPort, &QSpinBox::valueChanged, listenGroup, [](int v) {
+    udpPort->setValue(s.value(QStringLiteral("osc/udpPort"), 53535).toInt());
+    QObject::connect(udpPort, &QSpinBox::valueChanged, mainGroup, [](int v) {
         prefSettings().setValue(QStringLiteral("osc/udpPort"), v);
     });
-    listenForm->addRow(QObject::tr("UDP port"), udpPort);
+    mainForm->addRow(QObject::tr("UDP port"), udpPort);
+    mainForm->addRow(QString(), makeHint(QObject::tr(
+        "Default 53535. Tell your remote app this port + the IP "
+        "address of this machine. Bound to all network interfaces "
+        "(0.0.0.0). Takes effect on next launch."), mainGroup));
+    outer->addWidget(mainGroup);
+
+    // Advanced group — extra transports + diagnostics.
+    auto *advGroup = new QGroupBox(QObject::tr("Advanced"), page);
+    auto *advForm = new QFormLayout(advGroup);
 
     auto *tcpRow = new QHBoxLayout();
-    auto *tcpEnable = new QCheckBox(QObject::tr("TCP / SLIP"), listenGroup);
+    auto *tcpEnable = new QCheckBox(QObject::tr("Enable"), advGroup);
     tcpEnable->setChecked(s.value(QStringLiteral("osc/tcpEnabled"),
                                   false).toBool());
-    auto *tcpPort = new QSpinBox(listenGroup);
+    auto *tcpPort = new QSpinBox(advGroup);
     tcpPort->setRange(1, 65535);
-    tcpPort->setValue(s.value(QStringLiteral("osc/tcpPort"), 53001).toInt());
+    tcpPort->setValue(s.value(QStringLiteral("osc/tcpPort"), 53536).toInt());
     tcpPort->setEnabled(tcpEnable->isChecked());
-    QObject::connect(tcpEnable, &QCheckBox::toggled, listenGroup,
+    QObject::connect(tcpEnable, &QCheckBox::toggled, advGroup,
         [tcpPort](bool v) {
             prefSettings().setValue(QStringLiteral("osc/tcpEnabled"), v);
             tcpPort->setEnabled(v);
         });
-    QObject::connect(tcpPort, &QSpinBox::valueChanged, listenGroup, [](int v) {
+    QObject::connect(tcpPort, &QSpinBox::valueChanged, advGroup, [](int v) {
         prefSettings().setValue(QStringLiteral("osc/tcpPort"), v);
     });
     tcpRow->addWidget(tcpEnable);
     tcpRow->addWidget(tcpPort, 1);
-    listenForm->addRow(QObject::tr("TCP"), tcpRow);
+    advForm->addRow(QObject::tr("TCP / SLIP"), tcpRow);
 
     auto *wsRow = new QHBoxLayout();
-    auto *wsEnable = new QCheckBox(QObject::tr("WebSocket"), listenGroup);
+    auto *wsEnable = new QCheckBox(QObject::tr("Enable"), advGroup);
     wsEnable->setChecked(s.value(QStringLiteral("osc/wsEnabled"),
                                  false).toBool());
-    auto *wsPort = new QSpinBox(listenGroup);
+    auto *wsPort = new QSpinBox(advGroup);
     wsPort->setRange(1, 65535);
     wsPort->setValue(s.value(QStringLiteral("osc/wsPort"), 8080).toInt());
     wsPort->setEnabled(wsEnable->isChecked());
-    QObject::connect(wsEnable, &QCheckBox::toggled, listenGroup,
+    QObject::connect(wsEnable, &QCheckBox::toggled, advGroup,
         [wsPort](bool v) {
             prefSettings().setValue(QStringLiteral("osc/wsEnabled"), v);
             wsPort->setEnabled(v);
         });
-    QObject::connect(wsPort, &QSpinBox::valueChanged, listenGroup, [](int v) {
+    QObject::connect(wsPort, &QSpinBox::valueChanged, advGroup, [](int v) {
         prefSettings().setValue(QStringLiteral("osc/wsPort"), v);
     });
     wsRow->addWidget(wsEnable);
     wsRow->addWidget(wsPort, 1);
-    listenForm->addRow(QObject::tr("WebSocket"), wsRow);
-
-    outer->addWidget(listenGroup);
-
-    auto *behGroup = new QGroupBox(QObject::tr("Behaviour"), page);
-    auto *behForm = new QFormLayout(behGroup);
-
-    auto *patternMode = new QComboBox(behGroup);
-    patternMode->addItem(QObject::tr("Extended (OSC 1.1, // descendant match)"),
-                         QStringLiteral("extended"));
-    patternMode->addItem(QObject::tr("Strict (OSC 1.0)"),
-                         QStringLiteral("strict"));
-    const QString curPat = s.value(QStringLiteral("osc/patternMode"),
-                                   QStringLiteral("extended")).toString();
-    for (int i = 0; i < patternMode->count(); ++i) {
-        if (patternMode->itemData(i).toString() == curPat) {
-            patternMode->setCurrentIndex(i); break;
-        }
-    }
-    QObject::connect(patternMode, &QComboBox::currentIndexChanged, behGroup,
-        [patternMode](int) {
-            prefSettings().setValue(QStringLiteral("osc/patternMode"),
-                                    patternMode->currentData().toString());
-        });
-    behForm->addRow(QObject::tr("Pattern matching"), patternMode);
+    advForm->addRow(QObject::tr("WebSocket"), wsRow);
 
     auto *logIncoming = new QCheckBox(
-        QObject::tr("Log incoming messages to file"), behGroup);
+        QObject::tr("Log incoming messages to file"), advGroup);
     logIncoming->setChecked(s.value(QStringLiteral("osc/logIncoming"),
                                     false).toBool());
-    QObject::connect(logIncoming, &QCheckBox::toggled, behGroup, [](bool v) {
+    QObject::connect(logIncoming, &QCheckBox::toggled, advGroup, [](bool v) {
         prefSettings().setValue(QStringLiteral("osc/logIncoming"), v);
     });
-    behForm->addRow(QString(), logIncoming);
+    advForm->addRow(QString(), logIncoming);
 
-    outer->addWidget(behGroup);
-    outer->addWidget(makeHint(QObject::tr(
-        "Listen ports take effect on next launch. The OSC monitor "
-        "(Tools → OSC Monitor) shows live messages without writing "
-        "the log file."), page));
+    advForm->addRow(QString(), makeHint(QObject::tr(
+        "UDP is enough for almost every remote. Turn on TCP or "
+        "WebSocket only if your specific remote needs them. The "
+        "live OSC monitor (Tools → OSC Monitor) shows traffic in "
+        "real time without writing the log file."), advGroup));
+
+    outer->addWidget(advGroup);
     outer->addStretch(1);
     return page;
 }
