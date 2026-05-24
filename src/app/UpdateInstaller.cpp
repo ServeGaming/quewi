@@ -231,18 +231,61 @@ bool UpdateInstaller::launchAndQuit(const QString &msiPath)
     bool started = false;
 
 #if defined(Q_OS_WIN)
+    // ShellExecuteW returning >32 only means Windows found a handler —
+    // it does NOT mean the handler actually ran. SmartScreen, Defender,
+    // group policy, or a stale msiexec service can kill the new
+    // process within milliseconds, invisibly. Quewi would then quit
+    // 1.5 s later and the user is left with nothing — which is
+    // exactly the reported symptom ("downloads, closes, no installer").
+    //
+    // Fix: use ShellExecuteExW with SEE_MASK_NOCLOSEPROCESS so we get
+    // the process handle back. Wait up to 3 s for either: (a) the
+    // process is still alive — install UI genuinely came up — or
+    // (b) it exited — silently blocked, abort the auto-quit so the
+    // user gets the fallback dialog with an Open Folder button.
     {
-        const std::wstring wpath = native.toStdWString();
-        const HINSTANCE rc = ShellExecuteW(nullptr, nullptr, wpath.c_str(),
-                                           nullptr, nullptr, SW_SHOWNORMAL);
-        // ShellExecute returns >32 on success, an error code <=32 on failure.
-        started = reinterpret_cast<INT_PTR>(rc) > 32;
+        std::wstring wpath = native.toStdWString();
+        SHELLEXECUTEINFOW sei{};
+        sei.cbSize = sizeof(sei);
+        sei.fMask  = SEE_MASK_NOCLOSEPROCESS;
+        sei.lpFile = wpath.c_str();
+        sei.nShow  = SW_SHOWNORMAL;
+        const BOOL ok = ShellExecuteExW(&sei);
+        if (ok && sei.hProcess) {
+            const DWORD wait = WaitForSingleObject(sei.hProcess, 3000);
+            DWORD exitCode = 0;
+            GetExitCodeProcess(sei.hProcess, &exitCode);
+            CloseHandle(sei.hProcess);
+            // WAIT_TIMEOUT = still running after 3 s → genuinely up.
+            // STILL_ACTIVE (259) on exit-code read = same.
+            // Anything else = it died on us.
+            if (wait == WAIT_TIMEOUT || exitCode == STILL_ACTIVE) {
+                started = true;
+            } else {
+                qWarning("UpdateInstaller: installer process exited "
+                         "within 3 s of launch (exit code %lu). "
+                         "SmartScreen / Defender / policy likely "
+                         "blocked it.", exitCode);
+                started = false;
+            }
+        } else {
+            qWarning("UpdateInstaller: ShellExecuteExW failed, "
+                     "hInstApp=%p", sei.hInstApp);
+        }
     }
     if (!started) {
+        // Fallback: invoke msiexec directly. Same end result if the
+        // handler resolution was the problem; no help if the issue
+        // is SmartScreen blocking unsigned MSIs — but cheap to try.
         const QString sysroot = qEnvironmentVariable("SystemRoot",
                                     QStringLiteral("C:/Windows"));
         const QString msiexec = QDir::toNativeSeparators(
             sysroot + QStringLiteral("/System32/msiexec.exe"));
+        // QProcess::startDetached returns true on spawn — we can't
+        // wait-for-exit cheaply here. Accept the optimistic answer;
+        // if msiexec also dies invisibly the user sees the same
+        // failure dialog moments later (quewi stays open since
+        // we only quit further down on confirmed alive process).
         started = QProcess::startDetached(msiexec,
             { QStringLiteral("/i"), native });
     }
