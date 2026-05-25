@@ -11,6 +11,7 @@ class QAction;
 class QHBoxLayout;
 class QLabel;
 class QPushButton;
+class QDockWidget;
 class QSplitter;
 class QStackedWidget;
 class QDragEnterEvent;
@@ -181,7 +182,10 @@ private:
     ui::OscMonitor   *m_oscMonitor = nullptr;
     ui::ScriptWindow *m_scriptWindow = nullptr;
     UpdateChecker    *m_updateChecker = nullptr;
-    QSplitter       *m_mainSplitter = nullptr;
+    // Inspector lives in a tearable dock so the user can move it
+    // onto a second monitor. Persisted via QMainWindow::saveState().
+    QDockWidget      *m_inspectorDock = nullptr;
+    void resetLayout();
 
     QAction *m_actUndo = nullptr;
     QAction *m_actRedo = nullptr;

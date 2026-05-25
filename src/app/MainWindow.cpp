@@ -80,6 +80,7 @@
 #include <QInputDialog>
 #include <QLineEdit>
 #include <QPushButton>
+#include <QDockWidget>
 #include <QSplitter>
 #include <QStackedWidget>
 #include <QDateTime>
@@ -270,6 +271,19 @@ MainWindow::MainWindow(QWidget *parent)
                     statusBar()->showMessage(tr("⚠ %1").arg(e.message), 4000);
             });
 
+    // Restore window geometry + dock layout from the previous session.
+    // Done after buildLayout/buildMenus so every dock and toolbar
+    // exists for restoreState() to match by objectName. Guard against
+    // a stale state blob (eg. dock object renamed) by ignoring failure
+    // — the default layout from buildLayout() stays in effect.
+    {
+        QSettings s(QStringLiteral("ServeGaming"), QStringLiteral("quewi"));
+        const auto geom  = s.value(QStringLiteral("ui/mainGeometry")).toByteArray();
+        const auto state = s.value(QStringLiteral("ui/mainState")).toByteArray();
+        if (!geom.isEmpty())  restoreGeometry(geom);
+        if (!state.isEmpty()) restoreState(state);
+    }
+
     // Offer recovery after the main window is on screen.
     QTimer::singleShot(0, this, &MainWindow::recoverFromJournalIfPresent);
 
@@ -324,13 +338,9 @@ void MainWindow::buildLayout()
     connect(m_listTabs, &QTabBar::currentChanged, this, &MainWindow::onTabSelected);
     connect(m_listTabs, &QTabBar::tabBarDoubleClicked, this, [this](int){ renameCueListTab(); });
 
-    m_mainSplitter = new QSplitter(Qt::Horizontal, central);
-    m_mainSplitter->setHandleWidth(8); // QSS width hint isn't always honoured
-
     // Cue list pane: filter line on top, view fills the rest. Wrapping
-    // them in one widget keeps the splitter happy (it lays out per
-    // child widget, not per pair).
-    auto *cuePane = new QWidget(m_mainSplitter);
+    // them in one widget keeps the central layout clean.
+    auto *cuePane = new QWidget(central);
     cuePane->setMinimumWidth(280);
     auto *cuePaneV = new QVBoxLayout(cuePane);
     cuePaneV->setContentsMargins(0, 0, 0, 0);
@@ -347,28 +357,38 @@ void MainWindow::buildLayout()
     connect(filterEdit, &QLineEdit::textChanged, m_cueListView,
             &ui::CueListView::setFilterText);
 
-    // Cart view sits side-by-side with the cue list inside a
-    // QStackedWidget. The View menu toggles which one's visible —
-    // they share the workspace data, so the same GO logic, undo
-    // stack, and inspector all work in either mode.
-    m_cartView = new ui::CartView(m_mainSplitter);
+    // Cart view sits next to the cue list inside a QStackedWidget. The
+    // View menu toggles which one's visible — they share the workspace
+    // data, so the same GO logic, undo stack, and inspector all work
+    // in either mode.
+    m_cartView = new ui::CartView(central);
     connect(m_cartView, &ui::CartView::fireRequested, this,
         [this](cues::Cue *c) { if (m_goEngine && c) m_goEngine->fire(c); });
     connect(m_cartView, &ui::CartView::fileDropped,
             this, &MainWindow::onCartFileDropped);
 
-    m_centerStack = new QStackedWidget(m_mainSplitter);
+    m_centerStack = new QStackedWidget(central);
     m_centerStack->addWidget(cuePane);     // index 0 = list view
     m_centerStack->addWidget(m_cartView);  // index 1 = cart view
 
-    m_inspector = new ui::Inspector(m_mainSplitter);
-
-    m_mainSplitter->addWidget(m_centerStack);
-    m_mainSplitter->addWidget(m_inspector);
-    m_mainSplitter->setStretchFactor(0, 3);
-    m_mainSplitter->setStretchFactor(1, 2);
-    m_mainSplitter->setSizes({800, 480});
-    m_mainSplitter->setChildrenCollapsible(false);
+    // Inspector lives inside a QDockWidget so users can tear it off
+    // onto a second monitor (the "I want my edit surface big" case)
+    // or hide it entirely (operator-only desk). The dock state is
+    // persisted in QSettings via saveState/restoreState, so the
+    // layout survives restarts.
+    m_inspector = new ui::Inspector(this);
+    m_inspectorDock = new QDockWidget(tr("Inspector"), this);
+    m_inspectorDock->setObjectName(QStringLiteral("inspectorDock"));
+    m_inspectorDock->setWidget(m_inspector);
+    m_inspectorDock->setAllowedAreas(Qt::LeftDockWidgetArea
+                                     | Qt::RightDockWidgetArea);
+    m_inspectorDock->setFeatures(QDockWidget::DockWidgetMovable
+                                 | QDockWidget::DockWidgetFloatable
+                                 | QDockWidget::DockWidgetClosable);
+    addDockWidget(Qt::RightDockWidgetArea, m_inspectorDock);
+    // Width hint for first launch — Qt clamps to size hints otherwise.
+    // 420 matches the original splitter ratio (800 : 480 → 480 ≈ 38 %).
+    m_inspectorDock->resize(420, m_inspectorDock->height());
 
     m_activePanel = new ui::ActiveCuesPanel(central);
     m_activePanel->setAudioEngine(m_audioEngine.get());
@@ -385,7 +405,7 @@ void MainWindow::buildLayout()
     m_transport = new ui::TransportBar(central);
 
     outer->addWidget(m_listTabs, 0);
-    outer->addWidget(m_mainSplitter, 1);
+    outer->addWidget(m_centerStack, 1);
     outer->addWidget(m_activePanel, 0);
     outer->addWidget(m_transport, 0);
 
@@ -517,6 +537,18 @@ void MainWindow::buildMenus()
     themeMenu->addAction(tr("&High contrast"),
                          this, [this]{ applyTheme(QStringLiteral("quewi-highcontrast")); });
 
+    viewMenu->addSeparator();
+    // QDockWidget gives us a ready-made toggleViewAction whose checked
+    // state mirrors visibility — wire it in directly so the menu and
+    // the dock's own close button stay in sync.
+    if (m_inspectorDock) {
+        auto *insp = m_inspectorDock->toggleViewAction();
+        insp->setText(tr("&Inspector panel"));
+        insp->setShortcut(QKeySequence(QStringLiteral("Ctrl+I")));
+        viewMenu->addAction(insp);
+    }
+    viewMenu->addAction(tr("&Reset panel layout"), this,
+                       &MainWindow::resetLayout);
     viewMenu->addSeparator();
     auto *cartToggle = viewMenu->addAction(tr("&Cart view"));
     cartToggle->setCheckable(true);
@@ -2181,11 +2213,34 @@ static void legacy_dispatch_keep_diff_small() {
 void MainWindow::closeEvent(QCloseEvent *event)
 {
     if (maybeSaveChanges()) {
+        // Persist window geometry + dock layout so the next launch
+        // restores exactly where the user left things — including
+        // a torn-off Inspector on a second monitor.
+        QSettings s(QStringLiteral("ServeGaming"), QStringLiteral("quewi"));
+        s.setValue(QStringLiteral("ui/mainGeometry"), saveGeometry());
+        s.setValue(QStringLiteral("ui/mainState"),    saveState());
         clearJournal();
         event->accept();
     } else {
         event->ignore();
     }
+}
+
+void MainWindow::resetLayout()
+{
+    // Discard the persisted geometry/state and put the Inspector back
+    // in its default position. Useful when the user has dragged a dock
+    // off the visible desktop area on a monitor they no longer have.
+    QSettings s(QStringLiteral("ServeGaming"), QStringLiteral("quewi"));
+    s.remove(QStringLiteral("ui/mainGeometry"));
+    s.remove(QStringLiteral("ui/mainState"));
+    if (m_inspectorDock) {
+        m_inspectorDock->setFloating(false);
+        addDockWidget(Qt::RightDockWidgetArea, m_inspectorDock);
+        m_inspectorDock->show();
+        m_inspectorDock->resize(420, m_inspectorDock->height());
+    }
+    resize(1280, 800);
 }
 
 // ---------- Drag and drop ------------------------------------------------
