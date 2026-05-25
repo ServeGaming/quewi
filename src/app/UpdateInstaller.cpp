@@ -206,7 +206,7 @@ void UpdateInstaller::onReplyFinished()
     emit downloadFinished(m_localPath);
 }
 
-bool UpdateInstaller::launchAndQuit(const QString &msiPath)
+bool UpdateInstaller::launchInstaller(const QString &msiPath)
 {
     // Per-platform handoff:
     //   Windows: ShellExecuteW with the default verb — exactly what a
@@ -332,10 +332,13 @@ bool UpdateInstaller::launchAndQuit(const QString &msiPath)
     return false;
 #endif
 
-    // Give the new process a moment to claim the install session and
-    // its UI before we vacate the running exe so the installer can
-    // replace it on platforms where in-place replacement isn't allowed.
-    QTimer::singleShot(1500, qApp, &QCoreApplication::quit);
+    // NOTE: we intentionally do NOT quit the application here. MSIs
+    // use Windows Restart Manager to ask the user to close any running
+    // process that holds the install target — quewi getting an explicit
+    // "close" prompt from the installer is the safe path. Auto-quitting
+    // here was the cause of the "downloads, closes, no installer"
+    // reports: when SmartScreen/UAC silently rejected the launch, quewi
+    // disappeared anyway and the user was stranded.
     return true;
 }
 

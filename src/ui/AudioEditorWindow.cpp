@@ -346,25 +346,58 @@ void AudioEditorWindow::buildCentral() {
 }
 
 void AudioEditorWindow::buildBottomPanel() {
+    // Bottom panel houses the effects rack + spectrogram. The styling
+    // here is restrained on purpose: matching dark surface, single
+    // thin top border, no hardcoded inner colors. Tab pane sits flush
+    // with the panel so there's no double-bordered "box-in-box" look.
     auto *bottom = new QWidget(this);
     bottom->setObjectName(QStringLiteral("editorBottomPanel"));
     bottom->setStyleSheet(QStringLiteral(
-        "QWidget#editorBottomPanel { background:#181c22; border-top:1px solid #262a38; }"
-    ));
+        "QWidget#editorBottomPanel {"
+        "    background: #181c22;"
+        "    border-top: 1px solid #262a38;"
+        "}"
+        "QWidget#editorBottomPanel QTabBar::tab {"
+        "    background: transparent;"
+        "    color: #8b94a5;"
+        "    padding: 6px 14px;"
+        "    margin: 0;"
+        "    border: none;"
+        "    font-size: 11px;"
+        "    font-weight: 600;"
+        "    letter-spacing: 1px;"
+        "}"
+        "QWidget#editorBottomPanel QTabBar::tab:selected {"
+        "    color: #e8e2d4;"
+        "    border-bottom: 2px solid #D7A24E;"
+        "}"
+        "QWidget#editorBottomPanel QTabBar::tab:hover:!selected {"
+        "    color: #c0c6d0;"
+        "}"
+        "QWidget#editorBottomPanel QTabWidget::pane {"
+        "    border: none;"
+        "    background: #181c22;"
+        "}"));
     auto *bvl = new QVBoxLayout(bottom);
     bvl->setContentsMargins(0, 0, 0, 0);
     bvl->setSpacing(0);
 
     auto *tabs = new QTabWidget(bottom);
+    // Removed setMaximumHeight — let the parent splitter / vertical
+    // layout decide how tall this panel gets so wide-screen users
+    // aren't stranded with 100px of empty space below it. The min
+    // keeps the EFFECTS tab usable at small window sizes.
     tabs->setMinimumHeight(220);
-    tabs->setMaximumHeight(320);
     tabs->setDocumentMode(true);
 
     m_effectsRack = new EffectsRackWidget(tabs);
-    tabs->addTab(m_effectsRack, tr("EFFECTS"));
+    // Title-case labels with letter-spacing in QSS — gives an
+    // editorial feel without the SCREAMING all-caps + redundant
+    // inner header the old version had.
+    tabs->addTab(m_effectsRack, tr("Effects"));
 
     m_spectrogram = new SpectrogramWidget(tabs);
-    tabs->addTab(m_spectrogram, tr("SPECTROGRAM"));
+    tabs->addTab(m_spectrogram, tr("Spectrogram"));
 
     // Only run FFT while the spectrogram tab is active — otherwise selection
     // clicks are instant.

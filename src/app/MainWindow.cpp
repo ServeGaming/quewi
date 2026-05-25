@@ -5,6 +5,7 @@
 #include "UpdateInstaller.h"
 
 #include <QProgressDialog>
+#include <QProcess>
 
 #include <QDesktopServices>
 
@@ -1834,22 +1835,47 @@ void MainWindow::runInAppInstall(const QString &msiUrl)
             installer->deleteLater();
             const QString installPrompt =
 #if defined(Q_OS_WIN)
-                tr("Download complete. Quewi will close and the Windows "
-                   "installer will start. Continue?");
+                tr("Download complete. The Windows installer will open "
+                   "and may ask permission to run. When it tells you to "
+                   "close quewi, click Yes and the install will finish. "
+                   "Continue?");
 #elif defined(Q_OS_MACOS)
-                tr("Download complete. Quewi will close and the installer "
-                   "disk image will mount in Finder. Drag quewi into the "
-                   "Applications folder to replace the old version, then "
-                   "relaunch from your Applications. Continue?");
+                tr("Download complete. The installer disk image will "
+                   "mount in Finder. Drag quewi into the Applications "
+                   "folder to replace the old version, then relaunch. "
+                   "Continue?");
 #else
-                tr("Download complete. Quewi will close and the new "
-                   "AppImage will open. Continue?");
+                tr("Download complete. The new AppImage will open. "
+                   "Continue?");
 #endif
             const auto answer = QMessageBox::question(this, tr("Install update"),
                 installPrompt,
                 QMessageBox::Yes | QMessageBox::No);
             if (answer == QMessageBox::Yes) {
-                if (!UpdateInstaller::launchAndQuit(localPath)) {
+                // Always reveal the installer in the file manager first.
+                // This is the bulletproof fallback — even if Windows
+                // silently blocks the auto-launch (SmartScreen, UAC
+                // policy, or a redirected msiexec stub), the user
+                // sees the highlighted file and can double-click it.
+                // The recurring "downloads, closes, no installer" bug
+                // reports all came from cases where the auto-launch
+                // returned success but nothing actually appeared on
+                // screen — now there's always something to click.
+#if defined(Q_OS_WIN)
+                QProcess::startDetached(QStringLiteral("explorer.exe"),
+                    { QStringLiteral("/select,")
+                          + QDir::toNativeSeparators(localPath) });
+#elif defined(Q_OS_MACOS)
+                QProcess::startDetached(QStringLiteral("/usr/bin/open"),
+                    { QStringLiteral("-R"), localPath });
+#else
+                QProcess::startDetached(QStringLiteral("xdg-open"),
+                    { QFileInfo(localPath).absolutePath() });
+#endif
+
+                const bool launched =
+                    UpdateInstaller::launchInstaller(localPath);
+                if (!launched) {
                     // Two recurring bug reports said this dialog showed
                     // a corrupted-looking path. Defensive rewrite:
                     //   1. Don't put the path in the dialog at all —

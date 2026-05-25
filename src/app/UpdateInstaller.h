@@ -29,14 +29,20 @@ public:
     // whether to launch the installer.
     void download(const QString &msiUrl);
 
-    // Hand the downloaded MSI off to the OS (ShellExecute → file
-    // association on Windows, which routes through msiexec and gives
-    // the user a UAC + SmartScreen prompt the way a double-click in
-    // Explorer would). Returns true if the launch was confirmed and
-    // the app will quit shortly after; false if every fallback failed
-    // (in which case Explorer is opened pointing at the MSI and the
-    // app stays running so the user has a path forward).
-    static bool launchAndQuit(const QString &msiPath);
+    // Hand the downloaded installer off to the OS (ShellExecute →
+    // file association on Windows; /usr/bin/open on macOS;
+    // xdg-open on Linux). Returns true if the launch was confirmed
+    // (a real process is alive after the call); false if every
+    // fallback failed.
+    //
+    // Critically: this does NOT quit the application. The user kept
+    // reporting "app closes but installer never appears" with the
+    // old auto-quit + ShellExecuteEx flow — silent SmartScreen /
+    // UAC denials were leaving them with nothing. Now the caller
+    // always reveals the installer in the file manager so the user
+    // has a visible path forward, and quewi only exits when the
+    // installer's Restart Manager actually asks for it.
+    static bool launchInstaller(const QString &installerPath);
 
 signals:
     void progress(qint64 received, qint64 total);

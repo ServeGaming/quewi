@@ -1,4 +1,5 @@
 #include "audio/AudioEditorRenderer.h"
+#include "audio/AudioEffect.h"
 
 #include <QFile>
 #include <QDataStream>
@@ -65,6 +66,13 @@ bool AudioEditorRenderer::render(std::vector<float> &outStereo) {
     for (int ti = 0; ti < m_model->trackCount(); ++ti)
         if (m_model->track(ti)->isSoloed()) { anySolo = true; break; }
 
+    // Per-track scratch buffer: each track's region samples are written
+    // here at the same length as the final mix, the effects chain is
+    // applied to that buffer, then it's mixed into outStereo. This
+    // replaces the old code that mixed regions directly into outStereo
+    // and skipped effects entirely (leaving the rack inaudible).
+    std::vector<float> trackBuf;
+
     for (int ti = 0; ti < m_model->trackCount(); ++ti) {
         auto *track = m_model->track(ti);
         if (track->isMuted()) continue;
@@ -72,7 +80,11 @@ bool AudioEditorRenderer::render(std::vector<float> &outStereo) {
 
         const float trackGain = track->volume();
 
-        // Render each region into a temporary stereo buffer, then mix down
+        // Reset scratch for this track. assign() doesn't shrink capacity
+        // so the second-and-later iterations don't reallocate.
+        trackBuf.assign(size_t(totalFrames) * 2, 0.f);
+
+        // Render each region into the track scratch buffer
         for (const auto &region : track->regions()) {
             if (!region.sourceFile ||
                 region.sourceFile->state() != AudioFile::State::Loaded) continue;
@@ -120,19 +132,38 @@ bool AudioEditorRenderer::render(std::vector<float> &outStereo) {
                 }
 
                 const float faded = applyFade(1.f, f, regionDur, region.fadeIn, region.fadeOut);
-                outStereo[tlFrame * 2]     += l * faded * regionGain;
-                outStereo[tlFrame * 2 + 1] += r * faded * regionGain;
+                trackBuf[tlFrame * 2]     += l * faded * regionGain;
+                trackBuf[tlFrame * 2 + 1] += r * faded * regionGain;
             }
 
             emit progress(int(100.0 * double(ti+1) / double(m_model->trackCount())));
         }
 
-        // Apply track effects chain in-place over the entire mix contribution.
-        // Prepare each effect with our sample rate, then process blocks.
-        // Note: applying effects per-track requires a separate per-track buffer.
-        // For simplicity here we process effects on the full mix after each track.
-        // A proper impl would accumulate per-track then apply effects, but for
-        // the standard case of small numbers of tracks this is fine.
+        // Apply this track's effects chain to the scratch buffer in
+        // place. Process in moderate chunks so effects with internal
+        // state (delay lines, envelope followers) see a realistic
+        // streaming workload instead of one giant block. 1024 frames
+        // is the same block size the live audio callback runs at on
+        // most desktop hosts, so reverbs / delays sound the same in
+        // the render as they will at play time.
+        constexpr int kFxBlockFrames = 1024;
+        const int sampleRate = m_model->sampleRate();
+        for (const auto &fx : track->effects()) {
+            if (!fx || !fx->isEnabled()) continue;
+            fx->prepare(sampleRate);
+            fx->reset();
+            qint64 done = 0;
+            while (done < totalFrames) {
+                const int chunk = int(std::min<qint64>(kFxBlockFrames,
+                                                       totalFrames - done));
+                fx->process(trackBuf.data() + done * 2, chunk);
+                done += chunk;
+            }
+        }
+
+        // Mix this track (with effects applied) into the main output.
+        for (size_t i = 0; i < trackBuf.size(); ++i)
+            outStereo[i] += trackBuf[i];
     }
 
     // Clamp to [-1, 1] to prevent clipping artifacts from multiple overlapping regions

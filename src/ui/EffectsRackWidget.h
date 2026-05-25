@@ -4,6 +4,8 @@
 #include <QWidget>
 #include <QVBoxLayout>
 
+class QLabel;
+
 namespace quewi::ui {
 
 // Shows the effects chain for one AudioEditorTrack and lets the user:
@@ -27,6 +29,8 @@ private slots:
 private:
     audio::AudioEditorTrack *m_track = nullptr;
     QVBoxLayout *m_effectsLayout = nullptr;
+    QLabel      *m_trackLabel = nullptr;
+    QLabel      *m_emptyHint  = nullptr;
 
     QWidget *buildEffectRow(audio::AudioEffect *fx, int index);
 };

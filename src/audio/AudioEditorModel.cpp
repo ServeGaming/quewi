@@ -1,9 +1,35 @@
 #include "audio/AudioEditorModel.h"
+#include "audio/AudioEffect.h"
 
+#include <QJsonObject>
 #include <QUndoCommand>
 #include <QJsonArray>
 #include <algorithm>
 #include <cassert>
+#include <optional>
+
+namespace {
+// Stable string keys for AudioEffect::Type so saved JSON survives any
+// future re-ordering of the enum.
+QString effectTypeKey(quewi::audio::AudioEffect::Type t) {
+    using T = quewi::audio::AudioEffect::Type;
+    switch (t) {
+    case T::Eq:         return QStringLiteral("eq");
+    case T::Compressor: return QStringLiteral("compressor");
+    case T::Reverb:     return QStringLiteral("reverb");
+    case T::Delay:      return QStringLiteral("delay");
+    }
+    return QStringLiteral("eq");
+}
+std::optional<quewi::audio::AudioEffect::Type> effectTypeFromKey(const QString &k) {
+    using T = quewi::audio::AudioEffect::Type;
+    if (k == QLatin1String("eq"))         return T::Eq;
+    if (k == QLatin1String("compressor")) return T::Compressor;
+    if (k == QLatin1String("reverb"))     return T::Reverb;
+    if (k == QLatin1String("delay"))      return T::Delay;
+    return std::nullopt;
+}
+} // namespace
 
 namespace quewi::audio {
 
@@ -93,7 +119,54 @@ QJsonObject AudioEditorTrack::toJson() const {
     QJsonArray regions;
     for (auto &r : m_regions) regions.append(r.toJson());
     o[QStringLiteral("regions")] = regions;
+
+    // Effects chain — stable type keys + parameter map. Previously we
+    // dropped this on the floor, so any FX the user dialled in vanished
+    // on save/reload (one of the recurring "the rack does nothing"
+    // reports).
+    QJsonArray fxArr;
+    for (const auto &fx : m_effects) {
+        if (!fx) continue;
+        QJsonObject fxo;
+        fxo[QStringLiteral("type")]    = effectTypeKey(fx->type());
+        fxo[QStringLiteral("enabled")] = fx->isEnabled();
+        QJsonObject params;
+        for (const QString &pid : fx->parameterIds())
+            params[pid] = double(fx->parameterValue(pid));
+        fxo[QStringLiteral("params")] = params;
+        fxArr.append(fxo);
+    }
+    o[QStringLiteral("effects")] = fxArr;
     return o;
+}
+
+void AudioEditorTrack::fromJson(const QJsonObject &o) {
+    m_id     = QUuid(o.value(QStringLiteral("id")).toString());
+    m_name   = o.value(QStringLiteral("name")).toString();
+    m_volume = float(o.value(QStringLiteral("volume")).toDouble(1.0));
+    m_muted  = o.value(QStringLiteral("muted")).toBool(false);
+    m_soloed = o.value(QStringLiteral("soloed")).toBool(false);
+
+    // Regions: not restored here; AudioEditorWindow re-initialises
+    // them from the cue's audio file when the editor opens. Effects
+    // ARE restored so a user re-opening the editor finds their chain
+    // intact rather than blank.
+    m_effects.clear();
+    const auto fxArr = o.value(QStringLiteral("effects")).toArray();
+    for (const auto &v : fxArr) {
+        const QJsonObject fxo = v.toObject();
+        const auto typeOpt = effectTypeFromKey(
+            fxo.value(QStringLiteral("type")).toString());
+        if (!typeOpt) continue;
+        auto fx = AudioEffect::create(*typeOpt, nullptr);
+        if (!fx) continue;
+        fx->setEnabled(fxo.value(QStringLiteral("enabled")).toBool(true));
+        const QJsonObject params = fxo.value(QStringLiteral("params")).toObject();
+        for (auto it = params.begin(); it != params.end(); ++it)
+            fx->setParameterValue(it.key(), float(it.value().toDouble()));
+        m_effects.push_back(std::move(fx));
+    }
+    emit changed();
 }
 
 // ── Undo commands ─────────────────────────────────────────────────────────────

@@ -3,6 +3,7 @@
 #include "audio/effects/EqEffect.h"
 #include "ui/ParametricEqDialog.h"
 
+#include <QApplication>
 #include <QCheckBox>
 #include <QComboBox>
 #include <QDoubleSpinBox>
@@ -14,22 +15,72 @@
 #include <QPushButton>
 #include <QScrollArea>
 #include <QSlider>
+#include <QStyle>
 #include <QToolButton>
 
 namespace quewi::ui {
 
 EffectsRackWidget::EffectsRackWidget(QWidget *parent) : QWidget(parent) {
-    auto *outer = new QVBoxLayout(this);
-    outer->setContentsMargins(4, 4, 4, 4);
-    outer->setSpacing(4);
+    setObjectName(QStringLiteral("effectsRack"));
+    // Internal styling — kept self-contained so this widget looks
+    // consistent whether hosted inline in AudioEditorWindow or torn
+    // off into a stand-alone panel.
+    setStyleSheet(QStringLiteral(
+        // Add button — small accent pill on the right of the toolbar.
+        "QPushButton#fxAddButton {"
+        "    background: #2a3140; color: #e8e2d4;"
+        "    border: 1px solid #3a4253; border-radius: 4px;"
+        "    padding: 4px 12px; font-size: 12px; min-height: 22px;"
+        "}"
+        "QPushButton#fxAddButton:hover { background: #34394a; }"
+        "QPushButton#fxAddButton:pressed { background: #232a37; }"
+        // Effect row container — flat surface with subtle border,
+        // replaces the ugly QGroupBox frame that hung around an
+        // empty title.
+        "QFrame#fxRow {"
+        "    background: #1d222a; border: 1px solid #2a3140;"
+        "    border-radius: 6px;"
+        "}"
+        // Edit / close — fixed height so they line up with the
+        // enable checkbox baseline.
+        "QPushButton#fxEditBtn, QToolButton#fxCloseBtn {"
+        "    min-height: 24px; max-height: 24px;"
+        "}"
+        "QPushButton#fxEditBtn {"
+        "    background: transparent; color: #c0c6d0;"
+        "    border: 1px solid #3a4253; border-radius: 4px;"
+        "    padding: 0 10px;"
+        "}"
+        "QPushButton#fxEditBtn:hover { color: #e8e2d4; border-color: #4a5363; }"
+        "QToolButton#fxCloseBtn {"
+        "    background: transparent; border: none;"
+        "    color: #8b94a5; min-width: 24px; max-width: 24px;"
+        "}"
+        "QToolButton#fxCloseBtn:hover { color: #e8e2d4; }"
+        // Empty-state hint.
+        "QLabel#fxEmptyHint {"
+        "    color: #6b7280; font-size: 12px; font-style: italic;"
+        "}"));
 
+    auto *outer = new QVBoxLayout(this);
+    outer->setContentsMargins(12, 10, 12, 12);
+    outer->setSpacing(8);
+
+    // Compact toolbar — track name on the left (filled in by the
+    // host), Add button on the right. No more redundant "Effects Rack"
+    // header that just repeated the tab title.
     auto *header = new QWidget(this);
     auto *hl = new QHBoxLayout(header);
-    hl->setContentsMargins(0,0,0,0);
-    hl->addWidget(new QLabel(tr("Effects Rack"), this));
-    hl->addStretch();
-    auto *addBtn = new QPushButton(tr("+ Add"), this);
-    addBtn->setFixedWidth(60);
+    hl->setContentsMargins(0, 0, 0, 0);
+    hl->setSpacing(8);
+    m_trackLabel = new QLabel(tr("No track selected"), this);
+    m_trackLabel->setStyleSheet(QStringLiteral(
+        "color: #8b94a5; font-size: 11px; "
+        "font-weight: 600; letter-spacing: 1px;"));
+    hl->addWidget(m_trackLabel, 1);
+    auto *addBtn = new QPushButton(tr("Add effect"), this);
+    addBtn->setObjectName(QStringLiteral("fxAddButton"));
+    addBtn->setCursor(Qt::PointingHandCursor);
     hl->addWidget(addBtn);
     connect(addBtn, &QPushButton::clicked, this, &EffectsRackWidget::addEffect);
     outer->addWidget(header);
@@ -39,11 +90,20 @@ EffectsRackWidget::EffectsRackWidget(QWidget *parent) : QWidget(parent) {
     scroll->setFrameShape(QFrame::NoFrame);
     auto *content = new QWidget(scroll);
     m_effectsLayout = new QVBoxLayout(content);
-    m_effectsLayout->setContentsMargins(0,0,0,0);
-    m_effectsLayout->setSpacing(4);
+    m_effectsLayout->setContentsMargins(0, 0, 0, 0);
+    m_effectsLayout->setSpacing(8);
     m_effectsLayout->addStretch(1);
     scroll->setWidget(content);
     outer->addWidget(scroll, 1);
+
+    // Empty hint — sits above the stretch so it appears centered-ish
+    // when the rack is empty. rebuild() toggles its visibility.
+    m_emptyHint = new QLabel(
+        tr("No effects yet — click \"Add effect\" to insert one."), this);
+    m_emptyHint->setObjectName(QStringLiteral("fxEmptyHint"));
+    m_emptyHint->setAlignment(Qt::AlignCenter);
+    m_emptyHint->setVisible(false);
+    outer->addWidget(m_emptyHint, 0);
 }
 
 void EffectsRackWidget::setTrack(audio::AudioEditorTrack *track) {
@@ -60,6 +120,13 @@ void EffectsRackWidget::rebuild() {
         delete item->widget();
         delete item;
     }
+    if (m_trackLabel) {
+        m_trackLabel->setText(m_track
+            ? tr("TRACK · %1").arg(m_track->name())
+            : tr("No track selected"));
+    }
+    const bool hasFx = m_track && !m_track->effects().empty();
+    if (m_emptyHint) m_emptyHint->setVisible(m_track && !hasFx);
     if (!m_track) return;
     const auto &fxList = m_track->effects();
     for (int i = 0; i < int(fxList.size()); ++i) {
@@ -68,24 +135,35 @@ void EffectsRackWidget::rebuild() {
 }
 
 QWidget *EffectsRackWidget::buildEffectRow(audio::AudioEffect *fx, int index) {
-    auto *box = new QGroupBox(this);
+    // QFrame replaces the old empty-title QGroupBox. The frame border
+    // comes from QSS (#fxRow) so the row reads as a single card rather
+    // than the chrome-around-nothing the QGroupBox produced.
+    auto *box = new QFrame(this);
+    box->setObjectName(QStringLiteral("fxRow"));
     auto *vl = new QVBoxLayout(box);
-    vl->setSpacing(4);
+    vl->setContentsMargins(10, 8, 8, 10);
+    vl->setSpacing(6);
 
-    // Header row: enable checkbox + name + remove button
+    // Header row: enable checkbox + name + edit + close. Heights are
+    // unified via QSS (#fxEditBtn / #fxCloseBtn) at 24 px so they
+    // line up with the checkbox baseline.
     auto *hdr = new QWidget(box);
     auto *hl = new QHBoxLayout(hdr);
-    hl->setContentsMargins(0,0,0,0);
+    hl->setContentsMargins(0, 0, 0, 0);
+    hl->setSpacing(6);
 
     auto *enableCheck = new QCheckBox(fx->name(), hdr);
     enableCheck->setChecked(fx->isEnabled());
+    enableCheck->setStyleSheet(QStringLiteral(
+        "QCheckBox { font-weight: 600; }"));
     connect(enableCheck, &QCheckBox::toggled, fx, &audio::AudioEffect::setEnabled);
     hl->addWidget(enableCheck, 1);
 
     // EQ gets a visual editor button
     if (fx->type() == audio::AudioEffect::Type::Eq) {
         auto *editBtn = new QPushButton(tr("Edit…"), hdr);
-        editBtn->setFixedHeight(22);
+        editBtn->setObjectName(QStringLiteral("fxEditBtn"));
+        editBtn->setCursor(Qt::PointingHandCursor);
         connect(editBtn, &QPushButton::clicked, this, [this, fx]{
             auto *dlg = new ParametricEqDialog(static_cast<audio::EqEffect*>(fx), this->window());
             dlg->show();
@@ -94,8 +172,15 @@ QWidget *EffectsRackWidget::buildEffectRow(audio::AudioEffect *fx, int index) {
     }
 
     auto *removeBtn = new QToolButton(hdr);
-    removeBtn->setText(QStringLiteral("✕"));
-    removeBtn->setFixedSize(20, 20);
+    removeBtn->setObjectName(QStringLiteral("fxCloseBtn"));
+    // QStyle::SP_TitleBarCloseButton renders consistently across
+    // platforms — the raw "✕" glyph the old code used didn't exist
+    // in some default Windows fonts and fell back to a placeholder
+    // box.
+    removeBtn->setIcon(qApp->style()->standardIcon(
+        QStyle::SP_TitleBarCloseButton));
+    removeBtn->setToolTip(tr("Remove effect"));
+    removeBtn->setCursor(Qt::PointingHandCursor);
     connect(removeBtn, &QToolButton::clicked, this, [this, index]{
         if (m_track) { m_track->removeEffect(index); }
     });
