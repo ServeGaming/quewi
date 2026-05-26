@@ -2690,10 +2690,52 @@ void MainWindow::registerOscRemoteHandlers()
                 }
             }
         }
-        const QString json = QString::fromUtf8(
+        const QString fullJson = QString::fromUtf8(
             QJsonDocument(arr).toJson(QJsonDocument::Compact));
-        replyToSender(QStringLiteral("/quewi/reply/cues"),
-            { osc::Argument::s(json) });
+
+        // UDP datagrams have a practical ~64 KB ceiling — and most
+        // network stacks reject single packets above ~9 KB even
+        // though IP fragmentation theoretically allows more. A
+        // show with a few hundred cues easily blows past that as
+        // a single JSON blob, and the QUdpSocket return value
+        // surfaces as 'OSC datagram was too large to send' in the
+        // engine's error signal.
+        //
+        // Small replies still ship as one /quewi/reply/cues (s)
+        // message (existing on-the-wire behaviour, all remotes
+        // already speak it). Large replies are split into
+        // /quewi/reply/cues/chunk (i i s) — chunk index, total
+        // chunks, partial JSON. Remotes concatenate chunks in
+        // order (0..total-1) and parse the assembled string.
+        //
+        // Slicing happens at the QString level (UTF-16 code units),
+        // not raw UTF-8 bytes, so we can't cut a multi-byte UTF-8
+        // sequence in half — the OSC codec re-encodes each slice
+        // to valid UTF-8 before it goes on the wire.
+        //
+        // Safe-payload sizing: 16 K code units per chunk gives
+        // ~16-48 KB UTF-8 bytes after encoding (worst case for
+        // BMP text). Leaves headroom under typical 64 KB UDP
+        // ceilings even after OSC envelope overhead.
+        constexpr int kSingleMessageMax = 16 * 1024;
+        constexpr int kChunkPayloadSize = 16 * 1024;
+
+        if (fullJson.size() <= kSingleMessageMax) {
+            replyToSender(QStringLiteral("/quewi/reply/cues"),
+                { osc::Argument::s(fullJson) });
+        } else {
+            const int total = (fullJson.size() + kChunkPayloadSize - 1)
+                              / kChunkPayloadSize;
+            for (int i = 0; i < total; ++i) {
+                const QString slice = fullJson.mid(
+                    i * kChunkPayloadSize, kChunkPayloadSize);
+                replyToSender(
+                    QStringLiteral("/quewi/reply/cues/chunk"),
+                    { osc::Argument::i(i),
+                      osc::Argument::i(total),
+                      osc::Argument::s(slice) });
+            }
+        }
     });
 
     sub("/quewi/query/cue",

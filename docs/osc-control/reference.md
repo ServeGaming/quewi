@@ -115,7 +115,7 @@ Cue numbers accept any numeric type (`i / f / h / d`). Use whatever your client 
 | `/quewi/query/version` | `/quewi/reply/version` | `s` version string |
 | `/quewi/query/showName` | `/quewi/reply/showName` | `s` workspace name |
 | `/quewi/query/cueLists` | `/quewi/reply/cueLists` | repeating `s s` — list id, list name |
-| `/quewi/query/cues` | `/quewi/reply/cues` | `s` JSON array of every cue in the active list |
+| `/quewi/query/cues` | `/quewi/reply/cues` **or** `/quewi/reply/cues/chunk` (see below) | When the full JSON fits in a single safe-sized UDP datagram (~16 KB or smaller), `/quewi/reply/cues s` ships it intact — the existing shape every remote already speaks. When the payload is bigger, quewi splits it across multiple `/quewi/reply/cues/chunk i i s` messages (chunk index, total chunks, partial JSON). Remotes concatenate chunks in `index` order and parse the assembled string. **Backward-compatible**: small workspaces still see the original single-message reply. |
 | `/quewi/query/cue <num>` | `/quewi/reply/cue` | `s` JSON of one cue. No reply if not found. |
 | `/quewi/query/playingCues` | `/quewi/reply/playingCues` | `s` JSON array of currently-playing cues: `[{id, type, number, state}, …]`. Use this to rebuild a "now playing" view after a reconnect, or to drive a Fade All button against ground truth (instead of accumulating from notify events that could have been lost). `state` matches `/quewi/notify/cue/playback`. |
 | `/quewi/query/workspace` | `/quewi/reply/workspace` | `s` JSON `{name, path, dirty, lastSavedTs}`. `dirty` is `true` when there are unsaved edits. `lastSavedTs` is Unix epoch seconds (0 if untitled). Use this to render "modified" badges and show the absolute file path. |
