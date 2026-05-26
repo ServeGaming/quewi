@@ -119,6 +119,37 @@ jobs:
       - name: Install Ninja
         run: brew install ninja
 
+      # Strip SQL drivers we don't ship so macdeployqt doesn't try to
+      # bundle them. Qt's mac builds include sqldrivers for Mimer,
+      # iODBC, ODBC, MySQL, and PostgreSQL — most of which depend on
+      # third-party runtime dylibs (libmimerapi, libiodbc, libpq) that
+      # aren't installed on the GitHub macos-14 runner. Without this
+      # step macdeployqt aborts with:
+      #   ERROR: no file at "/usr/local/lib/libmimerapi.dylib"
+      #   ERROR: no file at "/Applications/Postgres.app/.../libpq.5.dylib"
+      # which leaves the staging dir half-populated and hdiutil then
+      # fails with "Resource busy". Quewi only uses SQLite (see
+      # ShowFile.cpp's QSQLITE driver), so everything else is dead
+      # weight even when their runtimes happen to be present.
+      - name: Prune unused Qt SQL drivers
+        run: |
+          set -e
+          QT_ROOT="${QT_ROOT_DIR:-${Qt6_DIR:-${QT_DIR:-}}}"
+          if [ -z "$QT_ROOT" ]; then
+            QMAKE="$(find /Users/runner/work -type f -name qmake \
+                       -path '*/Qt/*/bin/qmake' 2>/dev/null | head -n 1)"
+            QT_ROOT="$(dirname "$(dirname "$QMAKE")")"
+          fi
+          PLUGINS="$QT_ROOT/plugins/sqldrivers"
+          echo "Pruning SQL drivers from: $PLUGINS"
+          ls "$PLUGINS" || true
+          for drv in libqsqlmimer.dylib libqsqlodbc.dylib libqsqlpsql.dylib \
+                     libqsqlmysql.dylib libqsqlibase.dylib libqsqloci.dylib; do
+            rm -f "$PLUGINS/$drv"
+          done
+          echo "After prune:"
+          ls "$PLUGINS"
+
       # Generate the .icns app icon from the 1024px source PNG so the
       # bundle has a real native icon instead of Qt's generic one.
       # sips + iconutil are Apple-bundled, no extra install.
