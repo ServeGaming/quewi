@@ -193,7 +193,13 @@ QComboBox {
     padding: 6px 10px;
     selection-background-color: @accent;
     selection-color: @bgDeep;
-    min-height: 22px;
+    /* Standardized at 26px so QLineEdit / QSpinBox / QDoubleSpinBox /
+       QPlainTextEdit / QComboBox all line up cleanly on a form row
+       next to QPushButton (which is also 26 below). The previous mix
+       of 22 / 24 / 26 was producing one-pixel-high baseline jitter
+       across rows that read as "this form was put together
+       sloppily." */
+    min-height: 26px;
     /* combobox-popup: 0 switches Qt off its native popup and onto the
        Qt-drawn one, which honours maxVisibleItems and grows to fit
        all items up to the screen edge. Without this Qt wraps long
@@ -275,7 +281,8 @@ QPushButton {
     border: 1px solid @outline;
     border-radius: 6px;
     padding: 7px 16px;
-    min-height: 24px;
+    /* Match form controls at 26 — see the QLineEdit block above. */
+    min-height: 26px;
     font-weight: 500;
 }
 QPushButton:hover {

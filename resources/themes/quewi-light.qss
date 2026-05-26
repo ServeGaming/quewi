@@ -90,7 +90,9 @@ QLineEdit, QSpinBox, QDoubleSpinBox, QPlainTextEdit, QComboBox {
     padding: 5px 8px;
     selection-background-color: #2563EB;
     selection-color: #FFFFFF;
-    min-height: 22px;
+    /* Standardized at 26px so all form controls line up cleanly
+       next to QPushButton (which is also 26 below). */
+    min-height: 26px;
 }
 QLineEdit:focus, QSpinBox:focus, QDoubleSpinBox:focus,
 QPlainTextEdit:focus, QComboBox:focus {
@@ -133,7 +135,8 @@ QPushButton {
     border: 1px solid #C7CAD2;
     border-radius: 4px;
     padding: 6px 14px;
-    min-height: 24px;
+    /* Match form controls at 26 — see the form control block above. */
+    min-height: 26px;
     font-weight: 600;
 }
 QPushButton:hover { background: #F0F2F6; border-color: #9CA3AF; }
