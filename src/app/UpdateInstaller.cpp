@@ -206,11 +206,16 @@ void UpdateInstaller::onReplyFinished()
             bool ok = true;
             QString why;
 #if defined(Q_OS_WIN)
-            static const QByteArray kMagic =
+            // .msi = OLE2 compound document (D0 CF 11 E0 A1 B1 1A E1)
+            // .zip = "PK\x03\x04" (portable artifact path)
+            static const QByteArray kMsiMagic =
                 QByteArray::fromHex("d0cf11e0a1b11ae1");
-            if (head != kMagic) {
+            static const QByteArray kZipMagic =
+                QByteArray::fromHex("504b0304");
+            if (head != kMsiMagic
+                && !head.startsWith(kZipMagic)) {
                 ok = false;
-                why = tr("Downloaded file isn't a valid MSI "
+                why = tr("Downloaded file isn't a valid MSI or ZIP "
                          "(magic header mismatch).");
             }
 #elif defined(Q_OS_LINUX)
@@ -257,6 +262,99 @@ bool UpdateInstaller::launchInstaller(const QString &msiPath)
     bool started = false;
 
 #if defined(Q_OS_WIN)
+    // In-place update path: when quewi is running from a portable
+    // install (i.e. the install dir is user-writable — NOT a system
+    // Program Files install), we can swap quewi.exe + all its Qt
+    // DLLs in place without going through msiexec. The user gets
+    // the same one-click silent-update flow that Linux + macOS have.
+    //
+    // Trigger conditions:
+    //   1. The download is a .zip (portable artifact), not a .msi.
+    //   2. The current applicationDirPath() is writable by the
+    //      running user.
+    //
+    // When both hold, write a tiny batch helper that waits for our
+    // process to exit, robocopies the new files over the running
+    // install, deletes the staging dir, and starts quewi.exe again.
+    // The batch self-deletes at the end.
+    if (msiPath.endsWith(QStringLiteral(".zip"), Qt::CaseInsensitive)) {
+        const QString installDir = QCoreApplication::applicationDirPath();
+        const QString writeProbe = installDir + QStringLiteral("/.quewi-write-probe");
+        bool writable = false;
+        if (QFile probe(writeProbe); probe.open(QIODevice::WriteOnly)) {
+            probe.close();
+            QFile::remove(writeProbe);
+            writable = true;
+        }
+
+        if (writable) {
+            // Stage extracted files under %TEMP%\quewi-update-<pid>\ so
+            // the helper can robocopy /MOVE them into the install dir.
+            const QString stageRoot = QDir::tempPath()
+                + QStringLiteral("/quewi-update-")
+                + QString::number(QCoreApplication::applicationPid());
+            QDir().mkpath(stageRoot);
+
+            // Use PowerShell's Expand-Archive in-process before quit
+            // (we want the unzip done by the time the helper runs;
+            // batch unzip on Win10/11 needs PowerShell anyway).
+            QProcess unzip;
+            unzip.setProgram(QStringLiteral("powershell.exe"));
+            unzip.setArguments({
+                QStringLiteral("-NoProfile"), QStringLiteral("-NonInteractive"),
+                QStringLiteral("-Command"),
+                QStringLiteral(
+                    "Expand-Archive -LiteralPath '%1' -DestinationPath '%2' -Force")
+                    .arg(QDir::toNativeSeparators(msiPath),
+                         QDir::toNativeSeparators(stageRoot)) });
+            unzip.start();
+            unzip.waitForFinished(60'000);
+            const QString stagedQuewi = stageRoot + QStringLiteral("/quewi");
+            if (unzip.exitCode() == 0 && QFileInfo(stagedQuewi).isDir()) {
+                // Helper batch: wait for our PID to exit, robocopy
+                // /MIR mirror staging→install, start the new quewi,
+                // clean up.
+                const QString helperPath = stageRoot + QStringLiteral("/swap.bat");
+                QFile h(helperPath);
+                if (h.open(QIODevice::WriteOnly | QIODevice::Truncate)) {
+                    QTextStream ts(&h);
+                    ts << "@echo off\r\n"
+                       << "set PID=" << QCoreApplication::applicationPid() << "\r\n"
+                       << ":wait\r\n"
+                       << "tasklist /FI \"PID eq %PID%\" 2>nul | find \"%PID%\" >nul\r\n"
+                       << "if not errorlevel 1 (\r\n"
+                       << "  ping -n 1 127.0.0.1 >nul\r\n"
+                       << "  goto wait\r\n"
+                       << ")\r\n"
+                       << "robocopy \"" << QDir::toNativeSeparators(stagedQuewi)
+                       <<   "\" \"" << QDir::toNativeSeparators(installDir)
+                       <<   "\" /E /IS /R:2 /W:1 /NFL /NDL /NJH /NJS >nul\r\n"
+                       << "start \"\" \"" << QDir::toNativeSeparators(
+                              installDir + QStringLiteral("/quewi.exe")) << "\"\r\n"
+                       << "rmdir /S /Q \"" << QDir::toNativeSeparators(stageRoot)
+                       <<   "\" 2>nul\r\n"
+                       << "del \"" << QDir::toNativeSeparators(msiPath) << "\" 2>nul\r\n";
+                    h.close();
+
+                    // Spawn helper detached via cmd.exe /c so the
+                    // batch lives past our exit.
+                    if (QProcess::startDetached(QStringLiteral("cmd.exe"),
+                            { QStringLiteral("/c"),
+                              QStringLiteral("start"),
+                              QStringLiteral("\"quewi-update\""),
+                              QStringLiteral("/min"),
+                              QDir::toNativeSeparators(helperPath) })) {
+                        started = true;
+                    }
+                }
+            }
+        }
+    }
+
+    // Fallback: not a portable zip OR install dir isn't writable
+    // (MSI install in Program Files without elevation). Use the
+    // existing ShellExecuteEx flow that runs the installer.
+    if (!started) {
     // ShellExecuteW returning >32 only means Windows found a handler —
     // it does NOT mean the handler actually ran. SmartScreen, Defender,
     // group policy, or a stale msiexec service can kill the new
@@ -320,6 +418,7 @@ bool UpdateInstaller::launchInstaller(const QString &msiPath)
             { QStringLiteral("/select,") + native });
         return false;
     }
+    }  // close in-place-zip fallback branch
 #elif defined(Q_OS_MACOS)
     // In-place update path: when quewi is running from inside a
     // proper .app bundle, we can mount the downloaded .dmg, extract

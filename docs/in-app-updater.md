@@ -5,14 +5,14 @@ relaunch" loop with a one-click "Update now → app restarts on the new
 version" experience. No installer dialogs, no admin prompts (when
 possible), no manual file management.
 
-Status as of v0.9.46:
+Status as of v0.9.47:
 
 | Platform | In-place update | Status |
 |---|---|---|
 | Linux (AppImage) | yes | **shipping** |
 | macOS (.app drag-install) | yes — DMG mounted programmatically, .app rsync'd over running bundle | **shipping** |
-| Windows (portable mode) | yes — needs CI to produce a portable ZIP | planned |
-| Windows (MSI install) | no — falls back to running the new MSI | shipping |
+| Windows (portable ZIP) | yes — ZIP extracted, batch helper swaps files in place | **shipping** |
+| Windows (MSI install in Program Files) | no — install dir isn't writable; falls back to running the new MSI | shipping |
 
 ---
 
@@ -99,45 +99,68 @@ Once we have a real Apple Developer ID + notarization, the
 
 ---
 
-## Windows plan (not yet implemented)
+## How the Windows path works
 
-Windows is the hardest because you can't `mv` a running `.exe`. Two
-paths depending on install mode:
+Windows is the hardest because you can't `mv` a running `.exe`. The
+solution is two artifacts + an install-mode branch.
 
-### Portable install (zip extracted to a user-writable folder)
+### CI ships both an MSI and a portable ZIP
 
-1. Add a portable-zip artifact to CI: `quewi-X.Y.Z-win64-portable.zip`
-   containing `quewi.exe` + all Qt DLLs + every windeployqt'd
-   dependency. Same files the MSI installs, just zipped.
-2. In-app updater detects portable mode by checking if the install
-   dir is writable AND there's no entry in HKLM's Uninstall registry
-   for quewi.
-3. Download the new portable zip, extract to a temp dir.
-4. Write a tiny `quewi-updater.bat` next to quewi.exe:
+- `quewi-X.Y.Z-win64.msi` — for system-wide install in Program
+  Files. Same as it's always been.
+- `quewi-X.Y.Z-win64-portable.zip` — same set of files (quewi.exe
+  + every windeployqt'd DLL) packaged as a flat ZIP. Drop the
+  folder anywhere writable (`%USERPROFILE%\Apps`, Desktop, USB
+  stick) and run `quewi.exe`.
+
+### `UpdateChecker` picks the right artifact
+
+Probes the running install dir for write access. If writable, it
+prefers the `.zip` asset; if not (typical MSI install), it falls
+back to `.msi`.
+
+### `UpdateInstaller` swaps in place for the ZIP path
+
+1. Download the ZIP via the existing flow.
+2. Extract to `%TEMP%\quewi-update-<pid>\quewi\` using PowerShell's
+   `Expand-Archive`.
+3. Write a tiny `swap.bat` next to the staged folder:
 
    ```batch
    @echo off
-   ping -n 3 127.0.0.1 > nul        :: ~2-second delay
-   robocopy /e /move "%TEMP_DIR%" "%INSTALL_DIR%"
-   start "" "%INSTALL_DIR%\quewi.exe"
-   del "%~f0"                       :: helper self-destructs
+   :wait
+   tasklist /FI "PID eq %PID%" 2>nul | find "%PID%" >nul
+   if not errorlevel 1 (
+     ping -n 1 127.0.0.1 >nul
+     goto wait
+   )
+   robocopy "%STAGE%" "%INSTALL%" /E /IS /R:2 /W:1 /NFL /NDL /NJH /NJS >nul
+   start "" "%INSTALL%\quewi.exe"
+   rmdir /S /Q "%STAGE%" 2>nul
+   del "%DOWNLOAD%" 2>nul
    ```
 
-5. Spawn `quewi-updater.bat` detached. Quit.
+4. Spawn `cmd.exe /c start "quewi-update" /min swap.bat`
+   detached. Quit.
 
-### MSI install (current default — Program Files write requires admin)
+The batch polls for our PID to disappear, robocopies the new tree
+over the install dir (`/IS` overrides identical-timestamp skips,
+`/E` recurses subdirs — Qt's `plugins/` etc.), starts the new
+`quewi.exe`, and cleans up after itself.
 
-Stays as-is. The MSI bumps versions in-place; Windows Installer's
-own Restart Manager closes quewi mid-install. No in-app shortcut
-is possible without elevation.
+### Fallback (MSI install in Program Files)
 
-**Work needed:**
-- Add portable-zip artifact to `.github/workflows/release.yml`.
-- Install-mode detection in `UpdateInstaller`.
-- Helper batch generation and launch.
-- The helper batch itself should be code-signed when we have a
-  Windows code-signing cert (separate from Apple Developer ID).
-  Until then SmartScreen will warn the first time the helper runs.
+If the install dir isn't writable, both the asset picker AND the
+swap path skip. The updater downloads the MSI and runs it the way
+it always has — Windows Installer's Restart Manager closes quewi
+mid-install, lays down the new files, and the user relaunches.
+
+### Code signing
+
+The batch helper itself doesn't need to be code-signed — SmartScreen
+flags binaries, not scripts running through `cmd.exe`. The downloaded
+`quewi.exe` inside the ZIP would benefit from an EV cert eventually,
+but that's a separate purchase from the Apple Developer ID.
 
 ---
 

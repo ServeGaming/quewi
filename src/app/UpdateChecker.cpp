@@ -1,6 +1,8 @@
 #include "UpdateChecker.h"
 
 #include <QCoreApplication>
+#include <QFile>
+#include <QIODevice>
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
@@ -115,31 +117,60 @@ void UpdateChecker::onReplyFinished()
     }
 
     // Find the platform-appropriate installer asset:
-    //   Windows → .msi, macOS → .dmg, Linux → .AppImage.
-    // Fall back to the release page if the matching asset hasn't
-    // been attached yet (CI may still be building when a manual
-    // check fires immediately after a tag push).
+    //   Windows → .zip (portable) if our install dir is writable,
+    //             else .msi (installed flow)
+    //   macOS   → .dmg
+    //   Linux   → .AppImage
+    // The portable-zip preference on Windows means an install that
+    // can self-update (user-writable folder, not Program Files)
+    // picks up the artifact UpdateInstaller can swap in place. MSI
+    // installs to Program Files fall through to .msi and re-run the
+    // installer the old way.
+    QString preferredExt;
+    QString fallbackExt;
 #if defined(Q_OS_WIN)
-    static const QString kInstallerExt = QStringLiteral(".msi");
+    // Probe install dir for write access — same check
+    // UpdateInstaller does at swap time, replicated here so we
+    // download the right artifact in the first place.
+    {
+        const QString installDir = QCoreApplication::applicationDirPath();
+        const QString writeProbe = installDir + QStringLiteral("/.quewi-write-probe");
+        bool writable = false;
+        QFile probe(writeProbe);
+        if (probe.open(QIODevice::WriteOnly)) {
+            probe.close();
+            QFile::remove(writeProbe);
+            writable = true;
+        }
+        if (writable) {
+            preferredExt = QStringLiteral(".zip");
+            fallbackExt  = QStringLiteral(".msi");
+        } else {
+            preferredExt = QStringLiteral(".msi");
+        }
+    }
 #elif defined(Q_OS_MACOS)
-    static const QString kInstallerExt = QStringLiteral(".dmg");
+    preferredExt = QStringLiteral(".dmg");
 #elif defined(Q_OS_LINUX)
-    static const QString kInstallerExt = QStringLiteral(".AppImage");
-#else
-    static const QString kInstallerExt;   // empty → falls through to page URL
+    preferredExt = QStringLiteral(".AppImage");
 #endif
 
     QString msiUrl;
     const auto assets = obj.value(QStringLiteral("assets")).toArray();
-    for (const auto &v : assets) {
-        const auto a = v.toObject();
-        const auto name = a.value(QStringLiteral("name")).toString();
-        if (!kInstallerExt.isEmpty()
-            && name.endsWith(kInstallerExt, Qt::CaseInsensitive)) {
-            msiUrl = a.value(QStringLiteral("browser_download_url")).toString();
-            break;
+    // Two-pass: preferred extension first, then fallback if no match.
+    auto findAsset = [&assets](const QString &ext) -> QString {
+        if (ext.isEmpty()) return QString();
+        for (const auto &v : assets) {
+            const auto a = v.toObject();
+            const auto name = a.value(QStringLiteral("name")).toString();
+            if (name.endsWith(ext, Qt::CaseInsensitive)) {
+                return a.value(QStringLiteral("browser_download_url")).toString();
+            }
         }
-    }
+        return QString();
+    };
+    msiUrl = findAsset(preferredExt);
+    if (msiUrl.isEmpty()) msiUrl = findAsset(fallbackExt);
     const auto pageUrl = obj.value(QStringLiteral("html_url")).toString();
     // DELIBERATELY leave msiUrl empty when no platform asset matched.
     // The earlier code fell back to pageUrl here, which led to the

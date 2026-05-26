@@ -80,22 +80,55 @@ jobs:
         working-directory: build/windows-release
         run: cpack -G WIX --config CPackConfig.cmake
 
+      # Portable ZIP — same staged install tree the MSI wraps, just
+      # zipped. Users who want one-click in-app updates extract this
+      # to a writable folder and run quewi.exe directly. The in-app
+      # updater detects the writable install dir and swaps files in
+      # place on update (see docs/in-app-updater.md).
+      - name: Package portable ZIP
+        shell: pwsh
+        working-directory: build/windows-release
+        run: |
+          # Get the project version from the build's CPackConfig so the
+          # ZIP name matches the MSI naming convention.
+          $cfg = Get-Content CPackConfig.cmake -Raw
+          if ($cfg -match 'CPACK_PACKAGE_VERSION\s+"([^"]+)"') {
+            $ver = $matches[1]
+          } else {
+            $ver = "unknown"
+          }
+          $zipName = "quewi-$ver-win64-portable.zip"
+          # _install/bin holds quewi.exe + all the Qt/FFmpeg DLLs
+          # windeployqt copied in. ZIP the whole bin folder so users
+          # extracting it get a single self-contained directory.
+          $stageDir = Join-Path (Get-Location) "_portable_stage"
+          if (Test-Path $stageDir) { Remove-Item -Recurse -Force $stageDir }
+          New-Item -ItemType Directory -Path "$stageDir/quewi" | Out-Null
+          Copy-Item -Recurse "_install/bin/*" "$stageDir/quewi/"
+          Compress-Archive -Path "$stageDir/quewi" -DestinationPath $zipName -Force
+          Remove-Item -Recurse -Force $stageDir
+          Get-ChildItem $zipName
+
       - name: Show artifacts
         shell: pwsh
-        run: Get-ChildItem build/windows-release -Filter *.msi
+        run: Get-ChildItem build/windows-release -Include *.msi,*.zip -Recurse
 
-      - name: Upload MSI artifact
+      - name: Upload Windows artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: quewi-windows-msi
-          path: build/windows-release/*.msi
+          name: quewi-windows
+          path: |
+            build/windows-release/*.msi
+            build/windows-release/*.zip
           if-no-files-found: error
 
       - name: Attach to GitHub Release
         if: startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v2
         with:
-          files: build/windows-release/*.msi
+          files: |
+            build/windows-release/*.msi
+            build/windows-release/*.zip
           generate_release_notes: true
           draft: false
           prerelease: ${{ contains(github.ref, '-rc') || contains(github.ref, '-alpha') || contains(github.ref, '-beta') }}
