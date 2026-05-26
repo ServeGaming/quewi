@@ -129,7 +129,12 @@ jobs:
           files: |
             build/windows-release/*.msi
             build/windows-release/*.zip
-          generate_release_notes: true
+          # generate_release_notes: dropped — v2 of action-gh-release
+          # hits "Resource not accessible by integration" on the
+          # /releases/generate-notes endpoint with the default
+          # GITHUB_TOKEN, even with contents:write granted. Falling
+          # back to "commit history is the release notes" until we
+          # set up a PAT for this specific call.
           draft: false
           prerelease: ${{ contains(github.ref, '-rc') || contains(github.ref, '-alpha') || contains(github.ref, '-beta') }}
 
@@ -434,7 +439,12 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           files: build/macos-release/*.dmg
-          generate_release_notes: true
+          # generate_release_notes: dropped — v2 of action-gh-release
+          # hits "Resource not accessible by integration" on the
+          # /releases/generate-notes endpoint with the default
+          # GITHUB_TOKEN, even with contents:write granted. Falling
+          # back to "commit history is the release notes" until we
+          # set up a PAT for this specific call.
           draft: false
           prerelease: ${{ contains(github.ref, '-rc') || contains(github.ref, '-alpha') || contains(github.ref, '-beta') }}
 
@@ -554,6 +564,11 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           files: "*.AppImage"
-          generate_release_notes: true
+          # generate_release_notes: dropped — v2 of action-gh-release
+          # hits "Resource not accessible by integration" on the
+          # /releases/generate-notes endpoint with the default
+          # GITHUB_TOKEN, even with contents:write granted. Falling
+          # back to "commit history is the release notes" until we
+          # set up a PAT for this specific call.
           draft: false
           prerelease: ${{ contains(github.ref, '-rc') || contains(github.ref, '-alpha') || contains(github.ref, '-beta') }}
