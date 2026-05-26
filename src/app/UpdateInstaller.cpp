@@ -368,6 +368,17 @@ bool UpdateInstaller::launchInstaller(const QString &msiPath)
     // (b) it exited — silently blocked, abort the auto-quit so the
     // user gets the fallback dialog with an Open Folder button.
     {
+        // ShellExecuteExW launches the MSI via the registered file
+        // association. When elevation is required (normal for an
+        // MSI install to Program Files), Windows shows a UAC prompt
+        // and — IF the user accepts — spawns an elevated msiexec
+        // child. The original msiexec process we got the handle for
+        // exits within milliseconds in that case. Older code
+        // interpreted that as "SmartScreen killed it" and bailed;
+        // turned out the more common cause was just msiexec doing
+        // its normal elevation handoff. Now we trust ShellExecuteExW
+        // success and let the UAC dialog be the visible signal to
+        // the user.
         std::wstring wpath = native.toStdWString();
         SHELLEXECUTEINFOW sei{};
         sei.cbSize = sizeof(sei);
@@ -375,43 +386,31 @@ bool UpdateInstaller::launchInstaller(const QString &msiPath)
         sei.lpFile = wpath.c_str();
         sei.nShow  = SW_SHOWNORMAL;
         const BOOL ok = ShellExecuteExW(&sei);
-        if (ok && sei.hProcess) {
-            const DWORD wait = WaitForSingleObject(sei.hProcess, 3000);
-            DWORD exitCode = 0;
-            GetExitCodeProcess(sei.hProcess, &exitCode);
-            CloseHandle(sei.hProcess);
-            // WAIT_TIMEOUT = still running after 3 s → genuinely up.
-            // STILL_ACTIVE (259) on exit-code read = same.
-            // Anything else = it died on us.
-            if (wait == WAIT_TIMEOUT || exitCode == STILL_ACTIVE) {
-                started = true;
-            } else {
-                qWarning("UpdateInstaller: installer process exited "
-                         "within 3 s of launch (exit code %lu). "
-                         "SmartScreen / Defender / policy likely "
-                         "blocked it.", exitCode);
-                started = false;
-            }
+        if (ok) {
+            if (sei.hProcess) CloseHandle(sei.hProcess);
+            started = true;
         } else {
+            const DWORD err = GetLastError();
             qWarning("UpdateInstaller: ShellExecuteExW failed, "
-                     "hInstApp=%p", sei.hInstApp);
+                     "hInstApp=%p GetLastError=%lu",
+                     sei.hInstApp, err);
         }
     }
     if (!started) {
-        // Fallback: invoke msiexec directly. Same end result if the
-        // handler resolution was the problem; no help if the issue
-        // is SmartScreen blocking unsigned MSIs — but cheap to try.
+        // Fallback: invoke msiexec directly. msiexec.exe itself is
+        // asInvoker; when it tries to write to Program Files it
+        // re-prompts UAC. Reaches the same end state without going
+        // through the .msi file-association handler.
         const QString sysroot = qEnvironmentVariable("SystemRoot",
                                     QStringLiteral("C:/Windows"));
         const QString msiexec = QDir::toNativeSeparators(
             sysroot + QStringLiteral("/System32/msiexec.exe"));
-        // QProcess::startDetached returns true on spawn — we can't
-        // wait-for-exit cheaply here. Accept the optimistic answer;
-        // if msiexec also dies invisibly the user sees the same
-        // failure dialog moments later (quewi stays open since
-        // we only quit further down on confirmed alive process).
         started = QProcess::startDetached(msiexec,
             { QStringLiteral("/i"), native });
+        if (!started) {
+            qWarning("UpdateInstaller: msiexec /i fallback failed "
+                     "(tried %ls)", qUtf16Printable(msiexec));
+        }
     }
     if (!started) {
         QProcess::startDetached(QStringLiteral("explorer.exe"),

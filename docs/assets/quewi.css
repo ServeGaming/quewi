@@ -1,8 +1,10 @@
 /* quewi documentation — Material theme overrides
  *
- * Amber-on-warm-dark to match the app's actual palette. Material's
- * built-in "amber" preset is too yellow; we override the primary
- * colour with the same #D7A24E the app uses.
+ * Conservative: just override the primary/accent colour to quewi's
+ * amber, keep Material's tested contrast tokens for everything
+ * else. The previous version hard-overrode bg / fg variables in
+ * slate mode, which broke Material's nested color tokens and
+ * left some text in low-contrast grey-on-grey.
  */
 
 :root {
@@ -12,51 +14,37 @@
   --md-accent-fg-color:         #D7A24E;
 }
 
-/* Dark mode (slate scheme) — match the app's warm panel tones. */
-[data-md-color-scheme="slate"] {
-  --md-default-bg-color:        #1F1D1B;
-  --md-default-bg-color--light: #2A2724;
-  --md-default-fg-color:        #E8E2D4;
-  --md-default-fg-color--light: #B5AC9C;
-  --md-default-fg-color--lighter: #8E8780;
-  --md-default-fg-color--lightest: #4A4640;
-  --md-code-bg-color:           #1A1815;
-  --md-code-fg-color:           #E8E2D4;
-}
-
-/* Slightly softer header on the home page so the wordmark dominates. */
-.md-header {
-  background-color: #2A2724;
-}
+/* Primary header reads better against amber when text is the
+ * warm-dark bgDeep token from the app, not pure white. */
 [data-md-color-scheme="default"] .md-header {
-  background-color: #1F1D1B;
+  background-color: #D7A24E;
+  color: #1F1D1B;
+}
+[data-md-color-scheme="default"] .md-tabs {
+  background-color: #BD8A3C;
 }
 
-/* Code blocks: amber line-number gutters look incoherent on dark
- * mode; tone them back to ink60. */
-[data-md-color-scheme="slate"] .md-typeset code {
-  background-color: #1A1815;
-  color: #E8E2D4;
+/* Code blocks: bump contrast slightly for inline code in light
+ * mode — Material's default light-grey-on-grey can be hard to
+ * read against the page. */
+[data-md-color-scheme="default"] .md-typeset code {
+  background-color: #f5f0e6;
+  color: #3A352F;
 }
 
-/* The doc landing page gets a hero strip — let the headline have
- * generous breathing room rather than the default tight stack. */
+/* Headings slightly tighter than default — we have a lot of
+ * tables and the default h2 top margin makes them feel detached
+ * from the section title. */
 .md-typeset h1 {
   font-weight: 600;
   letter-spacing: -0.01em;
 }
 .md-typeset h2 {
   font-weight: 600;
-  margin-top: 2em;
+  margin-top: 1.8em;
 }
 
-/* Make the search input read as part of the warm theme rather than
- * the Material-default chrome blue. */
-.md-search__form {
-  background-color: rgba(255, 255, 255, 0.08);
-}
-
-/* Tighter table spacing — there are a lot of reference tables. */
+/* Tables: slightly tighter padding (lots of reference tables). */
 .md-typeset table:not([class]) th,
 .md-typeset table:not([class]) td {
   padding: 8px 12px;
