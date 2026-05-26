@@ -60,8 +60,11 @@ These let a controller stop one engine without affecting the others. Use `/quewi
 
 | Address | Args | Effect |
 |---|---|---|
-| `/quewi/lighting/blackout` | — | Blackout all DMX universes |
-| `/quewi/video/stop` | — | Stop all video surfaces (audio keeps going) |
+| `/quewi/lighting/blackout` | — | Blackout all DMX universes (instant) |
+| `/quewi/lighting/fadeOut` | optional `f` seconds (default 2.0) | Soft blackout — fades every active channel on every active universe down to 0 over the duration. |
+| `/quewi/video/stop` | — | Stop all video surfaces instantly (audio keeps going) |
+| `/quewi/video/fadeOut` | optional `f` seconds (default 1.0) | Soft stop — animates every active layer's opacity to 0 over the duration, then stops them. |
+| `/quewi/fadeAll` | optional `f` seconds (default 2.0) | **Headline one-button graceful stop.** Audio, lighting, and video all ramp to silent / black / empty in the same window. |
 
 ### Cue navigation
 
@@ -79,6 +82,7 @@ Cue numbers accept any numeric type (`i / f / h / d`). Use whatever your client 
 |---|---|---|
 | `/quewi/cue/add` | `s` type, optional `f` number, optional `s` name | Append a new cue. Type keys: `audio`, `memo`, `osc`, `fade`, `group`, `wait`, `light`, `light-fade`, `video`, `image`, `text`, `midi`, `msc`, `start`, `stop`, `goto`, `pause`, `load`, `reset`, `devamp` |
 | `/quewi/cue/remove` | `f` cue number | Remove the cue with that number (undoable) |
+| `/quewi/cue/<num>/move` | `i` new row | Move the cue to a new 0-based row in the active cue list. Undoable. Posts `/quewi/notify/cue/moved` and `/quewi/notify/cueList/reordered` after the move. |
 | `/quewi/cue/<num>/set/<field>` | one value (`i/h/f/d/s/T/F`) | Edit a field on the cue with that number. See the full field reference at the bottom. |
 
 ### Cue list / active list
@@ -114,6 +118,8 @@ Cue numbers accept any numeric type (`i / f / h / d`). Use whatever your client 
 | `/quewi/query/cues` | `/quewi/reply/cues` | `s` JSON array of every cue in the active list |
 | `/quewi/query/cue <num>` | `/quewi/reply/cue` | `s` JSON of one cue. No reply if not found. |
 | `/quewi/query/playingCues` | `/quewi/reply/playingCues` | `s` JSON array of currently-playing cues: `[{id, type, number, state}, …]`. Use this to rebuild a "now playing" view after a reconnect, or to drive a Fade All button against ground truth (instead of accumulating from notify events that could have been lost). `state` matches `/quewi/notify/cue/playback`. |
+| `/quewi/query/workspace` | `/quewi/reply/workspace` | `s` JSON `{name, path, dirty, lastSavedTs}`. `dirty` is `true` when there are unsaved edits. `lastSavedTs` is Unix epoch seconds (0 if untitled). Use this to render "modified" badges and show the absolute file path. |
+| `/quewi/query/cueListDetails` | `/quewi/reply/cueListDetails` | `s` JSON `[{id, name, cueCount, isActive}, …]`. Richer alias for `/quewi/query/cueLists` — useful for cue-list picker UIs that need cue counts + which list is currently active without a follow-up round trip. The original `/quewi/query/cueLists` (id/name pairs) stays for backward compat. |
 
 ---
 
@@ -123,7 +129,7 @@ Cue numbers accept any numeric type (`i / f / h / d`). Use whatever your client 
 
 | Send | Effect |
 |---|---|
-| `/quewi/subscribe` | optional `s` pattern (default `/quewi/notify/*`). Registers the sender's host:port. Sending twice is a no-op. |
+| `/quewi/subscribe` | optional `s` pattern (default `/quewi/notify/*`). Registers the sender's host:port. Sending twice is a no-op. **Server replies with `/quewi/reply/subscribe <pattern s> <count i>`** so a remote can confirm the packet landed (useful over flaky Wi-Fi). |
 | `/quewi/unsubscribe` | optional `s` pattern. Empty pattern removes all of this peer's subscriptions. |
 
 Subscriptions live in memory only. If quewi restarts, re-subscribe. (Run a heartbeat loop and reconnect on timeout.)
@@ -139,6 +145,9 @@ Subscriptions live in memory only. If quewi restarts, re-subscribe. (Run a heart
 | `/quewi/notify/cue/changed` | `s s` cue id, JSON | Any field of an existing cue changed. JSON matches `/quewi/query/cue`. |
 | `/quewi/notify/cue/state` | `s s d` cue id, state, number | Cue transport state. `state` is `"fired"` when GoEngine fires a cue, or `"finished"` when the cue's effect completes — `"finished"` is emitted for audio (when the voice ends), light-fade, fade, wait (after their declared duration), and for instant cues (memo / osc / midi / msc / start / stop / goto / pause / load / reset / devamp / light). Video and group `"finished"` aren't pushed yet — the controller can poll `/quewi/query/cue` if it needs that signal. |
 | `/quewi/notify/cue/playback` | `s s d d d` cue id, state, elapsed, remaining, position | **4 Hz heartbeat** while any audio cue is playing. `state` ∈ `"playing"`, `"paused"`, `"fading-out"`. `elapsed` is seconds since fire (after preWait). `remaining` is seconds until natural finish, or `-1.0` if unknown (loops, indefinite). `position` is the playhead in the source file, in seconds. Stops automatically when no audio voices are alive. Designed for transport progress bars on remote controllers — sized so a remote can interpolate between ticks for sub-250-ms updates. |
+| `/quewi/notify/cue/moved` | `s i i` cue id, old row, new row | Pushed after a `/quewi/cue/<num>/move` completes. |
+| `/quewi/notify/cueList/reordered` | `s s` list id, JSON ordered ids | Pushed alongside `/notify/cue/moved` — lets a remote update its cache of row order without re-fetching every cue. |
+| `/quewi/notify/workspace/dirty` | `T` / `F` | Pushed on dirty-state transitions: `T` when the user edits anything, `F` when a save makes it clean. Pairs with the existing `/quewi/notify/workspace/changed` (full reload) for two distinct semantics. |
 
 ---
 

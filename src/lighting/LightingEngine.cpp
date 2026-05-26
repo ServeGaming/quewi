@@ -97,6 +97,28 @@ void LightingEngine::blackout()
     }
 }
 
+void LightingEngine::fadeOutAll(double durationSeconds)
+{
+    if (durationSeconds <= 0.0) { blackout(); return; }
+    // Walk every active universe and, for each non-zero channel,
+    // queue a fade to 0 over the requested duration. Reuses
+    // fadeChannels so superseded-fade semantics match operator
+    // expectations (a fade-out cancels any in-flight fade-in on the
+    // same channel).
+    for (auto it = m_universes.begin(); it != m_universes.end(); ++it) {
+        const quint16 universe = it.key();
+        const auto &frame = it.value().current;
+        QHash<int, int> targets;
+        targets.reserve(64);
+        for (int ch = 0; ch < 512; ++ch) {
+            if (frame[ch] > 0) targets[ch + 1] = 0;   // channels are 1-based
+        }
+        if (!targets.isEmpty()) {
+            fadeChannels(universe, targets, durationSeconds);
+        }
+    }
+}
+
 void LightingEngine::tick()
 {
     constexpr double dt = kTickIntervalMs / 1000.0;

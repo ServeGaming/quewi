@@ -2743,7 +2743,7 @@ void MainWindow::registerOscRemoteHandlers()
     // Subscribe / unsubscribe — peer wants notifications. Subscriber
     // identity = host:port of the source UDP packet. Optional first
     // arg is the address pattern (default "/quewi/notify/*").
-    sub("/quewi/subscribe", [this](const osc::Message &m) {
+    sub("/quewi/subscribe", [this, replyToSender](const osc::Message &m) {
         QString pattern = QStringLiteral("/quewi/notify/*");
         if (!m.args.empty() && m.args.front().tag == osc::Argument::Tag::String) {
             pattern = std::get<QString>(m.args.front().value);
@@ -2764,6 +2764,17 @@ void MainWindow::registerOscRemoteHandlers()
         // new subscriber sees progress immediately instead of waiting
         // for the next cue fire to kick the timer.
         maybeStartPlaybackPush();
+        // Confirmation reply — handles the "did my subscribe packet
+        // make it?" question without forcing the remote to wait for
+        // the first notify event (which might be hours away on a
+        // pre-show cue list). Pattern echoes the value the server
+        // actually registered (with default substituted if blank);
+        // count is the total number of distinct (host, port, pattern)
+        // entries currently in the subscribers list, so a remote can
+        // surface "subscribed (3 active)" status.
+        replyToSender(QStringLiteral("/quewi/reply/subscribe"),
+            { osc::Argument::s(pattern),
+              osc::Argument::i(static_cast<int>(m_oscSubscribers.size())) });
     });
     sub("/quewi/unsubscribe", [this](const osc::Message &m) {
         const QString host = m_oscEngine->lastSenderHost();
@@ -2797,6 +2808,57 @@ void MainWindow::registerOscRemoteHandlers()
         QMetaObject::invokeMethod(this, [this]{
             if (m_videoEngine) m_videoEngine->stopAll();
             statusBar()->showMessage(tr("Video stop via OSC"), 2000);
+        }, Qt::QueuedConnection);
+    });
+
+    // Graceful fade-outs per engine. Takes a duration in seconds
+    // (float / double / int — any numeric tag). Lighting fades all
+    // active DMX channels to 0; video animates layer opacity to 0
+    // then stops; audio uses stopAll(seconds) which respects each
+    // voice's per-voice gain ramp.
+    auto extractSeconds = [](const osc::Message &m, double fallback) -> double {
+        if (m.args.empty()) return fallback;
+        const auto &a = m.args.front();
+        switch (a.tag) {
+        case osc::Argument::Tag::Int32:   return std::get<qint32>(a.value);
+        case osc::Argument::Tag::Float32: return std::get<float>(a.value);
+        case osc::Argument::Tag::Int64:   return static_cast<double>(std::get<qint64>(a.value));
+        case osc::Argument::Tag::Double:  return std::get<double>(a.value);
+        default: return fallback;
+        }
+    };
+
+    sub("/quewi/lighting/fadeOut", [this, extractSeconds](const osc::Message &m) {
+        const double dur = extractSeconds(m, 2.0);
+        QMetaObject::invokeMethod(this, [this, dur]{
+            if (m_lightingEngine) m_lightingEngine->fadeOutAll(dur);
+            statusBar()->showMessage(
+                tr("Lighting fade-out over %1 s via OSC").arg(dur, 0, 'f', 2),
+                2000);
+        }, Qt::QueuedConnection);
+    });
+    sub("/quewi/video/fadeOut", [this, extractSeconds](const osc::Message &m) {
+        const double dur = extractSeconds(m, 1.0);
+        QMetaObject::invokeMethod(this, [this, dur]{
+            if (m_videoEngine) m_videoEngine->fadeOutAll(dur);
+            statusBar()->showMessage(
+                tr("Video fade-out over %1 s via OSC").arg(dur, 0, 'f', 2),
+                2000);
+        }, Qt::QueuedConnection);
+    });
+    // /quewi/fadeAll — soft stop everything in one duration window.
+    // Audio, lighting, and video all ramp to silent / black / empty
+    // over the same number of seconds. The headline 'one button =
+    // graceful stop' control for remotes.
+    sub("/quewi/fadeAll", [this, extractSeconds](const osc::Message &m) {
+        const double dur = extractSeconds(m, 2.0);
+        QMetaObject::invokeMethod(this, [this, dur]{
+            if (m_audioEngine)    m_audioEngine->stopAll(dur);
+            if (m_lightingEngine) m_lightingEngine->fadeOutAll(dur);
+            if (m_videoEngine)    m_videoEngine->fadeOutAll(dur);
+            statusBar()->showMessage(
+                tr("Fade all over %1 s via OSC").arg(dur, 0, 'f', 2),
+                2000);
         }, Qt::QueuedConnection);
     });
 
@@ -2889,6 +2951,113 @@ void MainWindow::registerOscRemoteHandlers()
             m_workspace->undoStack()->push(
                 new core::InsertCueCommand(list, insertRow, std::move(cue)));
         }, Qt::QueuedConnection);
+    });
+
+    // Cue move — `/quewi/cue/<num>/move <new_row i>`. The number-in-
+    // path route mirrors /quewi/cue/<n>/set/<field>: the OSC server's
+    // pattern matcher handles the path-as-wildcard split. new_row is
+    // 0-based and target-frame (after move): a cue at row 5 moved to
+    // new_row=2 ends up at row 2; the existing rows 2..4 shift down.
+    // Posts /quewi/notify/cue/moved and /quewi/notify/cueList/reordered
+    // after the undo command applies, so remote caches stay in sync
+    // without re-querying.
+    sub("/quewi/cue/*/move", [this](const osc::Message &m) {
+        const auto parts = m.address.split(QChar('/'), Qt::SkipEmptyParts);
+        if (parts.size() < 4) return;
+        bool ok = false;
+        const double num = parts.value(2).toDouble(&ok);
+        if (!ok) return;
+        if (m.args.empty()) return;
+        int newRow = -1;
+        const auto &a = m.args.front();
+        switch (a.tag) {
+        case osc::Argument::Tag::Int32:   newRow = std::get<qint32>(a.value); break;
+        case osc::Argument::Tag::Int64:   newRow = static_cast<int>(std::get<qint64>(a.value)); break;
+        case osc::Argument::Tag::Float32: newRow = static_cast<int>(std::get<float>(a.value)); break;
+        case osc::Argument::Tag::Double:  newRow = static_cast<int>(std::get<double>(a.value)); break;
+        default: return;
+        }
+        QMetaObject::invokeMethod(this, [this, num, newRow]{
+            if (!m_workspace) return;
+            auto *list = m_workspace->activeCueList();
+            if (!list) return;
+            for (int r = 0; r < list->cueCount(); ++r) {
+                if (auto *c = list->cueAt(r); c && qFuzzyCompare(c->number(), num)) {
+                    const int clamped = std::clamp(newRow, 0, list->cueCount());
+                    if (clamped == r) return;
+                    const QString cueId = c->id().toString();
+                    m_workspace->undoStack()->push(
+                        new core::MoveCueCommand(list, r, clamped));
+                    pushOscNotify(
+                        QStringLiteral("/quewi/notify/cue/moved"),
+                        { osc::Argument::s(cueId),
+                          osc::Argument::i(r),
+                          osc::Argument::i(clamped) });
+                    // Full ordered id list — lets a remote rebuild its
+                    // cache without re-fetching every cue.
+                    QJsonArray order;
+                    for (int i = 0; i < list->cueCount(); ++i) {
+                        if (auto *c2 = list->cueAt(i))
+                            order.append(c2->id().toString());
+                    }
+                    pushOscNotify(
+                        QStringLiteral("/quewi/notify/cueList/reordered"),
+                        { osc::Argument::s(list->id().toString()),
+                          osc::Argument::s(QString::fromUtf8(
+                              QJsonDocument(order).toJson(
+                                  QJsonDocument::Compact))) });
+                    return;
+                }
+            }
+        }, Qt::QueuedConnection);
+    });
+
+    // Workspace state — combined query used by remotes to show
+    // 'unsaved changes' badges and the current show name.
+    sub("/quewi/query/workspace",
+        [this, replyToSender](const osc::Message &) {
+        QJsonObject o;
+        if (m_workspace) {
+            o.insert(QStringLiteral("name"), m_workspace->name());
+            o.insert(QStringLiteral("path"), m_currentPath);
+            o.insert(QStringLiteral("dirty"), m_workspace->isDirty());
+            // lastSavedTs: filesystem mtime of the current path,
+            // 0 if untitled or save-never. Cheap enough at query
+            // time that we don't need a cached value.
+            qint64 lastSavedTs = 0;
+            if (!m_currentPath.isEmpty()) {
+                const QFileInfo fi(m_currentPath);
+                if (fi.exists()) {
+                    lastSavedTs = fi.lastModified().toSecsSinceEpoch();
+                }
+            }
+            o.insert(QStringLiteral("lastSavedTs"), double(lastSavedTs));
+        }
+        replyToSender(QStringLiteral("/quewi/reply/workspace"),
+            { osc::Argument::s(QString::fromUtf8(
+                QJsonDocument(o).toJson(QJsonDocument::Compact))) });
+    });
+
+    // Richer cue-list reply — JSON array with cue counts and active
+    // flag. Pairs with the legacy `/quewi/reply/cueLists s s s s ...`
+    // form; remotes pick whichever shape they need.
+    sub("/quewi/query/cueListDetails",
+        [this, replyToSender](const osc::Message &) {
+        QJsonArray arr;
+        if (m_workspace) {
+            const auto *active = m_workspace->activeCueList();
+            for (const auto &up : m_workspace->cueLists()) {
+                QJsonObject o;
+                o.insert(QStringLiteral("id"), up->id().toString());
+                o.insert(QStringLiteral("name"), up->name());
+                o.insert(QStringLiteral("cueCount"), up->cueCount());
+                o.insert(QStringLiteral("isActive"), up.get() == active);
+                arr.append(o);
+            }
+        }
+        replyToSender(QStringLiteral("/quewi/reply/cueListDetails"),
+            { osc::Argument::s(QString::fromUtf8(
+                QJsonDocument(arr).toJson(QJsonDocument::Compact))) });
     });
 
     // Cue remove by number. The recipient is the active cue list.
@@ -3132,6 +3301,18 @@ void MainWindow::wireOscNotifications()
                     { osc::Argument::s(l->id().toString()),
                       osc::Argument::s(l->name()) });
             }
+        }));
+
+    // Workspace-level: dirty-state transitions. Remotes use this to
+    // show 'unsaved changes' badges without polling. Pushed both
+    // on becomes-dirty (any edit) and becomes-clean (save). The
+    // existing /quewi/notify/workspace/changed remains for full
+    // reloads — different semantic.
+    m_oscNotifyConnections.append(connect(m_workspace.get(),
+        &core::Workspace::dirtyChanged, this, [this] {
+            pushOscNotify(QStringLiteral("/quewi/notify/workspace/dirty"),
+                { (m_workspace && m_workspace->isDirty())
+                    ? osc::Argument::T() : osc::Argument::F() });
         }));
 
     // GoEngine-level: cue actually fired (transport state push). The

@@ -51,6 +51,13 @@ public:
     void stop(VideoVoiceId id);
     void stopAll();
 
+    // Soft stop — animates every active layer's opacity from its
+    // current value down to 0 over `durationSeconds`, then stops the
+    // layers. Used by /quewi/video/fadeOut and /quewi/fadeAll so
+    // a remote can crossfade out without the hard cut stopAll
+    // produces. Duration ≤ 0 falls back to instant stopAll.
+    void fadeOutAll(double durationSeconds);
+
     int activeVoiceCount() const { return static_cast<int>(m_voices.size()); }
 
     // Per-screen projection mapping. Quad corners are normalised 0..1

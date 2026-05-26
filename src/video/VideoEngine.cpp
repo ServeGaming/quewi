@@ -7,6 +7,10 @@
 #include "video/TextLayer.h"
 #include "video/VideoLayer.h"
 
+#include <QPointer>
+#include <QTimer>
+#include <QVariantAnimation>
+
 #include <algorithm>
 
 namespace quewi::video {
@@ -75,6 +79,38 @@ void VideoEngine::stopAll()
     for (auto &v : voices) {
         emit voiceFinished(v.id);
     }
+}
+
+void VideoEngine::fadeOutAll(double durationSeconds)
+{
+    if (durationSeconds <= 0.0) { stopAll(); return; }
+    const int durMs = std::max(1, int(durationSeconds * 1000));
+
+    // Animate each active layer's opacity from its current value to
+    // 0 in parallel. QPointer keeps us safe if the underlying Layer
+    // gets torn down mid-fade (voice finished naturally before the
+    // fade hit zero).
+    for (const auto &v : m_voices) {
+        if (!v.layer) continue;
+        QPointer<Layer> layer = v.layer;
+        const double startOpacity = layer->opacity();
+        auto *anim = new QVariantAnimation(this);
+        anim->setStartValue(startOpacity);
+        anim->setEndValue(0.0);
+        anim->setDuration(durMs);
+        connect(anim, &QVariantAnimation::valueChanged, this,
+                [layer](const QVariant &val) {
+                    if (layer) layer->setOpacity(val.toDouble());
+                });
+        anim->start(QAbstractAnimation::DeleteWhenStopped);
+    }
+
+    // After the fade completes, hard-stop the (now silent /
+    // invisible) layers so they release file handles + GPU
+    // resources. Single-shot timer avoids needing per-anim
+    // bookkeeping; if the user issues another stopAll mid-fade,
+    // this becomes a no-op on an already-empty voice list.
+    QTimer::singleShot(durMs, this, &VideoEngine::stopAll);
 }
 
 void VideoEngine::setCornerPin(int screenIndex, const QPolygonF &quad)

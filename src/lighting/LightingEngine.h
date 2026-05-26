@@ -45,6 +45,12 @@ public:
     // Black out every active universe immediately (panic).
     void blackout();
 
+    // Soft blackout — fades every non-zero channel on every active
+    // universe down to 0 over `durationSeconds`. Uses fadeChannels
+    // internally per universe. Duration ≤ 0 falls back to instant
+    // blackout. Used by /quewi/lighting/fadeOut and /quewi/fadeAll.
+    void fadeOutAll(double durationSeconds);
+
     // True between ensureRunning() and shutdown(). Idle means no socket
     // and no tick — no traffic on the wire when quewi has no lighting.
     bool isRunning() const { return m_running.load(); }
