@@ -20,7 +20,9 @@
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QKeyEvent>
+#include <QMainWindow>
 #include <QMenu>
+#include <QStatusBar>
 #include <QMimeData>
 #include <QPainter>
 #include <QPaintEvent>
@@ -202,6 +204,26 @@ void CueListView::setModel(QAbstractItemModel *model)
     }
 }
 
+void CueListView::setShowModeLocked(bool locked)
+{
+    if (m_showLocked == locked) return;
+    m_showLocked = locked;
+    // Disable internal drag-reorder by toggling DragEnabled. Drop
+    // acceptance stays on (so we can intercept and reject in
+    // dropEvent with a helpful status message) but the QTreeView
+    // can't initiate a drag from this view.
+    setDragEnabled(!locked);
+    // Disable Qt's edit triggers entirely while locked. Selection
+    // and arrow navigation still work; double-click stops opening
+    // an editor. We restore the previous policy on unlock.
+    if (locked) {
+        m_savedEditTriggers = editTriggers();
+        setEditTriggers(QAbstractItemView::NoEditTriggers);
+    } else {
+        setEditTriggers(m_savedEditTriggers);
+    }
+}
+
 void CueListView::applyColumnVisibility()
 {
     using core::CueListModel;
@@ -247,6 +269,25 @@ void CueListView::keyPressEvent(QKeyEvent *event)
         event->accept();
         return;
     }
+    // Show-Mode lock — swallow edit-only shortcuts so the operator
+    // can't accidentally clobber the cue list mid-show. Selection,
+    // GO (Space, handled above), and arrow-key navigation all keep
+    // working since they don't mutate the document.
+    if (m_showLocked) {
+        if (event->matches(QKeySequence::Copy)) {
+            // Copy is read-only, allow it — useful for "what's in
+            // this cue?" inspection during a long show.
+        } else if (event->matches(QKeySequence::Cut)
+                   || event->matches(QKeySequence::Paste)
+                   || event->key() == Qt::Key_Delete
+                   || event->key() == Qt::Key_Backspace
+                   || (event->modifiers() == Qt::ControlModifier
+                       && event->key() == Qt::Key_D))
+        {
+            event->accept();
+            return;
+        }
+    }
     // Clipboard shortcuts at the view level so they work without focus
     // on a specific QAction. Selection drives the target list.
     if (event->matches(QKeySequence::Copy) || event->matches(QKeySequence::Cut)
@@ -270,6 +311,19 @@ void CueListView::keyPressEvent(QKeyEvent *event)
 
 void CueListView::dropEvent(QDropEvent *event)
 {
+    // Show-Mode lock — refuse every drop (external files and internal
+    // row reorder alike). Status nudge so the operator understands why
+    // their drag didn't take.
+    if (m_showLocked) {
+        event->ignore();
+        if (auto *w = window()) {
+            if (auto *mw = qobject_cast<QMainWindow *>(w))
+                mw->statusBar()->showMessage(
+                    tr("Show Mode: editing locked. Exit Show Mode to add cues."),
+                    2500);
+        }
+        return;
+    }
     // Internal-only: only accept our MIME type. External drops fall through
     // to the QTreeView default (which the MainWindow upgrades into "create
     // cues from files" for non-row drops).
@@ -392,6 +446,12 @@ void CueListView::applyFilter()
 
 void CueListView::contextMenuEvent(QContextMenuEvent *event)
 {
+    // Show-Mode lock — no context menu at all. The destructive
+    // actions live here (insert, delete, renumber) so the cleanest
+    // protection is to suppress the menu entirely. The transport
+    // bar's GO / Pause / Fade / Panic stay reachable.
+    if (m_showLocked) { event->ignore(); return; }
+
     auto *m = qobject_cast<core::CueListModel *>(model());
     if (!m || !m_workspace) return;
 

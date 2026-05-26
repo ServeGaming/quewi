@@ -36,6 +36,14 @@ public:
     // are visible. Called after Preferences saves.
     void applyColumnVisibility();
 
+    // Show Mode — when true, the list still accepts selection and Space
+    // (GO) but rejects edits: external file drops, internal row drag-
+    // reorder, cut / paste / duplicate keyboard shortcuts, and the
+    // context-menu Insert/Delete actions. MainWindow toggles this when
+    // entering / leaving Show Mode.
+    void setShowModeLocked(bool locked);
+    bool showModeLocked() const { return m_showLocked; }
+
 signals:
     void currentCueChanged(quewi::cues::Cue *cue);
     void goRequested();
@@ -74,6 +82,10 @@ private:
     bool      m_dragActive = false;
     QModelIndex m_dragIndex;
     int       m_dragPos = 0;   // QAbstractItemView::DropIndicatorPosition
+
+    // Show Mode lock — see setShowModeLocked.
+    bool      m_showLocked = false;
+    QAbstractItemView::EditTriggers m_savedEditTriggers{};
 };
 
 } // namespace quewi::ui

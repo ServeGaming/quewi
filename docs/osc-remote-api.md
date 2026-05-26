@@ -136,7 +136,7 @@ Subscriptions live in memory only. If quewi restarts, re-subscribe. (Run a heart
 | `/quewi/notify/cue/added` | `s i` cue id, row | A cue was inserted |
 | `/quewi/notify/cue/removed` | `s` cue id | A cue was deleted |
 | `/quewi/notify/cue/changed` | `s s` cue id, JSON | Any field of an existing cue changed. JSON matches `/quewi/query/cue`. |
-| `/quewi/notify/cue/state` | `s s d` cue id, state, number | Cue transport state. `state` is currently always `"fired"` (sent when GoEngine fires a cue). `"stopped"` / `"finished"` are reserved for a future update. |
+| `/quewi/notify/cue/state` | `s s d` cue id, state, number | Cue transport state. `state` is `"fired"` when GoEngine fires a cue, or `"finished"` when an audio cue's voice ends (natural end or `/quewi/cue/stop`). Lighting/video "finished" states aren't pushed yet — those engines don't expose per-cue completion signals. |
 
 ---
 
@@ -404,7 +404,7 @@ So your controller doesn't try and fail silently:
 - **Preferences** — port, theme, shortcuts must be set on the quewi machine itself.
 - **Cart grid and script viewer** — not on the wire yet.
 - **Command palette** — the UI dispatch surface isn't directly callable.
-- **Per-engine state push** — `/quewi/notify/cue/state` currently only emits `"fired"`. A `"stopped"` / `"finished"` companion is reserved.
+- **Lighting / video "finished" push** — `/quewi/notify/cue/state` emits `"fired"` for any cue and `"finished"` for audio cues whose voice ends, but lighting and video engines don't have per-cue completion signals yet.
 
 If you need any of these, file an issue on the repo.
 

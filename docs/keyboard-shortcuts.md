@@ -1,65 +1,116 @@
 # Keyboard Shortcuts
 
-`Mod` = Ctrl on Windows/Linux, Cmd on macOS.
+Audited against the actual wiring in `src/app/MainWindow.cpp`. Every
+shortcut here is rebindable through **Preferences → Shortcuts** —
+the defaults below are what ships out of the box.
 
-## Transport (always available, including Show Mode)
+`Mod` = `Ctrl` on Windows/Linux, `Cmd` on macOS.
 
-| Action | Shortcut |
+---
+
+## Transport — always live, even in Show Mode
+
+| Action | Default |
 |---|---|
-| GO | Space |
-| Panic / stop all (with fade-out) | Esc |
-| Pause all | . (period) |
-| Resume all | , (comma) |
-| Goto cue (number prompt) | / |
+| GO (fire next cue) | `Space` |
+| Panic — hard stop everything | `Esc` |
+| Pause all (real pause, not stop) | `Mod + .` |
+| Fade All — fade running cues out over 2 s | `Mod + Shift + .` |
 
-## Cue list navigation
+The transport actions register through `ShortcutManager` so a remote
+console / Stream Deck can rebind them without recompiling.
 
-| Action | Shortcut |
+---
+
+## File / show
+
+| Action | Default |
 |---|---|
-| Previous / next cue | ↑ / ↓ |
-| First / last cue | Home / End |
-| Page up / down | PgUp / PgDn |
-| Expand / collapse group | ← / → |
+| New show | `Mod + N` |
+| Open… | `Mod + O` |
+| Save | `Mod + S` |
+| Save As… | `Mod + Shift + S` |
+| Close show | `Mod + W` |
+| Quit | `Mod + Q` (mac) / `Alt + F4` (Win) |
 
-## Editing (Edit Mode only)
+---
 
-| Action | Shortcut |
+## Edit
+
+| Action | Default |
 |---|---|
-| New cue (type picker) | N |
-| Delete | Del / Backspace |
-| Duplicate | Mod+D |
-| Cut / copy / paste | Mod+X / C / V |
-| Rename inline | F2 / Enter |
-| Arm / disarm | A |
-| Auto-continue toggle | C |
-| Pre-wait / post-wait | P / O |
+| Undo | `Mod + Z` |
+| Redo | `Mod + Y` (Win/Linux) · `Mod + Shift + Z` (mac) |
+| Find in cue list | `Mod + F` |
+| Find / replace | `Mod + Shift + R` |
+| Command palette | `Mod + K` |
+| Preferences | `Mod + ,` |
 
-## Search & navigation
+---
 
-| Action | Shortcut |
+## Cue creation — single-key, list focus only
+
+These are bare letter keys so they work fast during cue-writing. The
+key is consumed by the cue list, so they don't fire while a text
+edit is focused.
+
+| New cue type | Key |
 |---|---|
-| Find | Mod+F |
-| Find/replace | Mod+H |
-| Command palette | Mod+K |
-| Reveal cue file in OS | Mod+Shift+R |
+| Memo | `M` |
+| OSC | `O` |
+| Audio | `A` |
+| Fade | `F` |
+| Light | `L` |
+| Light Fade | `Shift + L` |
+| Video | `V` |
+| Image | `I` |
+| Text | `T` |
+| Wait | `W` |
+| Start | `Shift + S` |
+| Stop | `Shift + X` |
+| Goto | `Shift + G` |
+| Group | `Mod + G` |
+| MIDI | `Shift + M` |
+| MSC | `Mod + Shift + M` |
 
-## Show / file
+---
 
-| Action | Shortcut |
+## Cue list — selection + clipboard
+
+| Action | Default |
 |---|---|
-| New show | Mod+N |
-| Open | Mod+O |
-| Save | Mod+S |
-| Save As | Mod+Shift+S |
-| Show Mode toggle | Mod+Shift+L |
-| Pre-flight | Mod+Shift+P |
+| Previous / next cue | `↑` / `↓` |
+| First / last cue | `Home` / `End` |
+| Page up / down | `PgUp` / `PgDn` |
+| Copy / cut / paste | `Mod + C` / `X` / `V` |
+| Duplicate selection | `Mod + D` |
+| Delete selection | `Del` / `Backspace` |
 
-## Tools
+Copy still works in Show Mode (read-only inspection). Cut, paste,
+duplicate, and delete are blocked in Show Mode.
 
-| Action | Shortcut |
+---
+
+## Tools / Windows
+
+| Action | Default |
 |---|---|
-| OSC Monitor | Mod+1 |
-| MIDI Monitor | Mod+2 |
-| DMX Output | Mod+3 |
-| Audio Levels | Mod+4 |
-| Patch Editor | Mod+, |
+| Pre-flight | `Mod + Shift + P` |
+| OSC Monitor | `Mod + 1` |
+| Notifications | `Mod + ?` |
+| Inspector toggle | `Mod + I` |
+| Cart view toggle | `Mod + Shift + C` |
+| Print show summary | `Mod + P` |
+| Show Mode toggle | `Mod + Shift + L` |
+
+---
+
+## Rebinding
+
+Open **Preferences → Shortcuts**. The list is grouped by category;
+double-click a row to capture a new chord. Conflicts (two actions on
+the same chord) are flagged inline. `Reset to default` per action and
+`Reset all` at the bottom undo your changes.
+
+Custom bindings are stored in QSettings under `shortcuts/<actionId>`.
+They survive across updates.

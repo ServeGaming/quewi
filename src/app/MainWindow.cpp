@@ -1703,6 +1703,13 @@ void MainWindow::applyShowMode()
     if (m_inspector) m_inspector->setEnabled(editable);
     if (m_listTabs)  m_listTabs->setEnabled(editable);
 
+    // Cue list itself stays selectable + GO-able but rejects edits.
+    // The lock blocks drag-reorder, external file drops, cut/paste/
+    // duplicate/delete shortcuts, and the right-click menu — all the
+    // routes by which the operator could accidentally clobber the
+    // show while pressing GO. See CueListView::setShowModeLocked.
+    if (m_cueListView) m_cueListView->setShowModeLocked(m_showMode);
+
     // Disable Edit, Cue, List menus.
     for (QAction *act : menuBar()->actions()) {
         const auto t = act->text().remove(QChar('&'));
@@ -1712,6 +1719,11 @@ void MainWindow::applyShowMode()
     }
     if (m_actShowMode) m_actShowMode->setEnabled(true); // always allow toggle
     if (m_showModeStrip) m_showModeStrip->setVisible(m_showMode);
+    // Window-level drag-drop also dies in Show Mode — otherwise the
+    // operator could drop a file anywhere on the window outside the
+    // cue list and bypass the lock. setAcceptDrops false makes Qt
+    // skip our dragEnter/drop overrides entirely.
+    setAcceptDrops(!m_showMode);
     updateTitle();
     statusBar()->showMessage(m_showMode ? tr("SHOW MODE — editing locked")
                                          : tr("Edit mode"), 2500);
@@ -2996,10 +3008,7 @@ void MainWindow::wireOscNotifications()
 
     // GoEngine-level: cue actually fired (transport state push). The
     // controller side uses this to render a "now playing" view without
-    // polling. We emit "fired" on every GoEngine::cueFired signal —
-    // a future "stopped"/"finished" companion notification can hook
-    // AudioEngine voice-finished and the lighting/video engines'
-    // equivalents when those are exposed.
+    // polling.
     if (m_goEngine) {
         m_oscNotifyConnections.append(connect(m_goEngine.get(),
             &GoEngine::cueFired, this, [this](cues::Cue *c) {
@@ -3008,6 +3017,31 @@ void MainWindow::wireOscNotifications()
                     { osc::Argument::s(c->id().toString()),
                       osc::Argument::s(QStringLiteral("fired")),
                       osc::Argument::d(c->number()) });
+            }));
+    }
+    // AudioEngine-level: voice finished playing (natural end or
+    // explicit stop). Map the voice id back to the owning cue and
+    // push a "finished" state. Audio is the only engine with a
+    // per-voice finished signal today — Lighting and Video will hook
+    // in here when they grow equivalents.
+    if (m_audioEngine) {
+        m_oscNotifyConnections.append(connect(m_audioEngine.get(),
+            &audio::AudioEngine::voiceFinished, this,
+            [this](audio::VoiceId id) {
+                if (!m_workspace) return;
+                for (const auto &up : m_workspace->cueLists()) {
+                    for (int r = 0; r < up->cueCount(); ++r) {
+                        auto *ac = qobject_cast<audio::AudioCue *>(up->cueAt(r));
+                        if (ac && ac->currentVoiceId() == id) {
+                            pushOscNotify(
+                                QStringLiteral("/quewi/notify/cue/state"),
+                                { osc::Argument::s(ac->id().toString()),
+                                  osc::Argument::s(QStringLiteral("finished")),
+                                  osc::Argument::d(ac->number()) });
+                            return;
+                        }
+                    }
+                }
             }));
     }
 
