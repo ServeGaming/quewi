@@ -29,7 +29,12 @@
         {
             "name": "macos-release",
             "inherits": "base",
-            "cacheVariables": { "CMAKE_BUILD_TYPE": "Release" },
+            "cacheVariables": {
+                "CMAKE_BUILD_TYPE": "Release",
+                "_universal_comment": "Build a universal binary. CI runs on macos-14 (Apple Silicon); without CMAKE_OSX_ARCHITECTURES the .app is arm64-only and Intel Macs refuse to launch with 'not supported on this Mac'. Qt's macOS binaries from install-qt-action are already universal so this just tells our compiler to emit both slices and let the linker stitch them into one fat Mach-O.",
+                "CMAKE_OSX_ARCHITECTURES": "arm64;x86_64",
+                "CMAKE_OSX_DEPLOYMENT_TARGET": "11.0"
+            },
             "condition": { "type": "equals", "lhs": "${hostSystemName}", "rhs": "Darwin" }
         },
         {

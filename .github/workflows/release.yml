@@ -175,6 +175,29 @@ jobs:
       - name: Build
         run: cmake --build --preset macos-release
 
+      # Sanity-check that we genuinely built a universal binary.
+      # The preset sets CMAKE_OSX_ARCHITECTURES=arm64;x86_64; if any
+      # of our deps disagreed (RtMidi built single-arch, FFmpeg only
+      # arm64, etc.) the final Mach-O might silently end up single-
+      # arch and Intel Macs would refuse to launch with 'not
+      # supported on this Mac'. lipo -archs makes the breakage
+      # loud at build time rather than at user-launch time.
+      - name: Verify universal binary
+        run: |
+          set -e
+          EXEC="build/macos-release/src/app/quewi.app/Contents/MacOS/quewi"
+          if [ ! -f "$EXEC" ]; then
+            echo "::error::Built executable not found at $EXEC"
+            ls -R build/macos-release/src/app/ | head -40
+            exit 1
+          fi
+          ARCHS=$(lipo -archs "$EXEC")
+          echo "Built archs: $ARCHS"
+          if [[ "$ARCHS" != *"arm64"* ]] || [[ "$ARCHS" != *"x86_64"* ]]; then
+            echo "::error::Expected universal (arm64 + x86_64), got: $ARCHS"
+            exit 1
+          fi
+
       # Strip SQL drivers we don't ship so macdeployqt — which runs as
       # part of the install step's install(CODE) block — doesn't try
       # to bundle them. Qt's mac builds include sqldrivers for Mimer,
