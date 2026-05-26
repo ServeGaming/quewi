@@ -105,6 +105,16 @@ public:
     bool resume(VoiceId id);
     bool isPaused(VoiceId id) const;
 
+    // Jump a playing voice to a new position, given in seconds from the
+    // start of the source file. Clamped to [0, fileEnd) — caller doesn't
+    // need to bounds-check. Returns true if the voice was found and the
+    // seek applied. Used by the ACTIVE strip's scrubbable progress bar
+    // so the operator can click anywhere in the bar to drop the playhead
+    // there mid-show. A short anti-click ramp at the splice would be
+    // ideal — for now we accept a brief discontinuity since theatre use
+    // is overwhelmingly seek-while-paused.
+    bool seek(VoiceId id, double seconds);
+
     // Real-time live changes — applied immediately, no fade. Used by the
     // inspector when the user nudges a slider on a playing cue.
     void setVoiceGain(VoiceId id, double gainDb);

@@ -8,15 +8,17 @@
 
 #include <QHBoxLayout>
 #include <QLabel>
+#include <QMouseEvent>
 #include <QPainter>
-#include <QProgressBar>
 #include <QPushButton>
 #include <QSet>
 #include <QTimer>
+#include <QToolTip>
 #include <QVBoxLayout>
 
 #include <algorithm>
 #include <cmath>
+#include <functional>
 
 namespace {
 // N-channel peak meter with held-peak decay. Linear input (0..1+),
@@ -110,6 +112,109 @@ private:
     std::vector<float> m_hold;
     std::vector<int>   m_age;
 };
+// Click-and-drag seekable progress bar. Behaves like a QProgressBar
+// for display purposes (caller sets value/range) and like a QSlider
+// for input — left-button press anywhere on the track snaps the
+// playhead there and emits seekFractionRequested(0..1); held drags
+// continue to emit so the operator can scrub. Hover shows a thin
+// cursor highlight so the click target is obvious.
+//
+// Deliberately tiny — no track gradients, no shadows, no animation.
+// The ACTIVE strip is high-information real estate and the bar is
+// 8 px tall; anything fancier reads as visual noise.
+class SeekBar : public QWidget {
+public:
+    explicit SeekBar(QWidget *parent = nullptr) : QWidget(parent)
+    {
+        setFixedHeight(10);
+        setCursor(Qt::PointingHandCursor);
+        setMouseTracking(true);
+        setMinimumWidth(120);
+    }
+    // Set the callback invoked on click/drag. Single std::function
+    // instead of a Q_OBJECT signal so this widget can live in an
+    // anonymous namespace and the .cpp doesn't need an extra moc
+    // include — keeps it consistent with the PeakMeter class above.
+    void onSeek(std::function<void(double fraction)> cb) {
+        m_seek = std::move(cb);
+    }
+    void setFraction(double f) {
+        f = std::clamp(f, 0.0, 1.0);
+        if (std::abs(f - m_fraction) < 1e-4) return;
+        m_fraction = f;
+        update();
+    }
+    void setBusy(bool b) {                  // for loops / unknown duration
+        if (m_busy == b) return;
+        m_busy = b;
+        update();
+    }
+    void setEnabledLook(bool en) {
+        setCursor(en ? Qt::PointingHandCursor : Qt::ArrowCursor);
+        m_enabled = en;
+        update();
+    }
+protected:
+    void paintEvent(QPaintEvent *) override {
+        QPainter p(this);
+        p.setRenderHint(QPainter::Antialiasing, true);
+        const int H = height();
+        const int trackY = (H - 4) / 2;
+        // Track
+        p.setPen(Qt::NoPen);
+        p.setBrush(QColor(0x2A, 0x27, 0x24));
+        p.drawRoundedRect(QRectF(0, trackY, width(), 4), 2, 2);
+        if (m_busy) {
+            // Faint indeterminate stripe across the centre so the
+            // operator still knows the row is alive.
+            p.setBrush(QColor(0x6F, 0x66, 0x5D));
+            p.drawRoundedRect(QRectF(0, trackY + 1,
+                                     width() * 0.35, 2), 1, 1);
+            return;
+        }
+        // Filled portion
+        const int fillW = int(width() * m_fraction);
+        p.setBrush(m_enabled ? QColor(0xD7, 0xA2, 0x4E)    // amber
+                             : QColor(0x6F, 0x66, 0x5D));  // muted when disabled
+        p.drawRoundedRect(QRectF(0, trackY, fillW, 4), 2, 2);
+        // Hover cursor line
+        if (m_enabled && m_hoverX >= 0) {
+            p.setPen(QPen(QColor(0xE8, 0xE2, 0xD4, 200), 1));
+            p.drawLine(m_hoverX, trackY - 1, m_hoverX, trackY + 5);
+        }
+    }
+    void mousePressEvent(QMouseEvent *e) override {
+        if (!m_enabled || m_busy || e->button() != Qt::LeftButton) return;
+        emitSeek(e->position().x());
+        m_dragging = true;
+    }
+    void mouseMoveEvent(QMouseEvent *e) override {
+        m_hoverX = m_enabled ? int(e->position().x()) : -1;
+        if (m_dragging && (e->buttons() & Qt::LeftButton)) {
+            emitSeek(e->position().x());
+        }
+        update();
+    }
+    void mouseReleaseEvent(QMouseEvent *) override {
+        m_dragging = false;
+    }
+    void leaveEvent(QEvent *) override {
+        m_hoverX = -1;
+        update();
+    }
+private:
+    void emitSeek(double x) {
+        if (!m_seek) return;
+        const double frac = std::clamp(x / std::max(1, width()), 0.0, 1.0);
+        m_seek(frac);
+    }
+    double m_fraction = 0.0;
+    bool   m_busy     = false;
+    bool   m_enabled  = true;
+    bool   m_dragging = false;
+    int    m_hoverX   = -1;
+    std::function<void(double)> m_seek;
+};
 } // namespace
 
 namespace quewi::ui {
@@ -128,11 +233,16 @@ public:
         m_name->setMinimumWidth(160);
         m_name->setStyleSheet(QStringLiteral("font-weight:600;"));
 
-        m_bar = new QProgressBar(this);
-        m_bar->setRange(0, 1000);
-        m_bar->setValue(0);
-        m_bar->setTextVisible(false);
-        m_bar->setFixedHeight(8);
+        m_bar = new SeekBar(this);
+        // Translate "I clicked at fraction f" into "seek the voice to
+        // f * durationSeconds". m_duration is updated every refresh
+        // tick so this stays accurate as the voice plays through. A
+        // loop or unknown-duration voice has m_duration <= 0 and the
+        // bar disables itself (see update()).
+        m_bar->onSeek([this](double frac) {
+            if (!m_engine || m_duration <= 0.0) return;
+            m_engine->seek(m_voiceId, frac * m_duration);
+        });
 
         m_time = new QLabel(QStringLiteral("0:00 / 0:00"), this);
         m_time->setStyleSheet(QStringLiteral("color:#B5AC9C; font-size:11px;"));
@@ -165,13 +275,18 @@ public:
         m_name->setText(label);
         const double pos = v.positionSeconds;
         const double dur = v.durationSeconds;
+        m_duration = dur;
         if (dur > 0.0) {
-            const int p = std::clamp(static_cast<int>(pos / dur * 1000.0), 0, 1000);
-            m_bar->setRange(0, 1000);
-            m_bar->setValue(p);
+            m_bar->setBusy(false);
+            m_bar->setEnabledLook(true);
+            m_bar->setFraction(pos / dur);
             m_time->setText(QStringLiteral("%1 / %2").arg(formatTime(pos), formatTime(dur)));
         } else {
-            m_bar->setRange(0, 0); // busy indicator for loops/unknown
+            // Loops and decode-in-flight voices have unknown duration —
+            // seeking would land in the wrong place, so present the bar
+            // as not-clickable rather than misleadingly draggable.
+            m_bar->setBusy(true);
+            m_bar->setEnabledLook(false);
             m_time->setText(formatTime(pos));
         }
         m_meta->setText(QStringLiteral("%1 dB · %2")
@@ -207,11 +322,12 @@ private:
     quint64 m_voiceId;
     audio::AudioEngine *m_engine;
     QLabel       *m_name = nullptr;
-    QProgressBar *m_bar  = nullptr;
+    SeekBar      *m_bar  = nullptr;
     QLabel       *m_time = nullptr;
     QLabel       *m_meta = nullptr;
     PeakMeter    *m_meter = nullptr;
     QPushButton  *m_stop = nullptr;
+    double        m_duration = 0.0;
 };
 
 ActiveCuesPanel::ActiveCuesPanel(QWidget *parent)

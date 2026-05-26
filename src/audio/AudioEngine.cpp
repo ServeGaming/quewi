@@ -138,6 +138,42 @@ public:
         return false;
     }
 
+    // Jump the voice's read position. seconds is measured from the
+    // start of the source file (NOT from the trim-in point). Clamped
+    // to [0, effectiveEnd-1] so the caller can't park us past the end.
+    // Re-uses the resume-fade machinery to mask the splice with a 5 ms
+    // attack ramp — same anti-click that pause→resume uses, since the
+    // problem is identical (an instantaneous PCM discontinuity).
+    bool seekVoice(VoiceId id, double seconds)
+    {
+        std::lock_guard<std::mutex> lock(m_mutex);
+        const qint64 fadeSamples =
+            static_cast<qint64>(0.005 * m_outputSampleRate);
+        for (auto &v : m_voices) {
+            if (v.id != id) continue;
+            if (!v.buf) return false;
+            const double srcSr = v.buf->sampleRate;
+            const qint64 total = v.buf->frameCount;
+            if (srcSr <= 0.0 || total <= 0) return false;
+            qint64 target = static_cast<qint64>(seconds * srcSr);
+            const qint64 effEnd = (v.endFrame > 0)
+                ? std::min(v.endFrame, total) : total;
+            if (target < 0) target = 0;
+            if (target >= effEnd) target = std::max<qint64>(0, effEnd - 1);
+            v.readPos = target;
+            // Short ramp on the next buffer so the discontinuity is
+            // masked. Only meaningful if the voice isn't paused (a
+            // paused voice will get the ramp at resume() time anyway).
+            if (!v.paused) {
+                v.resumeFadeSamples = std::max<qint64>(fadeSamples, 1);
+                v.resumeFadeCounter = 0;
+            }
+            v.finished = false;
+            return true;
+        }
+        return false;
+    }
+
     void stopAll(double fadeOutSeconds)
     {
         const qint64 samples = static_cast<qint64>(fadeOutSeconds * m_outputSampleRate);
@@ -927,6 +963,14 @@ bool AudioEngine::isPaused(VoiceId id) const
 {
     for (const auto &ctx : m_contexts) {
         if (ctx->mixer && ctx->mixer->isPausedVoice(id)) return true;
+    }
+    return false;
+}
+
+bool AudioEngine::seek(VoiceId id, double seconds)
+{
+    for (auto &ctx : m_contexts) {
+        if (ctx->mixer && ctx->mixer->seekVoice(id, seconds)) return true;
     }
     return false;
 }
