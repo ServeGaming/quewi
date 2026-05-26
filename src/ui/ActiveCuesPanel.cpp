@@ -157,30 +157,36 @@ public:
     }
 protected:
     void paintEvent(QPaintEvent *) override {
+        // Theme-token coloured so the bar reskins cleanly when the
+        // operator switches dark / light / high-contrast.
+        const auto &tk = quewi::ui::Theme::tokens();
         QPainter p(this);
         p.setRenderHint(QPainter::Antialiasing, true);
         const int H = height();
         const int trackY = (H - 4) / 2;
         // Track
         p.setPen(Qt::NoPen);
-        p.setBrush(QColor(0x2A, 0x27, 0x24));
+        p.setBrush(tk.bgRow);
         p.drawRoundedRect(QRectF(0, trackY, width(), 4), 2, 2);
         if (m_busy) {
             // Faint indeterminate stripe across the centre so the
             // operator still knows the row is alive.
-            p.setBrush(QColor(0x6F, 0x66, 0x5D));
+            p.setBrush(tk.ink40);
             p.drawRoundedRect(QRectF(0, trackY + 1,
                                      width() * 0.35, 2), 1, 1);
             return;
         }
-        // Filled portion
+        // Filled portion — amber when scrubbable, muted when disabled
+        // (loop / unknown duration).
         const int fillW = int(width() * m_fraction);
-        p.setBrush(m_enabled ? QColor(0xD7, 0xA2, 0x4E)    // amber
-                             : QColor(0x6F, 0x66, 0x5D));  // muted when disabled
+        p.setBrush(m_enabled ? tk.warn       // amber
+                             : tk.ink40);    // muted
         p.drawRoundedRect(QRectF(0, trackY, fillW, 4), 2, 2);
         // Hover cursor line
         if (m_enabled && m_hoverX >= 0) {
-            p.setPen(QPen(QColor(0xE8, 0xE2, 0xD4, 200), 1));
+            QColor hover = tk.ink100;
+            hover.setAlpha(200);
+            p.setPen(QPen(hover, 1));
             p.drawLine(m_hoverX, trackY - 1, m_hoverX, trackY + 5);
         }
     }

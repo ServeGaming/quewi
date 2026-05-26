@@ -3021,9 +3021,7 @@ void MainWindow::wireOscNotifications()
     }
     // AudioEngine-level: voice finished playing (natural end or
     // explicit stop). Map the voice id back to the owning cue and
-    // push a "finished" state. Audio is the only engine with a
-    // per-voice finished signal today — Lighting and Video will hook
-    // in here when they grow equivalents.
+    // push a "finished" state.
     if (m_audioEngine) {
         m_oscNotifyConnections.append(connect(m_audioEngine.get(),
             &audio::AudioEngine::voiceFinished, this,
@@ -3044,6 +3042,27 @@ void MainWindow::wireOscNotifications()
                 }
             }));
     }
+    // GoEngine-level: duration-based + instant cues. Audio + Video
+    // are NOT routed through this path — their engines have real
+    // per-voice finished signals. See AudioEngine block above for
+    // audio; the VideoEngine block below covers video.
+    if (m_goEngine) {
+        m_oscNotifyConnections.append(connect(m_goEngine.get(),
+            &GoEngine::cueFinished, this, [this](cues::Cue *c) {
+                if (!c) return;
+                pushOscNotify(QStringLiteral("/quewi/notify/cue/state"),
+                    { osc::Argument::s(c->id().toString()),
+                      osc::Argument::s(QStringLiteral("finished")),
+                      osc::Argument::d(c->number()) });
+            }));
+    }
+    // VideoEngine-level: deferred. VideoEngine::voiceFinished does
+    // exist but VisualCue doesn't yet store the owning VideoVoiceId
+    // (AudioCue tracks its currentVoiceId; the video equivalent is
+    // a v1.1 refactor). Until then video cues only get the "fired"
+    // notification via GoEngine — the controller can poll
+    // /quewi/query/cue if it needs to know when video playback
+    // actually ends.
 
     // One-shot: tell subscribers the workspace just changed (e.g.,
     // file loaded) so they can re-query.

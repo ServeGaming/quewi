@@ -11,6 +11,7 @@
 #include "cues/Cue.h"
 #include "cues/FadeCue.h"
 #include "cues/GroupCue.h"
+#include "cues/MemoCue.h"
 #include "cues/TargetingCue.h"
 #include "cues/WaitCue.h"
 #include "lighting/LightCue.h"
@@ -476,6 +477,45 @@ void GoEngine::doFire(cues::Cue *cue)
     }
 
     emit cueFired(cue);
+
+    // Schedule cueFinished emission. Audio + Video cues finish when
+    // their engine's voiceFinished fires (handled by MainWindow);
+    // everything else either has a known duration (fold into a
+    // QTimer::singleShot) or is "instant" (the cue's effect IS the
+    // GO press, so emit immediately on the next event-loop turn so
+    // OSC subscribers see fired→finished in order).
+    double finishedDelay = -1.0;
+    bool   isInstant     = false;
+    if (auto *lf = qobject_cast<lighting::LightFadeCue *>(cue)) {
+        finishedDelay = lf->durationSeconds();
+    } else if (auto *fc = qobject_cast<cues::FadeCue *>(cue)) {
+        finishedDelay = fc->durationSeconds();
+    } else if (auto *wc = qobject_cast<cues::WaitCue *>(cue)) {
+        finishedDelay = wc->durationSeconds();
+    } else if (qobject_cast<cues::MemoCue *>(cue)
+            || qobject_cast<osc::OscCue *>(cue)
+            || qobject_cast<midi::MidiCue *>(cue)
+            || qobject_cast<midi::MscCue *>(cue)
+            || qobject_cast<cues::TargetingCue *>(cue)
+            || qobject_cast<lighting::LightCue *>(cue)) {
+        // Instant cues — the GO press IS the cue's effect. Light
+        // (static, not fade) lays down its channel values on the
+        // next tick and is done; everything in this branch is the
+        // same shape.
+        isInstant = true;
+    }
+    if (isInstant) {
+        QPointer<cues::Cue> safe(cue);
+        QTimer::singleShot(0, this, [this, safe] {
+            if (safe) emit cueFinished(safe.data());
+        });
+    } else if (finishedDelay >= 0.0) {
+        QPointer<cues::Cue> safe(cue);
+        QTimer::singleShot(int(finishedDelay * 1000.0), this,
+            [this, safe] {
+                if (safe) emit cueFinished(safe.data());
+            });
+    }
 
     // Continue logic. Wait cues fold their duration into the chain delay.
     double waitExtra = 0.0;

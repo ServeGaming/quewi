@@ -47,6 +47,16 @@ public:
 
 signals:
     void cueFired(quewi::cues::Cue *cue);
+    // Emitted when a cue's primary effect has completed:
+    //   - LightFade / Fade / Wait: after their declared duration
+    //   - Memo / OSC / MIDI / MSC / Start / Stop / Goto / Pause /
+    //     Load / Reset / Devamp / Light (static): immediately after
+    //     fire (these have no runtime; the wire trip IS the cue)
+    //   - Audio / Video: NOT emitted here; AudioEngine::voiceFinished
+    //     and VideoEngine::voiceFinished are the authoritative
+    //     signals — MainWindow maps those to cueFinished separately
+    //   - Group: NOT emitted (would require child tracking; v1.1+)
+    void cueFinished(quewi::cues::Cue *cue);
     void statusMessage(const QString &msg);
     void gotoRequested(quewi::core::CueId targetId);
 
