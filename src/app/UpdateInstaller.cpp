@@ -10,6 +10,7 @@
 #include <QNetworkRequest>
 #include <QProcess>
 #include <QStandardPaths>
+#include <QTextStream>
 #include <QTimer>
 #include <QUrl>
 
@@ -320,11 +321,86 @@ bool UpdateInstaller::launchInstaller(const QString &msiPath)
         return false;
     }
 #elif defined(Q_OS_MACOS)
-    started = QProcess::startDetached(
-        QStringLiteral("/usr/bin/open"),
-        { msiPath });
+    // In-place update path: when quewi is running from inside a
+    // proper .app bundle, we can mount the downloaded .dmg, extract
+    // the new bundle, replace the currently-installed one, and
+    // relaunch — no Finder window, no "drag to Applications", no
+    // user clicks. The same flow that mac apps using Sparkle take.
+    //
+    // The path of the running bundle comes from QCoreApplication:
+    // applicationDirPath() returns .../quewi.app/Contents/MacOS, so
+    // we walk up two levels to land on the .app bundle. If we're
+    // running from `build/macos-release/.../quewi.app` (developer
+    // build) that path is still writable, so the swap works there
+    // too — no special-casing needed.
+    {
+        QDir d(QCoreApplication::applicationDirPath());
+        d.cdUp(); d.cdUp();                  // → quewi.app
+        const QString bundlePath = d.absolutePath();
+        const bool runningFromBundle =
+            bundlePath.endsWith(QStringLiteral(".app"))
+            && QFileInfo(bundlePath).isWritable();
+
+        if (runningFromBundle) {
+            const QString helperPath = QDir::tempPath()
+                + QStringLiteral("/quewi-update-")
+                + QString::number(QCoreApplication::applicationPid())
+                + QStringLiteral(".sh");
+            QFile h(helperPath);
+            if (h.open(QIODevice::WriteOnly | QIODevice::Truncate)) {
+                // Helper mounts the DMG, rsyncs the new .app over
+                // the running .app, strips quarantine attrs (so
+                // Gatekeeper doesn't flag the fresh bundle), then
+                // detaches the DMG and execs the upgraded app.
+                // All steps best-effort with || true on the dmg
+                // detach so a stuck mount doesn't strand the user.
+                QTextStream ts(&h);
+                ts << "#!/bin/bash\n"
+                   << "set -e\n"
+                   << "PID=" << QCoreApplication::applicationPid() << "\n"
+                   << "DMG=\"" << msiPath << "\"\n"
+                   << "BUNDLE=\"" << bundlePath << "\"\n"
+                   << "for i in $(seq 1 60); do\n"
+                   << "  if ! kill -0 \"$PID\" 2>/dev/null; then break; fi\n"
+                   << "  sleep 0.5\n"
+                   << "done\n"
+                   << "MOUNT=$(/usr/bin/hdiutil attach -nobrowse \"$DMG\" "
+                   <<   "| grep '/Volumes/' | tail -1 "
+                   <<   "| sed -E 's,^.*(/Volumes/[^\\\\t]+).*$,\\1,')\n"
+                   << "if [ -z \"$MOUNT\" ] || [ ! -d \"$MOUNT/quewi.app\" ]; then\n"
+                   << "  /usr/bin/hdiutil detach \"$MOUNT\" -quiet 2>/dev/null || true\n"
+                   << "  /usr/bin/open \"$DMG\"\n"
+                   << "  exit 1\n"
+                   << "fi\n"
+                   << "/usr/bin/rsync -a --delete \"$MOUNT/quewi.app/\" \"$BUNDLE/\"\n"
+                   << "/usr/bin/xattr -cr \"$BUNDLE\" 2>/dev/null || true\n"
+                   << "/usr/bin/hdiutil detach \"$MOUNT\" -quiet 2>/dev/null || true\n"
+                   << "rm -f \"$DMG\"\n"
+                   << "/usr/bin/open \"$BUNDLE\"\n"
+                   << "rm -f \"$0\"\n";
+                h.close();
+                QFile::setPermissions(helperPath,
+                    QFileDevice::ReadOwner | QFileDevice::WriteOwner
+                  | QFileDevice::ExeOwner  | QFileDevice::ReadGroup
+                  | QFileDevice::ExeGroup  | QFileDevice::ReadOther
+                  | QFileDevice::ExeOther);
+                if (QProcess::startDetached(
+                        QStringLiteral("/bin/bash"), { helperPath })) {
+                    started = true;
+                }
+            }
+        }
+    }
+
+    // Fallback: hand the .dmg to LaunchServices the way the old
+    // flow did — Finder mounts it, the user drags to Applications.
     if (!started) {
-        // Fall back to revealing the file in Finder.
+        started = QProcess::startDetached(
+            QStringLiteral("/usr/bin/open"),
+            { msiPath });
+    }
+    if (!started) {
+        // Last resort: reveal the file in Finder.
         QProcess::startDetached(
             QStringLiteral("/usr/bin/open"),
             { QStringLiteral("-R"), msiPath });
@@ -340,7 +416,63 @@ bool UpdateInstaller::launchInstaller(const QString &msiPath)
         f.setPermissions(f.permissions()
             | QFileDevice::ExeOwner | QFileDevice::ExeUser
             | QFileDevice::ExeGroup | QFileDevice::ExeOther);
-        started = QProcess::startDetached(msiPath, {});
+
+        // In-place update path: when quewi is itself running as an
+        // AppImage, $APPIMAGE is set by the AppImage runtime to the
+        // absolute path of the running file. We can stage a tiny
+        // shell helper that waits for our process to exit, swaps the
+        // new AppImage over the old one, and execs the result. The
+        // user ends up running the upgraded AppImage from the same
+        // path they were running before — no manual file-management,
+        // no duplicate AppImages cluttering Downloads.
+        const QByteArray appImage = qgetenv("APPIMAGE");
+        if (!appImage.isEmpty() && QFileInfo::exists(appImage)) {
+            const QString runningPath = QString::fromLocal8Bit(appImage);
+            const QString helperPath  = QDir::tempPath()
+                + QStringLiteral("/quewi-update-")
+                + QString::number(QCoreApplication::applicationPid())
+                + QStringLiteral(".sh");
+            QFile h(helperPath);
+            if (h.open(QIODevice::WriteOnly | QIODevice::Truncate)) {
+                // Wait for the running quewi to exit (PID poll, max
+                // 30 s) so the AppImage isn't open when we swap it.
+                // Then mv + chmod + exec the new file. The helper
+                // self-destructs at the end.
+                QTextStream ts(&h);
+                ts << "#!/bin/bash\n"
+                   << "set -e\n"
+                   << "PID=" << QCoreApplication::applicationPid() << "\n"
+                   << "for i in $(seq 1 60); do\n"
+                   << "  if ! kill -0 \"$PID\" 2>/dev/null; then break; fi\n"
+                   << "  sleep 0.5\n"
+                   << "done\n"
+                   << "mv -f " << QString(msiPath).replace('"', "\\\"") << " "
+                              << QString(runningPath).replace('"', "\\\"") << "\n"
+                   << "chmod +x " << QString(runningPath).replace('"', "\\\"") << "\n"
+                   << "rm -f \"$0\"\n"
+                   << "exec " << QString(runningPath).replace('"', "\\\"") << "\n";
+                h.close();
+                QFile::setPermissions(helperPath,
+                    QFileDevice::ReadOwner  | QFileDevice::WriteOwner
+                  | QFileDevice::ExeOwner   | QFileDevice::ReadGroup
+                  | QFileDevice::ExeGroup   | QFileDevice::ReadOther
+                  | QFileDevice::ExeOther);
+                if (QProcess::startDetached(
+                        QStringLiteral("/bin/bash"), { helperPath })) {
+                    // The helper will exec the new AppImage in our
+                    // place. We just need to quit now.
+                    started = true;
+                }
+            }
+        }
+
+        // Fallback: not running as an AppImage (built locally, run
+        // via dev tools) — just launch the new file in place. User
+        // sees the new version; the old one is wherever they had
+        // their dev build.
+        if (!started) {
+            started = QProcess::startDetached(msiPath, {});
+        }
     }
     if (!started) {
         started = QProcess::startDetached(

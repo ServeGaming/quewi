@@ -71,12 +71,46 @@ QToolButton *makeResetButton(QWidget *parent,
                              std::function<void()> onClick)
 {
     auto *btn = new QToolButton(parent);
-    btn->setText(QStringLiteral("↺"));
+    // The clockwise-open-arrow ↺ rendered inconsistently across the
+    // system fonts we ship — sometimes a hairline circle, sometimes
+    // a chunky arrow head. The Latin-1 fragment "Reset" reads the
+    // same everywhere and saves a tooltip hover for first-time users
+    // to figure out what the button does. Inline glyph + label keeps
+    // the button tight at 26 px tall (matches form-control rhythm).
+    btn->setText(QStringLiteral("Reset"));
     btn->setToolTip(tooltip);
+    btn->setObjectName(QStringLiteral("inspectorReset"));
     btn->setCursor(Qt::PointingHandCursor);
-    btn->setFixedSize(22, 22);
-    btn->setAutoRaise(true);
+    btn->setFixedHeight(26);
+    btn->setAutoRaise(false);
     btn->setFocusPolicy(Qt::NoFocus);
+    // Subtle, restrained chrome — text-only ghost button until hover
+    // makes the role obvious. Theme-token coloured so it stays in
+    // sync with the rest of the palette.
+    const auto &tk = Theme::tokens();
+    btn->setStyleSheet(QStringLiteral(
+        "QToolButton#inspectorReset {"
+        "  background: transparent;"
+        "  color: %1;"
+        "  border: 1px solid %2;"
+        "  border-radius: 4px;"
+        "  padding: 0 8px;"
+        "  font-size: 10px;"
+        "  font-weight: 600;"
+        "  letter-spacing: 0.06em;"
+        "}"
+        "QToolButton#inspectorReset:hover {"
+        "  background: %3;"
+        "  color: %4;"
+        "  border-color: %5;"
+        "}"
+        "QToolButton#inspectorReset:pressed { background: %6; }")
+        .arg(tk.ink60.name(),
+             tk.outline.name(),
+             tk.bgRowHover.name(),
+             tk.ink100.name(),
+             tk.ink40.name(),
+             tk.bgRow.name()));
     QObject::connect(btn, &QToolButton::clicked, parent,
                      [onClick = std::move(onClick)]{ onClick(); });
     return btn;
