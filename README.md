@@ -2,13 +2,20 @@
 
 Theatre cueing software. Sound, light, projection. Every OSC feature in the spec. A UI that doesn't fight you.
 
-**Status:** 0.1.0 — first public release. Audio, OSC, MIDI, and lighting cues work end-to-end. Video is scaffolded; a full Phase 5 implementation (FFmpeg decode, multi-output, projection mapping) is on the roadmap.
+**Documentation: [servegaming.github.io/quewi](https://servegaming.github.io/quewi/)** — install instructions, quickstart, cue-type reference, OSC API.
 
 ## Download
 
-Pre-built Windows installer: see the [latest GitHub Release](https://github.com/ServeGaming/quewi/releases). Run `quewi-<version>-win64.msi` and follow the prompts.
+Pre-built installers for Windows, macOS, and Linux are attached to every [GitHub Release](https://github.com/ServeGaming/quewi/releases).
 
-macOS and Linux builds are not yet packaged — build from source (below).
+| Platform | Artifact | Notes |
+|---|---|---|
+| Windows | `quewi-X.Y.Z-win64.msi` | Standard installer to Program Files |
+| Windows | `quewi-X.Y.Z-win64-portable.zip` | Portable — extract anywhere, supports one-click in-app updates |
+| macOS   | `quewi-X.Y.Z-macos.dmg` | Drag-to-Applications; includes a Fix Gatekeeper recovery script |
+| Linux   | `quewi-X.Y.Z-linux-x86_64.AppImage` | Run anywhere; in-place updates |
+
+See [docs → Install](https://servegaming.github.io/quewi/getting-started/install/) for per-platform details and Gatekeeper / SmartScreen guidance.
 
 ## What it is
 

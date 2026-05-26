@@ -1,0 +1,160 @@
+# MkDocs configuration for the quewi documentation site.
+# Deployed automatically by .github/workflows/docs.yml on every push to main.
+#
+# Local preview:
+#   pip install mkdocs-material
+#   mkdocs serve
+#   open http://127.0.0.1:8000
+
+site_name: quewi documentation
+site_description: >-
+  Theatre cueing software — open-source, cross-platform, OSC-controllable.
+  Documentation covering install, cue authoring, show running, OSC remote
+  control, and integration with lighting / video / MIDI systems.
+site_url: https://servegaming.github.io/quewi/
+repo_url: https://github.com/ServeGaming/quewi
+repo_name: ServeGaming/quewi
+edit_uri: edit/main/docs/
+
+theme:
+  name: material
+  language: en
+  features:
+    - navigation.instant       # SPA-style nav transitions
+    - navigation.tracking      # URL updates as you scroll sections
+    - navigation.tabs          # Top-level tabs
+    - navigation.tabs.sticky
+    - navigation.sections      # Group sub-pages visually
+    - navigation.expand
+    - navigation.indexes       # Section index pages
+    - navigation.top           # Back-to-top button
+    - search.suggest
+    - search.highlight
+    - search.share
+    - content.code.copy        # Copy button on code blocks
+    - content.code.annotate    # Annotated code samples
+    - content.tabs.link        # Cross-page sync of tabbed content
+    - toc.follow               # Sidebar TOC follows scroll
+  palette:
+    # Dark mode default — matches quewi's own UI.
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: amber
+      accent: amber
+      toggle:
+        icon: material/brightness-4
+        name: Switch to light mode
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: amber
+      accent: amber
+      toggle:
+        icon: material/brightness-7
+        name: Switch to dark mode
+  font:
+    text: Inter
+    code: JetBrains Mono
+  icon:
+    repo: fontawesome/brands/github
+    edit: material/pencil
+    view: material/eye
+
+markdown_extensions:
+  # Material-flavoured extras: admonitions, tabs, footnotes, code anchors.
+  - admonition
+  - attr_list
+  - def_list
+  - footnotes
+  - md_in_html
+  - tables
+  - toc:
+      permalink: true
+      toc_depth: 3
+  - pymdownx.details
+  - pymdownx.superfences:
+      custom_fences:
+        - name: mermaid
+          class: mermaid
+          format: !!python/name:pymdownx.superfences.fence_code_format
+  - pymdownx.tabbed:
+      alternate_style: true
+  - pymdownx.highlight:
+      anchor_linenums: true
+      line_spans: __span
+      pygments_lang_class: true
+  - pymdownx.inlinehilite
+  - pymdownx.snippets
+  - pymdownx.tasklist:
+      custom_checkbox: true
+  - pymdownx.emoji:
+      emoji_index: !!python/name:material.extensions.emoji.twemoji
+      emoji_generator: !!python/name:material.extensions.emoji.to_svg
+  - pymdownx.keys
+  - pymdownx.mark
+  - pymdownx.tilde
+  - pymdownx.caret
+
+plugins:
+  - search
+
+extra:
+  social:
+    - icon: fontawesome/brands/github
+      link: https://github.com/ServeGaming/quewi
+  generator: false              # Hide "Made with Material for MkDocs" footer
+
+extra_css:
+  - assets/quewi.css
+
+# ─────────────────────────────────────────────────────────────────
+# Site navigation
+# ─────────────────────────────────────────────────────────────────
+nav:
+  - Home: index.md
+
+  - Getting started:
+      - Install: getting-started/install.md
+      - Quickstart: getting-started/quickstart.md
+      - Concepts: getting-started/concepts.md
+
+  - Using quewi:
+      - Cue types overview: using-quewi/cue-types.md
+      - Transport (GO / Panic / Pause): using-quewi/transport.md
+      - Show Mode: using-quewi/show-mode.md
+      - Pre-flight: using-quewi/preflight.md
+      - Keyboard shortcuts: using-quewi/shortcuts.md
+      - Inspector & editing: using-quewi/inspector.md
+
+  - Cue type reference:
+      - Audio cue: cue-types/audio.md
+      - Video cue: cue-types/video.md
+      - Light cue: cue-types/light.md
+      - Fade cue: cue-types/fade.md
+      - Wait cue: cue-types/wait.md
+      - Group cue: cue-types/group.md
+      - OSC cue: cue-types/osc.md
+      - MIDI / MSC cue: cue-types/midi.md
+      - Control cues (start / stop / goto / …): cue-types/control-cues.md
+      - Memo cue: cue-types/memo.md
+
+  - OSC remote control:
+      - Overview: osc-control/overview.md
+      - Address reference: osc-control/reference.md
+      - Per-cue field reference: osc-control/field-reference.md
+      - Recipes: osc-control/recipes.md
+
+  - Integration:
+      - Lighting (sACN / Art-Net / DMX): integration/lighting.md
+      - Audio routing: integration/audio.md
+      - Video output: integration/video.md
+      - MIDI Show Control: integration/midi.md
+
+  - Support:
+      - Troubleshooting: support/troubleshooting.md
+      - macOS Gatekeeper: support/macos-gatekeeper.md
+      - In-app updates: support/updates.md
+      - FAQ: support/faq.md
+
+  - About:
+      - License: about/license.md
+      - Credits: about/credits.md
