@@ -119,6 +119,14 @@ elseif(APPLE)
         HINTS "${_qt_bin_dir}"
         REQUIRED
     )
+    # Drop a README.txt next to the .app inside the DMG. CPack's
+    # DragNDrop generator stages from CMake's install rules, so a
+    # plain install(FILES) on the install prefix root is what lands
+    # the file in the DMG window. The DMG layout AppleScript
+    # positions it under the two icons.
+    install(FILES "${CMAKE_SOURCE_DIR}/resources/macos/dmg-readme.txt"
+        DESTINATION . RENAME README.txt)
+
     # The bundle lands at ${CMAKE_INSTALL_PREFIX}/quewi.app (BUNDLE
     # DESTINATION "."). macdeployqt rewrites Mach-O rpaths and copies
     # frameworks/plugins into Contents/Frameworks and Contents/PlugIns.

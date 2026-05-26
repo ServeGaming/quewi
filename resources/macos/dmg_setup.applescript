@@ -28,11 +28,15 @@ on run argv
 
             -- Visual chrome: icon view, hidden toolbar/status bar,
             -- generous window so both icons sit comfortably with a
-            -- visible arrow between them.
+            -- visible arrow between them. Window is sized to also
+            -- accommodate a README.txt sitting below the two icons —
+            -- there's no path to "this app is from a developer you
+            -- don't recognise" prompts that's intuitive on first
+            -- launch, so the README lives where it can't be missed.
             set current view of container window to icon view
             set toolbar visible of container window to false
             set statusbar visible of container window to false
-            set bounds of container window to {200, 120, 760, 460}
+            set bounds of container window to {200, 120, 760, 520}
 
             set theViewOptions to icon view options of container window
             set arrangement of theViewOptions to not arranged
@@ -42,11 +46,16 @@ on run argv
             -- Position the .app on the left, /Applications on the right.
             -- 560-wide window centres at x=280; place icons ~190 apart
             -- so the arrow between them reads "drag from here to here".
+            -- The README.txt sits centred below them so it's the next
+            -- thing the eye lands on after the install drag target.
             try
                 set position of item "quewi.app" of container window to {140, 170}
             end try
             try
                 set position of item "Applications" of container window to {420, 170}
+            end try
+            try
+                set position of item "README.txt" of container window to {280, 340}
             end try
 
             update without registering applications

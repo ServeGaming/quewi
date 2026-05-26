@@ -181,6 +181,41 @@ jobs:
       - name: Stage install
         run: cmake --install build/macos-release --prefix build/macos-release/_install
 
+      # Ad-hoc codesign the .app bundle. Without ANY signature on
+      # Apple Silicon, Gatekeeper marks the downloaded .app as
+      # "damaged and can't be opened" — a generic, alarming error
+      # that gives the user no path forward. Ad-hoc signing
+      # (`--sign -`) doesn't pretend to be a real Developer ID, but
+      # it does flip Gatekeeper out of strict mode so the user sees
+      # the friendlier "unidentified developer" prompt, which can be
+      # bypassed via right-click → Open (instructions live in the
+      # README.txt we drop into the DMG below).
+      #
+      # --deep recurses through every nested .framework and dylib
+      # macdeployqt copied in. --force overwrites Qt's own
+      # framework signatures (which won't validate from outside the
+      # original Qt tree anyway). Notarization would require a real
+      # team identity; we deliberately skip it.
+      - name: Ad-hoc codesign .app bundle
+        run: |
+          APP="build/macos-release/_install/quewi.app"
+          if [ ! -d "$APP" ]; then
+            echo "::error::Expected .app bundle not present at $APP"
+            ls -la build/macos-release/_install || true
+            exit 1
+          fi
+          # Failure here is non-fatal: the DMG still ships, and the
+          # README inside tells the user to run `xattr -cr` to
+          # recover. Logging the failure as a warning so it's
+          # visible in the Actions UI without aborting the release.
+          if codesign --force --deep --sign - "$APP"; then
+            echo "Codesign succeeded:"
+            codesign --verify --verbose=2 "$APP" || true
+            codesign -dvv "$APP" 2>&1 | head -10 || true
+          else
+            echo "::warning::codesign failed — DMG will still build, but users may need 'xattr -cr /Applications/quewi.app' (see README in the DMG)"
+          fi
+
       - name: Package DMG
         working-directory: build/macos-release
         run: cpack -G DragNDrop --config CPackConfig.cmake
