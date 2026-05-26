@@ -102,8 +102,12 @@ OscMonitor::OscMonitor(osc::OscEngine *engine, QWidget *parent)
     resize(960, 640);
 
     auto *outer = new QVBoxLayout(this);
-    outer->setContentsMargins(12, 12, 12, 12);
-    outer->setSpacing(10);
+    // 16 px outer margins to match the other dialogs (Preferences,
+    // Preflight, Notifications). Spacing 14 between the listener
+    // group, the table/detail splitter, and the filter row keeps
+    // sections visually separated without floating apart.
+    outer->setContentsMargins(16, 16, 16, 16);
+    outer->setSpacing(14);
 
     // Top: listener controls
     auto *listenGroup = new QGroupBox(tr("Inbound listeners"), this);
@@ -157,7 +161,11 @@ OscMonitor::OscMonitor(osc::OscEngine *engine, QWidget *parent)
     m_table->setSelectionBehavior(QAbstractItemView::SelectRows);
     m_table->setSelectionMode(QAbstractItemView::SingleSelection);
     m_table->setEditTriggers(QAbstractItemView::NoEditTriggers);
-    m_table->setAlternatingRowColors(true);
+    // Uniform rows + divider — same treatment as the main cue list
+    // and the Preflight results panel. The table already has the
+    // QHeaderView::section styling from the central QSS.
+    m_table->setAlternatingRowColors(false);
+    m_table->setShowGrid(false);
 
     m_detail = new QPlainTextEdit(splitter);
     m_detail->setReadOnly(true);

@@ -21,7 +21,10 @@ AboutDialog::AboutDialog(QWidget *parent)
     setModal(true);
 
     auto *root = new QHBoxLayout(this);
-    root->setContentsMargins(20, 20, 20, 16);
+    // Symmetric 20-px margins — the original 20/20/20/16 looked
+    // visually misaligned next to other dialogs that use square
+    // padding.
+    root->setContentsMargins(20, 20, 20, 20);
     root->setSpacing(20);
 
     // ── Icon column ───────────────────────────────────────────────────

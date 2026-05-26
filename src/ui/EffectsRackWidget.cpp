@@ -73,7 +73,7 @@ EffectsRackWidget::EffectsRackWidget(QWidget *parent) : QWidget(parent) {
              tk.ink40.name()));        // %8 close button + empty hint
 
     auto *outer = new QVBoxLayout(this);
-    outer->setContentsMargins(12, 10, 12, 12);
+    outer->setContentsMargins(12, 12, 12, 12);
     outer->setSpacing(8);
 
     // Compact toolbar — track name on the left (filled in by the
@@ -152,7 +152,7 @@ QWidget *EffectsRackWidget::buildEffectRow(audio::AudioEffect *fx, int index) {
     auto *box = new QFrame(this);
     box->setObjectName(QStringLiteral("fxRow"));
     auto *vl = new QVBoxLayout(box);
-    vl->setContentsMargins(10, 8, 8, 10);
+    vl->setContentsMargins(10, 10, 10, 10);
     vl->setSpacing(6);
 
     // Header row: enable checkbox + name + edit + close. Heights are

@@ -181,9 +181,11 @@ PreflightDialog::PreflightDialog(core::Workspace *workspace, QWidget *parent)
     : QDialog(parent), m_workspace(workspace)
 {
     setWindowTitle(tr("Pre-flight"));
-    resize(620, 480);
+    resize(640, 500);
 
     auto *root = new QVBoxLayout(this);
+    root->setContentsMargins(20, 20, 20, 20);
+    root->setSpacing(14);
 
     m_summary = new QLabel(this);
     m_summary->setStyleSheet(QStringLiteral(
@@ -191,10 +193,18 @@ PreflightDialog::PreflightDialog(core::Workspace *workspace, QWidget *parent)
     root->addWidget(m_summary);
 
     m_results = new QListWidget(this);
-    m_results->setAlternatingRowColors(true);
+    // No more alternating banding — same uniform-row + divider
+    // treatment we landed on for the main cue list in v0.9.36 so
+    // the two views feel like part of the same product.
+    m_results->setAlternatingRowColors(false);
+    m_results->setStyleSheet(QStringLiteral(
+        "QListWidget::item { padding: 8px 10px; "
+        "                    border-bottom: 1px solid %1; }")
+        .arg(Theme::tokens().divider.name()));
     root->addWidget(m_results, 1);
 
     auto *btnRow = new QHBoxLayout();
+    btnRow->setSpacing(10);
     m_recheck = new QPushButton(tr("Re-check"), this);
     btnRow->addWidget(m_recheck);
     btnRow->addStretch(1);
