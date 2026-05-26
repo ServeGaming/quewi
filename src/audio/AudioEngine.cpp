@@ -260,6 +260,29 @@ public:
         return false;
     }
 
+    // Flip the loop flag on a playing voice. The audio callback checks
+    // v.loop every frame to decide whether to wrap readPos to start or
+    // mark the voice finished — so toggling mid-playback takes effect
+    // on the very next end-of-buffer. Guarded by the same mutex the
+    // callback holds for its iteration so we can't tear a read.
+    bool setVoiceLoop(VoiceId id, bool loop)
+    {
+        std::lock_guard<std::mutex> lock(m_mutex);
+        for (auto &v : m_voices) {
+            if (v.id == id) {
+                v.loop = loop;
+                // If we just turned loop ON and the voice was already
+                // marked finished (e.g. ran past the end this buffer
+                // but the cleanup pass hasn't removed it yet), un-mark
+                // it. Otherwise the voice would be GC'd before the
+                // next callback could wrap around.
+                if (loop) v.finished = false;
+                return true;
+            }
+        }
+        return false;
+    }
+
     bool hasVoice(VoiceId id) const
     {
         std::lock_guard<std::mutex> lock(m_mutex);
@@ -910,6 +933,13 @@ void AudioEngine::setVoicePan(VoiceId id, double pan)
 {
     for (auto &ctx : m_contexts) {
         if (ctx->mixer && ctx->mixer->setVoicePan(id, pan)) return;
+    }
+}
+
+void AudioEngine::setVoiceLoop(VoiceId id, bool loop)
+{
+    for (auto &ctx : m_contexts) {
+        if (ctx->mixer && ctx->mixer->setVoiceLoop(id, loop)) return;
     }
 }
 

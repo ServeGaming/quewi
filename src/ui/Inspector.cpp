@@ -1646,7 +1646,21 @@ void Inspector::commitAudioFadeIn()  { if (!m_loading) pushFieldEdit(QStringLite
 void Inspector::commitAudioFadeOut() { if (!m_loading) pushFieldEdit(QStringLiteral("fadeOutSeconds"), m_audioFadeOut->value()); }
 void Inspector::commitAudioTrimIn()  { if (!m_loading) pushFieldEdit(QStringLiteral("trimInSeconds"),  m_audioTrimIn->value()); }
 void Inspector::commitAudioTrimOut() { if (!m_loading) pushFieldEdit(QStringLiteral("trimOutSeconds"), m_audioTrimOut->value()); }
-void Inspector::commitAudioLoop()    { if (!m_loading) pushFieldEdit(QStringLiteral("loop"),           m_audioLoop->isChecked()); }
+void Inspector::commitAudioLoop()
+{
+    if (m_loading) return;
+    const bool loop = m_audioLoop->isChecked();
+    pushFieldEdit(QStringLiteral("loop"), loop);
+    // Live-apply to the playing voice (if any) so a mid-playback
+    // toggle takes effect on the current loop iteration — same
+    // pattern as setVoiceGain / setVoicePan.
+    if (m_audioEngine) {
+        if (auto *ac = qobject_cast<audio::AudioCue *>(m_cue.data())) {
+            if (auto vid = ac->currentVoiceId())
+                m_audioEngine->setVoiceLoop(vid, loop);
+        }
+    }
+}
 
 void Inspector::commitAudioOutputDevice()
 {

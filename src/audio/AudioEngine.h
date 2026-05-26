@@ -119,6 +119,10 @@ public:
     // inspector when the user nudges a slider on a playing cue.
     void setVoiceGain(VoiceId id, double gainDb);
     void setVoicePan(VoiceId id, double pan);
+    // Toggle loop on a playing voice. Takes effect on the next
+    // end-of-source — the callback wraps readPos to 0 instead of
+    // marking finished.
+    void setVoiceLoop(VoiceId id, bool loop);
 
     // Swap the per-output-channel gain vector for a playing voice. Used
     // by the trajectory ticker — each tick recomputes VBAP gains for the
