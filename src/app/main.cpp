@@ -7,6 +7,7 @@
 #include <QFile>
 #include <QIcon>
 #include <QSettings>
+#include <QStatusBar>
 #include "ui/WelcomeDialog.h"
 
 #include <QComboBox>
@@ -196,6 +197,34 @@ int main(int argc, char *argv[])
     }
 
     w.show();
+
+    // First-run-after-update toast. If the version stored in
+    // QSettings differs from the binary's version, this is either
+    // (a) the very first launch ever (lastVersion empty) — skip the
+    // toast, the welcome dialog already greets new users; or
+    // (b) a launch after an in-app update — show a brief status
+    // confirmation so the operator knows the swap actually landed
+    // and they're not still on the old version.
+    {
+        QSettings versionStore(QStringLiteral("ServeGaming"),
+                               QStringLiteral("quewi"));
+        const QString lastVersion =
+            versionStore.value(QStringLiteral("lastSeenVersion")).toString();
+        const QString thisVersion = QStringLiteral(QUEWI_VERSION);
+        if (!lastVersion.isEmpty() && lastVersion != thisVersion) {
+            // Status-bar nudge — non-modal, auto-clears after 4 s.
+            // Fires after the event loop starts so it lands on the
+            // visible status bar rather than being absorbed by the
+            // window-being-shown noise.
+            QTimer::singleShot(150, &w, [&w, lastVersion, thisVersion] {
+                w.statusBar()->showMessage(
+                    QObject::tr("Updated from %1 to %2")
+                        .arg(lastVersion, thisVersion),
+                    4000);
+            });
+        }
+        versionStore.setValue(QStringLiteral("lastSeenVersion"), thisVersion);
+    }
 
     if (!positional.isEmpty()) {
         QTimer::singleShot(0, &w, [&w, positional]{
