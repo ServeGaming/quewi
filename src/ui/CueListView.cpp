@@ -132,7 +132,12 @@ CueListView::CueListView(QWidget *parent)
     setIconSize(QSize(16, 16));
     setSelectionBehavior(QAbstractItemView::SelectRows);
     setSelectionMode(QAbstractItemView::ExtendedSelection);
-    setAlternatingRowColors(true);
+    // QLab-style uniform row colour with a thin divider — the old
+    // alternating-row banding made the list look noisy on shows with
+    // many rows and made it harder to scan a single cue's column
+    // values across. The divider is drawn by QSS via border-bottom on
+    // QTreeView::item (see quewi-dark.qss).
+    setAlternatingRowColors(false);
     setMouseTracking(true);   // hover styling needs cursor-move events
     setAttribute(Qt::WA_Hover, true);
     setEditTriggers(QAbstractItemView::EditKeyPressed);

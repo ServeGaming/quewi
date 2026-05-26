@@ -54,8 +54,34 @@
 #include <QSpinBox>
 #include <QUndoStack>
 #include <QVBoxLayout>
+#include <QToolButton>
+
+#include <functional>
 
 namespace quewi::ui {
+
+namespace {
+// Small "reset to default" affordance that lives next to a fader or
+// numeric input. The button is intentionally restrained — 22 px
+// square, transparent until hover — so it doesn't compete with the
+// control it resets. Hover styling comes from the central QToolButton
+// QSS rules (see quewi-dark.qss).
+QToolButton *makeResetButton(QWidget *parent,
+                             const QString &tooltip,
+                             std::function<void()> onClick)
+{
+    auto *btn = new QToolButton(parent);
+    btn->setText(QStringLiteral("↺"));
+    btn->setToolTip(tooltip);
+    btn->setCursor(Qt::PointingHandCursor);
+    btn->setFixedSize(22, 22);
+    btn->setAutoRaise(true);
+    btn->setFocusPolicy(Qt::NoFocus);
+    QObject::connect(btn, &QToolButton::clicked, parent,
+                     [onClick = std::move(onClick)]{ onClick(); });
+    return btn;
+}
+} // namespace
 
 Inspector::Inspector(QWidget *parent)
     : QWidget(parent)
@@ -79,8 +105,14 @@ Inspector::Inspector(QWidget *parent)
     root->addWidget(scroll);
 
     auto *outer = new QVBoxLayout(content);
-    outer->setContentsMargins(20, 16, 20, 16);
-    outer->setSpacing(12);
+    // Bumped from 16 to 20 vertical, 20 → 22 horizontal, and the
+    // inter-section spacing from 12 to 18 so the Inspector reads as
+    // a stack of breathing cards instead of a packed control surface.
+    // The 6-px addition compounds across ~6 groups, which is what
+    // makes a long Audio cue inspector feel less cramped without
+    // pushing anything off-screen at common laptop heights.
+    outer->setContentsMargins(22, 20, 22, 20);
+    outer->setSpacing(18);
 
     // Allow the pane to be squeezed below the natural sizeHint of its
     // children — the scroll area takes over from there.
@@ -103,9 +135,9 @@ Inspector::Inspector(QWidget *parent)
     outer->addLayout(headerRow);
 
     auto *form = new QFormLayout();
-    form->setContentsMargins(0, 4, 0, 0);
-    form->setHorizontalSpacing(12);
-    form->setVerticalSpacing(8);
+    form->setContentsMargins(0, 6, 0, 0);
+    form->setHorizontalSpacing(14);
+    form->setVerticalSpacing(10);
     form->setLabelAlignment(Qt::AlignRight | Qt::AlignVCenter);
     form->setFieldGrowthPolicy(QFormLayout::ExpandingFieldsGrow);
 
@@ -142,6 +174,11 @@ Inspector::Inspector(QWidget *parent)
 
     m_notes = new QPlainTextEdit(this);
     m_notes->setMaximumBlockCount(0);
+    // Cap the Notes field at 4 lines tall so a wall-of-text cue
+    // description doesn't dominate the inspector. Users can still
+    // type as much as they want — the field internally scrolls.
+    m_notes->setMaximumHeight(84);
+    m_notes->setPlaceholderText(tr("Notes for the operator…"));
     form->addRow(tr("Notes"), m_notes);
 
     outer->addLayout(form);
@@ -364,6 +401,14 @@ Inspector::Inspector(QWidget *parent)
     m_audioGainLabel->setAlignment(Qt::AlignCenter);
     m_audioGainLabel->setStyleSheet(QStringLiteral("font-weight:600;"));
     gainColumn->addWidget(m_audioGainLabel);
+    // Reset button under the gain readout — single click puts the
+    // fader back at 0 dB. Together with the snap-to-0 behaviour in
+    // onGainSliderChanged this gives two paths to unity: dragging
+    // close, or one explicit click.
+    auto *gainReset = makeResetButton(m_audioGroup,
+        tr("Reset gain to 0 dB"),
+        [this]{ m_audioGainSlider->setValue(0); });
+    gainColumn->addWidget(gainReset, 0, Qt::AlignHCenter);
 
     waveRow->addLayout(gainColumn);
     audioOuter->addLayout(waveRow);
@@ -400,6 +445,13 @@ Inspector::Inspector(QWidget *parent)
         fadeRow->addWidget(m_audioFadeIn, 1);
         fadeRow->addWidget(makeArrowLabel(m_audioGroup));
         fadeRow->addWidget(m_audioFadeOut, 1);
+        fadeRow->addWidget(makeResetButton(m_audioGroup,
+            tr("Reset fades to 0 s"), [this]{
+                m_audioFadeIn->setValue(0.0);
+                m_audioFadeOut->setValue(0.0);
+                commitAudioFadeIn();
+                commitAudioFadeOut();
+            }));
         audioForm->addRow(tr("Fade"), fadeRow);
     }
 
@@ -418,6 +470,13 @@ Inspector::Inspector(QWidget *parent)
         trimRow->addWidget(m_audioTrimIn, 1);
         trimRow->addWidget(makeArrowLabel(m_audioGroup));
         trimRow->addWidget(m_audioTrimOut, 1);
+        trimRow->addWidget(makeResetButton(m_audioGroup,
+            tr("Reset trim to full file"), [this]{
+                m_audioTrimIn->setValue(0.0);
+                m_audioTrimOut->setValue(0.0); // 0 = end
+                commitAudioTrimIn();
+                commitAudioTrimOut();
+            }));
         audioForm->addRow(tr("Trim"), trimRow);
     }
 
@@ -438,6 +497,9 @@ Inspector::Inspector(QWidget *parent)
     m_audioPanSlider->setTickInterval(50);
     panRow->addWidget(m_audioPanLabel);
     panRow->addWidget(m_audioPanSlider, 1);
+    panRow->addWidget(makeResetButton(m_audioGroup,
+        tr("Reset pan to centre"),
+        [this]{ m_audioPanSlider->setValue(0); }));
     audioForm->addRow(tr("Pan"), panRow);
 
     m_audioLoop = new QCheckBox(tr("Loop"), m_audioGroup);
@@ -559,14 +621,34 @@ Inspector::Inspector(QWidget *parent)
     m_fadeValue->setRange(-90.0, 12.0);
     m_fadeValue->setSingleStep(0.5);
     m_fadeValue->setSuffix(QStringLiteral(" dB"));
-    fadeForm->addRow(tr("Target value"), m_fadeValue);
+    {
+        auto *row = new QHBoxLayout();
+        row->setContentsMargins(0, 0, 0, 0);
+        row->addWidget(m_fadeValue, 1);
+        row->addWidget(makeResetButton(m_fadeGroup,
+            tr("Reset target to -∞ dB"), [this]{
+                m_fadeValue->setValue(-60.0);  // matches FadeCue::m_targetValue default
+                commitFadeTargetValue();
+            }));
+        fadeForm->addRow(tr("Target value"), row);
+    }
 
     m_fadeDuration = new QDoubleSpinBox(m_fadeGroup);
     m_fadeDuration->setDecimals(2);
     m_fadeDuration->setRange(0.0, 600.0);
     m_fadeDuration->setValue(3.0);
     m_fadeDuration->setSuffix(QStringLiteral(" s"));
-    fadeForm->addRow(tr("Duration"), m_fadeDuration);
+    {
+        auto *row = new QHBoxLayout();
+        row->setContentsMargins(0, 0, 0, 0);
+        row->addWidget(m_fadeDuration, 1);
+        row->addWidget(makeResetButton(m_fadeGroup,
+            tr("Reset duration to 3 s"), [this]{
+                m_fadeDuration->setValue(3.0);
+                commitFadeDuration();
+            }));
+        fadeForm->addRow(tr("Duration"), row);
+    }
 
     outer->addWidget(m_fadeGroup);
 
@@ -611,7 +693,17 @@ Inspector::Inspector(QWidget *parent)
     m_lightFadeDuration->setRange(0.0, 600.0);
     m_lightFadeDuration->setValue(3.0);
     m_lightFadeDuration->setSuffix(QStringLiteral(" s"));
-    lfForm->addRow(tr("Duration"), m_lightFadeDuration);
+    {
+        auto *row = new QHBoxLayout();
+        row->setContentsMargins(0, 0, 0, 0);
+        row->addWidget(m_lightFadeDuration, 1);
+        row->addWidget(makeResetButton(m_lightFadeGroup,
+            tr("Reset duration to 3 s"), [this]{
+                m_lightFadeDuration->setValue(3.0);
+                commitLightFadeDuration();
+            }));
+        lfForm->addRow(tr("Duration"), row);
+    }
     outer->addWidget(m_lightFadeGroup);
 
     // ---------------- Visual (video/image/text) group ----------------
@@ -673,6 +765,12 @@ Inspector::Inspector(QWidget *parent)
     posRow->addWidget(m_visualX);
     posRow->addWidget(new QLabel(QStringLiteral("y"), m_visualGroup));
     posRow->addWidget(m_visualY);
+    posRow->addWidget(makeResetButton(m_visualGroup,
+        tr("Reset position to top-left"), [this]{
+            m_visualX->setValue(0.0);
+            m_visualY->setValue(0.0);
+            commitVisualGeometry();
+        }));
     auto *posWrap = new QWidget(m_visualGroup);
     posWrap->setLayout(posRow);
     posRow->setContentsMargins(0, 0, 0, 0);
@@ -683,6 +781,12 @@ Inspector::Inspector(QWidget *parent)
     sizeRow->addWidget(m_visualW);
     sizeRow->addWidget(new QLabel(QStringLiteral("h"), m_visualGroup));
     sizeRow->addWidget(m_visualH);
+    sizeRow->addWidget(makeResetButton(m_visualGroup,
+        tr("Reset size to full screen"), [this]{
+            m_visualW->setValue(1.0);
+            m_visualH->setValue(1.0);
+            commitVisualGeometry();
+        }));
     auto *sizeWrap = new QWidget(m_visualGroup);
     sizeWrap->setLayout(sizeRow);
     sizeRow->setContentsMargins(0, 0, 0, 0);
@@ -693,7 +797,17 @@ Inspector::Inspector(QWidget *parent)
     m_visualOpacity->setRange(0.0, 1.0);
     m_visualOpacity->setSingleStep(0.05);
     m_visualOpacity->setValue(1.0);
-    visualForm->addRow(tr("Opacity"), m_visualOpacity);
+    {
+        auto *row = new QHBoxLayout();
+        row->setContentsMargins(0, 0, 0, 0);
+        row->addWidget(m_visualOpacity, 1);
+        row->addWidget(makeResetButton(m_visualGroup,
+            tr("Reset opacity to 100%"), [this]{
+                m_visualOpacity->setValue(1.0);
+                commitVisualGeometry();
+            }));
+        visualForm->addRow(tr("Opacity"), row);
+    }
 
     m_videoLoop = new QCheckBox(tr("Loop"), m_visualGroup);
     visualForm->addRow(QString(), m_videoLoop);
@@ -1425,6 +1539,18 @@ void Inspector::browseAudioFile()
 
 void Inspector::onGainSliderChanged(int centiDb)
 {
+    // Snap-to-0: when the operator drags the fader to within ±0.5 dB
+    // of unity, pin it to exactly 0. The fader's range is centi-dB so
+    // ±0.5 dB = ±50 ticks. Without this it's effectively impossible
+    // to land on a true 0.0 dB by mouse — fine-grained dragging
+    // always parks at -0.07 or +0.13 and the operator has to type
+    // the value in. setValue re-fires valueChanged, which is why
+    // we guard with blockSignals to avoid a recursion / double-undo.
+    if (centiDb != 0 && std::abs(centiDb) <= 50) {
+        QSignalBlocker block(m_audioGainSlider);
+        m_audioGainSlider->setValue(0);
+        centiDb = 0;
+    }
     const double db = centiDb / 100.0;
     m_audioGainLabel->setText(QStringLiteral("%1 dB").arg(QString::number(db, 'f', 1)));
     if (m_loading) return;

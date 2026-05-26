@@ -76,7 +76,8 @@ QMenu::item {
     padding: 7px 28px 7px 14px;
     border-radius: 5px;
 }
-QMenu::item:selected { background: @bgRowSelected; }
+QMenu::item:selected,
+QMenu::item:hover { background: @bgRowSelected; }
 QMenu::item:disabled { color: @ink40; }
 QMenu::separator {
     height: 1px;
@@ -128,7 +129,6 @@ QSplitter::handle:vertical   { height: 8px; }
    rectangles with a left-border accent. */
 QTreeView {
     background: @bgPanel;
-    alternate-background-color: @bgRowAlt;
     color: @ink100;
     border: none;
     border-radius: 8px;
@@ -138,15 +138,18 @@ QTreeView {
     show-decoration-selected: 1;
     padding: 4px;
 }
-/* Continuous-row hover/selection: no per-cell margin/radius (those
-   produced the disjointed "lighter boxes" effect — one rectangle
-   per column instead of one per row). The selected row picks up a
-   left-border accent for a clear visual indicator without breaking
-   the row continuity. */
+/* Continuous-row hover/selection with QLab-style uniform background
+   plus a thin divider line. The previous design used alternating row
+   colours which read as noisy on big shows; a single, calm panel
+   colour with hairline dividers makes long lists much easier to
+   scan and matches the muscle memory of operators coming from QLab.
+   The selected row picks up a left-border accent for a clear visual
+   indicator without breaking row continuity. */
 QTreeView::item {
     padding: 5px 10px;
     border: none;
     border-left: 2px solid transparent;
+    border-bottom: 1px solid @divider;
 }
 QTreeView::item:hover    { background: @bgRowHover; }
 QTreeView::item:selected,
@@ -172,6 +175,10 @@ QHeaderView::section {
     letter-spacing: 0.10em;
 }
 QHeaderView::section:last { border-right: none; }
+QHeaderView::section:hover {
+    background: @bgRowHover;
+    color: @ink100;
+}
 
 /* ============================ Form controls ============================ */
 QLineEdit,
@@ -285,6 +292,31 @@ QPushButton:focus {
     border: 2px solid @outlineFocus;
     padding: 6px 15px;
 }
+
+/* QToolButton — toolbars, dock title-bar buttons, and the inspector's
+   small action buttons (Browse, Reset, ✕). Without these rules the
+   buttons inherit Fusion's native chrome and look like a different
+   product. */
+QToolButton {
+    background: transparent;
+    color: @ink100;
+    border: 1px solid transparent;
+    border-radius: 5px;
+    padding: 4px 8px;
+}
+QToolButton:hover {
+    background: @bgRowHover;
+    border-color: @outline;
+}
+QToolButton:pressed,
+QToolButton:checked {
+    background: @bgRow;
+    border-color: @outline;
+}
+QToolButton:disabled {
+    color: @ink40;
+}
+QToolButton::menu-indicator { image: none; }
 
 /* GO button — filled mossy green when ready, dusty blue when standby.
    Property-driven via setProperty("state", "ready"|"standby"). */

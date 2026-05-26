@@ -15,10 +15,19 @@ TransportBar::TransportBar(QWidget *parent)
     : QWidget(parent)
 {
     setObjectName(QStringLiteral("transportBar"));
-    setMinimumHeight(96);
+    // Bumped from 96 to 120: the original min-height + 12-px T/B
+    // contentsMargins + Qt's default QPushButton padding/border was
+    // squeezing the Pause / Fade All / Panic buttons just enough that
+    // the top edge of their rounded corner painted outside the
+    // allotted rect on Windows DPI scales — visually clipping the
+    // top of the buttons. The extra 24 px gives the AnimatedButton
+    // painter (which inset-adjusts by 1 px on the bottom-right for
+    // antialiasing) breathing room without floating the bar away
+    // from the content above it.
+    setMinimumHeight(120);
 
     auto *layout = new QHBoxLayout(this);
-    layout->setContentsMargins(20, 12, 20, 12);
+    layout->setContentsMargins(20, 16, 20, 16);
     layout->setSpacing(16);
 
     // Left: NEXT label stack
@@ -42,7 +51,7 @@ TransportBar::TransportBar(QWidget *parent)
     // press states animate over ~140 ms which feels more tactile than
     // QSS' instant pseudo-state switch on a 165 Hz monitor.
     auto *pauseBtn = new AnimatedButton(tr("Pause"), this);
-    pauseBtn->setMinimumHeight(36);
+    pauseBtn->setMinimumHeight(44);
     pauseBtn->setBorderRadius(6);
     pauseBtn->setColors(QColor(0x34, 0x30, 0x2C),
                         QColor(0x40, 0x3A, 0x34),
@@ -51,7 +60,7 @@ TransportBar::TransportBar(QWidget *parent)
     m_pause = pauseBtn;
 
     auto *fadeBtn = new AnimatedButton(tr("Fade All"), this);
-    fadeBtn->setMinimumHeight(36);
+    fadeBtn->setMinimumHeight(44);
     fadeBtn->setBorderRadius(6);
     fadeBtn->setColors(QColor(0x26, 0x24, 0x22),
                         QColor(0xD7, 0xA2, 0x4E),  // amber on hover
@@ -62,7 +71,7 @@ TransportBar::TransportBar(QWidget *parent)
     m_fadeAll = fadeBtn;
 
     auto *panicBtn = new AnimatedButton(tr("Panic"), this);
-    panicBtn->setMinimumHeight(36);
+    panicBtn->setMinimumHeight(44);
     panicBtn->setBorderRadius(6);
     panicBtn->setColors(QColor(0x26, 0x24, 0x22),
                         QColor(0xC2, 0x6A, 0x55),  // terracotta on hover
@@ -79,10 +88,15 @@ TransportBar::TransportBar(QWidget *parent)
     // Shortcut handled by the rebindable QAction owned by MainWindow.
     m_goButton->setDefault(true);
 
-    layout->addWidget(m_pause);
-    layout->addWidget(m_fadeAll);
-    layout->addWidget(m_panic);
-    layout->addWidget(m_goButton);
+    // Explicit AlignVCenter — without it QHBoxLayout's default stretch
+    // policy makes the 44-px AnimatedButtons grow to fill the full
+    // ~88-px content area, which both looks wrong next to the GO
+    // button and re-introduces the top-clip when the painter draws
+    // a rounded background bigger than the actual sizeHint.
+    layout->addWidget(m_pause,    0, Qt::AlignVCenter);
+    layout->addWidget(m_fadeAll,  0, Qt::AlignVCenter);
+    layout->addWidget(m_panic,    0, Qt::AlignVCenter);
+    layout->addWidget(m_goButton, 0, Qt::AlignVCenter);
 
     connect(m_goButton, &QPushButton::clicked, this, &TransportBar::goPressed);
     connect(m_panic,    &QPushButton::clicked, this, &TransportBar::panicPressed);
