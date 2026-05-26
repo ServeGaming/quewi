@@ -1,5 +1,7 @@
 #include "ui/AudioEditorWindow.h"
 
+#include "ui/Theme.h"
+
 #include <QAction>
 #include <QActionGroup>
 #include <QAudioDevice>
@@ -119,20 +121,27 @@ QIcon makeEditorIcon(const QString &name) {
 }
 
 // Vertical 1 px divider for the toolbar — a styled QFrame is heavier
-// and renders blurry, so paint it as a thin widget.
+// and renders blurry, so paint it as a thin widget. Colour pulled
+// from the central theme so the toolbar divider matches every other
+// divider in the app instead of drifting toward the old cool-grey
+// palette this file used to ship with.
 QWidget *toolbarDivider(QWidget *parent) {
     auto *w = new QFrame(parent);
     w->setFrameShape(QFrame::VLine);
     w->setFixedWidth(1);
-    w->setStyleSheet(QStringLiteral("color: #414752; background: #414752;"));
+    const auto &tk = ui::Theme::tokens();
+    w->setStyleSheet(QStringLiteral("color:%1; background:%1;")
+                         .arg(tk.outline.name()));
     return w;
 }
 
 QLabel *sectionLabel(const QString &text, QWidget *parent) {
     auto *l = new QLabel(text, parent);
+    const auto &tk = ui::Theme::tokens();
     l->setStyleSheet(QStringLiteral(
-        "color:#8a919e; font-size:10px; font-weight:700; letter-spacing:0.15em;"
-        "padding:0 6px;"));
+        "color:%1; font-size:10px; font-weight:700; letter-spacing:0.15em;"
+        "padding:0 6px;")
+        .arg(tk.ink40.name()));
     return l;
 }
 
@@ -198,13 +207,20 @@ void AudioEditorWindow::buildToolbar() {
     tb->setMovable(false);
     tb->setIconSize(QSize(18, 18));
     tb->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);
+    const auto &tk = Theme::tokens();
     tb->setStyleSheet(QStringLiteral(
-        "QToolBar { background:#181c22; border:none; padding:4px 8px; spacing:2px; }"
-        "QToolButton { color:#e0e2eb; padding:6px 10px; background:transparent; border:1px solid transparent; }"
-        "QToolButton:hover { background:#272a30; border:1px solid #414752; }"
-        "QToolButton:checked { background:#272a30; border:1px solid #4a9eff; color:#a4c9ff; }"
-        "QToolButton:pressed { background:#1c2026; }"
-    ));
+        "QToolBar { background:%1; border:none; padding:4px 8px; spacing:2px; }"
+        "QToolButton { color:%2; padding:6px 10px; background:transparent;"
+                     " border:1px solid transparent; }"
+        "QToolButton:hover { background:%3; border:1px solid %4; }"
+        "QToolButton:checked { background:%3; border:1px solid %5; color:%5; }"
+        "QToolButton:pressed { background:%6; }")
+        .arg(tk.bgDeep.name(),
+             tk.ink100.name(),
+             tk.bgRowHover.name(),
+             tk.outline.name(),
+             tk.accent.name(),
+             tk.bgPanel.name()));
 
     // ── TRANSPORT ─────────────────────────────────────────────────────
     tb->addWidget(sectionLabel(tr("TRANSPORT"), tb));
@@ -283,11 +299,12 @@ void AudioEditorWindow::buildCentral() {
     // ── Header strip ─────────────────────────────────────────────────
     // Cue identity left, format readout right. Sits between toolbar and
     // timeline so the operator always knows what they're editing.
+    const auto &tkH = Theme::tokens();
     auto *header = new QWidget(central);
     header->setObjectName(QStringLiteral("editorHeader"));
     header->setStyleSheet(QStringLiteral(
-        "QWidget#editorHeader { background:#101419; border-bottom:1px solid #262a38; }"
-    ));
+        "QWidget#editorHeader { background:%1; border-bottom:1px solid %2; }")
+        .arg(tkH.bgDeep.name(), tkH.divider.name()));
     header->setFixedHeight(56);
     auto *hl = new QHBoxLayout(header);
     hl->setContentsMargins(20, 8, 20, 8);
@@ -295,8 +312,9 @@ void AudioEditorWindow::buildCentral() {
 
     m_headerNumber = new QLabel(QStringLiteral("—"), header);
     m_headerNumber->setStyleSheet(QStringLiteral(
-        "color:#a4c9ff; font-family:'Space Grotesk','JetBrains Mono',monospace;"
-        "font-size:24px; font-weight:700; letter-spacing:-0.01em;"));
+        "color:%1; font-family:'Space Grotesk','JetBrains Mono',monospace;"
+        "font-size:24px; font-weight:700; letter-spacing:-0.01em;")
+        .arg(tkH.accent.name()));
     m_headerNumber->setMinimumWidth(72);
 
     auto *nameStack = new QVBoxLayout();
@@ -304,18 +322,21 @@ void AudioEditorWindow::buildCentral() {
     nameStack->setContentsMargins(0, 0, 0, 0);
     auto *caps = new QLabel(tr("AUDIO CUE"), header);
     caps->setStyleSheet(QStringLiteral(
-        "color:#8a919e; font-size:10px; font-weight:700; letter-spacing:0.18em;"));
+        "color:%1; font-size:10px; font-weight:700; letter-spacing:0.18em;")
+        .arg(tkH.ink40.name()));
     m_headerName = new QLabel(QStringLiteral("—"), header);
     m_headerName->setStyleSheet(QStringLiteral(
-        "color:#e0e2eb; font-size:18px; font-weight:600; letter-spacing:-0.005em;"));
+        "color:%1; font-size:18px; font-weight:600; letter-spacing:-0.005em;")
+        .arg(tkH.ink100.name()));
     nameStack->addWidget(caps);
     nameStack->addWidget(m_headerName);
 
     m_headerMeta = new QLabel(QString(), header);
     m_headerMeta->setAlignment(Qt::AlignRight | Qt::AlignVCenter);
     m_headerMeta->setStyleSheet(QStringLiteral(
-        "color:#c0c7d4; font-family:'Space Grotesk','JetBrains Mono',monospace;"
-        "font-size:12px; letter-spacing:0.04em;"));
+        "color:%1; font-family:'Space Grotesk','JetBrains Mono',monospace;"
+        "font-size:12px; letter-spacing:0.04em;")
+        .arg(tkH.ink60.name()));
 
     hl->addWidget(m_headerNumber, 0, Qt::AlignVCenter);
     hl->addLayout(nameStack, 1);
@@ -350,16 +371,17 @@ void AudioEditorWindow::buildBottomPanel() {
     // here is restrained on purpose: matching dark surface, single
     // thin top border, no hardcoded inner colors. Tab pane sits flush
     // with the panel so there's no double-bordered "box-in-box" look.
+    const auto &tkB = Theme::tokens();
     auto *bottom = new QWidget(this);
     bottom->setObjectName(QStringLiteral("editorBottomPanel"));
     bottom->setStyleSheet(QStringLiteral(
         "QWidget#editorBottomPanel {"
-        "    background: #181c22;"
-        "    border-top: 1px solid #262a38;"
+        "    background: %1;"
+        "    border-top: 1px solid %2;"
         "}"
         "QWidget#editorBottomPanel QTabBar::tab {"
         "    background: transparent;"
-        "    color: #8b94a5;"
+        "    color: %3;"
         "    padding: 6px 14px;"
         "    margin: 0;"
         "    border: none;"
@@ -368,16 +390,22 @@ void AudioEditorWindow::buildBottomPanel() {
         "    letter-spacing: 1px;"
         "}"
         "QWidget#editorBottomPanel QTabBar::tab:selected {"
-        "    color: #e8e2d4;"
-        "    border-bottom: 2px solid #D7A24E;"
+        "    color: %4;"
+        "    border-bottom: 2px solid %5;"
         "}"
         "QWidget#editorBottomPanel QTabBar::tab:hover:!selected {"
-        "    color: #c0c6d0;"
+        "    color: %6;"
         "}"
         "QWidget#editorBottomPanel QTabWidget::pane {"
         "    border: none;"
-        "    background: #181c22;"
-        "}"));
+        "    background: %1;"
+        "}")
+        .arg(tkB.bgDeep.name(),
+             tkB.divider.name(),
+             tkB.ink40.name(),
+             tkB.ink100.name(),
+             tkB.warn.name(),
+             tkB.ink60.name()));
     auto *bvl = new QVBoxLayout(bottom);
     bvl->setContentsMargins(0, 0, 0, 0);
     bvl->setSpacing(0);

@@ -2,6 +2,7 @@
 #include "audio/AudioEffect.h"
 #include "audio/effects/EqEffect.h"
 #include "ui/ParametricEqDialog.h"
+#include "ui/Theme.h"
 
 #include <QApplication>
 #include <QCheckBox>
@@ -25,20 +26,21 @@ EffectsRackWidget::EffectsRackWidget(QWidget *parent) : QWidget(parent) {
     // Internal styling — kept self-contained so this widget looks
     // consistent whether hosted inline in AudioEditorWindow or torn
     // off into a stand-alone panel.
+    const auto &tk = Theme::tokens();
     setStyleSheet(QStringLiteral(
         // Add button — small accent pill on the right of the toolbar.
         "QPushButton#fxAddButton {"
-        "    background: #2a3140; color: #e8e2d4;"
-        "    border: 1px solid #3a4253; border-radius: 4px;"
+        "    background: %1; color: %2;"
+        "    border: 1px solid %3; border-radius: 4px;"
         "    padding: 4px 12px; font-size: 12px; min-height: 22px;"
         "}"
-        "QPushButton#fxAddButton:hover { background: #34394a; }"
-        "QPushButton#fxAddButton:pressed { background: #232a37; }"
+        "QPushButton#fxAddButton:hover { background: %4; }"
+        "QPushButton#fxAddButton:pressed { background: %5; }"
         // Effect row container — flat surface with subtle border,
         // replaces the ugly QGroupBox frame that hung around an
         // empty title.
         "QFrame#fxRow {"
-        "    background: #1d222a; border: 1px solid #2a3140;"
+        "    background: %5; border: 1px solid %3;"
         "    border-radius: 6px;"
         "}"
         // Edit / close — fixed height so they line up with the
@@ -47,20 +49,28 @@ EffectsRackWidget::EffectsRackWidget(QWidget *parent) : QWidget(parent) {
         "    min-height: 24px; max-height: 24px;"
         "}"
         "QPushButton#fxEditBtn {"
-        "    background: transparent; color: #c0c6d0;"
-        "    border: 1px solid #3a4253; border-radius: 4px;"
+        "    background: transparent; color: %6;"
+        "    border: 1px solid %3; border-radius: 4px;"
         "    padding: 0 10px;"
         "}"
-        "QPushButton#fxEditBtn:hover { color: #e8e2d4; border-color: #4a5363; }"
+        "QPushButton#fxEditBtn:hover { color: %2; border-color: %7; }"
         "QToolButton#fxCloseBtn {"
         "    background: transparent; border: none;"
-        "    color: #8b94a5; min-width: 24px; max-width: 24px;"
+        "    color: %8; min-width: 24px; max-width: 24px;"
         "}"
-        "QToolButton#fxCloseBtn:hover { color: #e8e2d4; }"
+        "QToolButton#fxCloseBtn:hover { color: %2; }"
         // Empty-state hint.
         "QLabel#fxEmptyHint {"
-        "    color: #6b7280; font-size: 12px; font-style: italic;"
-        "}"));
+        "    color: %8; font-size: 12px; font-style: italic;"
+        "}")
+        .arg(tk.bgInteractive.name(),  // %1 add button bg
+             tk.ink100.name(),         // %2 primary text
+             tk.outline.name(),        // %3 borders
+             tk.bgRowHover.name(),     // %4 add button hover
+             tk.bgPanel.name(),        // %5 row bg / pressed
+             tk.ink60.name(),          // %6 edit button text
+             tk.outlineFocus.name(),   // %7 edit hover border (amber)
+             tk.ink40.name()));        // %8 close button + empty hint
 
     auto *outer = new QVBoxLayout(this);
     outer->setContentsMargins(12, 10, 12, 12);
@@ -75,8 +85,9 @@ EffectsRackWidget::EffectsRackWidget(QWidget *parent) : QWidget(parent) {
     hl->setSpacing(8);
     m_trackLabel = new QLabel(tr("No track selected"), this);
     m_trackLabel->setStyleSheet(QStringLiteral(
-        "color: #8b94a5; font-size: 11px; "
-        "font-weight: 600; letter-spacing: 1px;"));
+        "color: %1; font-size: 11px; "
+        "font-weight: 600; letter-spacing: 1px;")
+        .arg(tk.ink40.name()));
     hl->addWidget(m_trackLabel, 1);
     auto *addBtn = new QPushButton(tr("Add effect"), this);
     addBtn->setObjectName(QStringLiteral("fxAddButton"));

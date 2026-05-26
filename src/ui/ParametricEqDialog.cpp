@@ -1,5 +1,6 @@
 #include "ui/ParametricEqDialog.h"
 #include "audio/effects/EqEffect.h"
+#include "ui/Theme.h"
 
 #include <QCheckBox>
 #include <QComboBox>
@@ -52,7 +53,8 @@ ParametricEqDialog::ParametricEqDialog(audio::EqEffect *eq, QWidget *parent)
 
     m_panel = new QWidget(this);
     m_panel->setFixedHeight(160);
-    m_panel->setStyleSheet(QStringLiteral("background:#181c22;"));
+    m_panel->setStyleSheet(QStringLiteral("background:%1;")
+                              .arg(Theme::tokens().bgDeep.name()));
 
     vl->addStretch(1); // graph area (paintEvent draws here)
     vl->addWidget(m_panel);
@@ -344,12 +346,18 @@ void ParametricEqDialog::rebuildBandPanel() {
     grid->setHorizontalSpacing(10);
     grid->setVerticalSpacing(4);
 
+    const auto &tk = Theme::tokens();
     const QString lblStyle = QStringLiteral(
-        "color:#8a919e; font-size:10px; font-weight:700; letter-spacing:0.10em;");
+        "color:%1; font-size:10px; font-weight:700; letter-spacing:0.10em;")
+        .arg(tk.ink40.name());
     const QString spinStyle = QStringLiteral(
-        "QDoubleSpinBox, QComboBox { background:#1c2026; color:#e0e2eb;"
-        "  border:1px solid #414752; padding:2px 4px; min-height:20px; }"
-        "QDoubleSpinBox:focus, QComboBox:focus { border:1px solid #4a9eff; }");
+        "QDoubleSpinBox, QComboBox { background:%1; color:%2;"
+        "  border:1px solid %3; padding:2px 4px; min-height:20px; }"
+        "QDoubleSpinBox:focus, QComboBox:focus { border:1px solid %4; }")
+        .arg(tk.bgInteractive.name(),
+             tk.ink100.name(),
+             tk.outline.name(),
+             tk.outlineFocus.name());
 
     for (int b = 0; b < audio::EqEffect::kNumBands; ++b) {
         const auto color = bandColor(b);
@@ -369,7 +377,8 @@ void ParametricEqDialog::rebuildBandPanel() {
 
         auto *title = new QLabel(tr("BAND %1").arg(b + 1), header);
         title->setStyleSheet(QStringLiteral(
-            "color:#e0e2eb; font-size:11px; font-weight:700; letter-spacing:0.10em;"));
+            "color:%1; font-size:11px; font-weight:700; letter-spacing:0.10em;")
+            .arg(tk.ink100.name()));
 
         auto *enableBox = new QCheckBox(header);
         enableBox->setObjectName(QStringLiteral("on%1").arg(b));
