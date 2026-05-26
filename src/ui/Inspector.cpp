@@ -144,7 +144,7 @@ Inspector::Inspector(QWidget *parent)
         auto *hint = new QLabel(
             tr("Click a cue in the list to edit it.\n\n"
                "Or press to add a new one:\n"
-               "N — Memo · A — Audio · O — OSC\n"
+               "M — Memo · A — Audio · O — OSC\n"
                "L — Light · V — Video · Ctrl+G — Group"),
             m_emptyState);
         hint->setAlignment(Qt::AlignCenter);

@@ -718,7 +718,7 @@ void CueListView::paintEvent(QPaintEvent *event)
     titleFont.setWeight(QFont::DemiBold);
 
     const QString title = tr("No cues yet");
-    const QString hint  = tr("Press N for a memo · A for audio · O for OSC\n"
+    const QString hint  = tr("Press M for a memo · A for audio · O for OSC\n"
                              "or drag audio/video files here");
 
     const QRect r = viewport()->rect();
