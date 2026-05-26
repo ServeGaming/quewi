@@ -1813,12 +1813,24 @@ void MainWindow::onSelectionChanged()
 
 void MainWindow::updateTitle()
 {
+    const QString displayName = m_currentPath.isEmpty()
+        ? tr("Untitled")
+        : QFileInfo(m_currentPath).completeBaseName();
     const QString fileName = m_currentPath.isEmpty()
         ? tr("Untitled")
         : QFileInfo(m_currentPath).fileName();
     const QString dirty = m_workspace && m_workspace->isDirty() ? QStringLiteral("*") : QString();
     setWindowTitle(QStringLiteral("%1%2 — quewi v%3")
         .arg(fileName, dirty, QStringLiteral(QUEWI_VERSION)));
+
+    // Push the OSC remotes their copy of the title so they don't
+    // have to poll /quewi/query/showName to keep their badges in
+    // sync. Re-pushes on dirty-state toggle too — operators see the
+    // asterisk in the GUI title bar, so remotes should see it
+    // through the same signal. pushOscNotify no-ops when there
+    // are no subscribers; no need to gate this call.
+    pushOscNotify(QStringLiteral("/quewi/notify/showName/changed"),
+        { osc::Argument::s(QStringLiteral("%1%2").arg(displayName, dirty)) });
 }
 
 void MainWindow::runInAppInstall(const QString &msiUrl)
@@ -2482,7 +2494,7 @@ void MainWindow::registerOscRemoteHandlers()
     sub("/quewi/pause", [this](const osc::Message &) {
         QMetaObject::invokeMethod(this, [this]{
             if (!m_workspace) return;
-            auto *list = m_workspace->activeCueList();
+            auto *list = activeOscList();
             if (!list) return;
             int n = 0;
             for (int r = 0; r < list->cueCount(); ++r) {
@@ -2497,7 +2509,7 @@ void MainWindow::registerOscRemoteHandlers()
     sub("/quewi/resume", [this](const osc::Message &) {
         QMetaObject::invokeMethod(this, [this]{
             if (!m_workspace) return;
-            auto *list = m_workspace->activeCueList();
+            auto *list = activeOscList();
             if (!list) return;
             int n = 0;
             for (int r = 0; r < list->cueCount(); ++r) {
@@ -2630,10 +2642,25 @@ void MainWindow::registerOscRemoteHandlers()
             { osc::Argument::s(QStringLiteral(QUEWI_VERSION)) });
     });
 
-    sub("/quewi/query/showName", [this, replyToSender](const osc::Message &) {
-        const auto name = m_workspace ? m_workspace->name() : QString();
+    // What the user actually sees in the window title bar. Picks the
+    // file name (if a show is open) over Workspace::name(), which
+    // tends to stay at the "Untitled Show" default unless explicitly
+    // set in Preferences — and that mismatch had remotes reporting
+    // "Untitled show" for every loaded file regardless of the actual
+    // filename on disk.
+    auto displayShowName = [this]() -> QString {
+        if (!m_currentPath.isEmpty()) {
+            return QFileInfo(m_currentPath).completeBaseName();
+        }
+        const QString wsName = m_workspace ? m_workspace->name() : QString();
+        if (!wsName.isEmpty()) return wsName;
+        return tr("Untitled");
+    };
+
+    sub("/quewi/query/showName",
+        [this, replyToSender, displayShowName](const osc::Message &) {
         replyToSender(QStringLiteral("/quewi/reply/showName"),
-            { osc::Argument::s(name) });
+            { osc::Argument::s(displayShowName()) });
     });
 
     sub("/quewi/query/cueLists", [this, replyToSender](const osc::Message &) {
@@ -2647,15 +2674,19 @@ void MainWindow::registerOscRemoteHandlers()
         replyToSender(QStringLiteral("/quewi/reply/cueLists"), std::move(args));
     });
 
-    sub("/quewi/query/cues", [this, replyToSender, cueToJson](const osc::Message &) {
+    // (See MainWindow::activeOscList — single source of truth used
+    // by every OSC handler that needs "the cue list the operator is
+    // actually looking at." Defined as a method so all lambda
+    // captures of `this` can call it without a separate capture.)
+
+    sub("/quewi/query/cues",
+        [this, replyToSender, cueToJson](const osc::Message &) {
         QJsonArray arr;
-        if (m_workspace) {
-            if (auto *list = m_workspace->activeCueList()) {
-                for (int r = 0; r < list->cueCount(); ++r) {
-                    if (auto *c = list->cueAt(r)) {
-                        arr.append(QJsonDocument::fromJson(
-                            cueToJson(c).toUtf8()).object());
-                    }
+        if (auto *list = activeOscList()) {
+            for (int r = 0; r < list->cueCount(); ++r) {
+                if (auto *c = list->cueAt(r)) {
+                    arr.append(QJsonDocument::fromJson(
+                        cueToJson(c).toUtf8()).object());
                 }
             }
         }
@@ -2665,7 +2696,8 @@ void MainWindow::registerOscRemoteHandlers()
             { osc::Argument::s(json) });
     });
 
-    sub("/quewi/query/cue", [this, replyToSender, cueToJson](const osc::Message &m) {
+    sub("/quewi/query/cue",
+        [this, replyToSender, cueToJson](const osc::Message &m) {
         if (m.args.empty()) return;
         double num = 0.0;
         const auto &a = m.args.front();
@@ -2676,8 +2708,7 @@ void MainWindow::registerOscRemoteHandlers()
         case osc::Argument::Tag::Double:  num = std::get<double>(a.value); break;
         default: return;
         }
-        if (!m_workspace) return;
-        auto *list = m_workspace->activeCueList();
+        auto *list = activeOscList();
         if (!list) return;
         for (int r = 0; r < list->cueCount(); ++r) {
             if (auto *c = list->cueAt(r); c && qFuzzyCompare(c->number(), num)) {
@@ -2911,7 +2942,7 @@ void MainWindow::registerOscRemoteHandlers()
         }
         QMetaObject::invokeMethod(this, [this, typeKey, number, name]{
             if (!m_workspace) return;
-            auto *list = m_workspace->activeCueList();
+            auto *list = activeOscList();
             if (!list) return;
             // Type-key factory — covers every cue subclass exposed in
             // the New-Cue menu. Returning nullptr means the controller
@@ -2979,7 +3010,7 @@ void MainWindow::registerOscRemoteHandlers()
         }
         QMetaObject::invokeMethod(this, [this, num, newRow]{
             if (!m_workspace) return;
-            auto *list = m_workspace->activeCueList();
+            auto *list = activeOscList();
             if (!list) return;
             for (int r = 0; r < list->cueCount(); ++r) {
                 if (auto *c = list->cueAt(r); c && qFuzzyCompare(c->number(), num)) {
@@ -3074,7 +3105,7 @@ void MainWindow::registerOscRemoteHandlers()
         }
         QMetaObject::invokeMethod(this, [this, num]{
             if (!m_workspace) return;
-            auto *list = m_workspace->activeCueList();
+            auto *list = activeOscList();
             if (!list) return;
             for (int r = 0; r < list->cueCount(); ++r) {
                 if (auto *c = list->cueAt(r); c && qFuzzyCompare(c->number(), num)) {
@@ -3145,7 +3176,7 @@ void MainWindow::registerOscRemoteHandlers()
         }
         QMetaObject::invokeMethod(this, [this, num, field, v]{
             if (!m_workspace) return;
-            auto *list = m_workspace->activeCueList();
+            auto *list = activeOscList();
             if (!list) return;
             for (int r = 0; r < list->cueCount(); ++r) {
                 if (auto *c = list->cueAt(r); c && qFuzzyCompare(c->number(), num)) {
@@ -3155,6 +3186,12 @@ void MainWindow::registerOscRemoteHandlers()
             }
         }, Qt::QueuedConnection);
     });
+}
+
+core::CueList *MainWindow::activeOscList() const
+{
+    if (m_model && m_model->cueList()) return m_model->cueList();
+    return m_workspace ? m_workspace->activeCueList() : nullptr;
 }
 
 void MainWindow::pushOscNotify(const QString &address,
@@ -3262,9 +3299,19 @@ void MainWindow::wireOscNotifications()
     m_oscNotifyConnections.append(connect(list, &core::CueList::cueInserted, this,
         [this, list](int row) {
             if (auto *c = list->cueAt(row)) {
+                // (cueId, row, cueNumber). The cue number went on
+                // the end of the arg list (not in place of the row)
+                // so older clients that only read the first two
+                // args still parse correctly. The number lets
+                // remotes immediately follow up with
+                // /quewi/query/cue <num> to fetch the new cue's
+                // full JSON, instead of having to re-query the
+                // whole list to learn the number associated with
+                // the row index.
                 pushOscNotify(QStringLiteral("/quewi/notify/cue/added"),
                     { osc::Argument::s(c->id().toString()),
-                      osc::Argument::i(row) });
+                      osc::Argument::i(row),
+                      osc::Argument::d(c->number()) });
             }
         }));
     m_oscNotifyConnections.append(connect(list, &core::CueList::cueChanged, this,

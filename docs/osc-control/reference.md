@@ -140,7 +140,8 @@ Subscriptions live in memory only. If quewi restarts, re-subscribe. (Run a heart
 |---|---|---|
 | `/quewi/notify/workspace/changed` | — | Show loaded, closed, or created. Best response: re-query everything. |
 | `/quewi/notify/cueList/active` | `s s` id, name | Active cue list switched |
-| `/quewi/notify/cue/added` | `s i` cue id, row | A cue was inserted |
+| `/quewi/notify/cue/added` | `s i d` cue id, row, **cue number** | A cue was inserted. The cue number was added as a third argument in v0.9.57 so remotes can immediately `/quewi/query/cue <num>` without re-querying the whole list. Older remotes that only parsed the first two args still work. |
+| `/quewi/notify/showName/changed` | `s` display name (with `*` suffix when dirty) | Pushed whenever the window-title display name changes — file opens, file saves, or dirty-state transitions. Lets remotes mirror the title bar without polling. |
 | `/quewi/notify/cue/removed` | `s` cue id | A cue was deleted |
 | `/quewi/notify/cue/changed` | `s s` cue id, JSON | Any field of an existing cue changed. JSON matches `/quewi/query/cue`. |
 | `/quewi/notify/cue/state` | `s s d` cue id, state, number | Cue transport state. `state` is `"fired"` when GoEngine fires a cue, or `"finished"` when the cue's effect completes — `"finished"` is emitted for audio (when the voice ends), light-fade, fade, wait (after their declared duration), and for instant cues (memo / osc / midi / msc / start / stop / goto / pause / load / reset / devamp / light). Video and group `"finished"` aren't pushed yet — the controller can poll `/quewi/query/cue` if it needs that signal. |

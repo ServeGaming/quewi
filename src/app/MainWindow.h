@@ -21,7 +21,7 @@ class QTabBar;
 class QTimer;
 class QUrl;
 
-namespace quewi::core { class Workspace; class CueListModel; }
+namespace quewi::core { class Workspace; class CueList; class CueListModel; }
 namespace quewi::cues { class Cue; }
 namespace quewi::ui   { class ActiveCuesPanel; class CartView; class CueListView; class Inspector; class ShortcutManager; class TransportBar; class OscMonitor; class ScriptWindow; }
 namespace quewi::osc  { class OscEngine; }
@@ -168,6 +168,16 @@ private:
     QTimer *m_oscPlaybackTimer = nullptr;
     void   maybeStartPlaybackPush();
     void   pushPlaybackHeartbeat();
+    // Single source of truth for "the cue list every OSC handler
+    // should operate on." Prefers the list the GUI's QTreeView is
+    // currently rendering (m_model->cueList()); falls back to the
+    // workspace's active list pointer if the model hasn't been
+    // bound yet. Returns nullptr only when there's no workspace.
+    // Fixes the HeliOSC-reported bug where /quewi/query/cues
+    // returned [] while /quewi/cue/add and /quewi/go saw cues —
+    // those code paths were using m_workspace->activeCueList()
+    // directly, which can drift out of sync with the model.
+    core::CueList *activeOscList() const;
     void selectCueByNumber(double number);
     void fireCueByNumber(double number);
 
