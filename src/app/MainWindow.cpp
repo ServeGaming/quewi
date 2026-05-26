@@ -2688,6 +2688,58 @@ void MainWindow::registerOscRemoteHandlers()
         }
     });
 
+    // ────────────────────────────────────────────────────────────
+    // /quewi/query/playingCues
+    //
+    // Reply: /quewi/reply/playingCues  s  (JSON array)
+    //   [ { id, type, number, state }, ... ]
+    //
+    // state ∈ { "playing", "paused", "fading-out" } today; only
+    // audio cues report state right now because the audio engine
+    // has the cleanest active-voice model. Light fades and video
+    // playback will join as their engines surface per-cue
+    // running state — keep that future in mind when consuming.
+    //
+    // Designed so a remote that just reconnected can rebuild its
+    // "now playing" view without replaying the notification stream.
+    // ────────────────────────────────────────────────────────────
+    sub("/quewi/query/playingCues",
+        [this, replyToSender](const osc::Message &) {
+        QJsonArray arr;
+        if (m_audioEngine && m_workspace) {
+            auto *list = m_workspace->activeCueList();
+            const auto voices = m_audioEngine->activeVoices();
+            for (const auto &v : voices) {
+                // Match voice to its owning cue via currentVoiceId
+                // — set at fire() time, cleared on voiceFinished.
+                cues::Cue *owner = nullptr;
+                if (list) {
+                    for (int r = 0; r < list->cueCount(); ++r) {
+                        if (auto *ac = qobject_cast<audio::AudioCue *>(list->cueAt(r));
+                            ac && ac->currentVoiceId() == v.id) {
+                            owner = ac;
+                            break;
+                        }
+                    }
+                }
+                if (!owner) continue;
+                QJsonObject o;
+                o.insert(QStringLiteral("id"), owner->id().toString());
+                o.insert(QStringLiteral("type"), owner->typeKey());
+                o.insert(QStringLiteral("number"), owner->number());
+                o.insert(QStringLiteral("state"),
+                    m_audioEngine->isPaused(v.id)
+                        ? QStringLiteral("paused")
+                        : QStringLiteral("playing"));
+                arr.append(o);
+            }
+        }
+        const QString json = QString::fromUtf8(
+            QJsonDocument(arr).toJson(QJsonDocument::Compact));
+        replyToSender(QStringLiteral("/quewi/reply/playingCues"),
+            { osc::Argument::s(json) });
+    });
+
     // Subscribe / unsubscribe — peer wants notifications. Subscriber
     // identity = host:port of the source UDP packet. Optional first
     // arg is the address pattern (default "/quewi/notify/*").
@@ -2707,6 +2759,11 @@ void MainWindow::registerOscRemoteHandlers()
         statusBar()->showMessage(
             tr("OSC subscriber: %1:%2 → %3").arg(host).arg(port).arg(pattern),
             2500);
+        // If audio is already playing when the remote subscribes,
+        // start (or keep running) the 4 Hz playback heartbeat so the
+        // new subscriber sees progress immediately instead of waiting
+        // for the next cue fire to kick the timer.
+        maybeStartPlaybackPush();
     });
     sub("/quewi/unsubscribe", [this](const osc::Message &m) {
         const QString host = m_oscEngine->lastSenderHost();
@@ -2948,6 +3005,77 @@ void MainWindow::pushOscNotify(const QString &address,
     }
 }
 
+// ───────────────────────────────────────────────────────────────────
+//  Playback push heartbeat — 4 Hz feed of /quewi/notify/cue/playback
+//
+//  The timer only ticks when there's both a subscriber AND something
+//  to report. It self-stops as soon as one of those goes away. Stage
+//  managers' remotes use the elapsed/remaining values to render a
+//  transport progress bar — without this push the only way for a
+//  remote to know playback position is to keep polling, which is
+//  expensive and laggy.
+// ───────────────────────────────────────────────────────────────────
+void MainWindow::maybeStartPlaybackPush()
+{
+    if (!m_oscPlaybackTimer) {
+        m_oscPlaybackTimer = new QTimer(this);
+        m_oscPlaybackTimer->setInterval(250);   // 4 Hz
+        connect(m_oscPlaybackTimer, &QTimer::timeout,
+                this, &MainWindow::pushPlaybackHeartbeat);
+    }
+    if (m_oscPlaybackTimer->isActive()) return;
+    if (m_oscSubscribers.empty()) return;
+    if (!m_audioEngine || m_audioEngine->activeVoiceCount() <= 0) return;
+    m_oscPlaybackTimer->start();
+}
+
+void MainWindow::pushPlaybackHeartbeat()
+{
+    // Bail out and stop the timer if nobody's listening or nothing
+    // is playing. Saves CPU and battery when quewi is idle.
+    if (m_oscSubscribers.empty()
+        || !m_audioEngine
+        || m_audioEngine->activeVoiceCount() <= 0)
+    {
+        if (m_oscPlaybackTimer) m_oscPlaybackTimer->stop();
+        return;
+    }
+
+    auto *list = m_workspace ? m_workspace->activeCueList() : nullptr;
+    const auto voices = m_audioEngine->activeVoices();
+    for (const auto &v : voices) {
+        // Resolve voice → owning cue. Cue is required to address
+        // the push (`id` field); orphan voices skip silently.
+        cues::Cue *owner = nullptr;
+        if (list) {
+            for (int r = 0; r < list->cueCount(); ++r) {
+                if (auto *ac = qobject_cast<audio::AudioCue *>(list->cueAt(r));
+                    ac && ac->currentVoiceId() == v.id) {
+                    owner = ac;
+                    break;
+                }
+            }
+        }
+        if (!owner) continue;
+
+        const bool paused = m_audioEngine->isPaused(v.id);
+        const QString state = paused ? QStringLiteral("paused")
+                                     : QStringLiteral("playing");
+        const double elapsed = v.positionSeconds;
+        const double remaining = (v.durationSeconds > 0.0)
+            ? std::max(0.0, v.durationSeconds - v.positionSeconds)
+            : -1.0;
+        const double position = v.positionSeconds;
+
+        pushOscNotify(QStringLiteral("/quewi/notify/cue/playback"),
+            { osc::Argument::s(owner->id().toString()),
+              osc::Argument::s(state),
+              osc::Argument::d(elapsed),
+              osc::Argument::d(remaining),
+              osc::Argument::d(position) });
+    }
+}
+
 void MainWindow::wireOscNotifications()
 {
     // Disconnect anything we wired against the previous workspace —
@@ -3017,6 +3145,11 @@ void MainWindow::wireOscNotifications()
                     { osc::Argument::s(c->id().toString()),
                       osc::Argument::s(QStringLiteral("fired")),
                       osc::Argument::d(c->number()) });
+                // Kick the 4 Hz playback push so a remote subscriber
+                // gets the first elapsed/remaining tick immediately,
+                // instead of waiting up to 250 ms for the heartbeat
+                // to wake on its own.
+                maybeStartPlaybackPush();
             }));
     }
     // AudioEngine-level: voice finished playing (natural end or

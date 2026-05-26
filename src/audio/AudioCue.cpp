@@ -85,6 +85,16 @@ QJsonObject AudioCue::toPayload() const
 {
     auto o = cues::Cue::toPayload();
     o.insert(QStringLiteral("filePath"),       m_filePath);
+    // Total source-file duration when known. Derived from
+    // file metadata, NOT a user-settable field — fromPayload
+    // ignores it. OSC remotes use it to scale a transport
+    // progress bar; without it `elapsed` from the playback
+    // notification is meaningless on its own. Absent when the
+    // file hasn't decoded yet or isn't decodable.
+    if (m_file && m_file->durationSeconds() > 0.0) {
+        o.insert(QStringLiteral("durationSeconds"),
+                 m_file->durationSeconds());
+    }
     o.insert(QStringLiteral("gainDb"),         m_gainDb);
     o.insert(QStringLiteral("fadeInSeconds"),  m_fadeInSeconds);
     o.insert(QStringLiteral("fadeOutSeconds"), m_fadeOutSeconds);

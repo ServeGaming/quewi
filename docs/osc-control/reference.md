@@ -113,6 +113,7 @@ Cue numbers accept any numeric type (`i / f / h / d`). Use whatever your client 
 | `/quewi/query/cueLists` | `/quewi/reply/cueLists` | repeating `s s` — list id, list name |
 | `/quewi/query/cues` | `/quewi/reply/cues` | `s` JSON array of every cue in the active list |
 | `/quewi/query/cue <num>` | `/quewi/reply/cue` | `s` JSON of one cue. No reply if not found. |
+| `/quewi/query/playingCues` | `/quewi/reply/playingCues` | `s` JSON array of currently-playing cues: `[{id, type, number, state}, …]`. Use this to rebuild a "now playing" view after a reconnect, or to drive a Fade All button against ground truth (instead of accumulating from notify events that could have been lost). `state` matches `/quewi/notify/cue/playback`. |
 
 ---
 
@@ -137,6 +138,7 @@ Subscriptions live in memory only. If quewi restarts, re-subscribe. (Run a heart
 | `/quewi/notify/cue/removed` | `s` cue id | A cue was deleted |
 | `/quewi/notify/cue/changed` | `s s` cue id, JSON | Any field of an existing cue changed. JSON matches `/quewi/query/cue`. |
 | `/quewi/notify/cue/state` | `s s d` cue id, state, number | Cue transport state. `state` is `"fired"` when GoEngine fires a cue, or `"finished"` when the cue's effect completes — `"finished"` is emitted for audio (when the voice ends), light-fade, fade, wait (after their declared duration), and for instant cues (memo / osc / midi / msc / start / stop / goto / pause / load / reset / devamp / light). Video and group `"finished"` aren't pushed yet — the controller can poll `/quewi/query/cue` if it needs that signal. |
+| `/quewi/notify/cue/playback` | `s s d d d` cue id, state, elapsed, remaining, position | **4 Hz heartbeat** while any audio cue is playing. `state` ∈ `"playing"`, `"paused"`, `"fading-out"`. `elapsed` is seconds since fire (after preWait). `remaining` is seconds until natural finish, or `-1.0` if unknown (loops, indefinite). `position` is the playhead in the source file, in seconds. Stops automatically when no audio voices are alive. Designed for transport progress bars on remote controllers — sized so a remote can interpolate between ticks for sub-250-ms updates. |
 
 ---
 
@@ -192,6 +194,7 @@ coerces numeric types (`i/h/f/d`) to whatever the field expects.
 | Field | Type | Units / range | Meaning |
 |---|---|---|---|
 | `filePath` | `s` | absolute path | Audio file to play |
+| `durationSeconds` | `d` | seconds | **Read-only.** Total source-file duration. Populated by quewi from file metadata when `filePath` decodes; absent before then. Not settable via `/cue/<n>/set/durationSeconds` — remotes use it to scale a transport progress bar against the `/notify/cue/playback` elapsed/remaining values. |
 | `gainDb` | `f` | dB | Output gain |
 | `fadeInSeconds` | `f` | seconds, ≥ 0 | Fade-in on start |
 | `fadeOutSeconds` | `f` | seconds, ≥ 0 | Fade-out on stop |

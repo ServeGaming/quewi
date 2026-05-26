@@ -160,6 +160,14 @@ private:
     // Per-cue and per-list signal connections we own so that
     // resetWorkspace can disconnect them cleanly before rebinding.
     QList<QMetaObject::Connection> m_oscNotifyConnections;
+    // 4 Hz heartbeat that pushes /quewi/notify/cue/playback to OSC
+    // subscribers while any audio voice is alive. Lazy: only ticks
+    // when m_oscSubscribers is non-empty AND there's something to
+    // report; otherwise stays idle so quewi sits at 0 % CPU when
+    // no remote is watching. Started/stopped in maybeStartPlaybackPush.
+    QTimer *m_oscPlaybackTimer = nullptr;
+    void   maybeStartPlaybackPush();
+    void   pushPlaybackHeartbeat();
     void selectCueByNumber(double number);
     void fireCueByNumber(double number);
 
