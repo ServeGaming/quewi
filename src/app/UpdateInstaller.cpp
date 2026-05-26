@@ -413,8 +413,20 @@ bool UpdateInstaller::launchInstaller(const QString &msiPath)
         }
     }
     if (!started) {
-        QProcess::startDetached(QStringLiteral("explorer.exe"),
-            { QStringLiteral("/select,") + native });
+        // Last resort: open the folder the MSI lives in. The previous
+        // implementation tried `explorer.exe /select,<path>` to
+        // highlight the file in-place — that turns out to be
+        // unreliable with QProcess argument quoting (Explorer
+        // sometimes ignored the args entirely and opened the user's
+        // default view instead, which a user reported as 'it opened
+        // Documents'). QDesktopServices::openUrl on the parent
+        // directory is fragile-free — Qt handles the platform-
+        // specific incantation.
+        const QString folder = QFileInfo(msiPath).absolutePath();
+        QDesktopServices::openUrl(QUrl::fromLocalFile(folder));
+        qWarning("UpdateInstaller: all launch paths failed, "
+                 "opened folder %ls instead",
+                 qUtf16Printable(folder));
         return false;
     }
     }  // close in-place-zip fallback branch
