@@ -2438,10 +2438,38 @@ void MainWindow::registerOscRemoteHandlers()
             m_videoEngine->stopAll();
         }, Qt::QueuedConnection);
     });
+    // /quewi/pause — *real* pause (voice keeps its read position),
+    // not a fade-out-stop like the old behaviour. Walk every audio cue
+    // in the active list and pause whichever ones currently own a
+    // voice; /quewi/resume undoes the same set.
     sub("/quewi/pause", [this](const osc::Message &) {
         QMetaObject::invokeMethod(this, [this]{
-            m_audioEngine->stopAll(0.25);
-            statusBar()->showMessage(tr("Paused via OSC"), 2000);
+            if (!m_workspace) return;
+            auto *list = m_workspace->activeCueList();
+            if (!list) return;
+            int n = 0;
+            for (int r = 0; r < list->cueCount(); ++r) {
+                if (auto *ac = qobject_cast<audio::AudioCue *>(list->cueAt(r));
+                    ac && ac->currentVoiceId()) {
+                    if (m_audioEngine->pause(ac->currentVoiceId())) ++n;
+                }
+            }
+            statusBar()->showMessage(tr("Paused %1 voices via OSC").arg(n), 2000);
+        }, Qt::QueuedConnection);
+    });
+    sub("/quewi/resume", [this](const osc::Message &) {
+        QMetaObject::invokeMethod(this, [this]{
+            if (!m_workspace) return;
+            auto *list = m_workspace->activeCueList();
+            if (!list) return;
+            int n = 0;
+            for (int r = 0; r < list->cueCount(); ++r) {
+                if (auto *ac = qobject_cast<audio::AudioCue *>(list->cueAt(r));
+                    ac && ac->currentVoiceId()) {
+                    if (m_audioEngine->resume(ac->currentVoiceId())) ++n;
+                }
+            }
+            statusBar()->showMessage(tr("Resumed %1 voices via OSC").arg(n), 2000);
         }, Qt::QueuedConnection);
     });
     sub("/quewi/cue/select", [this](const osc::Message &m) {
@@ -2658,6 +2686,177 @@ void MainWindow::registerOscRemoteHandlers()
             }), m_oscSubscribers.end());
     });
 
+    // ============================================================
+    // Remote API v3 — engine targeting, cue editing, workspace ops
+    // ============================================================
+
+    // Per-engine stops. /quewi/stop and /quewi/panic kill everything;
+    // these let a controller blackout lights without cutting audio,
+    // or freeze video while music plays through.
+    sub("/quewi/lighting/blackout", [this](const osc::Message &) {
+        QMetaObject::invokeMethod(this, [this]{
+            if (m_lightingEngine) m_lightingEngine->blackout();
+            statusBar()->showMessage(tr("Lighting blackout via OSC"), 2000);
+        }, Qt::QueuedConnection);
+    });
+    sub("/quewi/video/stop", [this](const osc::Message &) {
+        QMetaObject::invokeMethod(this, [this]{
+            if (m_videoEngine) m_videoEngine->stopAll();
+            statusBar()->showMessage(tr("Video stop via OSC"), 2000);
+        }, Qt::QueuedConnection);
+    });
+
+    // Active cue list — controller can rotate between named lists.
+    // Argument may be a UUID string OR a name; UUID wins on tie.
+    sub("/quewi/cueList/select", [this](const osc::Message &m) {
+        if (m.args.empty()) return;
+        if (m.args.front().tag != osc::Argument::Tag::String) return;
+        const QString key = std::get<QString>(m.args.front().value);
+        QMetaObject::invokeMethod(this, [this, key]{
+            if (!m_workspace) return;
+            const QUuid asId(key);
+            core::CueList *target = nullptr;
+            for (const auto &up : m_workspace->cueLists()) {
+                if ((!asId.isNull() && up->id() == asId) || up->name() == key) {
+                    target = up.get();
+                    break;
+                }
+            }
+            if (target) {
+                m_workspace->setActiveCueList(target);
+                rebindModel();
+                rebuildListTabs();
+            }
+        }, Qt::QueuedConnection);
+    });
+
+    // Cue add. Arg 0 = type key string (see docs/osc-remote-api.md for
+    // the full list: audio, memo, osc, fade, group, wait, light,
+    // light-fade, video, image, text, midi, msc, start, stop, goto,
+    // pause, load, reset, devamp).
+    // Optional arg 1 = cue number (float). Optional arg 2 = display name.
+    sub("/quewi/cue/add", [this](const osc::Message &m) {
+        if (m.args.empty() || m.args.front().tag != osc::Argument::Tag::String) return;
+        const QString typeKey = std::get<QString>(m.args.front().value);
+        double number = -1.0;
+        QString name;
+        if (m.args.size() > 1) {
+            const auto &a = m.args[1];
+            switch (a.tag) {
+            case osc::Argument::Tag::Int32:   number = std::get<qint32>(a.value); break;
+            case osc::Argument::Tag::Float32: number = std::get<float>(a.value);  break;
+            case osc::Argument::Tag::Int64:   number = static_cast<double>(std::get<qint64>(a.value)); break;
+            case osc::Argument::Tag::Double:  number = std::get<double>(a.value); break;
+            default: break;
+            }
+        }
+        if (m.args.size() > 2 && m.args[2].tag == osc::Argument::Tag::String) {
+            name = std::get<QString>(m.args[2].value);
+        }
+        QMetaObject::invokeMethod(this, [this, typeKey, number, name]{
+            if (!m_workspace) return;
+            auto *list = m_workspace->activeCueList();
+            if (!list) return;
+            // Type-key factory — covers every cue subclass exposed in
+            // the New-Cue menu. Returning nullptr means the controller
+            // sent a typo or an unsupported type.
+            std::unique_ptr<cues::Cue> cue;
+            if      (typeKey == QLatin1String("memo"))       cue = std::make_unique<cues::MemoCue>();
+            else if (typeKey == QLatin1String("osc"))        cue = std::make_unique<osc::OscCue>();
+            else if (typeKey == QLatin1String("audio"))      cue = std::make_unique<audio::AudioCue>();
+            else if (typeKey == QLatin1String("fade"))       cue = std::make_unique<cues::FadeCue>();
+            else if (typeKey == QLatin1String("group"))      cue = std::make_unique<cues::GroupCue>();
+            else if (typeKey == QLatin1String("wait"))       cue = std::make_unique<cues::WaitCue>();
+            else if (typeKey == QLatin1String("light"))      cue = std::make_unique<lighting::LightCue>();
+            else if (typeKey == QLatin1String("light-fade")) cue = std::make_unique<lighting::LightFadeCue>();
+            else if (typeKey == QLatin1String("video"))      cue = std::make_unique<video::VideoCue>();
+            else if (typeKey == QLatin1String("image"))      cue = std::make_unique<video::ImageCue>();
+            else if (typeKey == QLatin1String("text"))       cue = std::make_unique<video::TextCue>();
+            else if (typeKey == QLatin1String("midi"))       cue = std::make_unique<midi::MidiCue>();
+            else if (typeKey == QLatin1String("msc"))        cue = std::make_unique<midi::MscCue>();
+            else if (typeKey == QLatin1String("start"))      cue = std::make_unique<cues::StartCue>();
+            else if (typeKey == QLatin1String("stop"))       cue = std::make_unique<cues::StopCue>();
+            else if (typeKey == QLatin1String("goto"))       cue = std::make_unique<cues::GotoCue>();
+            else if (typeKey == QLatin1String("pause"))      cue = std::make_unique<cues::PauseCue>();
+            else if (typeKey == QLatin1String("load"))       cue = std::make_unique<cues::LoadCue>();
+            else if (typeKey == QLatin1String("reset"))      cue = std::make_unique<cues::ResetCue>();
+            else if (typeKey == QLatin1String("devamp"))     cue = std::make_unique<cues::DevampCue>();
+            if (!cue) {
+                statusBar()->showMessage(
+                    tr("OSC cue/add: unknown type \"%1\"").arg(typeKey), 3000);
+                return;
+            }
+            const int insertRow = list->cueCount();
+            const double useNumber = (number > 0.0)
+                ? number : double(insertRow + 1);
+            cue->setField(QStringLiteral("number"), useNumber);
+            cue->setField(QStringLiteral("name"),
+                name.isEmpty() ? cue->typeName() : name);
+            m_workspace->undoStack()->push(
+                new core::InsertCueCommand(list, insertRow, std::move(cue)));
+        }, Qt::QueuedConnection);
+    });
+
+    // Cue remove by number. The recipient is the active cue list.
+    sub("/quewi/cue/remove", [this](const osc::Message &m) {
+        if (m.args.empty()) return;
+        double num = 0.0;
+        const auto &a = m.args.front();
+        switch (a.tag) {
+        case osc::Argument::Tag::Int32:   num = std::get<qint32>(a.value); break;
+        case osc::Argument::Tag::Float32: num = std::get<float>(a.value);  break;
+        case osc::Argument::Tag::Int64:   num = static_cast<double>(std::get<qint64>(a.value)); break;
+        case osc::Argument::Tag::Double:  num = std::get<double>(a.value); break;
+        default: return;
+        }
+        QMetaObject::invokeMethod(this, [this, num]{
+            if (!m_workspace) return;
+            auto *list = m_workspace->activeCueList();
+            if (!list) return;
+            for (int r = 0; r < list->cueCount(); ++r) {
+                if (auto *c = list->cueAt(r); c && qFuzzyCompare(c->number(), num)) {
+                    m_workspace->undoStack()->push(
+                        new core::RemoveCueCommand(list, r));
+                    return;
+                }
+            }
+        }, Qt::QueuedConnection);
+    });
+
+    // Workspace file ops. open/save take a no-args form; open with a
+    // string arg loads from that path. These bypass the normal "save
+    // dirty?" prompt — controllers are expected to coordinate that.
+    sub("/quewi/workspace/new", [this](const osc::Message &) {
+        QMetaObject::invokeMethod(this, [this]{ newShow(); },
+                                  Qt::QueuedConnection);
+    });
+    sub("/quewi/workspace/open", [this](const osc::Message &m) {
+        QString path;
+        if (!m.args.empty() && m.args.front().tag == osc::Argument::Tag::String)
+            path = std::get<QString>(m.args.front().value);
+        QMetaObject::invokeMethod(this, [this, path]{
+            if (path.isEmpty()) openShow();
+            else                loadShowFromPath(path);
+        }, Qt::QueuedConnection);
+    });
+    sub("/quewi/workspace/save", [this](const osc::Message &) {
+        QMetaObject::invokeMethod(this, [this]{ saveShow(); },
+                                  Qt::QueuedConnection);
+    });
+
+    // Undo / redo. The undo stack is workspace-owned, so the address
+    // implicitly targets whatever workspace is currently loaded.
+    sub("/quewi/undo", [this](const osc::Message &) {
+        QMetaObject::invokeMethod(this, [this]{
+            if (m_workspace) m_workspace->undoStack()->undo();
+        }, Qt::QueuedConnection);
+    });
+    sub("/quewi/redo", [this](const osc::Message &) {
+        QMetaObject::invokeMethod(this, [this]{
+            if (m_workspace) m_workspace->undoStack()->redo();
+        }, Qt::QueuedConnection);
+    });
+
     // Generic field setter: /quewi/cue/<num>/set/<field> <value>
     // Subscribed via wildcard pattern; handler parses the address.
     sub("/quewi/cue/*/set/*", [this](const osc::Message &m) {
@@ -2769,6 +2968,23 @@ void MainWindow::wireOscNotifications()
                       osc::Argument::s(l->name()) });
             }
         }));
+
+    // GoEngine-level: cue actually fired (transport state push). The
+    // controller side uses this to render a "now playing" view without
+    // polling. We emit "fired" on every GoEngine::cueFired signal —
+    // a future "stopped"/"finished" companion notification can hook
+    // AudioEngine voice-finished and the lighting/video engines'
+    // equivalents when those are exposed.
+    if (m_goEngine) {
+        m_oscNotifyConnections.append(connect(m_goEngine.get(),
+            &GoEngine::cueFired, this, [this](cues::Cue *c) {
+                if (!c) return;
+                pushOscNotify(QStringLiteral("/quewi/notify/cue/state"),
+                    { osc::Argument::s(c->id().toString()),
+                      osc::Argument::s(QStringLiteral("fired")),
+                      osc::Argument::d(c->number()) });
+            }));
+    }
 
     // One-shot: tell subscribers the workspace just changed (e.g.,
     // file loaded) so they can re-query.
