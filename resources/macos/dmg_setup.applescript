@@ -27,35 +27,43 @@ on run argv
             end try
 
             -- Visual chrome: icon view, hidden toolbar/status bar,
-            -- generous window so both icons sit comfortably with a
-            -- visible arrow between them. Window is sized to also
-            -- accommodate a README.txt sitting below the two icons —
-            -- there's no path to "this app is from a developer you
-            -- don't recognise" prompts that's intuitive on first
-            -- launch, so the README lives where it can't be missed.
+            -- generous window. Layout is a 2×2 grid:
+            --
+            --     quewi.app  →  Applications      (install row)
+            --     README     ·  Fix Gatekeeper    (help row)
+            --
+            -- The install row is the eye's first stop — same look as
+            -- every other Mac DMG. The help row sits below so users
+            -- who hit "damaged and can't be opened" see a clear
+            -- recovery path before they bounce to Google.
             set current view of container window to icon view
             set toolbar visible of container window to false
             set statusbar visible of container window to false
-            set bounds of container window to {200, 120, 760, 520}
+            set bounds of container window to {200, 120, 760, 560}
 
             set theViewOptions to icon view options of container window
             set arrangement of theViewOptions to not arranged
             set icon size of theViewOptions to 128
             set text size of theViewOptions to 13
 
-            -- Position the .app on the left, /Applications on the right.
-            -- 560-wide window centres at x=280; place icons ~190 apart
-            -- so the arrow between them reads "drag from here to here".
-            -- The README.txt sits centred below them so it's the next
-            -- thing the eye lands on after the install drag target.
+            -- Top row: quewi.app on the left, /Applications on the
+            -- right. 560-wide window centres at x=280; icons sit
+            -- ~190 apart so the arrow between them reads "drag from
+            -- here to here".
             try
                 set position of item "quewi.app" of container window to {140, 170}
             end try
             try
                 set position of item "Applications" of container window to {420, 170}
             end try
+            -- Bottom row: README on the left, Fix Gatekeeper on the
+            -- right. Same x-positions as the install row so the
+            -- two columns visually align.
             try
-                set position of item "README.txt" of container window to {280, 340}
+                set position of item "README.txt" of container window to {140, 360}
+            end try
+            try
+                set position of item "Fix Gatekeeper.command" of container window to {420, 360}
             end try
 
             update without registering applications

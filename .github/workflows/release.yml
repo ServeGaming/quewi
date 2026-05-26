@@ -204,17 +204,41 @@ jobs:
             ls -la build/macos-release/_install || true
             exit 1
           fi
-          # Failure here is non-fatal: the DMG still ships, and the
-          # README inside tells the user to run `xattr -cr` to
-          # recover. Logging the failure as a warning so it's
-          # visible in the Actions UI without aborting the release.
-          if codesign --force --deep --sign - "$APP"; then
+
+          # Strip any extended attributes that the CI environment
+          # may have written to files inside the bundle (LSQuarantine
+          # from downloaded archives, macl from file-tagging, etc.).
+          # Stray xattrs are one of the more frustrating causes of
+          # "damaged and can't be opened" — codesign appears to
+          # succeed and `codesign --verify` is happy, but the moment
+          # macOS's runtime gatekeeper does its own check it sees a
+          # stale xattr and refuses to launch. xattr -cr strips all
+          # of them recursively before we sign.
+          echo "Stripping extended attributes..."
+          xattr -cr "$APP"
+          xattr -lr "$APP" | head -20 || true
+
+          # macdeployqt already ad-hoc-signed every framework as it
+          # copied them in (-codesign=- in the CMake install rule),
+          # so the inner signatures are correct. The final pass here
+          # signs the outer bundle. We DON'T use --deep — that would
+          # walk back into the already-signed frameworks and
+          # re-sign them, sometimes corrupting nested signatures
+          # that have specific designated-requirement strings. Just
+          # sign the .app wrapper itself.
+          if codesign --force --sign - "$APP"; then
             echo "Codesign succeeded:"
             codesign --verify --verbose=2 "$APP" || true
             codesign -dvv "$APP" 2>&1 | head -10 || true
           else
-            echo "::warning::codesign failed — DMG will still build, but users may need 'xattr -cr /Applications/quewi.app' (see README in the DMG)"
+            echo "::warning::codesign failed — DMG will still build, but users will need the bundled 'Fix Gatekeeper.command' (or 'xattr -cr /Applications/quewi.app' from Terminal)"
           fi
+
+          # Belt-and-braces: after signing, strip xattrs AGAIN. The
+          # codesign command can itself add a com.apple.cs.CodeDirectory
+          # xattr on some macOS versions, which is benign but other
+          # xattrs may have come back. This is cheap insurance.
+          xattr -cr "$APP"
 
       - name: Package DMG
         working-directory: build/macos-release

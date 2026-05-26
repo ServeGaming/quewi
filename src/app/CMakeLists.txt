@@ -127,15 +127,30 @@ elseif(APPLE)
     install(FILES "${CMAKE_SOURCE_DIR}/resources/macos/dmg-readme.txt"
         DESTINATION . RENAME README.txt)
 
+    # Also drop the recovery .command file. If Gatekeeper still
+    # marks the bundle as "damaged" on the user's machine — Apple
+    # Silicon strict mode does this whenever the quarantine flag
+    # ends up on an ad-hoc-signed bundle — double-clicking this
+    # .command clears the xattr without the user needing Terminal.
+    install(PROGRAMS
+        "${CMAKE_SOURCE_DIR}/resources/macos/fix-gatekeeper.command"
+        DESTINATION . RENAME "Fix Gatekeeper.command")
+
     # The bundle lands at ${CMAKE_INSTALL_PREFIX}/quewi.app (BUNDLE
     # DESTINATION "."). macdeployqt rewrites Mach-O rpaths and copies
     # frameworks/plugins into Contents/Frameworks and Contents/PlugIns.
+    # -codesign=- has macdeployqt ad-hoc-sign every framework and
+    # dylib as it copies them in, which is the only way to build a
+    # signature deep enough that the outer-bundle codesign in CI
+    # doesn't blow it apart trying to resign already-loaded
+    # Mach-O nesting.
     install(CODE "
         message(STATUS \"Running macdeployqt on \${CMAKE_INSTALL_PREFIX}/quewi.app\")
         execute_process(
             COMMAND \"${MACDEPLOYQT_EXECUTABLE}\"
                 \"\${CMAKE_INSTALL_PREFIX}/quewi.app\"
                 -always-overwrite
+                -codesign=-
             COMMAND_ERROR_IS_FATAL ANY
         )
     ")
