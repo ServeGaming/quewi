@@ -1,5 +1,6 @@
 #include "ui/ActiveCuesPanel.h"
 
+#include "ui/Theme.h"
 #include "audio/AudioCue.h"
 #include "audio/AudioEngine.h"
 #include "core/CueList.h"
@@ -245,12 +246,14 @@ public:
         });
 
         m_time = new QLabel(QStringLiteral("0:00 / 0:00"), this);
-        m_time->setStyleSheet(QStringLiteral("color:#B5AC9C; font-size:11px;"));
+        m_time->setStyleSheet(QStringLiteral("color:%1; font-size:11px;")
+                                  .arg(Theme::tokens().ink60.name()));
         m_time->setMinimumWidth(86);
         m_time->setAlignment(Qt::AlignRight | Qt::AlignVCenter);
 
         m_meta = new QLabel(QStringLiteral(" "), this);
-        m_meta->setStyleSheet(QStringLiteral("color:#B5AC9C; font-size:11px;"));
+        m_meta->setStyleSheet(QStringLiteral("color:%1; font-size:11px;")
+                                  .arg(Theme::tokens().ink60.name()));
         m_meta->setMinimumWidth(96);
 
         m_meter = new PeakMeter(this);

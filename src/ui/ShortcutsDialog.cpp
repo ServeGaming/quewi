@@ -1,6 +1,7 @@
 #include "ui/ShortcutsDialog.h"
 
 #include "ui/ShortcutManager.h"
+#include "ui/Theme.h"
 
 #include <QDialogButtonBox>
 #include <QHBoxLayout>
@@ -23,7 +24,8 @@ ShortcutsDialog::ShortcutsDialog(ShortcutManager *mgr, QWidget *parent)
     auto *hint = new QLabel(tr("Click a shortcut cell, press the new key combination, "
                                "then click Apply. Empty clears the binding."), this);
     hint->setWordWrap(true);
-    hint->setStyleSheet(QStringLiteral("color:#A8AEBA; font-size:11px;"));
+    hint->setStyleSheet(QStringLiteral("color:%1; font-size:11px;")
+                            .arg(Theme::tokens().ink60.name()));
     root->addWidget(hint);
 
     m_table = new QTableWidget(this);

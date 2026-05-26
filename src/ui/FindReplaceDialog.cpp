@@ -1,5 +1,6 @@
 #include "ui/FindReplaceDialog.h"
 
+#include "ui/Theme.h"
 #include "core/CueList.h"
 #include "core/UndoCommands.h"
 #include "core/Workspace.h"
@@ -37,7 +38,8 @@ FindReplaceDialog::FindReplaceDialog(core::Workspace *workspace, QWidget *parent
 
     auto *scopeBox = new QVBoxLayout();
     auto *scopeLabel = new QLabel(tr("Search in:"), this);
-    scopeLabel->setStyleSheet(QStringLiteral("color:#A8AEBA; font-size:11px;"));
+    scopeLabel->setStyleSheet(QStringLiteral("color:%1; font-size:11px;")
+                                       .arg(Theme::tokens().ink60.name()));
     scopeBox->addWidget(scopeLabel);
     m_scopeNames = new QCheckBox(tr("Cue names"), this);   m_scopeNames->setChecked(true);
     m_scopeNotes = new QCheckBox(tr("Notes"), this);       m_scopeNotes->setChecked(true);
@@ -48,7 +50,8 @@ FindReplaceDialog::FindReplaceDialog(core::Workspace *workspace, QWidget *parent
     root->addLayout(scopeBox);
 
     m_summary = new QLabel(QStringLiteral(" "), this);
-    m_summary->setStyleSheet(QStringLiteral("color:#A8AEBA; font-size:11px;"));
+    m_summary->setStyleSheet(QStringLiteral("color:%1; font-size:11px;")
+                                       .arg(Theme::tokens().ink60.name()));
     root->addWidget(m_summary);
 
     auto *btnRow = new QHBoxLayout();

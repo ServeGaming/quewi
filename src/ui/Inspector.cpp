@@ -1,5 +1,7 @@
 #include "ui/Inspector.h"
 
+#include "ui/Theme.h"
+
 #include "audio/AudioCue.h"
 #include "audio/AudioEngine.h"
 #include "audio/AudioFile.h"
@@ -346,8 +348,8 @@ Inspector::Inspector(QWidget *parent)
     gainColumn->setSpacing(4);
     auto *gainHeader = new QLabel(tr("Gain"), m_audioGroup);
     gainHeader->setStyleSheet(QStringLiteral(
-        "color:#A8AEBA; font-size:10px; font-weight:600; "
-        "letter-spacing:0.04em;"));
+        "color:%1; font-size:10px; font-weight:600; "
+        "letter-spacing:0.04em;").arg(Theme::tokens().ink60.name()));
     gainHeader->setAlignment(Qt::AlignCenter);
     gainColumn->addWidget(gainHeader);
 
@@ -377,7 +379,8 @@ Inspector::Inspector(QWidget *parent)
     // relationship is visually reinforced.
     auto makeArrowLabel = [&](QWidget *parent) {
         auto *l = new QLabel(QStringLiteral("→"), parent);
-        l->setStyleSheet(QStringLiteral("color:#A8AEBA;"));
+        l->setStyleSheet(QStringLiteral("color:%1;")
+                             .arg(Theme::tokens().ink60.name()));
         l->setAlignment(Qt::AlignCenter);
         l->setFixedWidth(16);
         return l;
@@ -427,7 +430,8 @@ Inspector::Inspector(QWidget *parent)
     m_audioPanLabel = new QLabel(tr("Centre"), m_audioGroup);
     m_audioPanLabel->setMinimumWidth(64);
     m_audioPanLabel->setAlignment(Qt::AlignLeft | Qt::AlignVCenter);
-    m_audioPanLabel->setStyleSheet(QStringLiteral("color:#A8AEBA;"));
+    m_audioPanLabel->setStyleSheet(QStringLiteral("color:%1;")
+                                       .arg(Theme::tokens().ink60.name()));
     m_audioPanSlider = new QSlider(Qt::Horizontal, m_audioGroup);
     m_audioPanSlider->setRange(-100, 100); // hundredths
     m_audioPanSlider->setTickPosition(QSlider::TicksBelow);
@@ -1112,7 +1116,8 @@ void Inspector::rebuild()
                 .arg(QString::number(file->durationSeconds(), 'f', 2)));
         } else if (auto file = audioCue->audioFile(); file && file->state() == audio::AudioFile::State::Failed) {
             m_audioMeta->setText(tr("Decode failed: %1").arg(file->errorString()));
-            m_audioMeta->setStyleSheet(QStringLiteral("color:#FF5A5A;"));
+            m_audioMeta->setStyleSheet(QStringLiteral("color:%1;")
+                                           .arg(Theme::tokens().errBright.name()));
         } else {
             m_audioMeta->setText(QStringLiteral(" "));
             m_audioMeta->setStyleSheet(QString());
@@ -1181,9 +1186,11 @@ void Inspector::rebuild()
     if (m_cue) {
         const auto col = m_cue->color();
         if (col.isValid()) {
+            const auto &tk = Theme::tokens();
             m_colorChip->setStyleSheet(QStringLiteral(
-                "background:%1; color:#0E0F12; border:1px solid #33373F; "
-                "border-radius:4px; padding:4px 10px; font-weight:600;").arg(col.name()));
+                "background:%1; color:%2; border:1px solid %3; "
+                "border-radius:4px; padding:4px 10px; font-weight:600;")
+                .arg(col.name(), tk.inkOnAccent.name(), tk.outline.name()));
             m_colorChip->setText(col.name(QColor::HexRgb).toUpper());
             m_colorClear->setEnabled(true);
         } else {
@@ -1782,7 +1789,7 @@ void Inspector::pickCueColor()
 {
     if (!m_cue) return;
     const auto cur = m_cue->color();
-    const auto col = QColorDialog::getColor(cur.isValid() ? cur : QColor("#62B4FF"),
+    const auto col = QColorDialog::getColor(cur.isValid() ? cur : Theme::tokens().info,
         this, tr("Cue color"));
     if (!col.isValid()) return;
     pushFieldEdit(QStringLiteral("color"), col);

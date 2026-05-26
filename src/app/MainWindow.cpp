@@ -242,10 +242,12 @@ MainWindow::MainWindow(QWidget *parent)
     m_notifBadge = new QPushButton(this);
     m_notifBadge->setFlat(true);
     m_notifBadge->setCursor(Qt::PointingHandCursor);
+    const auto &tkB = ui::Theme::tokens();
     m_notifBadge->setStyleSheet(QStringLiteral(
-        "QPushButton { color: #D7A24E; padding: 2px 8px; border: none; "
+        "QPushButton { color: %1; padding: 2px 8px; border: none; "
         "background: transparent; }"
-        "QPushButton:hover { color: #E8C861; }"));
+        "QPushButton:hover { color: %2; }")
+        .arg(tkB.warn.name(), tkB.warnBright.name()));
     m_notifBadge->setVisible(false);
     statusBar()->addPermanentWidget(m_notifBadge);
 
@@ -255,7 +257,7 @@ MainWindow::MainWindow(QWidget *parent)
     // 0.5 Hz — cheap walk of the workspace.
     m_memLabel = new QLabel(this);
     m_memLabel->setStyleSheet(QStringLiteral(
-        "color:#7A828F; padding:2px 8px;"));
+        "color:%1; padding:2px 8px;").arg(ui::Theme::tokens().ink40.name()));
     statusBar()->addPermanentWidget(m_memLabel);
     m_memTimer = new QTimer(this);
     m_memTimer->setInterval(2000);
@@ -860,9 +862,10 @@ void MainWindow::refreshMemReadout()
         .arg(usedMB).arg(budgetMB).arg(voices));
     // Warn-tinted when within 10% of the cap, red over.
     const float frac = budget > 0 ? float(used) / float(budget) : 0.f;
-    QString colour = QStringLiteral("#7A828F");
-    if (frac >= 1.0f)      colour = QStringLiteral("#E07B5A");
-    else if (frac >= 0.9f) colour = QStringLiteral("#D7A24E");
+    const auto &tkM = ui::Theme::tokens();
+    QString colour = tkM.ink40.name();
+    if (frac >= 1.0f)      colour = tkM.err.name();
+    else if (frac >= 0.9f) colour = tkM.warn.name();
     m_memLabel->setStyleSheet(QStringLiteral("color:%1; padding:2px 8px;").arg(colour));
 }
 

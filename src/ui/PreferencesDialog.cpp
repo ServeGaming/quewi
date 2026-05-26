@@ -1,5 +1,6 @@
 #include "ui/PreferencesDialog.h"
 
+#include "ui/Theme.h"
 #include "audio/AudioEngine.h"
 #include "core/CueListModel.h"
 #include "midi/MidiInputEngine.h"
@@ -106,7 +107,7 @@ QWidget *makeAudioPage(audio::AudioEngine *engine, QWidget *parent)
         "will let huge files play without ever residing fully in RAM."),
         memGroup);
     memHint->setWordWrap(true);
-    memHint->setStyleSheet(QStringLiteral("color:#A8AEBA;"));
+    memHint->setStyleSheet(QStringLiteral("color:%1;").arg(Theme::tokens().ink60.name()));
     memForm->addRow(QString(), memHint);
 
     outer->addWidget(memGroup);
@@ -129,7 +130,7 @@ QWidget *makeCueListPage(PreferencesDialog *dlg, QWidget *parent)
         "Choose which optional details show in the cue list. Number, type, "
         "name and notes are always visible."), box);
     hint->setWordWrap(true);
-    hint->setStyleSheet(QStringLiteral("color:#A8AEBA;"));
+    hint->setStyleSheet(QStringLiteral("color:%1;").arg(Theme::tokens().ink60.name()));
     boxLayout->addWidget(hint);
 
     QSettings s(QStringLiteral("ServeGaming"), QStringLiteral("quewi"));
@@ -157,7 +158,8 @@ QWidget *makeCueListPage(PreferencesDialog *dlg, QWidget *parent)
         "Changes apply to new cue lists immediately; existing tabs refresh "
         "when reopened or after the list is reloaded."), page);
     applyHint->setWordWrap(true);
-    applyHint->setStyleSheet(QStringLiteral("color:#7A828F; font-size:11px;"));
+    applyHint->setStyleSheet(QStringLiteral("color:%1; font-size:11px;")
+                                  .arg(Theme::tokens().ink40.name()));
 
     outer->addWidget(box);
     outer->addWidget(applyHint);
@@ -300,7 +302,8 @@ QWidget *makeMidiPage(midi::MidiInputEngine *input, QWidget *parent)
         "Note-off and zero-velocity messages are filtered so the captured "
         "trigger is the press, not the release."), bindGroup);
     hint->setWordWrap(true);
-    hint->setStyleSheet(QStringLiteral("color:#7A828F; font-size:11px;"));
+    hint->setStyleSheet(QStringLiteral("color:%1; font-size:11px;")
+                                  .arg(Theme::tokens().ink40.name()));
     bindForm->addRow(QString(), hint);
 
     outer->addWidget(bindGroup);
@@ -322,7 +325,8 @@ QLabel *makeHint(const QString &text, QWidget *parent)
 {
     auto *l = new QLabel(text, parent);
     l->setWordWrap(true);
-    l->setStyleSheet(QStringLiteral("color:#A8AEBA; font-size:11px;"));
+    l->setStyleSheet(QStringLiteral("color:%1; font-size:11px;")
+                         .arg(Theme::tokens().ink60.name()));
     return l;
 }
 

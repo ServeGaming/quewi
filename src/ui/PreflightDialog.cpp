@@ -1,5 +1,6 @@
 #include "ui/PreflightDialog.h"
 
+#include "ui/Theme.h"
 #include "audio/AudioCue.h"
 #include "audio/AudioFile.h"
 #include "audio/SpeakerPatch.h"
@@ -227,17 +228,19 @@ void PreflightDialog::runChecks()
         m_results->addItem(item);
     }
 
+    const auto &tk = Theme::tokens();
     if (errors == 0 && warnings == 0) {
         m_summary->setText(tr("✓  Ready — no problems found."));
         m_summary->setStyleSheet(QStringLiteral(
-            "color:#62B4FF; font-size:14px; font-weight:600; padding:6px 0;"));
+            "color:%1; font-size:14px; font-weight:600; padding:6px 0;")
+            .arg(tk.running.name()));
     } else {
         m_summary->setText(tr("%1 problem%2 · %3 warning%4")
             .arg(errors).arg(errors == 1 ? QString() : QStringLiteral("s"))
             .arg(warnings).arg(warnings == 1 ? QString() : QStringLiteral("s")));
-        m_summary->setStyleSheet(errors > 0
-            ? QStringLiteral("color:#FF5A5A; font-size:14px; font-weight:600; padding:6px 0;")
-            : QStringLiteral("color:#F2C94C; font-size:14px; font-weight:600; padding:6px 0;"));
+        m_summary->setStyleSheet(QStringLiteral(
+            "color:%1; font-size:14px; font-weight:600; padding:6px 0;")
+            .arg(errors > 0 ? tk.errBright.name() : tk.warn.name()));
     }
 }
 

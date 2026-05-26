@@ -1,5 +1,7 @@
 #include "ui/WelcomeDialog.h"
 
+#include "ui/Theme.h"
+
 #include <QCheckBox>
 #include <QCoreApplication>
 #include <QFileDialog>
@@ -53,16 +55,25 @@ void WelcomeDialog::buildLayout()
     // Darker tone than the main app background — reads as a poster
     // rather than a working surface. Kiwi icon centred, wordmark
     // and version below it.
+    // Brand panel uses inkOnAccent as its background — a slightly
+    // deeper warm tone than bgDeep, deliberately differentiating the
+    // poster-feel left half from the working surface on the right.
+    // Pulled from theme so dark / high-contrast / light all stay in
+    // sync.
+    const auto &tk = Theme::tokens();
     auto *left = new QWidget(this);
     left->setObjectName(QStringLiteral("welcomeBrand"));
     left->setFixedWidth(280);
     left->setStyleSheet(QStringLiteral(
-        "QWidget#welcomeBrand { background: #1A1815; }"
-        "QLabel#welcomeWord { color: #E8E2D4; font-size: 32px;"
+        "QWidget#welcomeBrand { background: %1; }"
+        "QLabel#welcomeWord { color: %2; font-size: 32px;"
         "                     font-weight: 300; letter-spacing: 2px; }"
-        "QLabel#welcomeVer  { color: #8E8780; font-size: 12px; }"
-        "QLabel#welcomeTag  { color: #6F665D; font-size: 11px;"
-        "                     font-style: italic; }"));
+        "QLabel#welcomeVer  { color: %3; font-size: 12px; }"
+        "QLabel#welcomeTag  { color: %3; font-size: 11px;"
+        "                     font-style: italic; }")
+        .arg(tk.inkOnAccent.name(),
+             tk.ink100.name(),
+             tk.ink40.name()));
     auto *leftLayout = new QVBoxLayout(left);
     leftLayout->setContentsMargins(28, 36, 28, 28);
     leftLayout->setSpacing(8);
@@ -108,10 +119,14 @@ void WelcomeDialog::buildLayout()
     newBtn->setStyleSheet(QStringLiteral(
         "QPushButton { font-size: 14px; padding: 8px 18px; "
         "              border-radius: 5px;"
-        "              background: #D7A24E; color: #1A1815;"
+        "              background: %1; color: %2;"
         "              border: none; font-weight: 600; }"
-        "QPushButton:hover  { background: #E0AD58; }"
-        "QPushButton:pressed { background: #BD8A3C; }"));
+        "QPushButton:hover  { background: %3; }"
+        "QPushButton:pressed { background: %4; }")
+        .arg(tk.warn.name(),
+             tk.inkOnAccent.name(),
+             tk.accentHover.name(),
+             tk.accentSoft.name()));
     connect(newBtn, &QPushButton::clicked, this, &WelcomeDialog::onNewClicked);
     rightLayout->addWidget(newBtn);
 
@@ -120,10 +135,14 @@ void WelcomeDialog::buildLayout()
     openBtn->setStyleSheet(QStringLiteral(
         "QPushButton { font-size: 13px; padding: 6px 18px; "
         "              border-radius: 5px;"
-        "              background: transparent; color: #E8E2D4;"
-        "              border: 1px solid #4A4640; }"
-        "QPushButton:hover  { border-color: #6F665D; }"
-        "QPushButton:pressed { background: #2A2724; }"));
+        "              background: transparent; color: %1;"
+        "              border: 1px solid %2; }"
+        "QPushButton:hover  { border-color: %3; }"
+        "QPushButton:pressed { background: %4; }")
+        .arg(tk.ink100.name(),
+             tk.outline.name(),
+             tk.ink60.name(),
+             tk.bgRow.name()));
     connect(openBtn, &QPushButton::clicked, this, &WelcomeDialog::onOpenClicked);
     rightLayout->addWidget(openBtn);
 
@@ -131,8 +150,8 @@ void WelcomeDialog::buildLayout()
 
     auto *recentLabel = new QLabel(tr("Recent"), right);
     recentLabel->setStyleSheet(QStringLiteral(
-        "color: #8E8780; font-size: 11px;"
-        "font-weight: 600; letter-spacing: 1px;"));
+        "color: %1; font-size: 11px;"
+        "font-weight: 600; letter-spacing: 1px;").arg(tk.ink40.name()));
     rightLayout->addWidget(recentLabel);
 
     m_recentList = new QListWidget(right);
@@ -141,9 +160,12 @@ void WelcomeDialog::buildLayout()
     m_recentList->setStyleSheet(QStringLiteral(
         "QListWidget { background: transparent; border: none; }"
         "QListWidget::item { padding: 8px 10px; border-radius: 4px; }"
-        "QListWidget::item:hover    { background: #2A2724; }"
-        "QListWidget::item:selected { background: #3A352F;"
-        "                              color: #E8E2D4; }"));
+        "QListWidget::item:hover    { background: %1; }"
+        "QListWidget::item:selected { background: %2;"
+        "                              color: %3; }")
+        .arg(tk.bgRow.name(),
+             tk.bgRowSelected.name(),
+             tk.ink100.name()));
     connect(m_recentList, &QListWidget::itemActivated,
             this, &WelcomeDialog::onRecentActivated);
     connect(m_recentList, &QListWidget::itemDoubleClicked,
