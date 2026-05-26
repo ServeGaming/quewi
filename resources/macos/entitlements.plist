@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+  "http://www.apple.com/DTD/PropertyLists-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <!--
+        Hardened runtime entitlements for quewi. Required for
+        notarization (`codesign --options runtime` is mandatory),
+        kept minimal so we don't grant capabilities we don't use.
+
+        If quewi later adds Camera Cue, MTC over MIDI input via
+        third-party drivers, or sandboxed file access for a Mac App
+        Store build, those entitlements get added here and the bundle
+        gets re-signed + re-notarized.
+    -->
+
+    <!-- Qt and FFmpeg load shared libraries at runtime that aren't
+         signed by the same Team ID as the app. Without this flag the
+         hardened runtime refuses to dlopen them and quewi crashes on
+         first audio decode. -->
+    <key>com.apple.security.cs.disable-library-validation</key>
+    <true/>
+
+    <!-- Mic input — used by the upcoming Mic Cue and by audio-level
+         monitoring on input devices the operator patches. macOS will
+         still show the consent prompt the first time; this entitlement
+         just lets the prompt appear instead of silently denying. -->
+    <key>com.apple.security.device.audio-input</key>
+    <true/>
+
+    <!-- OSC outbound (cues, query/reply) and inbound (listener, push
+         notifications), plus QtWebSockets and QtNetwork in general. -->
+    <key>com.apple.security.network.client</key>
+    <true/>
+    <key>com.apple.security.network.server</key>
+    <true/>
+
+    <!-- Apple Events — we use NSWorkspace and `open` in
+         UpdateInstaller; some hardened-runtime configurations refuse
+         these without the entitlement. Cheap insurance. -->
+    <key>com.apple.security.automation.apple-events</key>
+    <true/>
+</dict>
+</plist>

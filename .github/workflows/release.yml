@@ -181,22 +181,110 @@ jobs:
       - name: Stage install
         run: cmake --install build/macos-release --prefix build/macos-release/_install
 
-      # Ad-hoc codesign the .app bundle. Without ANY signature on
-      # Apple Silicon, Gatekeeper marks the downloaded .app as
-      # "damaged and can't be opened" — a generic, alarming error
-      # that gives the user no path forward. Ad-hoc signing
-      # (`--sign -`) doesn't pretend to be a real Developer ID, but
-      # it does flip Gatekeeper out of strict mode so the user sees
-      # the friendlier "unidentified developer" prompt, which can be
-      # bypassed via right-click → Open (instructions live in the
-      # README.txt we drop into the DMG below).
+      # ─────────────────────────────────────────────────────────────
+      #   macOS signing + notarization
+      # ─────────────────────────────────────────────────────────────
+      # Two paths:
       #
-      # --deep recurses through every nested .framework and dylib
-      # macdeployqt copied in. --force overwrites Qt's own
-      # framework signatures (which won't validate from outside the
-      # original Qt tree anyway). Notarization would require a real
-      # team identity; we deliberately skip it.
-      - name: Ad-hoc codesign .app bundle
+      # 1. When the repo has MACOS_CERT_P12_BASE64 set (i.e. a real
+      #    Apple Developer ID is configured), import the cert into
+      #    a temporary keychain, sign with the Developer ID + the
+      #    hardened runtime + our entitlements plist, submit the
+      #    notarization to Apple, wait for it, and staple the
+      #    notarization ticket onto the bundle. The result opens on
+      #    any Mac with no Gatekeeper warning at all.
+      #
+      # 2. Otherwise fall back to ad-hoc signing. The bundle still
+      #    builds; users have to right-click → Open + maybe run the
+      #    bundled "Fix Gatekeeper.command" first.
+      #
+      # The "if real cert" check uses an empty-string test on the
+      # secret value passed via env — that's the supported pattern
+      # for "step gated on whether a secret exists" in GitHub
+      # Actions (`if:` can't read secrets directly).
+      - name: Set up signing keychain
+        id: keychain
+        env:
+          MACOS_CERT_P12_BASE64: ${{ secrets.MACOS_CERT_P12_BASE64 }}
+          MACOS_CERT_PASSWORD:   ${{ secrets.MACOS_CERT_PASSWORD }}
+        run: |
+          if [ -z "$MACOS_CERT_P12_BASE64" ]; then
+            echo "No signing cert configured — falling back to ad-hoc."
+            echo "has_cert=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          KEYCHAIN_PATH="$RUNNER_TEMP/build.keychain"
+          KEYCHAIN_PASS="ci-temp-$RANDOM-$RANDOM"
+          CERT_PATH="$RUNNER_TEMP/cert.p12"
+
+          echo "$MACOS_CERT_P12_BASE64" | base64 --decode > "$CERT_PATH"
+
+          security create-keychain -p "$KEYCHAIN_PASS" "$KEYCHAIN_PATH"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
+          security unlock-keychain    -p "$KEYCHAIN_PASS" "$KEYCHAIN_PATH"
+          security import "$CERT_PATH" -k "$KEYCHAIN_PATH" \
+                          -P "$MACOS_CERT_PASSWORD" \
+                          -T /usr/bin/codesign
+          security set-key-partition-list -S apple-tool:,apple: \
+                          -s -k "$KEYCHAIN_PASS" "$KEYCHAIN_PATH" >/dev/null
+          # Make this the FIRST keychain in the search list so
+          # codesign finds the imported identity. The login keychain
+          # stays available for everything else.
+          security list-keychains -d user -s "$KEYCHAIN_PATH" \
+                                      $(security list-keychains -d user | xargs)
+
+          # Auto-detect the Developer ID Application identity — saves
+          # the user having to also paste the cert's common name as a
+          # separate secret.
+          IDENTITY=$(security find-identity -v -p codesigning "$KEYCHAIN_PATH" \
+                    | grep "Developer ID Application" | head -1 \
+                    | awk -F'"' '{print $2}')
+          if [ -z "$IDENTITY" ]; then
+            echo "::error::Imported a cert but no 'Developer ID Application' identity in it."
+            security find-identity -v -p codesigning "$KEYCHAIN_PATH"
+            exit 1
+          fi
+          echo "Using identity: $IDENTITY"
+          echo "has_cert=true"            >> "$GITHUB_OUTPUT"
+          echo "identity=$IDENTITY"       >> "$GITHUB_OUTPUT"
+          echo "keychain=$KEYCHAIN_PATH"  >> "$GITHUB_OUTPUT"
+          rm -f "$CERT_PATH"
+
+      - name: Codesign .app bundle (Developer ID + hardened runtime)
+        if: steps.keychain.outputs.has_cert == 'true'
+        run: |
+          APP="build/macos-release/_install/quewi.app"
+          ENTITLEMENTS="resources/macos/entitlements.plist"
+          IDENTITY="${{ steps.keychain.outputs.identity }}"
+
+          if [ ! -d "$APP" ]; then
+            echo "::error::Expected .app bundle not present at $APP"
+            exit 1
+          fi
+
+          echo "Stripping pre-existing extended attributes..."
+          xattr -cr "$APP"
+
+          # --deep walks every nested framework, plugin, and dylib;
+          # --options runtime opts into the hardened runtime which
+          # notarization REQUIRES; --entitlements grants only the
+          # capabilities quewi actually needs (see the plist).
+          # --timestamp asks Apple's TSA for a signed timestamp,
+          # which is also required for notarization.
+          codesign --force --deep \
+                   --options runtime \
+                   --entitlements "$ENTITLEMENTS" \
+                   --timestamp \
+                   --sign "$IDENTITY" \
+                   "$APP"
+
+          echo "Verifying signature..."
+          codesign --verify --strict --verbose=2 "$APP"
+          codesign --display --verbose=2 "$APP" 2>&1 | head -20
+
+      - name: Codesign .app bundle (ad-hoc fallback)
+        if: steps.keychain.outputs.has_cert != 'true'
         run: |
           APP="build/macos-release/_install/quewi.app"
           if [ ! -d "$APP" ]; then
@@ -204,45 +292,76 @@ jobs:
             ls -la build/macos-release/_install || true
             exit 1
           fi
-
-          # Strip any extended attributes that the CI environment
-          # may have written to files inside the bundle (LSQuarantine
-          # from downloaded archives, macl from file-tagging, etc.).
-          # Stray xattrs are one of the more frustrating causes of
-          # "damaged and can't be opened" — codesign appears to
-          # succeed and `codesign --verify` is happy, but the moment
-          # macOS's runtime gatekeeper does its own check it sees a
-          # stale xattr and refuses to launch. xattr -cr strips all
-          # of them recursively before we sign.
           echo "Stripping extended attributes..."
           xattr -cr "$APP"
-          xattr -lr "$APP" | head -20 || true
-
-          # macdeployqt already ad-hoc-signed every framework as it
-          # copied them in (-codesign=- in the CMake install rule),
-          # so the inner signatures are correct. The final pass here
-          # signs the outer bundle. We DON'T use --deep — that would
-          # walk back into the already-signed frameworks and
-          # re-sign them, sometimes corrupting nested signatures
-          # that have specific designated-requirement strings. Just
-          # sign the .app wrapper itself.
           if codesign --force --sign - "$APP"; then
-            echo "Codesign succeeded:"
             codesign --verify --verbose=2 "$APP" || true
-            codesign -dvv "$APP" 2>&1 | head -10 || true
           else
-            echo "::warning::codesign failed — DMG will still build, but users will need the bundled 'Fix Gatekeeper.command' (or 'xattr -cr /Applications/quewi.app' from Terminal)"
+            echo "::warning::codesign failed — bundled 'Fix Gatekeeper.command' will be the recovery path"
           fi
-
-          # Belt-and-braces: after signing, strip xattrs AGAIN. The
-          # codesign command can itself add a com.apple.cs.CodeDirectory
-          # xattr on some macOS versions, which is benign but other
-          # xattrs may have come back. This is cheap insurance.
           xattr -cr "$APP"
 
       - name: Package DMG
         working-directory: build/macos-release
         run: cpack -G DragNDrop --config CPackConfig.cmake
+
+      - name: Sign DMG (Developer ID)
+        if: steps.keychain.outputs.has_cert == 'true'
+        run: |
+          DMG=$(ls build/macos-release/*.dmg | head -1)
+          IDENTITY="${{ steps.keychain.outputs.identity }}"
+          echo "Signing $DMG with $IDENTITY"
+          codesign --force --sign "$IDENTITY" --timestamp "$DMG"
+          codesign --verify --verbose=2 "$DMG"
+
+      - name: Notarize DMG
+        if: steps.keychain.outputs.has_cert == 'true'
+        env:
+          APPLE_ID:                    ${{ secrets.APPLE_ID }}
+          APPLE_TEAM_ID:               ${{ secrets.APPLE_TEAM_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+        run: |
+          if [ -z "$APPLE_ID" ] || [ -z "$APPLE_TEAM_ID" ] || [ -z "$APPLE_APP_SPECIFIC_PASSWORD" ]; then
+            echo "::warning::Notarization secrets missing — DMG is signed but not notarized."
+            echo "Users will see 'unidentified developer' instead of seamless open."
+            exit 0
+          fi
+          DMG=$(ls build/macos-release/*.dmg | head -1)
+          echo "Submitting $DMG to notarytool — this takes ~2-10 minutes..."
+          # --wait blocks until Apple finishes the scan (or fails).
+          # Without --wait we'd have to poll separately. The verbose
+          # log on failure helps diagnose missing entitlements or
+          # signature issues.
+          xcrun notarytool submit "$DMG" \
+            --apple-id "$APPLE_ID" \
+            --team-id  "$APPLE_TEAM_ID" \
+            --password "$APPLE_APP_SPECIFIC_PASSWORD" \
+            --wait \
+            --output-format json | tee notarize.json
+          STATUS=$(jq -r '.status' notarize.json)
+          if [ "$STATUS" != "Accepted" ]; then
+            echo "::error::Notarization status: $STATUS"
+            # Pull the detailed log so we can see WHY it rejected.
+            SUBMISSION_ID=$(jq -r '.id' notarize.json)
+            xcrun notarytool log "$SUBMISSION_ID" \
+              --apple-id "$APPLE_ID" \
+              --team-id  "$APPLE_TEAM_ID" \
+              --password "$APPLE_APP_SPECIFIC_PASSWORD" || true
+            exit 1
+          fi
+
+      - name: Staple notarization ticket to DMG
+        if: steps.keychain.outputs.has_cert == 'true'
+        run: |
+          DMG=$(ls build/macos-release/*.dmg | head -1)
+          # Stapling embeds the notarization ticket into the DMG so
+          # Gatekeeper can validate it offline. Without stapling, the
+          # user's first launch needs internet to phone home to Apple
+          # — fine 99% of the time but a hard fail on an air-gapped
+          # show server.
+          xcrun stapler staple "$DMG" || \
+            echo "::warning::Stapling failed — DMG is notarized but the ticket isn't embedded."
+          xcrun stapler validate "$DMG" || true
 
       - name: Show artifacts
         run: ls -la build/macos-release/*.dmg
