@@ -2020,10 +2020,32 @@ void MainWindow::checkForUpdates(bool manual)
             box.setText(tr("quewi <b>v%1</b> is available.<br>"
                            "You're running v%2.")
                 .arg(version, QStringLiteral(QUEWI_VERSION)));
+            // No platform installer attached yet (UpdateChecker no
+            // longer falls back to the release-page URL — that just
+            // produced a confusing 'file looks incomplete' error
+            // because the HTML page is ~200 KB and fails the MSI
+            // size floor). Tell the user the truth: CI is still
+            // building, and they can either wait or hit the release
+            // page to download whatever's there.
+            if (download.isEmpty()) {
+                box.setInformativeText(tr(
+                    "The installer for your platform hasn't been "
+                    "attached to the release yet — the build "
+                    "pipeline usually finishes within ~10 minutes "
+                    "of a tag push. Try again shortly, or open the "
+                    "release page to see what's available."));
+                auto *notes = box.addButton(tr("Open release page"),
+                                            QMessageBox::ActionRole);
+                box.addButton(tr("Later"), QMessageBox::RejectRole);
+                box.exec();
+                if (box.clickedButton() == notes) {
+                    QDesktopServices::openUrl(QUrl(page));
+                }
+                return;
+            }
             box.setInformativeText(tr("Install downloads the new version and "
-                                       "launches the Windows installer; quewi "
-                                       "will close so the new files can be "
-                                       "written. \"Open in browser\" is "
+                                       "launches the installer. "
+                                       "\"Open in browser\" is "
                                        "available if you'd rather download "
                                        "manually."));
             auto *install = box.addButton(tr("Install update"), QMessageBox::AcceptRole);

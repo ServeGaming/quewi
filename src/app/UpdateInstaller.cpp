@@ -147,6 +147,31 @@ void UpdateInstaller::onReplyFinished()
     //     with D0 CF 11 E0 A1 B1 1A E1. An HTML body or random
     //     binary garbage will fail this even at the right size.
     const qint64 actualBytes = QFileInfo(m_localPath).size();
+    // Sniff for HTML before the size floor, because a stray HTML body
+    // is what the size floor most often catches and "looks incomplete"
+    // is a misleading explanation. The error should tell the operator
+    // what actually happened: the URL pointed at a web page, not an
+    // installer. UpdateChecker no longer routes us at the release page
+    // URL by default, but any future bug there or a manual paste of a
+    // wrong URL would land here.
+    {
+        QFile probe(m_localPath);
+        if (probe.open(QIODevice::ReadOnly)) {
+            const QByteArray head = probe.read(512).toLower();
+            probe.close();
+            if (head.contains("<!doctype html")
+                || head.contains("<html")
+                || head.contains("<head")) {
+                QFile::remove(m_localPath);
+                emit downloadFailed(tr("The download URL returned an "
+                    "HTML page, not an installer. The release may "
+                    "still be building — try again in a few "
+                    "minutes, or download manually from the release "
+                    "page."));
+                return;
+            }
+        }
+    }
     if (actualBytes < 5'000'000) {
         QFile::remove(m_localPath);
         emit downloadFailed(tr("Download finished but the file looks "

@@ -141,7 +141,14 @@ void UpdateChecker::onReplyFinished()
         }
     }
     const auto pageUrl = obj.value(QStringLiteral("html_url")).toString();
-    if (msiUrl.isEmpty()) msiUrl = pageUrl;
+    // DELIBERATELY leave msiUrl empty when no platform asset matched.
+    // The earlier code fell back to pageUrl here, which led to the
+    // UpdateInstaller cheerfully downloading the GitHub release page
+    // HTML (~200 KB) and then failing the MSI 5 MB size floor with
+    // "file looks incomplete" — confusing the operator into thinking
+    // the network was bad. Now MainWindow can branch on
+    // msiUrl.isEmpty() and explain that the installer hasn't been
+    // built yet (CI typically takes ~10 minutes after a tag push).
 
     QString tagDisplay = tag;
     if (tagDisplay.startsWith(QChar('v'))) tagDisplay.remove(0, 1);
