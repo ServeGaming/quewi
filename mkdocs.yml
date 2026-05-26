@@ -154,6 +154,13 @@ nav:
       - macOS Gatekeeper: support/macos-gatekeeper.md
       - In-app updates: support/updates.md
       - FAQ: support/faq.md
+      - macOS signing setup (maintainers): support/macos-signing-setup.md
+
+  - Reference:
+      - File format: reference/file-format.md
+      - OSC coverage matrix: reference/osc-coverage.md
+      - Performance budgets: reference/performance-budgets.md
+      - QLab parity roadmap: reference/qlab-parity-roadmap.md
 
   - About:
       - License: about/license.md

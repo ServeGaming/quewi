@@ -100,9 +100,9 @@ ceiling, increase it or pre-decode less aggressively.
 ## Effects rack
 
 Per-cue effects chain — EQ, Compressor, Reverb, Delay. See the
-[Audio cue page](../cue-types/audio.md#effects-rack) for the per-
-effect parameter reference. Effects apply during live playback
-AND during the editor's render-to-WAV export.
+[Audio cue page](../cue-types/audio.md) for the per-effect
+parameter reference. Effects apply during live playback AND
+during the editor's render-to-WAV export.
 
 ---
 

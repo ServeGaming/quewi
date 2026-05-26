@@ -45,7 +45,7 @@ Open the address reference for the full per-cue-type tables:
 - [Text cue (`"text"`)](reference.md#textcue-type-text)
 - [MIDI cue (`"midi"`)](reference.md#midicue-type-midi)
 - [MSC cue (`"msc"`)](reference.md#msccue-type-msc)
-- [Targeting cues (`"start"`, `"stop"`, `"goto"`, etc.)](reference.md#targeting-cues-type-start--stop--goto--pause--load--reset--devamp)
+- [Targeting cues (`"start"`, `"stop"`, `"goto"`, etc.)](reference.md#targeting-cues-type-start-stop-goto-pause-load-reset-devamp)
 - [Memo cue (`"memo"`)](reference.md#memocue-type-memo)
 
 ---
