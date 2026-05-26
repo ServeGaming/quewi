@@ -150,6 +150,13 @@ private:
     midi::MidiEngine            *m_midiEngine = nullptr;
 
     QLabel         *m_typeLabel = nullptr;
+    // Empty-state placeholder card shown when m_cue == nullptr.
+    // m_inspectorBody is the container for the actual form + groups;
+    // toggling visibility between the two gives a clean "nothing
+    // selected → big helpful card" without leaving a disabled form
+    // standing where the data should be.
+    QWidget        *m_emptyState    = nullptr;
+    QWidget        *m_inspectorBody = nullptr;
     QPushButton    *m_colorChip = nullptr;
     QPushButton    *m_colorClear = nullptr;
     QDoubleSpinBox *m_number    = nullptr;

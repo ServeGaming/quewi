@@ -104,7 +104,65 @@ Inspector::Inspector(QWidget *parent)
     scroll->setWidget(content);
     root->addWidget(scroll);
 
-    auto *outer = new QVBoxLayout(content);
+    // Allow the pane to be squeezed below the natural sizeHint of its
+    // children — the scroll area takes over from there.
+    setMinimumWidth(280);
+
+    // The scroll-area content holds two sibling widgets: a centered
+    // empty-state placeholder (visible when no cue is selected) and
+    // the actual inspector body (visible otherwise). Toggle in
+    // rebuild() based on m_cue. Keeps the form/groups completely out
+    // of sight when there's no data to edit, instead of standing
+    // around disabled which read as a half-built UI.
+    auto *contentLayout = new QVBoxLayout(content);
+    contentLayout->setContentsMargins(0, 0, 0, 0);
+    contentLayout->setSpacing(0);
+
+    // ── Empty-state placeholder ──────────────────────────────────
+    m_emptyState = new QWidget(content);
+    m_emptyState->setObjectName(QStringLiteral("inspectorEmptyState"));
+    {
+        auto *esLayout = new QVBoxLayout(m_emptyState);
+        esLayout->setContentsMargins(28, 60, 28, 28);
+        esLayout->setSpacing(10);
+        esLayout->addStretch(2);
+
+        auto *glyph = new QLabel(QStringLiteral("›"), m_emptyState);
+        glyph->setAlignment(Qt::AlignCenter);
+        glyph->setStyleSheet(QStringLiteral(
+            "font-size: 64px; color: %1; font-weight: 300;")
+            .arg(Theme::tokens().ink40.name()));
+        esLayout->addWidget(glyph);
+
+        auto *headline = new QLabel(tr("No cue selected"), m_emptyState);
+        headline->setAlignment(Qt::AlignCenter);
+        headline->setStyleSheet(QStringLiteral(
+            "font-size: 18px; font-weight: 600; color: %1;")
+            .arg(Theme::tokens().ink100.name()));
+        esLayout->addWidget(headline);
+
+        auto *hint = new QLabel(
+            tr("Click a cue in the list to edit it.\n\n"
+               "Or press to add a new one:\n"
+               "N — Memo · A — Audio · O — OSC\n"
+               "L — Light · V — Video · Ctrl+G — Group"),
+            m_emptyState);
+        hint->setAlignment(Qt::AlignCenter);
+        hint->setStyleSheet(QStringLiteral(
+            "font-size: 12px; color: %1; line-height: 160%;")
+            .arg(Theme::tokens().ink60.name()));
+        esLayout->addWidget(hint);
+
+        esLayout->addStretch(3);
+    }
+    contentLayout->addWidget(m_emptyState);
+
+    // ── Inspector body (the real form, hidden when no cue) ───────
+    m_inspectorBody = new QWidget(content);
+    m_inspectorBody->setObjectName(QStringLiteral("inspectorBody"));
+    contentLayout->addWidget(m_inspectorBody);
+
+    auto *outer = new QVBoxLayout(m_inspectorBody);
     // Bumped from 16 to 20 vertical, 20 → 22 horizontal, and the
     // inter-section spacing from 12 to 18 so the Inspector reads as
     // a stack of breathing cards instead of a packed control surface.
@@ -113,10 +171,6 @@ Inspector::Inspector(QWidget *parent)
     // pushing anything off-screen at common laptop heights.
     outer->setContentsMargins(22, 20, 22, 20);
     outer->setSpacing(18);
-
-    // Allow the pane to be squeezed below the natural sizeHint of its
-    // children — the scroll area takes over from there.
-    setMinimumWidth(280);
 
     auto *headerRow = new QHBoxLayout();
     headerRow->setContentsMargins(0, 0, 0, 0);
@@ -988,6 +1042,13 @@ void Inspector::rebuild()
 
     QWidget *commonWidgets[] = { m_number, m_name, m_preWait, m_postWait, m_notes };
     for (QWidget *w : commonWidgets) w->setEnabled(has);
+
+    // Toggle between the empty-state placeholder and the full
+    // form depending on whether there's a cue to edit. Done first
+    // so the rest of this branch operates on a hidden body and
+    // doesn't trigger spurious paints.
+    if (m_emptyState)    m_emptyState->setVisible(!has);
+    if (m_inspectorBody) m_inspectorBody->setVisible(has);
 
     if (!has) {
         m_typeLabel->setText(tr("No cue selected"));
