@@ -11,6 +11,7 @@
 
 #include "audio/AudioCue.h"
 #include "audio/AudioEngine.h"
+#include "audio/AudioFile.h"
 #include "core/CartGrid.h"
 #include "core/CueList.h"
 #include "core/CueListModel.h"
@@ -818,6 +819,25 @@ void MainWindow::prewarmAudioCues()
                 continue;
             }
             ac->prepare();
+            // Surface decode failures in the Notifications inbox so a
+            // file that won't play (unsupported codec, corrupt
+            // download) is a clear message instead of a silent
+            // mystery — the operator otherwise has no idea why GO
+            // produced no sound.
+            if (auto f = ac->audioFile()) {
+                const QString fileName = QFileInfo(p).fileName();
+                connect(f.get(), &audio::AudioFile::stateChanged, this,
+                    [fileName](audio::AudioFile::State st) {
+                        if (st == audio::AudioFile::State::Failed) {
+                            ui::Notifications::instance().post(
+                                ui::Notifications::Level::Error,
+                                tr("Audio decode failed"),
+                                tr("Couldn't decode \"%1\". Its format may be "
+                                   "unsupported, or the file may be corrupt or "
+                                   "incomplete.").arg(fileName));
+                        }
+                    }, Qt::UniqueConnection);
+            }
             used += estimate;
         }
     }

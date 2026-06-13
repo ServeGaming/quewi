@@ -105,6 +105,19 @@ int main(int argc, char *argv[])
 #endif
 
     // ── Pre-QApplication tuning ───────────────────────────────────────
+    // Force Qt Multimedia onto its FFmpeg backend. The platform-native
+    // backends — AVFoundation on macOS, WMF on Windows — cannot decode
+    // Opus or VP9/WebM, which is exactly what YouTube serves as "best
+    // audio"/"best video". Users dropping a downloaded .opus/.webm in as
+    // a cue got silent failure (the native decoder errors out). The
+    // FFmpeg backend (bundled by macdeployqt / windeployqt as the
+    // ffmpegmediaplugin) decodes essentially everything, so pin it
+    // before QApplication brings the multimedia plugins up. Honour an
+    // explicit override if the user set one in their environment.
+    if (qEnvironmentVariableIsEmpty("QT_MEDIA_BACKEND")) {
+        qputenv("QT_MEDIA_BACKEND", "ffmpeg");
+    }
+
     // Don't coalesce wheel/touch events — at 165 Hz this matters a lot,
     // because Qt's default coalescing drops intermediate ticks and the
     // smooth-scroll animation re-targets feel laggy.

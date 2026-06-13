@@ -1635,7 +1635,8 @@ void Inspector::browseAudioFile()
 
     const auto path = QFileDialog::getOpenFileName(this, tr("Pick audio file"),
         QFileInfo(audioCue->filePath()).absolutePath(),
-        tr("Audio files (*.wav *.mp3 *.flac *.aiff *.aif *.ogg *.m4a);;All files (*.*)"));
+        tr("Audio files (*.wav *.mp3 *.flac *.aiff *.aif *.ogg *.oga "
+           "*.opus *.m4a *.aac *.wma *.webm);;All files (*.*)"));
     if (path.isEmpty()) return;
 
     m_audioPath->setText(path);
