@@ -93,6 +93,7 @@ private slots:
     void showProjectionMapping();
     void showAbout();
     void showNotifications();
+    void showMediaImport();
     void openRecent(const QString &path);
     void rebuildRecentMenu();
     void onMidiTrigger(quint8 status, const QByteArray &bytes);

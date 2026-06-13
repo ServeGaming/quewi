@@ -38,6 +38,7 @@
 #include "ui/CartView.h"
 #include "ui/AudioEditorWindow.h"
 #include "ui/CommandPalette.h"
+#include "ui/MediaImportDialog.h"
 #include "ui/Notifications.h"
 #include "ui/NotificationsDialog.h"
 #include "ui/FindReplaceDialog.h"
@@ -594,6 +595,10 @@ void MainWindow::buildMenus()
     cueMenu->addAction(tr("New Gr&oup"), QKeySequence(QStringLiteral("Ctrl+G")),        this, &MainWindow::insertGroupCue);
     cueMenu->addAction(tr("New &MIDI"),  QKeySequence(QStringLiteral("Shift+M")),       this, &MainWindow::insertMidiCue);
     cueMenu->addAction(tr("New M&SC"),   QKeySequence(QStringLiteral("Ctrl+Shift+M")),  this, &MainWindow::insertMscCue);
+    cueMenu->addSeparator();
+    cueMenu->addAction(tr("Import from &URL…"),
+                       QKeySequence(QStringLiteral("Ctrl+U")),
+                       this, &MainWindow::showMediaImport);
     cueMenu->addSeparator();
     cueMenu->addAction(tr("&Delete"), QKeySequence::Delete, this, &MainWindow::deleteSelectedCue);
 
@@ -1350,6 +1355,46 @@ void MainWindow::showNotifications()
     dlg.exec();
     m_unreadNotifs = 0;
     refreshNotifBadge();
+}
+
+void MainWindow::showMediaImport()
+{
+    // One-time legal disclaimer before the importer is usable.
+    if (!ui::MediaImportDialog::confirmDisclaimer(this)) return;
+
+    // Download into a 'media' folder next to the saved show so the
+    // show stays self-contained and portable; fall back to a default
+    // under the user's Music folder for an untitled show.
+    QString destDir;
+    if (!m_currentPath.isEmpty()) {
+        destDir = QFileInfo(m_currentPath).absolutePath()
+                + QStringLiteral("/media");
+    } else {
+        destDir = QStandardPaths::writableLocation(
+                      QStandardPaths::MusicLocation)
+                + QStringLiteral("/quewi-imports");
+    }
+
+    ui::MediaImportDialog dlg(destDir, this);
+    if (dlg.exec() != QDialog::Accepted) return;
+    const QString path = dlg.importedPath();
+    if (path.isEmpty()) return;
+    const QString base = QFileInfo(path).completeBaseName();
+
+    // Turn the download into the matching cue type, dropped after the
+    // current selection like any other New-cue action.
+    if (dlg.importedIsAudio()) {
+        auto cue = std::make_unique<audio::AudioCue>();
+        cue->setField(QStringLiteral("filePath"), path);
+        insertCueOfType(std::move(cue), base);
+        prewarmAudioCues();   // decode it so it's ready to fire
+    } else {
+        auto cue = std::make_unique<video::VideoCue>();
+        cue->setField(QStringLiteral("filePath"), path);
+        insertCueOfType(std::move(cue), base);
+    }
+    statusBar()->showMessage(tr("Imported %1").arg(QFileInfo(path).fileName()),
+                             4000);
 }
 
 void MainWindow::refreshNotifBadge()
