@@ -50,8 +50,13 @@ public:
     double framesPerPixel() const { return m_framesPerPixel; }
     void   setFramesPerPixel(double fpp);
 
-    // Playback cursor position in frames (set by transport)
+    // Playback cursor position in frames (set by transport while playing)
     void setPlayheadFrame(qint64 f);
+
+    // Edit cursor — where a click lands and where preview playback starts
+    // from (Audacity-style). Drawn as a marker with a handle in the ruler.
+    qint64 editCursorFrame() const { return m_editCursorFrame; }
+    void   setEditCursorFrame(qint64 f);
 
     static constexpr int kHeaderWidth = 120;
     static constexpr int kRulerHeight = 24;
@@ -61,6 +66,8 @@ signals:
     void trackSelected(int trackIndex);
     void requestAddTrack();
     void requestRemoveTrack(int trackIndex);
+    // Emitted when the user clicks to reposition the edit cursor.
+    void editCursorMoved(qint64 frame);
 
 protected:
     void paintEvent(QPaintEvent *) override;
@@ -99,6 +106,7 @@ private:
 
     // ── Drawing ───────────────────────────────────────────────────────────────
     void drawRuler(QPainter &p);
+    void drawEditCursor(QPainter &p);
     void drawTrackHeader(QPainter &p, int trackIndex, const QRect &r);
     void drawRegion(QPainter &p, const audio::AudioRegion &region,
                     int trackIndex, const QRect &trackRect);
@@ -129,7 +137,8 @@ private:
     int    m_trackHeight    = 80;
     int    m_scrollX        = 0;  // horizontal scroll offset (pixels)
     int    m_scrollY        = 0;  // vertical scroll offset (pixels)
-    qint64 m_playheadFrame  = 0;
+    qint64 m_playheadFrame  = -1; // <0 = hidden (only shown while playing)
+    qint64 m_editCursorFrame = 0; // where a click landed / playback starts
 
     QScrollBar *m_hbar = nullptr;
     QScrollBar *m_vbar = nullptr;
@@ -138,6 +147,7 @@ private:
     // Drag state
     struct DragState {
         bool      active     = false;
+        bool      moved      = false;  // crossed the move threshold yet?
         QUuid     regionId;
         int       trackIndex = -1;
         bool      isTrim     = false;
@@ -148,6 +158,10 @@ private:
         qint64    regionSrcOut   = 0;
         QPoint    mouseStart;
     } m_drag;
+    // A region body must be dragged at least this many pixels before it
+    // actually moves — so a plain click just sets the cursor / selects
+    // instead of nudging the clip (Audacity-like).
+    static constexpr int kDragThreshold = 4;
 
     QUuid m_selectedRegion;
 };

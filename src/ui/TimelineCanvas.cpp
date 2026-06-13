@@ -131,6 +131,11 @@ void TimelineCanvas::setPlayheadFrame(qint64 f) {
     m_playheadFrame = f; update();
 }
 
+void TimelineCanvas::setEditCursorFrame(qint64 f) {
+    m_editCursorFrame = std::max<qint64>(0, f);
+    update();
+}
+
 // ── Hit test ──────────────────────────────────────────────────────────────────
 
 std::optional<TimelineCanvas::Hit> TimelineCanvas::hitTest(int x, int y) const {
@@ -189,6 +194,7 @@ void TimelineCanvas::paintEvent(QPaintEvent *) {
     }
 
     drawRuler(p);
+    drawEditCursor(p);
     drawPlayhead(p);
 }
 
@@ -394,7 +400,25 @@ bool TimelineCanvas::drawRegionSpectrogram(QPainter &p, const audio::AudioRegion
     return true;
 }
 
+void TimelineCanvas::drawEditCursor(QPainter &p) {
+    int x = int(framesToX(m_editCursorFrame));
+    if (x < kHeaderWidth || x >= width()) return;
+    // Thin vertical line + a downward handle that sits in the ruler "header"
+    // so the click position is obvious there as well as in the tracks.
+    const QColor col(150, 200, 255);
+    p.setPen(QPen(col, 1.0));
+    p.drawLine(x, kRulerHeight, x, height());
+    p.setBrush(col);
+    p.setPen(Qt::NoPen);
+    QPolygon tri;
+    tri << QPoint(x - 5, kRulerHeight - 9)
+        << QPoint(x + 5, kRulerHeight - 9)
+        << QPoint(x, kRulerHeight - 1);
+    p.drawPolygon(tri);
+}
+
 void TimelineCanvas::drawPlayhead(QPainter &p) {
+    if (m_playheadFrame < 0) return; // hidden while stopped
     int x = int(framesToX(m_playheadFrame));
     if (x < kHeaderWidth || x >= width()) return;
     p.setPen(QPen(QColor(255, 60, 60), 1.5));
@@ -429,6 +453,17 @@ void TimelineCanvas::mousePressEvent(QMouseEvent *e) {
         }
     }
 
+    // Any click in the time area (ruler or tracks) repositions the edit
+    // cursor — this is what makes the ruler "header" marker jump to the
+    // click, and where preview playback then starts from (Audacity-style).
+    if (x >= kHeaderWidth) {
+        qint64 f = std::max<qint64>(0, xToFrames(x));
+        if (f != m_editCursorFrame) { m_editCursorFrame = f; emit editCursorMoved(f); }
+    }
+
+    // Clicks in the ruler only move the cursor — no region interaction.
+    if (y < kRulerHeight) { update(); return; }
+
     auto hit = hitTest(x, y);
 
     if (m_tool == Tool::Razor) {
@@ -447,6 +482,7 @@ void TimelineCanvas::mousePressEvent(QMouseEvent *e) {
 
         auto &region = m_model->track(hit->trackIndex)->regions()[hit->regionIndex];
         m_drag.active        = true;
+        m_drag.moved         = false;
         m_drag.regionId      = region.id;
         m_drag.trackIndex    = hit->trackIndex;
         m_drag.isTrim        = (hit->part != Hit::Body);
@@ -467,20 +503,34 @@ void TimelineCanvas::mousePressEvent(QMouseEvent *e) {
 void TimelineCanvas::mouseMoveEvent(QMouseEvent *e) {
     int x = e->pos().x(), y = e->pos().y();
 
-    // Update cursor based on hover
-    if (m_tool == Tool::Razor) {
-        setCursor(Qt::CrossCursor);
-    } else {
-        auto hit = hitTest(x, y);
-        if (hit && hit->part != Hit::Body)
-            setCursor(Qt::SizeHorCursor);
-        else if (hit)
-            setCursor(Qt::SizeAllCursor);
-        else
-            setCursor(Qt::ArrowCursor);
+    // Hover cursor (only while not mid-drag, so an active trim/move keeps
+    // its own cursor). A region body shows the normal arrow — only the
+    // trim edges get a resize cursor. The old code put a 4-way "move"
+    // cursor over the whole body, which read as if everything would shift.
+    if (!m_drag.active) {
+        if (m_tool == Tool::Razor) {
+            setCursor(Qt::CrossCursor);
+        } else {
+            auto hit = hitTest(x, y);
+            if (hit && hit->part != Hit::Body)
+                setCursor(Qt::SizeHorCursor);
+            else
+                setCursor(Qt::ArrowCursor);
+        }
     }
 
     if (!m_drag.active || !m_model) return;
+
+    // A body move only begins once the pointer has travelled past the
+    // threshold; until then the press is treated as a plain click (which
+    // already set the edit cursor and selected the region).
+    if (!m_drag.isTrim && !m_drag.moved) {
+        if (std::abs(e->pos().x() - m_drag.mouseStart.x()) < kDragThreshold &&
+            std::abs(e->pos().y() - m_drag.mouseStart.y()) < kDragThreshold)
+            return;
+        m_drag.moved = true;
+        setCursor(Qt::ClosedHandCursor); // feedback only while actually moving
+    }
 
     qint64 currentFrame = xToFrames(x);
     qint64 delta = currentFrame - m_drag.dragStartFrame;
@@ -508,6 +558,8 @@ void TimelineCanvas::mouseMoveEvent(QMouseEvent *e) {
 
 void TimelineCanvas::mouseReleaseEvent(QMouseEvent *) {
     m_drag.active = false;
+    m_drag.moved  = false;
+    setCursor(Qt::ArrowCursor);
 }
 
 void TimelineCanvas::mouseDoubleClickEvent(QMouseEvent *e) {

@@ -552,8 +552,16 @@ void AudioEditorWindow::startPlayback() {
     for (size_t i = 0; i < m_renderedPcm.size(); ++i)
         pcm16[i] = qint16(std::clamp(m_renderedPcm[i], -1.f, 1.f) * 32767.f);
 
-    QByteArray bytes(reinterpret_cast<const char*>(pcm16.data()),
-                     qsizetype(pcm16.size() * sizeof(qint16)));
+    // Start from the edit cursor (Audacity-style: click sets where playback
+    // begins). The render is the whole mix from timeline frame 0, so the
+    // cursor frame maps directly to a sample offset. Clamp into range.
+    const qint64 totalFrames = qint64(pcm16.size() / 2);
+    qint64 startFrame = std::clamp<qint64>(m_timeline->editCursorFrame(),
+                                           0, std::max<qint64>(0, totalFrames - 1));
+    const qint64 startByte = startFrame * 2 * qint64(sizeof(qint16));
+
+    QByteArray bytes(reinterpret_cast<const char*>(pcm16.data()) + startByte,
+                     qsizetype(qint64(pcm16.size()) * qint64(sizeof(qint16)) - startByte));
     m_playBuffer.close();
     m_playBuffer.setData(bytes);
     m_playBuffer.open(QIODevice::ReadOnly);
@@ -567,7 +575,7 @@ void AudioEditorWindow::startPlayback() {
     m_sink = std::make_unique<QAudioSink>(dev, fmt, this);
     m_sink->start(&m_playBuffer);
 
-    m_sinkStartFrame  = 0;
+    m_sinkStartFrame  = startFrame;
     m_isPlaying       = true;
     m_playTimer.start(50); // 20 Hz cursor update
     statusBar()->showMessage(tr("Playing…"));
@@ -578,7 +586,9 @@ void AudioEditorWindow::stopPlayback() {
     if (m_sink) { m_sink->stop(); m_sink.reset(); }
     m_playBuffer.close();
     m_isPlaying = false;
-    m_timeline->setPlayheadFrame(0);
+    // Hide the playhead while stopped; the blue edit cursor stays put to
+    // show where the next GO will start from.
+    m_timeline->setPlayheadFrame(-1);
     statusBar()->showMessage(tr("Stopped"));
 }
 

@@ -260,6 +260,12 @@ void AudioEditorModel::initFromFile(const QString &path, int sampleRate) {
     auto *track = addTrack(QStringLiteral("Track 1"));
     if (!path.isEmpty()) {
         auto file = std::make_shared<AudioFile>();
+        // The decode is async; when it advances (Loaded → peaks ready) the
+        // editor must repaint or the timeline can sit showing a flat line
+        // until some unrelated event triggers a redraw. tracksChanged is
+        // what the timeline canvas already listens to.
+        connect(file.get(), &AudioFile::stateChanged, this,
+                [this](AudioFile::State){ emit tracksChanged(); });
         file->load(path);
 
         AudioRegion r;
