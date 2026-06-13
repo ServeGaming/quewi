@@ -1043,86 +1043,14 @@ void MainWindow::showScriptWindow()
     m_scriptWindow->activateWindow();
 }
 
-void MainWindow::insertMemoCue()
+void MainWindow::insertCueOfType(std::unique_ptr<cues::Cue> cue,
+                                 const QString &name)
 {
-    auto *list = m_workspace->activeCueList();
-    if (!list) return;
+    auto *list = m_workspace ? m_workspace->activeCueList() : nullptr;
+    if (!list || !cue) return;
     const auto idx = m_cueListView->currentIndex();
     const int insertRow = idx.isValid() ? idx.row() + 1 : list->cueCount();
-
-    auto cue = std::make_unique<cues::MemoCue>();
-    cue->setField(QStringLiteral("name"), tr("Memo"));
-    cue->setField(QStringLiteral("number"), static_cast<double>(insertRow + 1));
-
-    m_workspace->undoStack()->push(
-        new core::InsertCueCommand(list, insertRow, std::move(cue)));
-
-    if (m_model->rowCount() > insertRow)
-        m_cueListView->setCurrentIndex(m_model->index(insertRow, 0));
-}
-
-void MainWindow::insertOscCue()
-{
-    auto *list = m_workspace->activeCueList();
-    if (!list) return;
-    const auto idx = m_cueListView->currentIndex();
-    const int insertRow = idx.isValid() ? idx.row() + 1 : list->cueCount();
-
-    auto cue = std::make_unique<osc::OscCue>();
-    cue->setField(QStringLiteral("name"), tr("OSC"));
-    cue->setField(QStringLiteral("number"), static_cast<double>(insertRow + 1));
-
-    m_workspace->undoStack()->push(
-        new core::InsertCueCommand(list, insertRow, std::move(cue)));
-
-    if (m_model->rowCount() > insertRow)
-        m_cueListView->setCurrentIndex(m_model->index(insertRow, 0));
-}
-
-void MainWindow::insertAudioCue()
-{
-    auto *list = m_workspace->activeCueList();
-    if (!list) return;
-    const auto idx = m_cueListView->currentIndex();
-    const int insertRow = idx.isValid() ? idx.row() + 1 : list->cueCount();
-
-    auto cue = std::make_unique<audio::AudioCue>();
-    cue->setField(QStringLiteral("name"), tr("Audio"));
-    cue->setField(QStringLiteral("number"), static_cast<double>(insertRow + 1));
-
-    m_workspace->undoStack()->push(
-        new core::InsertCueCommand(list, insertRow, std::move(cue)));
-
-    if (m_model->rowCount() > insertRow)
-        m_cueListView->setCurrentIndex(m_model->index(insertRow, 0));
-}
-
-void MainWindow::insertFadeCue()
-{
-    auto *list = m_workspace->activeCueList();
-    if (!list) return;
-    const auto idx = m_cueListView->currentIndex();
-    const int insertRow = idx.isValid() ? idx.row() + 1 : list->cueCount();
-
-    auto cue = std::make_unique<cues::FadeCue>();
-    cue->setField(QStringLiteral("name"), tr("Fade"));
-    cue->setField(QStringLiteral("number"), static_cast<double>(insertRow + 1));
-
-    m_workspace->undoStack()->push(
-        new core::InsertCueCommand(list, insertRow, std::move(cue)));
-
-    if (m_model->rowCount() > insertRow)
-        m_cueListView->setCurrentIndex(m_model->index(insertRow, 0));
-}
-
-void MainWindow::insertLightCue()
-{
-    auto *list = m_workspace->activeCueList();
-    if (!list) return;
-    const auto idx = m_cueListView->currentIndex();
-    const int insertRow = idx.isValid() ? idx.row() + 1 : list->cueCount();
-    auto cue = std::make_unique<lighting::LightCue>();
-    cue->setField(QStringLiteral("name"), tr("Light"));
+    cue->setField(QStringLiteral("name"), name);
     cue->setField(QStringLiteral("number"), static_cast<double>(insertRow + 1));
     m_workspace->undoStack()->push(
         new core::InsertCueCommand(list, insertRow, std::move(cue)));
@@ -1130,215 +1058,36 @@ void MainWindow::insertLightCue()
         m_cueListView->setCurrentIndex(m_model->index(insertRow, 0));
 }
 
-void MainWindow::insertLightFadeCue()
-{
-    auto *list = m_workspace->activeCueList();
-    if (!list) return;
-    const auto idx = m_cueListView->currentIndex();
-    const int insertRow = idx.isValid() ? idx.row() + 1 : list->cueCount();
-    auto cue = std::make_unique<lighting::LightFadeCue>();
-    cue->setField(QStringLiteral("name"), tr("Light Fade"));
-    cue->setField(QStringLiteral("number"), static_cast<double>(insertRow + 1));
-    m_workspace->undoStack()->push(
-        new core::InsertCueCommand(list, insertRow, std::move(cue)));
-    if (m_model->rowCount() > insertRow)
-        m_cueListView->setCurrentIndex(m_model->index(insertRow, 0));
-}
-
-void MainWindow::insertVideoCue()
-{
-    auto *list = m_workspace->activeCueList();
-    if (!list) return;
-    const auto idx = m_cueListView->currentIndex();
-    const int insertRow = idx.isValid() ? idx.row() + 1 : list->cueCount();
-    auto cue = std::make_unique<video::VideoCue>();
-    cue->setField(QStringLiteral("name"), tr("Video"));
-    cue->setField(QStringLiteral("number"), static_cast<double>(insertRow + 1));
-    m_workspace->undoStack()->push(
-        new core::InsertCueCommand(list, insertRow, std::move(cue)));
-    if (m_model->rowCount() > insertRow)
-        m_cueListView->setCurrentIndex(m_model->index(insertRow, 0));
-}
-
-void MainWindow::insertImageCue()
-{
-    auto *list = m_workspace->activeCueList();
-    if (!list) return;
-    const auto idx = m_cueListView->currentIndex();
-    const int insertRow = idx.isValid() ? idx.row() + 1 : list->cueCount();
-    auto cue = std::make_unique<video::ImageCue>();
-    cue->setField(QStringLiteral("name"), tr("Image"));
-    cue->setField(QStringLiteral("number"), static_cast<double>(insertRow + 1));
-    m_workspace->undoStack()->push(
-        new core::InsertCueCommand(list, insertRow, std::move(cue)));
-    if (m_model->rowCount() > insertRow)
-        m_cueListView->setCurrentIndex(m_model->index(insertRow, 0));
-}
+// Each New-<type> menu action is a one-liner over insertCueOfType.
+// The GoEngine switches behaviour by cue subclass at fire time, so
+// Start / Stop / Goto / Pause / Load / Reset / Devamp all just need
+// the right subclass constructed here.
+void MainWindow::insertMemoCue()  { insertCueOfType(std::make_unique<cues::MemoCue>(),       tr("Memo")); }
+void MainWindow::insertOscCue()   { insertCueOfType(std::make_unique<osc::OscCue>(),         tr("OSC")); }
+void MainWindow::insertAudioCue() { insertCueOfType(std::make_unique<audio::AudioCue>(),     tr("Audio")); }
+void MainWindow::insertFadeCue()  { insertCueOfType(std::make_unique<cues::FadeCue>(),       tr("Fade")); }
+void MainWindow::insertLightCue() { insertCueOfType(std::make_unique<lighting::LightCue>(),  tr("Light")); }
+void MainWindow::insertLightFadeCue() { insertCueOfType(std::make_unique<lighting::LightFadeCue>(), tr("Light Fade")); }
+void MainWindow::insertVideoCue() { insertCueOfType(std::make_unique<video::VideoCue>(),     tr("Video")); }
+void MainWindow::insertImageCue() { insertCueOfType(std::make_unique<video::ImageCue>(),     tr("Image")); }
+void MainWindow::insertWaitCue()  { insertCueOfType(std::make_unique<cues::WaitCue>(),       tr("Wait")); }
+void MainWindow::insertStartCue() { insertCueOfType(std::make_unique<cues::StartCue>(),      tr("Start")); }
+void MainWindow::insertStopCue()  { insertCueOfType(std::make_unique<cues::StopCue>(),       tr("Stop")); }
+void MainWindow::insertGotoCue()  { insertCueOfType(std::make_unique<cues::GotoCue>(),       tr("Goto")); }
+void MainWindow::insertPauseCue() { insertCueOfType(std::make_unique<cues::PauseCue>(),      tr("Pause")); }
+void MainWindow::insertLoadCue()  { insertCueOfType(std::make_unique<cues::LoadCue>(),       tr("Load")); }
+void MainWindow::insertResetCue() { insertCueOfType(std::make_unique<cues::ResetCue>(),      tr("Reset")); }
+void MainWindow::insertDevampCue(){ insertCueOfType(std::make_unique<cues::DevampCue>(),     tr("Devamp")); }
+void MainWindow::insertGroupCue() { insertCueOfType(std::make_unique<cues::GroupCue>(),      tr("Group")); }
+void MainWindow::insertMidiCue()  { insertCueOfType(std::make_unique<midi::MidiCue>(),       tr("MIDI")); }
+void MainWindow::insertMscCue()   { insertCueOfType(std::make_unique<midi::MscCue>(),        tr("MSC")); }
 
 void MainWindow::insertTextCue()
 {
-    auto *list = m_workspace->activeCueList();
-    if (!list) return;
-    const auto idx = m_cueListView->currentIndex();
-    const int insertRow = idx.isValid() ? idx.row() + 1 : list->cueCount();
+    // Text cue gets a default body string in addition to the name.
     auto cue = std::make_unique<video::TextCue>();
-    cue->setField(QStringLiteral("name"), tr("Text"));
-    cue->setField(QStringLiteral("number"), static_cast<double>(insertRow + 1));
     cue->setField(QStringLiteral("text"), tr("Title"));
-    m_workspace->undoStack()->push(
-        new core::InsertCueCommand(list, insertRow, std::move(cue)));
-    if (m_model->rowCount() > insertRow)
-        m_cueListView->setCurrentIndex(m_model->index(insertRow, 0));
-}
-
-void MainWindow::insertWaitCue()
-{
-    auto *list = m_workspace->activeCueList();
-    if (!list) return;
-    const auto idx = m_cueListView->currentIndex();
-    const int insertRow = idx.isValid() ? idx.row() + 1 : list->cueCount();
-    auto cue = std::make_unique<cues::WaitCue>();
-    cue->setField(QStringLiteral("name"), tr("Wait"));
-    cue->setField(QStringLiteral("number"), static_cast<double>(insertRow + 1));
-    m_workspace->undoStack()->push(new core::InsertCueCommand(list, insertRow, std::move(cue)));
-    if (m_model->rowCount() > insertRow)
-        m_cueListView->setCurrentIndex(m_model->index(insertRow, 0));
-}
-
-void MainWindow::insertStartCue()
-{
-    auto *list = m_workspace->activeCueList();
-    if (!list) return;
-    const auto idx = m_cueListView->currentIndex();
-    const int insertRow = idx.isValid() ? idx.row() + 1 : list->cueCount();
-    auto cue = std::make_unique<cues::StartCue>();
-    cue->setField(QStringLiteral("name"), tr("Start"));
-    cue->setField(QStringLiteral("number"), static_cast<double>(insertRow + 1));
-    m_workspace->undoStack()->push(new core::InsertCueCommand(list, insertRow, std::move(cue)));
-    if (m_model->rowCount() > insertRow)
-        m_cueListView->setCurrentIndex(m_model->index(insertRow, 0));
-}
-
-void MainWindow::insertStopCue()
-{
-    auto *list = m_workspace->activeCueList();
-    if (!list) return;
-    const auto idx = m_cueListView->currentIndex();
-    const int insertRow = idx.isValid() ? idx.row() + 1 : list->cueCount();
-    auto cue = std::make_unique<cues::StopCue>();
-    cue->setField(QStringLiteral("name"), tr("Stop"));
-    cue->setField(QStringLiteral("number"), static_cast<double>(insertRow + 1));
-    m_workspace->undoStack()->push(new core::InsertCueCommand(list, insertRow, std::move(cue)));
-    if (m_model->rowCount() > insertRow)
-        m_cueListView->setCurrentIndex(m_model->index(insertRow, 0));
-}
-
-void MainWindow::insertGotoCue()
-{
-    auto *list = m_workspace->activeCueList();
-    if (!list) return;
-    const auto idx = m_cueListView->currentIndex();
-    const int insertRow = idx.isValid() ? idx.row() + 1 : list->cueCount();
-    auto cue = std::make_unique<cues::GotoCue>();
-    cue->setField(QStringLiteral("name"), tr("Goto"));
-    cue->setField(QStringLiteral("number"), static_cast<double>(insertRow + 1));
-    m_workspace->undoStack()->push(new core::InsertCueCommand(list, insertRow, std::move(cue)));
-    if (m_model->rowCount() > insertRow)
-        m_cueListView->setCurrentIndex(m_model->index(insertRow, 0));
-}
-
-// Pause/Load/Reset/Devamp share the StartCue shape — the GoEngine
-// switches behaviour by cue subclass at fire time.
-namespace {
-template <typename CueT>
-std::unique_ptr<cues::Cue> makeNamedTargeting(const QString &name, int row) {
-    auto cue = std::make_unique<CueT>();
-    cue->setField(QStringLiteral("name"), name);
-    cue->setField(QStringLiteral("number"), static_cast<double>(row + 1));
-    return cue;
-}
-} // namespace
-
-void MainWindow::insertPauseCue()
-{
-    auto *list = m_workspace->activeCueList(); if (!list) return;
-    const auto idx = m_cueListView->currentIndex();
-    const int row = idx.isValid() ? idx.row() + 1 : list->cueCount();
-    m_workspace->undoStack()->push(new core::InsertCueCommand(
-        list, row, makeNamedTargeting<cues::PauseCue>(tr("Pause"), row)));
-    if (m_model->rowCount() > row) m_cueListView->setCurrentIndex(m_model->index(row, 0));
-}
-
-void MainWindow::insertLoadCue()
-{
-    auto *list = m_workspace->activeCueList(); if (!list) return;
-    const auto idx = m_cueListView->currentIndex();
-    const int row = idx.isValid() ? idx.row() + 1 : list->cueCount();
-    m_workspace->undoStack()->push(new core::InsertCueCommand(
-        list, row, makeNamedTargeting<cues::LoadCue>(tr("Load"), row)));
-    if (m_model->rowCount() > row) m_cueListView->setCurrentIndex(m_model->index(row, 0));
-}
-
-void MainWindow::insertResetCue()
-{
-    auto *list = m_workspace->activeCueList(); if (!list) return;
-    const auto idx = m_cueListView->currentIndex();
-    const int row = idx.isValid() ? idx.row() + 1 : list->cueCount();
-    m_workspace->undoStack()->push(new core::InsertCueCommand(
-        list, row, makeNamedTargeting<cues::ResetCue>(tr("Reset"), row)));
-    if (m_model->rowCount() > row) m_cueListView->setCurrentIndex(m_model->index(row, 0));
-}
-
-void MainWindow::insertDevampCue()
-{
-    auto *list = m_workspace->activeCueList(); if (!list) return;
-    const auto idx = m_cueListView->currentIndex();
-    const int row = idx.isValid() ? idx.row() + 1 : list->cueCount();
-    m_workspace->undoStack()->push(new core::InsertCueCommand(
-        list, row, makeNamedTargeting<cues::DevampCue>(tr("Devamp"), row)));
-    if (m_model->rowCount() > row) m_cueListView->setCurrentIndex(m_model->index(row, 0));
-}
-
-void MainWindow::insertGroupCue()
-{
-    auto *list = m_workspace->activeCueList();
-    if (!list) return;
-    const auto idx = m_cueListView->currentIndex();
-    const int insertRow = idx.isValid() ? idx.row() + 1 : list->cueCount();
-    auto cue = std::make_unique<cues::GroupCue>();
-    cue->setField(QStringLiteral("name"), tr("Group"));
-    cue->setField(QStringLiteral("number"), static_cast<double>(insertRow + 1));
-    m_workspace->undoStack()->push(new core::InsertCueCommand(list, insertRow, std::move(cue)));
-    if (m_model->rowCount() > insertRow)
-        m_cueListView->setCurrentIndex(m_model->index(insertRow, 0));
-}
-
-void MainWindow::insertMidiCue()
-{
-    auto *list = m_workspace->activeCueList();
-    if (!list) return;
-    const auto idx = m_cueListView->currentIndex();
-    const int insertRow = idx.isValid() ? idx.row() + 1 : list->cueCount();
-    auto cue = std::make_unique<midi::MidiCue>();
-    cue->setField(QStringLiteral("name"), tr("MIDI"));
-    cue->setField(QStringLiteral("number"), static_cast<double>(insertRow + 1));
-    m_workspace->undoStack()->push(new core::InsertCueCommand(list, insertRow, std::move(cue)));
-    if (m_model->rowCount() > insertRow)
-        m_cueListView->setCurrentIndex(m_model->index(insertRow, 0));
-}
-
-void MainWindow::insertMscCue()
-{
-    auto *list = m_workspace->activeCueList();
-    if (!list) return;
-    const auto idx = m_cueListView->currentIndex();
-    const int insertRow = idx.isValid() ? idx.row() + 1 : list->cueCount();
-    auto cue = std::make_unique<midi::MscCue>();
-    cue->setField(QStringLiteral("name"), tr("MSC"));
-    cue->setField(QStringLiteral("number"), static_cast<double>(insertRow + 1));
-    m_workspace->undoStack()->push(new core::InsertCueCommand(list, insertRow, std::move(cue)));
-    if (m_model->rowCount() > insertRow)
-        m_cueListView->setCurrentIndex(m_model->index(insertRow, 0));
+    insertCueOfType(std::move(cue), tr("Text"));
 }
 
 void MainWindow::deleteSelectedCue()

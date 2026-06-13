@@ -48,7 +48,9 @@ private:
 
     std::unique_ptr<RtMidiOut> m_out;   // current open port
     QString                    m_openPortName;
-    QString                    m_lastError;
+    // mutable so the const port-enumeration path can record an
+    // enumeration failure (matches MidiInputEngine's behaviour).
+    mutable QString            m_lastError;
 
     mutable QStringList        m_cachedPorts;
     mutable QElapsedTimer      m_cacheTimer;

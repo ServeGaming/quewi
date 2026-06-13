@@ -99,14 +99,23 @@ void EqEffect::rebuildCoeffs(int i) {
     }
     }
 
+    // Update coefficients only — do NOT clear the biquad delay-line
+    // state here. rebuildCoeffs runs on every parameter change (knob
+    // drag), and zeroing x1/x2/y1/y2 mid-stream produces an audible
+    // click on each update. State is cleared where it should be: in
+    // prepare() and reset(). Copying L→R would also copy L's history
+    // into R, so assign coefficients field-by-field and leave each
+    // channel's running state intact.
     m_filtersL[i].b0 = b0 / a0;
     m_filtersL[i].b1 = b1 / a0;
     m_filtersL[i].b2 = b2 / a0;
     m_filtersL[i].a1 = a1 / a0;
     m_filtersL[i].a2 = a2 / a0;
-    m_filtersR[i] = m_filtersL[i];
-    m_filtersR[i].reset();
-    m_filtersL[i].reset();
+    m_filtersR[i].b0 = m_filtersL[i].b0;
+    m_filtersR[i].b1 = m_filtersL[i].b1;
+    m_filtersR[i].b2 = m_filtersL[i].b2;
+    m_filtersR[i].a1 = m_filtersL[i].a1;
+    m_filtersR[i].a2 = m_filtersL[i].a2;
 }
 
 void EqEffect::process(float *data, int numFrames) {

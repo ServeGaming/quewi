@@ -535,7 +535,18 @@ void GoEngine::scheduleContinue(cues::Cue *cue, double delaySeconds)
     if (!next) return;
     QPointer<cues::Cue> guard(next);
     if (delaySeconds <= 0.0) {
-        if (guard) doFire(guard);
+        // Zero-delay continue still goes through the event loop rather
+        // than calling doFire() inline. A list of all-AutoFollow,
+        // zero-wait cues would otherwise recurse
+        // doFire→scheduleContinue→doFire for the whole list on one
+        // stack frame (stack growth on long lists), and a cue that
+        // GOTOs backward into such a chain would infinite-loop
+        // synchronously and hang the UI. singleShot(0) lets each cue
+        // fire on a fresh event-loop turn, bounding stack depth and
+        // keeping the app responsive.
+        QTimer::singleShot(0, this, [this, guard] {
+            if (guard) fire(guard);
+        });
         return;
     }
     auto *t = new QTimer(this);

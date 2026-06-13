@@ -18,8 +18,12 @@ void MidiEngine::refreshPorts() const
         for (unsigned i = 0; i < n; ++i) {
             m_cachedPorts << QString::fromStdString(probe.getPortName(i));
         }
-    } catch (const RtMidiError &) {
-        // Leave m_cachedPorts as it is.
+    } catch (const RtMidiError &e) {
+        // Record the failure (symmetric with MidiInputEngine) instead
+        // of silently swallowing it — otherwise an enumeration error
+        // is invisible to the user. Keep whatever was previously
+        // cached.
+        m_lastError = QString::fromStdString(e.getMessage());
     }
     m_cacheTimer.start();
 }

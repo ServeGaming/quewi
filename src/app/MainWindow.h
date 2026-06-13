@@ -118,6 +118,11 @@ private:
     bool saveTo(const QString &path);
     std::unique_ptr<cues::Cue> cueFromFile(const QString &path);
     int  insertCuesFromUrls(const QList<QUrl> &urls, int startRow = -1);
+    // Shared body for every New-<type> menu action: inserts `cue`
+    // after the current selection, names + numbers it, pushes the
+    // undo command, and selects the new row. Each insertXCue() slot
+    // is a one-liner over this.
+    void insertCueOfType(std::unique_ptr<cues::Cue> cue, const QString &name);
     // Walks every cue list and kicks off prepare() on each AudioCue so
     // QAudioDecoder runs in the background. Without this the first GO
     // after opening a show is the one that starts decoding, which

@@ -79,7 +79,13 @@ void LightCue::fromPayload(const QJsonObject &payload)
     for (auto it = channels.constBegin(); it != channels.constEnd(); ++it) {
         bool ok = false;
         const int ch = it.key().toInt(&ok);
-        if (ok) m_channels.insert(ch, it.value().toInt());
+        // Mirror setChannelsMap's validation so a hand-edited or
+        // corrupt show file can't inject out-of-range channels (the
+        // engine guards 1..512, but values must be clamped to a DMX
+        // byte before they reach the wire).
+        if (ok && ch >= 1 && ch <= 512) {
+            m_channels.insert(ch, std::clamp(it.value().toInt(), 0, 255));
+        }
     }
 }
 
