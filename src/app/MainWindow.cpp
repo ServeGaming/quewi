@@ -2256,6 +2256,36 @@ std::unique_ptr<cues::Cue> MainWindow::cueFromFile(const QString &path)
 //   /quewi/heartbeat        (no args)            — no-op, useful for
 //                                                  remote connection check
 
+QString MainWindow::cueToJsonString(const cues::Cue *c)
+{
+    if (!c) return QString();
+    QJsonObject o = c->toPayload();
+    // Common fields aren't in toPayload by convention — add them
+    // explicitly so the remote sees one self-contained record.
+    o.insert(QStringLiteral("id"), c->id().toString());
+    o.insert(QStringLiteral("number"), c->number());
+    o.insert(QStringLiteral("name"), c->name());
+    o.insert(QStringLiteral("type"), c->typeKey());
+    o.insert(QStringLiteral("preWait"), c->preWait());
+    o.insert(QStringLiteral("postWait"), c->postWait());
+    o.insert(QStringLiteral("notes"), c->notes());
+    o.insert(QStringLiteral("armed"), c->isArmed());
+    return QString::fromUtf8(QJsonDocument(o).toJson(QJsonDocument::Compact));
+}
+
+audio::AudioCue *MainWindow::audioCueForVoice(core::CueList *list,
+                                              quint64 voiceId)
+{
+    if (!list || voiceId == 0) return nullptr;
+    for (int r = 0; r < list->cueCount(); ++r) {
+        if (auto *ac = qobject_cast<audio::AudioCue *>(list->cueAt(r));
+            ac && ac->currentVoiceId() == voiceId) {
+            return ac;
+        }
+    }
+    return nullptr;
+}
+
 void MainWindow::registerOscRemoteHandlers()
 {
     auto sub = [this](const QString &pattern, auto &&fn) {
@@ -2393,21 +2423,6 @@ void MainWindow::registerOscRemoteHandlers()
 
     // Helper: serialise a cue + its payload to a JSON string suitable
     // for transport as a single OSC string argument.
-    auto cueToJson = [](const cues::Cue *c) -> QString {
-        if (!c) return QString();
-        QJsonObject o = c->toPayload();
-        // Common fields aren't in toPayload by convention — add them
-        // explicitly so the remote sees one self-contained record.
-        o.insert(QStringLiteral("id"), c->id().toString());
-        o.insert(QStringLiteral("number"), c->number());
-        o.insert(QStringLiteral("name"), c->name());
-        o.insert(QStringLiteral("type"), c->typeKey());
-        o.insert(QStringLiteral("preWait"), c->preWait());
-        o.insert(QStringLiteral("postWait"), c->postWait());
-        o.insert(QStringLiteral("notes"), c->notes());
-        o.insert(QStringLiteral("armed"), c->isArmed());
-        return QString::fromUtf8(QJsonDocument(o).toJson(QJsonDocument::Compact));
-    };
 
     sub("/quewi/query/version", [this, replyToSender](const osc::Message &) {
         replyToSender(QStringLiteral("/quewi/reply/version"),
@@ -2452,13 +2467,13 @@ void MainWindow::registerOscRemoteHandlers()
     // captures of `this` can call it without a separate capture.)
 
     sub("/quewi/query/cues",
-        [this, replyToSender, cueToJson](const osc::Message &) {
+        [this, replyToSender](const osc::Message &) {
         QJsonArray arr;
         if (auto *list = activeOscList()) {
             for (int r = 0; r < list->cueCount(); ++r) {
                 if (auto *c = list->cueAt(r)) {
                     arr.append(QJsonDocument::fromJson(
-                        cueToJson(c).toUtf8()).object());
+                        cueToJsonString(c).toUtf8()).object());
                 }
             }
         }
@@ -2511,7 +2526,7 @@ void MainWindow::registerOscRemoteHandlers()
     });
 
     sub("/quewi/query/cue",
-        [this, replyToSender, cueToJson](const osc::Message &m) {
+        [this, replyToSender](const osc::Message &m) {
         const auto numOpt = osc::firstNumber(m);
         if (!numOpt) return;
         const double num = *numOpt;
@@ -2520,7 +2535,7 @@ void MainWindow::registerOscRemoteHandlers()
         for (int r = 0; r < list->cueCount(); ++r) {
             if (auto *c = list->cueAt(r); c && qFuzzyCompare(c->number(), num)) {
                 replyToSender(QStringLiteral("/quewi/reply/cue"),
-                    { osc::Argument::s(cueToJson(c)) });
+                    { osc::Argument::s(cueToJsonString(c)) });
                 return;
             }
         }
@@ -2550,16 +2565,7 @@ void MainWindow::registerOscRemoteHandlers()
             for (const auto &v : voices) {
                 // Match voice to its owning cue via currentVoiceId
                 // — set at fire() time, cleared on voiceFinished.
-                cues::Cue *owner = nullptr;
-                if (list) {
-                    for (int r = 0; r < list->cueCount(); ++r) {
-                        if (auto *ac = qobject_cast<audio::AudioCue *>(list->cueAt(r));
-                            ac && ac->currentVoiceId() == v.id) {
-                            owner = ac;
-                            break;
-                        }
-                    }
-                }
+                cues::Cue *owner = audioCueForVoice(list, v.id);
                 if (!owner) continue;
                 QJsonObject o;
                 o.insert(QStringLiteral("id"), owner->id().toString());
@@ -3030,16 +3036,7 @@ void MainWindow::pushPlaybackHeartbeat()
     for (const auto &v : voices) {
         // Resolve voice → owning cue. Cue is required to address
         // the push (`id` field); orphan voices skip silently.
-        cues::Cue *owner = nullptr;
-        if (list) {
-            for (int r = 0; r < list->cueCount(); ++r) {
-                if (auto *ac = qobject_cast<audio::AudioCue *>(list->cueAt(r));
-                    ac && ac->currentVoiceId() == v.id) {
-                    owner = ac;
-                    break;
-                }
-            }
-        }
+        cues::Cue *owner = audioCueForVoice(list, v.id);
         if (!owner) continue;
 
         const bool paused = m_audioEngine->isPaused(v.id);
@@ -3096,19 +3093,9 @@ void MainWindow::wireOscNotifications()
         [this, list](int row) {
             auto *c = list->cueAt(row);
             if (!c) return;
-            QJsonObject o = c->toPayload();
-            o.insert(QStringLiteral("id"), c->id().toString());
-            o.insert(QStringLiteral("number"), c->number());
-            o.insert(QStringLiteral("name"), c->name());
-            o.insert(QStringLiteral("type"), c->typeKey());
-            o.insert(QStringLiteral("preWait"), c->preWait());
-            o.insert(QStringLiteral("postWait"), c->postWait());
-            o.insert(QStringLiteral("notes"), c->notes());
-            o.insert(QStringLiteral("armed"), c->isArmed());
             pushOscNotify(QStringLiteral("/quewi/notify/cue/changed"),
                 { osc::Argument::s(c->id().toString()),
-                  osc::Argument::s(QString::fromUtf8(
-                      QJsonDocument(o).toJson(QJsonDocument::Compact))) });
+                  osc::Argument::s(cueToJsonString(c)) });
         }));
     m_oscNotifyConnections.append(connect(list, &core::CueList::aboutToRemoveCue, this,
         [this, list](int row) {
@@ -3166,17 +3153,16 @@ void MainWindow::wireOscNotifications()
             &audio::AudioEngine::voiceFinished, this,
             [this](audio::VoiceId id) {
                 if (!m_workspace) return;
+                // A finished voice may belong to any cue list, not just
+                // the active one, so search them all.
                 for (const auto &up : m_workspace->cueLists()) {
-                    for (int r = 0; r < up->cueCount(); ++r) {
-                        auto *ac = qobject_cast<audio::AudioCue *>(up->cueAt(r));
-                        if (ac && ac->currentVoiceId() == id) {
-                            pushOscNotify(
-                                QStringLiteral("/quewi/notify/cue/state"),
-                                { osc::Argument::s(ac->id().toString()),
-                                  osc::Argument::s(QStringLiteral("finished")),
-                                  osc::Argument::d(ac->number()) });
-                            return;
-                        }
+                    if (auto *ac = audioCueForVoice(up.get(), id)) {
+                        pushOscNotify(
+                            QStringLiteral("/quewi/notify/cue/state"),
+                            { osc::Argument::s(ac->id().toString()),
+                              osc::Argument::s(QStringLiteral("finished")),
+                              osc::Argument::d(ac->number()) });
+                        return;
                     }
                 }
             }));

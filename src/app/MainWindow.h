@@ -25,7 +25,7 @@ namespace quewi::core { class Workspace; class CueList; class CueListModel; }
 namespace quewi::cues { class Cue; }
 namespace quewi::ui   { class ActiveCuesPanel; class CartView; class CueListView; class Inspector; class ShortcutManager; class TransportBar; class OscMonitor; class ScriptWindow; }
 namespace quewi::osc  { class OscEngine; }
-namespace quewi::audio { class AudioEngine; }
+namespace quewi::audio { class AudioEngine; class AudioCue; }
 namespace quewi::lighting { class LightingEngine; }
 namespace quewi::video { class VideoEngine; }
 namespace quewi::midi  { class MidiEngine; class MidiInputEngine; }
@@ -143,6 +143,18 @@ private:
     // GitHub Issues "new" page with version, OS, Qt, and a template
     // body. We don't post via the API — keeps the app credential-free.
     void reportBug();
+
+    // Serialize a cue to the self-contained JSON record the OSC API
+    // hands out (toPayload() plus the common id/number/name/type/
+    // wait/notes/armed fields). One definition so the query reply and
+    // the change-notification push can't drift apart.
+    static QString cueToJsonString(const cues::Cue *c);
+
+    // Find the AudioCue in `list` that currently owns voice `id`, or
+    // nullptr. Centralises the voice→cue lookup duplicated across the
+    // OSC playback handlers.
+    static audio::AudioCue *audioCueForVoice(core::CueList *list,
+                                             quint64 voiceId);
 
     void registerOscRemoteHandlers();
     // Wire workspace + cue-list + cue signals into OSC push
