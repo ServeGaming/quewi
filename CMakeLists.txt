@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.24)
 project(quewi
-    VERSION 0.9.65
+    VERSION 0.9.66
     DESCRIPTION "Theatre cueing software"
     HOMEPAGE_URL "https://github.com/ServeGaming/quewi"
     LANGUAGES CXX
@@ -31,6 +31,7 @@ endif()
 # doesn't depend on any post-6.7 APIs.
 find_package(Qt6 6.7 REQUIRED COMPONENTS
     Core
+    Concurrent
     Gui
     Widgets
     Network

@@ -104,6 +104,18 @@ Per-cue effects chain — EQ, Compressor, Reverb, Delay. See the
 parameter reference. Effects apply during live playback AND
 during the editor's render-to-WAV export.
 
+Both the **EQ** and the **Compressor** have a visual editor behind
+the **Edit…** button on their rack row:
+
+- **Parametric EQ** — a response graph with one draggable handle
+  per band.
+- **Compressor** — an interactive transfer curve (input level →
+  output level). Drag the threshold handle horizontally, drag the
+  right-edge ratio handle vertically, and roll the wheel to widen
+  the soft knee. A gain-reduction meter down the right edge moves
+  while you audition the cue so you can see the compressor working.
+  Double-click resets threshold / ratio / knee / makeup to defaults.
+
 ---
 
 ## Audio editor
@@ -112,3 +124,13 @@ Open from the Inspector for an Audio cue: **Open in Audio
 Editor…** for the dedicated waveform / region / fade / spectro
 view. Edit regions non-destructively (the source file is
 untouched), then save back to the cue.
+
+### Waveform vs. Spectrogram view
+
+The toolbar's **View** toggle switches every track between the peak
+**Waveform** and an Audacity-style **Spectrogram** — a log-frequency
+heat-map of the entire clip drawn inline in the timeline. The
+spectrogram is computed once per source file on a background thread
+and cached, so toggling and scrolling stay responsive; it scales as
+you zoom. (A focused per-selection spectrogram also lives in the
+bottom panel's **Spectrogram** tab.)

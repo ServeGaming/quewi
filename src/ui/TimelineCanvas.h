@@ -2,9 +2,12 @@
 
 #include "audio/AudioEditorModel.h"
 
+#include <QHash>
+#include <QImage>
 #include <QPropertyAnimation>
 #include <QPointer>
 #include <QScrollBar>
+#include <QSet>
 #include <QWidget>
 #include <optional>
 
@@ -29,12 +32,19 @@ class TimelineCanvas : public QWidget {
     Q_OBJECT
 public:
     enum class Tool { Select, Razor };
+    // How region bodies render their audio. Spectrogram draws a log-frequency
+    // heat-map of the whole source file (Audacity-style); built lazily off
+    // the GUI thread and cached per source file.
+    enum class ViewMode { Waveform, Spectrogram };
 
     explicit TimelineCanvas(audio::AudioEditorModel *model, QWidget *parent = nullptr);
-    ~TimelineCanvas() override = default;
+    ~TimelineCanvas() override;
 
     void setScrollBars(QScrollBar *hbar, QScrollBar *vbar);
     void setTool(Tool t) { m_tool = t; update(); }
+
+    ViewMode viewMode() const { return m_viewMode; }
+    void     setViewMode(ViewMode m);
 
     // Zoom: framesPerPixel — lower = more zoomed in
     double framesPerPixel() const { return m_framesPerPixel; }
@@ -92,8 +102,25 @@ private:
     void drawTrackHeader(QPainter &p, int trackIndex, const QRect &r);
     void drawRegion(QPainter &p, const audio::AudioRegion &region,
                     int trackIndex, const QRect &trackRect);
+    void drawRegionWaveform(QPainter &p, const audio::AudioRegion &region,
+                            int x1, int x2, int waveTop, int waveH);
+    // Draws the cached spectrogram for the region's visible span. Returns
+    // false if the image isn't built yet (caller falls back to waveform).
+    bool drawRegionSpectrogram(QPainter &p, const audio::AudioRegion &region,
+                               int x1, int x2, int top, int h);
     void drawPlayhead(QPainter &p);
     void updateScrollBars();
+
+    // ── Spectrogram cache (Spectrogram view mode) ─────────────────────────
+    // One heat-map image per distinct source file, built once on a worker
+    // thread. Keyed by raw AudioFile* (stable for the editor's lifetime); the
+    // frame-count guard rebuilds if a file is reloaded at the same address.
+    void ensureSpectrogram(const std::shared_ptr<audio::AudioFile> &file);
+    void clearSpectrogramCache();
+    ViewMode m_viewMode = ViewMode::Waveform;
+    QHash<const audio::AudioFile *, QImage>  m_specImages;
+    QHash<const audio::AudioFile *, qint64>  m_specFrames;   // frameCount when built
+    QSet<const audio::AudioFile *>           m_specBuilding; // in-flight builds
 
     // ── State ─────────────────────────────────────────────────────────────────
     audio::AudioEditorModel *m_model;

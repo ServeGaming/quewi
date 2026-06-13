@@ -1,7 +1,9 @@
 #include "ui/TimelineCanvas.h"
+#include "ui/SpectrogramImage.h"
 #include "audio/AudioFile.h"
 
 #include <QContextMenuEvent>
+#include <QFutureWatcher>
 #include <QInputDialog>
 #include <QLineEdit>
 #include <QMenu>
@@ -10,6 +12,7 @@
 #include <QPainter>
 #include <QScrollBar>
 #include <QWheelEvent>
+#include <QtConcurrentRun>
 #include <algorithm>
 #include <cmath>
 
@@ -26,6 +29,45 @@ TimelineCanvas::TimelineCanvas(audio::AudioEditorModel *model, QWidget *parent)
         connect(model, &audio::AudioEditorModel::tracksChanged,  this, [this]{ updateScrollBars(); update(); });
         connect(model, &audio::AudioEditorModel::regionMoved,    this, [this]{ update(); });
     }
+}
+
+TimelineCanvas::~TimelineCanvas() = default;
+
+void TimelineCanvas::setViewMode(ViewMode m) {
+    if (m_viewMode == m) return;
+    m_viewMode = m;
+    update();
+}
+
+void TimelineCanvas::clearSpectrogramCache() {
+    m_specImages.clear();
+    m_specFrames.clear();
+    // In-flight builds are left to finish; their results are dropped because
+    // the entry is re-checked against the live frame count on completion.
+}
+
+void TimelineCanvas::ensureSpectrogram(const std::shared_ptr<audio::AudioFile> &file) {
+    if (!file || file->state() != audio::AudioFile::State::Loaded) return;
+    const audio::AudioFile *key = file.get();
+    const qint64 fc = file->frameCount();
+    if (m_specImages.contains(key) && m_specFrames.value(key) == fc) return; // fresh
+    if (m_specBuilding.contains(key)) return;                                // building
+
+    auto snap = file->snapshot();
+    if (!snap) return;
+
+    m_specBuilding.insert(key);
+    auto *watcher = new QFutureWatcher<QImage>(this);
+    connect(watcher, &QFutureWatcher<QImage>::finished, this, [this, watcher, key, fc] {
+        m_specImages.insert(key, watcher->result());
+        m_specFrames.insert(key, fc);
+        m_specBuilding.remove(key);
+        watcher->deleteLater();
+        if (m_viewMode == ViewMode::Spectrogram) update();
+    });
+    watcher->setFuture(QtConcurrent::run([snap] {
+        return spectro::buildFullFile(snap);
+    }));
 }
 
 // ── Geometry ──────────────────────────────────────────────────────────────────
@@ -248,38 +290,20 @@ void TimelineCanvas::drawRegion(QPainter &p, const audio::AudioRegion &region,
     p.drawText(rr.adjusted(4, 2, -4, -h/2), Qt::AlignLeft | Qt::AlignTop,
                region.name.isEmpty() ? QStringLiteral("Region") : region.name);
 
-    // Waveform
-    if (!region.sourceFile || region.sourceFile->state() != audio::AudioFile::State::Loaded) return;
-    const auto &peaks = region.sourceFile->peaks();
-    int srcCh = region.sourceFile->channelCount();
-    int sr    = region.sourceFile->sampleRate();
-    if (peaks.empty() || srcCh == 0) return;
-
-    int waveTop = yTop + h / 3;
-    int waveH   = h * 2 / 3 - 2;
-    int waveMid = waveTop + waveH / 2;
-
-    p.setPen(region.color.lighter(180));
-
-    double framesPerRegionPx = m_framesPerPixel;
-    int numRegionPx = x2 - x1;
-
-    for (int px = 0; px < numRegionPx; ++px) {
-        qint64 regionFrame = qint64((px + (x1 - int(framesToX(region.timelinePosSamples)))) * framesPerRegionPx);
-        qint64 srcFrame    = region.srcInSamples + regionFrame;
-        if (srcFrame < 0) continue;
-
-        // Map srcFrame to peak block
-        int peakIdx = int(srcFrame / audio::AudioFile::kPeakBlock);
-        int numPeakBlocks = int(peaks.size() / srcCh);
-        if (peakIdx >= numPeakBlocks) break;
-
-        float peakVal = 0.f;
-        for (int ch = 0; ch < std::min(srcCh, 2); ++ch)
-            peakVal = std::max(peakVal, peaks[size_t(peakIdx * srcCh + ch)]);
-
-        int ampPx = int(peakVal * float(waveH / 2));
-        p.drawLine(x1 + px, waveMid - ampPx, x1 + px, waveMid + ampPx);
+    // Content — waveform peaks or whole-file spectrogram.
+    if (region.sourceFile && region.sourceFile->state() == audio::AudioFile::State::Loaded) {
+        bool drew = false;
+        if (m_viewMode == ViewMode::Spectrogram) {
+            // Spectrogram fills the body below the name strip.
+            const int specTop = yTop + h / 4;
+            const int specH   = yBottom - specTop - 1;
+            drew = drawRegionSpectrogram(p, region, x1, x2, specTop, specH);
+        }
+        if (!drew) {
+            const int waveTop = yTop + h / 3;
+            const int waveH   = h * 2 / 3 - 2;
+            drawRegionWaveform(p, region, x1, x2, waveTop, waveH);
+        }
     }
 
     // Fade-in overlay
@@ -300,6 +324,74 @@ void TimelineCanvas::drawRegion(QPainter &p, const audio::AudioRegion &region,
         grad.setColorAt(1, QColor(0,0,0,180));
         p.fillRect(QRect(rr.right() - fadeW, yTop, fadeW, h), grad);
     }
+}
+
+void TimelineCanvas::drawRegionWaveform(QPainter &p, const audio::AudioRegion &region,
+                                        int x1, int x2, int waveTop, int waveH)
+{
+    const auto &peaks = region.sourceFile->peaks();
+    const int srcCh = region.sourceFile->channelCount();
+    if (peaks.empty() || srcCh == 0 || waveH <= 0) return;
+
+    const int waveMid = waveTop + waveH / 2;
+    p.setPen(region.color.lighter(180));
+
+    const double framesPerRegionPx = m_framesPerPixel;
+    const int numRegionPx = x2 - x1;
+    const int regionLeftPx = int(framesToX(region.timelinePosSamples));
+
+    for (int px = 0; px < numRegionPx; ++px) {
+        qint64 regionFrame = qint64((px + (x1 - regionLeftPx)) * framesPerRegionPx);
+        qint64 srcFrame    = region.srcInSamples + regionFrame;
+        if (srcFrame < 0) continue;
+
+        int peakIdx = int(srcFrame / audio::AudioFile::kPeakBlock);
+        int numPeakBlocks = int(peaks.size() / srcCh);
+        if (peakIdx >= numPeakBlocks) break;
+
+        float peakVal = 0.f;
+        for (int ch = 0; ch < std::min(srcCh, 2); ++ch)
+            peakVal = std::max(peakVal, peaks[size_t(peakIdx * srcCh + ch)]);
+
+        int ampPx = int(peakVal * float(waveH / 2));
+        p.drawLine(x1 + px, waveMid - ampPx, x1 + px, waveMid + ampPx);
+    }
+}
+
+bool TimelineCanvas::drawRegionSpectrogram(QPainter &p, const audio::AudioRegion &region,
+                                           int x1, int x2, int top, int h)
+{
+    if (h <= 0 || x2 <= x1) return false;
+
+    ensureSpectrogram(region.sourceFile);
+    auto it = m_specImages.constFind(region.sourceFile.get());
+    if (it == m_specImages.constEnd() || it.value().isNull())
+        return false; // not built yet — caller falls back to the waveform
+
+    const QImage &img = it.value();
+    const qint64 fileFrames = region.sourceFile->frameCount();
+    if (fileFrames <= 0) return false;
+
+    // Map the visible on-screen slice back to a source-sample span, then to
+    // image columns. xToFrames/framesToX already fold in scroll + zoom.
+    const qint64 tStart = xToFrames(x1);
+    const qint64 tEnd   = xToFrames(x2);
+    qint64 srcStart = region.srcInSamples + (tStart - region.timelinePosSamples);
+    qint64 srcEnd   = region.srcInSamples + (tEnd   - region.timelinePosSamples);
+    srcStart = std::clamp<qint64>(srcStart, 0, fileFrames);
+    srcEnd   = std::clamp<qint64>(srcEnd,   0, fileFrames);
+    if (srcEnd <= srcStart) return false;
+
+    int col1 = int(srcStart * img.width() / fileFrames);
+    int col2 = int(srcEnd   * img.width() / fileFrames);
+    col1 = std::clamp(col1, 0, img.width() - 1);
+    col2 = std::clamp(col2, col1 + 1, img.width());
+
+    const QRect target(x1, top, x2 - x1, h);
+    p.setRenderHint(QPainter::SmoothPixmapTransform, true);
+    p.drawImage(target, img, QRect(col1, 0, col2 - col1, img.height()));
+    p.setRenderHint(QPainter::SmoothPixmapTransform, false);
+    return true;
 }
 
 void TimelineCanvas::drawPlayhead(QPainter &p) {

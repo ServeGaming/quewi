@@ -113,6 +113,21 @@ QIcon makeEditorIcon(const QString &name) {
         arrow.moveTo(5, 8); arrow.lineTo(9, 13); arrow.lineTo(13, 8); arrow.closeSubpath();
         p.fillPath(arrow, ink);
         p.drawLine(3, 15, 15, 15);
+    } else if (name == QLatin1String("waveform")) {
+        // Symmetric amplitude bars around a centre line.
+        static const int hgt[] = {3, 6, 9, 5, 8, 4, 7};
+        for (int i = 0; i < 7; ++i) {
+            const int x = 3 + i * 2;
+            p.drawLine(x, 9 - hgt[i] / 2, x, 9 + hgt[i] / 2);
+        }
+    } else if (name == QLatin1String("spectrogram")) {
+        // Stacked frequency bands.
+        for (int i = 0; i < 4; ++i) {
+            const int y = 4 + i * 3;
+            QColor c = ink; c.setAlpha(80 + i * 50);
+            p.setPen(QPen(c, 2, Qt::SolidLine, Qt::RoundCap));
+            p.drawLine(3, y, 15, y);
+        }
     }
     p.end();
     QIcon icon(pm);
@@ -253,6 +268,22 @@ void AudioEditorWindow::buildToolbar() {
     tb->addAction(makeEditorIcon("zoomOut"), tr("Out"), this, &AudioEditorWindow::zoomOut);
     tb->addAction(makeEditorIcon("zoomIn"),  tr("In"),  this, &AudioEditorWindow::zoomIn);
     tb->addAction(makeEditorIcon("zoomFit"), tr("Fit"), this, &AudioEditorWindow::zoomFit);
+
+    tb->addWidget(toolbarDivider(tb));
+
+    // ── VIEW ──────────────────────────────────────────────────────────
+    // Audacity-style toggle between the peak waveform and a whole-file
+    // spectrogram. The spectrogram image is built lazily per source file.
+    tb->addWidget(sectionLabel(tr("VIEW"), tb));
+    auto *viewGroup = new QActionGroup(this);
+    auto *waveAct = tb->addAction(makeEditorIcon("waveform"),    tr("Waveform"));
+    auto *specAct = tb->addAction(makeEditorIcon("spectrogram"), tr("Spectrogram"));
+    waveAct->setCheckable(true); waveAct->setChecked(true); waveAct->setActionGroup(viewGroup);
+    specAct->setCheckable(true); specAct->setActionGroup(viewGroup);
+    connect(waveAct, &QAction::triggered, this, [this]{
+        m_timeline->setViewMode(TimelineCanvas::ViewMode::Waveform); });
+    connect(specAct, &QAction::triggered, this, [this]{
+        m_timeline->setViewMode(TimelineCanvas::ViewMode::Spectrogram); });
 
     tb->addWidget(toolbarDivider(tb));
 

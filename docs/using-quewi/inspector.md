@@ -105,8 +105,11 @@ Delay effects per-cue.
 - **Reorder** — drag the effect row.
 - **Enable / disable** — checkbox at the top of each row.
 - **Remove** — `✕` button on the row.
-- **Edit parameters** — open the parametric editor (EQ has a
-  dedicated dialog with a frequency-response curve).
+- **Edit parameters** — adjust each effect's sliders inline, or
+  click **Edit…** to open a visual editor. The **EQ** opens a
+  frequency-response curve with draggable band handles; the
+  **Compressor** opens an interactive transfer curve with a live
+  gain-reduction meter (drag threshold/ratio, wheel for knee).
 
 Effects are stored with the cue and persist across save/load.
 They apply during playback (live, the audio you hear includes

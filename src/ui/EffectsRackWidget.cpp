@@ -1,7 +1,9 @@
 #include "ui/EffectsRackWidget.h"
 #include "audio/AudioEffect.h"
 #include "audio/effects/EqEffect.h"
+#include "audio/effects/CompressorEffect.h"
 #include "ui/ParametricEqDialog.h"
+#include "ui/CompressorDialog.h"
 #include "ui/Theme.h"
 
 #include <QApplication>
@@ -170,13 +172,19 @@ QWidget *EffectsRackWidget::buildEffectRow(audio::AudioEffect *fx, int index) {
     connect(enableCheck, &QCheckBox::toggled, fx, &audio::AudioEffect::setEnabled);
     hl->addWidget(enableCheck, 1);
 
-    // EQ gets a visual editor button
-    if (fx->type() == audio::AudioEffect::Type::Eq) {
+    // EQ and Compressor get a visual editor button; the others keep the
+    // generic slider rows below as their only UI.
+    if (fx->type() == audio::AudioEffect::Type::Eq ||
+        fx->type() == audio::AudioEffect::Type::Compressor) {
         auto *editBtn = new QPushButton(tr("Edit…"), hdr);
         editBtn->setObjectName(QStringLiteral("fxEditBtn"));
         editBtn->setCursor(Qt::PointingHandCursor);
         connect(editBtn, &QPushButton::clicked, this, [this, fx]{
-            auto *dlg = new ParametricEqDialog(static_cast<audio::EqEffect*>(fx), this->window());
+            QDialog *dlg = nullptr;
+            if (fx->type() == audio::AudioEffect::Type::Eq)
+                dlg = new ParametricEqDialog(static_cast<audio::EqEffect*>(fx), this->window());
+            else
+                dlg = new CompressorDialog(static_cast<audio::CompressorEffect*>(fx), this->window());
             dlg->show();
         });
         hl->addWidget(editBtn);

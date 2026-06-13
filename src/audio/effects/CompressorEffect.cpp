@@ -39,9 +39,13 @@ float CompressorEffect::computeGainDb(float levelDb) const {
 }
 
 void CompressorEffect::process(float *data, int numFrames) {
-    if (!m_enabled) return;
+    if (!m_enabled) {
+        m_currentGrDb.store(0.f, std::memory_order_relaxed);
+        return;
+    }
     const float makeup = std::pow(10.f, m_makeupDb / 20.f);
 
+    float blockMinGrDb = 0.f; // most reduction seen this block (most negative)
     for (int n = 0; n < numFrames; ++n) {
         float l = data[n*2], r = data[n*2+1];
         // Peak level detection (max of both channels)
@@ -53,10 +57,21 @@ void CompressorEffect::process(float *data, int numFrames) {
         float coeff = (targetGrDb < m_gainEnvDb) ? m_attackCoeff : m_releaseCoeff;
         m_gainEnvDb = m_gainEnvDb * coeff + targetGrDb * (1.f - coeff);
 
+        if (m_gainEnvDb < blockMinGrDb) blockMinGrDb = m_gainEnvDb;
+
         float gain = std::pow(10.f, m_gainEnvDb / 20.f) * makeup;
         data[n*2]   = l * gain;
         data[n*2+1] = r * gain;
     }
+    // Publish the block's peak gain reduction for the visual meter.
+    m_currentGrDb.store(blockMinGrDb, std::memory_order_relaxed);
+}
+
+float CompressorEffect::transferOutputDb(float inputDb) const {
+    // Treat the noise floor as untouched 1:1 so the curve's far-left tail
+    // doesn't dive toward the makeup-shifted origin.
+    if (inputDb < -90.f) return inputDb + m_makeupDb;
+    return inputDb + computeGainDb(inputDb) + m_makeupDb;
 }
 
 QStringList CompressorEffect::parameterIds() const {
