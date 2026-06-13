@@ -188,6 +188,19 @@ AudioEditorWindow::AudioEditorWindow(audio::AudioCue *cue, QWidget *parent)
                     m_model->setSampleRate(file->sampleRate());
                     statusBar()->showMessage(QFileInfo(file->path()).fileName());
                     updateHeader();
+                    // The decode is async — when it finishes (typically well
+                    // after the 150 ms zoom-fit timer below has already
+                    // no-op'd on a zero-length model), fit the view to the
+                    // now-known duration and repaint so the waveform/peaks
+                    // actually appear. Without this the timeline sat at the
+                    // default zoom showing only the first sliver of audio,
+                    // which read as a blank/flat line on tracks with a quiet
+                    // intro. One-shot so later edits don't fight the user's
+                    // manual zoom.
+                    if (m_timeline) {
+                        if (!m_initialFitDone) { m_initialFitDone = true; zoomFit(); }
+                        m_timeline->update();
+                    }
                 }
             };
             syncRate();

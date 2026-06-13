@@ -22,7 +22,11 @@ jobs:
       - name: Install Qt 6
         uses: jurplel/install-qt-action@v4
         with:
-          version: 6.11.0
+          # Pinned to the version aqtinstall reliably ships, matching the
+          # perf/release workflows. 6.11.0 isn't on aqt's mirror yet (it
+          # errors with "Failed to locate XML data for Qt version"); local
+          # dev tracks 6.11+, but the code needs no post-6.7 APIs.
+          version: "6.8.3"
           modules: qtmultimedia qtwebsockets qtpdf
 
       - name: Install Ninja (Linux/macOS)

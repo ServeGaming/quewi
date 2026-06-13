@@ -69,6 +69,11 @@ private:
     QScrollBar       *m_hbar        = nullptr;
     QScrollBar       *m_vbar        = nullptr;
 
+    // One-shot guard so the view fits to content exactly once, when the
+    // async decode of the source file first completes. Keeps later edits
+    // (reverse / normalise re-emit Loaded) from overriding a manual zoom.
+    bool              m_initialFitDone = false;
+
     // Bottom panel
     EffectsRackWidget *m_effectsRack = nullptr;
     SpectrogramWidget *m_spectrogram = nullptr;
