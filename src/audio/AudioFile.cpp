@@ -203,7 +203,16 @@ void AudioFile::onBufferReady()
     // their readPos approaches the end of the captured one.
     if (m_sampleRate > 0) {
         const qint64 publishStride = qint64(m_sampleRate) * 2;
-        if (m_frameCount - m_lastPublishedFrames >= publishStride) {
+        // Publish the VERY FIRST chunk immediately (m_lastPublishedFrames
+        // still 0), then every ~2 s after that. Without the first-chunk
+        // case a cue fired cold has NO playable snapshot until 2 full
+        // seconds of audio has decoded — on a busy GUI thread (which is
+        // where QAudioDecoder delivers buffers) that meant a music cue
+        // GO'd live would report "still decoding" and play silence for
+        // the first beat or two, or not start at all. Publishing on the
+        // first buffer lets playback begin within tens of milliseconds.
+        if (m_lastPublishedFrames == 0
+            || m_frameCount - m_lastPublishedFrames >= publishStride) {
             publishSnapshot();
             m_lastPublishedFrames = m_frameCount;
         }

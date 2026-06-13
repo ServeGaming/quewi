@@ -324,6 +324,13 @@ private:
         // for the GUI thread's queries (state, path) and to extend the
         // file's lifetime.
         std::shared_ptr<const AudioBufferSnapshot> buf;
+        // Set once the voice has captured the file's FINAL snapshot
+        // (one refresh after decode completes). After that the audio
+        // callback never calls snapshot() again for this voice, so the
+        // steady state is completely lock-free — important on macOS
+        // where blocking the CoreAudio callback on the decoder thread's
+        // publish mutex causes dropouts.
+        bool     snapshotFinal = false;
         qint64   readPos = 0;
         qint64   endFrame = 0;
         double   srcSampleRate = 0.0;
@@ -379,6 +386,7 @@ private:
             , deviceId(std::move(other.deviceId))
             , file(std::move(other.file))
             , buf(std::move(other.buf))
+            , snapshotFinal(other.snapshotFinal)
             , readPos(other.readPos)
             , endFrame(other.endFrame)
             , srcSampleRate(other.srcSampleRate)
@@ -410,6 +418,7 @@ private:
             deviceId = std::move(other.deviceId);
             file = std::move(other.file);
             buf  = std::move(other.buf);
+            snapshotFinal = other.snapshotFinal;
             readPos = other.readPos;
             endFrame = other.endFrame;
             srcSampleRate = other.srcSampleRate;
@@ -472,14 +481,27 @@ qint64 AudioEngine::Mixer::readData(char *data, qint64 maxlen)
             // since this voice captured its snapshot, swap to the
             // newer one. The new snapshot is a strict superset of
             // the old (decode is append-only) so readPos stays valid.
-            // Cheap: one atomic load per buffer per voice. Skipped
-            // once the file is fully decoded (m_published stops
-            // changing after onFinished).
-            if (v.file && v.buf->frameCount > 0) {
+            //
+            // CRITICAL on macOS: snapshot() takes a mutex that the
+            // decoder thread also holds when publishing. The CoreAudio
+            // render callback (which runs this loop) has a hard
+            // deadline of a few ms, so blocking on that mutex risks a
+            // dropout. Refresh every buffer WHILE decoding, then do
+            // exactly ONE final refresh after decode completes (the
+            // final snapshot is published right before state flips to
+            // Loaded, so we must pick it up once to avoid truncating
+            // the tail), and never lock again. After snapshotFinal the
+            // steady state is completely lock-free. The snapshot()
+            // mutex acquire synchronises memory, so the post-Loaded
+            // refresh is guaranteed to see the final published buffer.
+            if (v.file && !v.snapshotFinal && v.buf->frameCount > 0) {
+                const bool stillLoading =
+                    (v.file->state() == AudioFile::State::Loading);
                 if (auto fresh = v.file->snapshot();
                     fresh && fresh->frameCount > v.buf->frameCount) {
                     v.buf = fresh;
                 }
+                if (!stillLoading) v.snapshotFinal = true;
             }
 
             // Paused voice — emit silence, don't advance readPos.
@@ -728,9 +750,16 @@ std::atomic<VoiceId> s_globalNextVoiceId{0};
 
 AudioEngine::AudioEngine(QObject *parent)
     : QObject(parent)
+    , m_deviceWatcher(new QMediaDevices(this))
     , m_defaultDevice(QMediaDevices::defaultAudioOutput())
 {
     qRegisterMetaType<quewi::audio::VoiceId>("quewi::audio::VoiceId");
+    // React to the system default output changing (headphones in/out,
+    // Control-Center output switch on macOS, default-device change on
+    // Windows). Without this a mid-show device change left the engine
+    // feeding a dead sink with no recovery.
+    connect(m_deviceWatcher, &QMediaDevices::audioOutputsChanged,
+            this, &AudioEngine::onSystemDefaultOutputChanged);
 }
 
 AudioEngine::~AudioEngine() = default;
@@ -739,9 +768,54 @@ void AudioEngine::setDefaultOutputDevice(const QAudioDevice &device)
 {
     if (device.id() == m_defaultDevice.id()) return;
     m_defaultDevice = device;
+    // The user explicitly chose a device, so stop auto-following the
+    // system default — otherwise a later system change would yank
+    // their chosen output away.
+    m_followSystemDefault = false;
     // If the previous default has an open context, leave it for any voices
     // still running. Future fire()s with empty deviceId will pick up the
     // new default lazily.
+}
+
+void AudioEngine::onSystemDefaultOutputChanged()
+{
+    if (!m_followSystemDefault) return;
+    const QAudioDevice sysDefault = QMediaDevices::defaultAudioOutput();
+    if (sysDefault.isNull() || sysDefault.id() == m_defaultDevice.id()) {
+        // The list changed but our default is still valid (e.g. a
+        // non-default device was added/removed). Still prune any
+        // contexts whose sink died as a side effect.
+        pruneDeadContexts();
+        return;
+    }
+    const QByteArray oldId = m_defaultDevice.id();
+    m_defaultDevice = sysDefault;
+    // Tear down the context bound to the OLD default; its CoreAudio sink
+    // is (or is about to be) dead. Voices that were playing on it are
+    // lost — Qt gives us no way to seamlessly migrate a live sink across
+    // devices — but the next GO (and any auto-followed cue) rebuilds on
+    // the new default instead of silently failing forever.
+    m_contexts.erase(
+        std::remove_if(m_contexts.begin(), m_contexts.end(),
+            [&](const std::unique_ptr<DeviceContext> &c) {
+                return c->device.id() == oldId;
+            }),
+        m_contexts.end());
+    pruneDeadContexts();
+    if (m_contexts.empty() && m_running.load()) {
+        m_running.store(false);
+        emit runningChanged(false);
+    }
+}
+
+void AudioEngine::pruneDeadContexts()
+{
+    m_contexts.erase(
+        std::remove_if(m_contexts.begin(), m_contexts.end(),
+            [](const std::unique_ptr<DeviceContext> &c) {
+                return !c->sink || c->sink->state() == QAudio::StoppedState;
+            }),
+        m_contexts.end());
 }
 
 QAudioDevice AudioEngine::resolveDevice(const QByteArray &deviceId) const
@@ -770,7 +844,24 @@ AudioEngine::DeviceContext *AudioEngine::ensureContextForDevice(const QAudioDevi
     }
 
     const QByteArray key = device.id();
-    if (auto *existing = contextForDeviceId(key)) return existing;
+    if (auto *existing = contextForDeviceId(key)) {
+        // Reuse the context only if its sink is still alive. macOS
+        // CoreAudio stops the sink on device format/rate changes, on
+        // disconnect, and on transient glitches; a stopped sink in the
+        // cache would otherwise be handed back forever and every
+        // subsequent GO would play silence. If it died, drop it and
+        // fall through to rebuild a fresh one on the (possibly changed)
+        // device.
+        const bool dead = !existing->sink
+            || existing->sink->state() == QAudio::StoppedState;
+        if (!dead) return existing;
+        m_contexts.erase(
+            std::remove_if(m_contexts.begin(), m_contexts.end(),
+                [&](const std::unique_ptr<DeviceContext> &c) {
+                    return c->device.id() == key;
+                }),
+            m_contexts.end());
+    }
 
     // Channel-count negotiation. Object audio (Phase 6 / v0.3) needs more
     // than two channels; ask the device for what it can do, then pick a
@@ -782,11 +873,25 @@ AudioEngine::DeviceContext *AudioEngine::ensureContextForDevice(const QAudioDevi
 
     QAudioFormat fmt;
     fmt.setSampleFormat(QAudioFormat::Float);
-    fmt.setSampleRate(48000);
     fmt.setChannelCount(devMaxChans);
-    if (!device.isFormatSupported(fmt)) {
-        // Fall back to the preferred format wholesale — covers devices
-        // that only advertise specific (rate, channels) combinations.
+
+    // Prefer the device's OWN nominal sample rate. macOS hardware is
+    // very commonly configured at 44100 Hz (MacBook speakers, most USB
+    // interfaces); hardcoding 48000 made CoreAudio either resample
+    // internally or — worse — run the sink against the 44.1 kHz hardware
+    // clock while the mixer believed it was feeding 48 kHz, which plays
+    // music at the wrong speed and pitch. Try the device's preferred
+    // rate first, then the common studio rates as fallbacks.
+    const int preferredRate = preferred.sampleRate() > 0
+                              ? preferred.sampleRate() : 48000;
+    bool rateOk = false;
+    for (int rate : { preferredRate, 48000, 44100 }) {
+        fmt.setSampleRate(rate);
+        if (device.isFormatSupported(fmt)) { rateOk = true; break; }
+    }
+    if (!rateOk) {
+        // Wholesale fall back to the device's preferred format — covers
+        // devices that only advertise specific (rate, channels) combos.
         fmt = preferred;
         if (fmt.sampleFormat() != QAudioFormat::Float) {
             fmt.setSampleFormat(QAudioFormat::Float);
@@ -807,11 +912,18 @@ AudioEngine::DeviceContext *AudioEngine::ensureContextForDevice(const QAudioDevi
     ctx->mixer->configure(fmt.sampleRate(), fmt.channelCount());
     ctx->mixer->open(QIODevice::ReadOnly);
     ctx->sink = std::make_unique<QAudioSink>(device, fmt, this);
-    // 128 KB ≈ 340 ms at 48k stereo float. Generous so Windows context
-    // switches when the user opens another window or alt-tabs out don't
-    // starve the audio callback. The Phase-7 GoEngine will tighten this
-    // once we have sample-accurate scheduling.
-    ctx->sink->setBufferSize(131072);
+    // Target ~300 ms of buffering computed from the NEGOTIATED rate and
+    // channel count, not a fixed byte count. A fixed 128 KB was ~340 ms
+    // at 48k stereo but only ~85 ms on an 8-channel device — far too
+    // tight, raising underrun risk exactly where the channel count is
+    // highest. Generous buffering keeps a GUI-thread context switch
+    // (opening a window, a Control-Center repaint on macOS) from
+    // starving the audio callback.
+    {
+        const int bytesPerFrame = fmt.channelCount() * int(sizeof(float));
+        const int targetFrames   = fmt.sampleRate() * 3 / 10;   // 300 ms
+        ctx->sink->setBufferSize(std::max(131072, targetFrames * bytesPerFrame));
+    }
 
     auto *ctxPtr = ctx.get();
     connect(ctx->sink.get(), &QAudioSink::stateChanged, this,
@@ -834,6 +946,33 @@ AudioEngine::DeviceContext *AudioEngine::ensureContextForDevice(const QAudioDevi
             .arg(static_cast<int>(ctx->sink->error()));
         emit engineError(m_lastError);
         return nullptr;
+    }
+
+    // Re-read the format the sink ACTUALLY negotiated. Qt's CoreAudio
+    // backend can substitute a different sample rate than we asked for;
+    // if the mixer keeps resampling toward the requested rate while the
+    // hardware runs at another, music plays at the wrong speed/pitch.
+    // Reconfiguring only the sample rate is safe here — it changes the
+    // resampler ratio but not the interleave width — and no voices have
+    // been added yet. A channel-count substitution would be a deeper
+    // mismatch (the sink was built with fmt's channel count); warn but
+    // don't try to live-rewire it.
+    {
+        const QAudioFormat actual = ctx->sink->format();
+        if (actual.sampleRate() > 0
+            && actual.sampleRate() != ctx->sampleRate) {
+            qWarning("AudioEngine: sink negotiated %d Hz, requested %d Hz — "
+                     "reconfiguring mixer to match.",
+                     actual.sampleRate(), ctx->sampleRate);
+            ctx->sampleRate = actual.sampleRate();
+            ctx->mixer->configure(actual.sampleRate(), ctx->channels);
+        }
+        if (actual.channelCount() > 0
+            && actual.channelCount() != ctx->channels) {
+            qWarning("AudioEngine: sink negotiated %d channels, requested %d "
+                     "— output may be misaligned.",
+                     actual.channelCount(), ctx->channels);
+        }
     }
 
     m_contexts.push_back(std::move(ctx));

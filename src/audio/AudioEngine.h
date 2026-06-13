@@ -11,6 +11,7 @@
 #include <vector>
 
 class QAudioSink;
+class QMediaDevices;
 
 namespace quewi::audio {
 
@@ -169,7 +170,17 @@ private:
     QAudioDevice   resolveDevice(const QByteArray &deviceId) const;
 
     void onMixerVoiceFinished(VoiceId id);
+    // Called when the system default audio output changes (headphones
+    // plugged in, Control-Center / sound-prefs output switch). Drops
+    // any context bound to the old default so the next GO rebuilds on
+    // the new device instead of playing into a dead sink.
+    void onSystemDefaultOutputChanged();
+    // Remove any device context whose sink has stopped (dead device /
+    // CoreAudio error), so it isn't handed back to a later GO.
+    void pruneDeadContexts();
 
+    QMediaDevices                              *m_deviceWatcher = nullptr;
+    bool                                        m_followSystemDefault = true;
     QAudioDevice                                m_defaultDevice;
     std::vector<std::unique_ptr<DeviceContext>> m_contexts;
     std::atomic<bool>                           m_running{false};
