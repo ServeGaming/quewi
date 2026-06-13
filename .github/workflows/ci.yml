@@ -40,6 +40,18 @@ jobs:
         if: runner.os == 'Windows'
         run: choco install ninja -y
 
+      # install-qt-action ships the MSVC build of Qt on Windows, but the
+      # runner also has MinGW gcc on PATH. Without the VS environment active,
+      # CMake's Ninja generator picks gcc and then fails to link against the
+      # MSVC Qt import libs (undefined reference to QIODevice::errorString,
+      # etc). Activating the dev environment makes CMake choose cl.exe, which
+      # is exactly what the green release workflow does.
+      - name: Set up MSVC (Windows)
+        if: runner.os == 'Windows'
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
+
       - name: Configure (Windows)
         if: runner.os == 'Windows'
         run: cmake --preset windows-${{ matrix.build_type == 'Debug' && 'debug' || 'release' }}
@@ -57,4 +69,10 @@ jobs:
 
       - name: Test (Debug only)
         if: matrix.build_type == 'Debug'
+        # Headless runners have no display server; the smoke tests construct a
+        # QApplication, so without the offscreen platform plugin they abort
+        # with "no Qt platform plugin could be initialized" (7/9 failed on
+        # Linux). offscreen is built into Qt and works on every platform.
+        env:
+          QT_QPA_PLATFORM: offscreen
         run: ctest --preset ${{ runner.os == 'Windows' && 'windows' || runner.os == 'macOS' && 'macos' || 'linux' }}-debug
