@@ -5,7 +5,6 @@
 #include "audio/AudioEditorRenderer.h"
 #include "ui/TimelineCanvas.h"
 #include "ui/EffectsRackWidget.h"
-#include "ui/SpectrogramWidget.h"
 
 #include <QMainWindow>
 #include <QAudioSink>
@@ -76,7 +75,6 @@ private:
 
     // Bottom panel
     EffectsRackWidget *m_effectsRack = nullptr;
-    SpectrogramWidget *m_spectrogram = nullptr;
 
     // Header strip + status
     QLabel *m_headerNumber = nullptr;

@@ -29,8 +29,6 @@ add_library(quewi_ui STATIC
     CompressorDialog.cpp
     PatchEditorDialog.h
     PatchEditorDialog.cpp
-    SpectrogramWidget.h
-    SpectrogramWidget.cpp
     SpectrogramImage.h
     SpectrogramImage.cpp
     ActiveCuesPanel.h

@@ -411,10 +411,10 @@ void AudioEditorWindow::buildCentral() {
 }
 
 void AudioEditorWindow::buildBottomPanel() {
-    // Bottom panel houses the effects rack + spectrogram. The styling
-    // here is restrained on purpose: matching dark surface, single
-    // thin top border, no hardcoded inner colors. Tab pane sits flush
-    // with the panel so there's no double-bordered "box-in-box" look.
+    // Bottom panel is now the effects rack only — the spectrogram moved
+    // into the timeline (the View toggle), so there's no tab strip to
+    // hide it behind. The rack is embedded directly on a flush dark
+    // surface with a single thin top border.
     const auto &tkB = Theme::tokens();
     auto *bottom = new QWidget(this);
     bottom->setObjectName(QStringLiteral("editorBottomPanel"));
@@ -422,63 +422,15 @@ void AudioEditorWindow::buildBottomPanel() {
         "QWidget#editorBottomPanel {"
         "    background: %1;"
         "    border-top: 1px solid %2;"
-        "}"
-        "QWidget#editorBottomPanel QTabBar::tab {"
-        "    background: transparent;"
-        "    color: %3;"
-        "    padding: 6px 14px;"
-        "    margin: 0;"
-        "    border: none;"
-        "    font-size: 11px;"
-        "    font-weight: 600;"
-        "    letter-spacing: 1px;"
-        "}"
-        "QWidget#editorBottomPanel QTabBar::tab:selected {"
-        "    color: %4;"
-        "    border-bottom: 2px solid %5;"
-        "}"
-        "QWidget#editorBottomPanel QTabBar::tab:hover:!selected {"
-        "    color: %6;"
-        "}"
-        "QWidget#editorBottomPanel QTabWidget::pane {"
-        "    border: none;"
-        "    background: %1;"
         "}")
-        .arg(tkB.bgDeep.name(),
-             tkB.divider.name(),
-             tkB.ink40.name(),
-             tkB.ink100.name(),
-             tkB.warn.name(),
-             tkB.ink60.name()));
+        .arg(tkB.bgDeep.name(), tkB.divider.name()));
+    bottom->setMinimumHeight(240);
     auto *bvl = new QVBoxLayout(bottom);
     bvl->setContentsMargins(0, 0, 0, 0);
     bvl->setSpacing(0);
 
-    auto *tabs = new QTabWidget(bottom);
-    // Removed setMaximumHeight — let the parent splitter / vertical
-    // layout decide how tall this panel gets so wide-screen users
-    // aren't stranded with 100px of empty space below it. The min
-    // keeps the EFFECTS tab usable at small window sizes.
-    tabs->setMinimumHeight(220);
-    tabs->setDocumentMode(true);
-
-    m_effectsRack = new EffectsRackWidget(tabs);
-    // Title-case labels with letter-spacing in QSS — gives an
-    // editorial feel without the SCREAMING all-caps + redundant
-    // inner header the old version had.
-    tabs->addTab(m_effectsRack, tr("Effects"));
-
-    m_spectrogram = new SpectrogramWidget(tabs);
-    tabs->addTab(m_spectrogram, tr("Spectrogram"));
-
-    // Only run FFT while the spectrogram tab is active — otherwise selection
-    // clicks are instant.
-    connect(tabs, &QTabWidget::currentChanged, this, [this, tabs](int idx){
-        m_spectrogram->setActive(tabs->widget(idx) == m_spectrogram);
-    });
-    m_spectrogram->setActive(false);
-
-    bvl->addWidget(tabs);
+    m_effectsRack = new EffectsRackWidget(bottom);
+    bvl->addWidget(m_effectsRack);
 
     // Attach via a dock-like bottom widget
     auto *central = centralWidget();
@@ -625,13 +577,12 @@ void AudioEditorWindow::addTrack() {
 // ── Region / track selection ──────────────────────────────────────────────────
 
 void AudioEditorWindow::onRegionSelected(QUuid regionId) {
-    if (regionId.isNull()) { m_spectrogram->clear(); return; }
+    if (regionId.isNull()) return;
 
-    // Find the region and update spectrogram
+    // Bind the effects rack to the track that owns the selected region.
     for (int ti = 0; ti < m_model->trackCount(); ++ti) {
         for (const auto &r : m_model->track(ti)->regions()) {
             if (r.id == regionId && r.sourceFile) {
-                m_spectrogram->setSource(r.sourceFile, r.srcInSamples, r.srcOutSamples);
                 m_effectsRack->setTrack(m_model->track(ti));
                 return;
             }

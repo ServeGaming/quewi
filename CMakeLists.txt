@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.24)
 project(quewi
-    VERSION 0.9.68
+    VERSION 0.9.69
     DESCRIPTION "Theatre cueing software"
     HOMEPAGE_URL "https://github.com/ServeGaming/quewi"
     LANGUAGES CXX

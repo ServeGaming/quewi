@@ -8,257 +8,330 @@
 
 #include <QApplication>
 #include <QCheckBox>
-#include <QComboBox>
-#include <QDoubleSpinBox>
-#include <QFormLayout>
 #include <QFrame>
-#include <QGroupBox>
+#include <QHBoxLayout>
 #include <QLabel>
 #include <QMenu>
 #include <QPushButton>
 #include <QScrollArea>
+#include <QSignalBlocker>
 #include <QSlider>
 #include <QStyle>
 #include <QToolButton>
+#include <QVBoxLayout>
 
 namespace quewi::ui {
 
+namespace {
+
+// Distinct accent per effect type — the same hues the visual editors use,
+// so a card reads as the same "instrument" as its editor.
+QColor fxAccent(audio::AudioEffect::Type t) {
+    using T = audio::AudioEffect::Type;
+    switch (t) {
+    case T::Eq:         return QColor(0x5b, 0x9d, 0xff); // blue
+    case T::Compressor: return QColor(0x4f, 0xd1, 0xc5); // teal
+    case T::Reverb:     return QColor(0xb3, 0x8b, 0xff); // violet
+    case T::Delay:      return QColor(0xff, 0xb0, 0x5a); // amber
+    }
+    return QColor(0x8a, 0x91, 0x9e);
+}
+
+bool fxHasVisualEditor(audio::AudioEffect::Type t) {
+    return t == audio::AudioEffect::Type::Eq
+        || t == audio::AudioEffect::Type::Compressor;
+}
+
+QString fxTagline(audio::AudioEffect::Type t) {
+    using T = audio::AudioEffect::Type;
+    switch (t) {
+    case T::Eq:         return EffectsRackWidget::tr("6-band parametric frequency shaping");
+    case T::Compressor: return EffectsRackWidget::tr("Dynamics — tame peaks, even out levels");
+    case T::Reverb:     return EffectsRackWidget::tr("Spatial ambience and room tone");
+    case T::Delay:      return EffectsRackWidget::tr("Echo and rhythmic repeats");
+    }
+    return QString();
+}
+
+} // namespace
+
 EffectsRackWidget::EffectsRackWidget(QWidget *parent) : QWidget(parent) {
     setObjectName(QStringLiteral("effectsRack"));
-    // Internal styling — kept self-contained so this widget looks
-    // consistent whether hosted inline in AudioEditorWindow or torn
-    // off into a stand-alone panel.
     const auto &tk = Theme::tokens();
+
     setStyleSheet(QStringLiteral(
-        // Add button — small accent pill on the right of the toolbar.
+        // Add button — accent-filled pill.
         "QPushButton#fxAddButton {"
-        "    background: %1; color: %2;"
-        "    border: 1px solid %3; border-radius: 4px;"
-        "    padding: 4px 12px; font-size: 12px; min-height: 22px;"
-        "}"
-        "QPushButton#fxAddButton:hover { background: %4; }"
-        "QPushButton#fxAddButton:pressed { background: %5; }"
-        // Effect row container — flat surface with subtle border,
-        // replaces the ugly QGroupBox frame that hung around an
-        // empty title.
-        "QFrame#fxRow {"
-        "    background: %5; border: 1px solid %3;"
-        "    border-radius: 6px;"
-        "}"
-        // Edit / close — fixed height so they line up with the
-        // enable checkbox baseline.
-        "QPushButton#fxEditBtn, QToolButton#fxCloseBtn {"
-        "    min-height: 24px; max-height: 24px;"
-        "}"
-        "QPushButton#fxEditBtn {"
-        "    background: transparent; color: %6;"
-        "    border: 1px solid %3; border-radius: 4px;"
-        "    padding: 0 10px;"
-        "}"
-        "QPushButton#fxEditBtn:hover { color: %2; border-color: %7; }"
-        "QToolButton#fxCloseBtn {"
-        "    background: transparent; border: none;"
-        "    color: %8; min-width: 24px; max-width: 24px;"
-        "}"
-        "QToolButton#fxCloseBtn:hover { color: %2; }"
-        // Empty-state hint.
-        "QLabel#fxEmptyHint {"
-        "    color: %8; font-size: 12px; font-style: italic;"
-        "}")
-        .arg(tk.bgInteractive.name(),  // %1 add button bg
-             tk.ink100.name(),         // %2 primary text
-             tk.outline.name(),        // %3 borders
-             tk.bgRowHover.name(),     // %4 add button hover
-             tk.bgPanel.name(),        // %5 row bg / pressed
-             tk.ink60.name(),          // %6 edit button text
-             tk.outlineFocus.name(),   // %7 edit hover border (amber)
-             tk.ink40.name()));        // %8 close button + empty hint
+        "  background:%1; color:%2; border:none; border-radius:6px;"
+        "  padding:7px 16px; font-size:12px; font-weight:600; min-height:18px; }"
+        "QPushButton#fxAddButton:hover  { background:%3; }"
+        "QPushButton#fxAddButton:pressed{ background:%4; }"
+        // Effect card surface.
+        "QFrame#fxCard { background:%5; border:1px solid %6; border-radius:8px; }"
+        // Remove (×) button on a card.
+        "QToolButton#fxClose { background:transparent; border:none; color:%7;"
+        "  min-width:22px; max-width:22px; min-height:22px; max-height:22px; }"
+        "QToolButton#fxClose:hover { color:%2; }"
+        // Slider — slim track, round handle.
+        "QFrame#fxCard QSlider::groove:horizontal { height:4px; background:%6;"
+        "  border-radius:2px; }"
+        "QFrame#fxCard QSlider::sub-page:horizontal { background:%8;"
+        "  border-radius:2px; }"
+        "QFrame#fxCard QSlider::handle:horizontal { background:%2; width:13px;"
+        "  height:13px; margin:-5px 0; border-radius:6px; }"
+        "QFrame#fxCard QSlider::handle:horizontal:hover { background:%8; }")
+        .arg(tk.bgInteractive.name(),  // %1 add bg
+             tk.ink100.name(),         // %2 text / handle
+             tk.bgRowHover.name(),     // %3 add hover
+             tk.bgPanel.name(),        // %4 add pressed
+             tk.bgPanel.name(),        // %5 card bg
+             tk.outline.name(),        // %6 borders / groove
+             tk.ink40.name(),          // %7 close idle
+             tk.accent.name()));       // %8 slider fill
 
     auto *outer = new QVBoxLayout(this);
-    outer->setContentsMargins(12, 12, 12, 12);
-    outer->setSpacing(8);
+    outer->setContentsMargins(16, 14, 16, 16);
+    outer->setSpacing(12);
 
-    // Compact toolbar — track name on the left (filled in by the
-    // host), Add button on the right. No more redundant "Effects Rack"
-    // header that just repeated the tab title.
-    auto *header = new QWidget(this);
-    auto *hl = new QHBoxLayout(header);
-    hl->setContentsMargins(0, 0, 0, 0);
-    hl->setSpacing(8);
+    // ── Header strip: track context + Add ──────────────────────────────
+    auto *header = new QHBoxLayout();
+    header->setSpacing(10);
     m_trackLabel = new QLabel(tr("No track selected"), this);
     m_trackLabel->setStyleSheet(QStringLiteral(
-        "color: %1; font-size: 11px; "
-        "font-weight: 600; letter-spacing: 1px;")
-        .arg(tk.ink40.name()));
-    hl->addWidget(m_trackLabel, 1);
-    auto *addBtn = new QPushButton(tr("Add effect"), this);
+        "color:%1; font-size:12px; font-weight:700; letter-spacing:0.12em;")
+        .arg(tk.ink60.name()));
+    header->addWidget(m_trackLabel, 1);
+
+    auto *addBtn = new QPushButton(tr("+   Add Effect"), this);
     addBtn->setObjectName(QStringLiteral("fxAddButton"));
     addBtn->setCursor(Qt::PointingHandCursor);
-    hl->addWidget(addBtn);
     connect(addBtn, &QPushButton::clicked, this, &EffectsRackWidget::addEffect);
-    outer->addWidget(header);
+    header->addWidget(addBtn, 0);
+    outer->addLayout(header);
 
+    // ── Horizontal strip of cards ──────────────────────────────────────
     auto *scroll = new QScrollArea(this);
     scroll->setWidgetResizable(true);
     scroll->setFrameShape(QFrame::NoFrame);
+    scroll->setHorizontalScrollBarPolicy(Qt::ScrollBarAsNeeded);
+    scroll->setVerticalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+    scroll->setStyleSheet(QStringLiteral("QScrollArea{background:transparent;}"
+                                         "QScrollArea > QWidget > QWidget{background:transparent;}"));
     auto *content = new QWidget(scroll);
-    m_effectsLayout = new QVBoxLayout(content);
-    m_effectsLayout->setContentsMargins(0, 0, 0, 0);
-    m_effectsLayout->setSpacing(8);
-    m_effectsLayout->addStretch(1);
+    m_cardsLayout = new QHBoxLayout(content);
+    m_cardsLayout->setContentsMargins(0, 0, 0, 0);
+    m_cardsLayout->setSpacing(12);
+    m_cardsLayout->addStretch(1);
     scroll->setWidget(content);
     outer->addWidget(scroll, 1);
-
-    // Empty hint — sits above the stretch so it appears centered-ish
-    // when the rack is empty. rebuild() toggles its visibility.
-    m_emptyHint = new QLabel(
-        tr("No effects yet — click \"Add effect\" to insert one."), this);
-    m_emptyHint->setObjectName(QStringLiteral("fxEmptyHint"));
-    m_emptyHint->setAlignment(Qt::AlignCenter);
-    m_emptyHint->setVisible(false);
-    outer->addWidget(m_emptyHint, 0);
 }
 
 void EffectsRackWidget::setTrack(audio::AudioEditorTrack *track) {
-    if (m_track) disconnect(m_track, &audio::AudioEditorTrack::changed, this, &EffectsRackWidget::rebuild);
+    if (m_track) disconnect(m_track, &audio::AudioEditorTrack::changed,
+                            this, &EffectsRackWidget::rebuild);
     m_track = track;
-    if (m_track) connect(m_track, &audio::AudioEditorTrack::changed, this, &EffectsRackWidget::rebuild);
+    if (m_track) connect(m_track, &audio::AudioEditorTrack::changed,
+                         this, &EffectsRackWidget::rebuild);
     rebuild();
 }
 
 void EffectsRackWidget::rebuild() {
-    // Remove all items except the stretch at the end
-    while (m_effectsLayout->count() > 1) {
-        auto *item = m_effectsLayout->takeAt(0);
-        delete item->widget();
+    // Drop every card (keep the trailing stretch at the end).
+    while (m_cardsLayout->count() > 1) {
+        auto *item = m_cardsLayout->takeAt(0);
+        if (auto *w = item->widget()) w->deleteLater();
         delete item;
     }
-    if (m_trackLabel) {
-        m_trackLabel->setText(m_track
-            ? tr("TRACK · %1").arg(m_track->name())
-            : tr("No track selected"));
+
+    if (m_trackLabel)
+        m_trackLabel->setText(m_track ? tr("TRACK · %1").arg(m_track->name())
+                                      : tr("NO TRACK SELECTED"));
+
+    if (!m_track) {
+        m_cardsLayout->insertWidget(0, buildPlaceholder(
+            tr("No track selected"),
+            tr("Pick a track in the timeline to edit its effects.")));
+        return;
     }
-    const bool hasFx = m_track && !m_track->effects().empty();
-    if (m_emptyHint) m_emptyHint->setVisible(m_track && !hasFx);
-    if (!m_track) return;
+
     const auto &fxList = m_track->effects();
-    for (int i = 0; i < int(fxList.size()); ++i) {
-        m_effectsLayout->insertWidget(i, buildEffectRow(fxList[i].get(), i));
+    if (fxList.empty()) {
+        m_cardsLayout->insertWidget(0, buildPlaceholder(
+            tr("No effects on this track"),
+            tr("Add EQ, compression, reverb or delay to shape this audio.")));
+        return;
     }
+    for (int i = 0; i < int(fxList.size()); ++i)
+        m_cardsLayout->insertWidget(i, buildEffectCard(fxList[i].get(), i));
 }
 
-QWidget *EffectsRackWidget::buildEffectRow(audio::AudioEffect *fx, int index) {
-    // QFrame replaces the old empty-title QGroupBox. The frame border
-    // comes from QSS (#fxRow) so the row reads as a single card rather
-    // than the chrome-around-nothing the QGroupBox produced.
+QWidget *EffectsRackWidget::buildPlaceholder(const QString &title,
+                                             const QString &subtitle) {
+    const auto &tk = Theme::tokens();
     auto *box = new QFrame(this);
-    box->setObjectName(QStringLiteral("fxRow"));
-    auto *vl = new QVBoxLayout(box);
-    vl->setContentsMargins(10, 10, 10, 10);
-    vl->setSpacing(6);
-
-    // Header row: enable checkbox + name + edit + close. Heights are
-    // unified via QSS (#fxEditBtn / #fxCloseBtn) at 24 px so they
-    // line up with the checkbox baseline.
-    auto *hdr = new QWidget(box);
-    auto *hl = new QHBoxLayout(hdr);
-    hl->setContentsMargins(0, 0, 0, 0);
-    hl->setSpacing(6);
-
-    auto *enableCheck = new QCheckBox(fx->name(), hdr);
-    enableCheck->setChecked(fx->isEnabled());
-    enableCheck->setStyleSheet(QStringLiteral(
-        "QCheckBox { font-weight: 600; }"));
-    connect(enableCheck, &QCheckBox::toggled, fx, &audio::AudioEffect::setEnabled);
-    hl->addWidget(enableCheck, 1);
-
-    // EQ and Compressor get a visual editor button; the others keep the
-    // generic slider rows below as their only UI.
-    if (fx->type() == audio::AudioEffect::Type::Eq ||
-        fx->type() == audio::AudioEffect::Type::Compressor) {
-        auto *editBtn = new QPushButton(tr("Edit…"), hdr);
-        editBtn->setObjectName(QStringLiteral("fxEditBtn"));
-        editBtn->setCursor(Qt::PointingHandCursor);
-        connect(editBtn, &QPushButton::clicked, this, [this, fx]{
-            QDialog *dlg = nullptr;
-            if (fx->type() == audio::AudioEffect::Type::Eq)
-                dlg = new ParametricEqDialog(static_cast<audio::EqEffect*>(fx), this->window());
-            else
-                dlg = new CompressorDialog(static_cast<audio::CompressorEffect*>(fx), this->window());
-            dlg->show();
-        });
-        hl->addWidget(editBtn);
-    }
-
-    auto *removeBtn = new QToolButton(hdr);
-    removeBtn->setObjectName(QStringLiteral("fxCloseBtn"));
-    // QStyle::SP_TitleBarCloseButton renders consistently across
-    // platforms — the raw "✕" glyph the old code used didn't exist
-    // in some default Windows fonts and fell back to a placeholder
-    // box.
-    removeBtn->setIcon(qApp->style()->standardIcon(
-        QStyle::SP_TitleBarCloseButton));
-    removeBtn->setToolTip(tr("Remove effect"));
-    removeBtn->setCursor(Qt::PointingHandCursor);
-    connect(removeBtn, &QToolButton::clicked, this, [this, index]{
-        if (m_track) { m_track->removeEffect(index); }
-    });
-    hl->addWidget(removeBtn);
-    vl->addWidget(hdr);
-
-    // Parameter sliders
-    auto *form = new QWidget(box);
-    auto *fl = new QFormLayout(form);
-    fl->setContentsMargins(4, 0, 4, 4);
-    fl->setSpacing(4);
-
-    for (const QString &id : fx->parameterIds()) {
-        auto [lo, hi] = fx->parameterRange(id);
-        float cur     = fx->parameterValue(id);
-        int decimals  = fx->parameterDecimals(id);
-
-        auto *row = new QWidget(form);
-        auto *rowL = new QHBoxLayout(row);
-        rowL->setContentsMargins(0,0,0,0);
-        rowL->setSpacing(4);
-
-        auto *slider = new QSlider(Qt::Horizontal, row);
-        const int resolution = 1000;
-        slider->setRange(0, resolution);
-        slider->setValue(int((cur - lo) / (hi - lo) * resolution));
-
-        auto *spin = new QDoubleSpinBox(row);
-        spin->setRange(double(lo), double(hi));
-        spin->setDecimals(decimals);
-        spin->setValue(double(cur));
-        spin->setFixedWidth(72);
-
-        rowL->addWidget(slider, 1);
-        rowL->addWidget(spin);
-
-        connect(slider, &QSlider::valueChanged, this, [fx, id, lo, hi, spin, resolution](int v){
-            float val = lo + float(v) / float(resolution) * (hi - lo);
-            QSignalBlocker sb(spin);
-            spin->setValue(double(val));
-            fx->setParameterValue(id, val);
-        });
-        connect(spin, &QDoubleSpinBox::valueChanged, this, [fx, id, slider, lo, hi, resolution](double v){
-            QSignalBlocker sb(slider);
-            slider->setValue(int((float(v) - lo) / (hi - lo) * resolution));
-            fx->setParameterValue(id, float(v));
-        });
-        connect(fx, &audio::AudioEffect::parameterChanged, row,
-                [fx, id, slider, spin, lo, hi, resolution](const QString &pid, float val){
-            if (pid != id) return;
-            QSignalBlocker s1(slider), s2(spin);
-            slider->setValue(int((val - lo) / (hi - lo) * resolution));
-            spin->setValue(double(val));
-        });
-
-        fl->addRow(fx->parameterLabel(id), row);
-    }
-    vl->addWidget(form);
+    box->setMinimumHeight(150);
+    box->setMinimumWidth(480);
+    box->setStyleSheet(QStringLiteral(
+        "QFrame{border:1px dashed %1; border-radius:8px; background:transparent;}")
+        .arg(tk.outline.name()));
+    auto *v = new QVBoxLayout(box);
+    v->setContentsMargins(28, 20, 28, 20);
+    v->setSpacing(6);
+    v->addStretch(1);
+    auto *t = new QLabel(title, box);
+    t->setAlignment(Qt::AlignCenter);
+    t->setStyleSheet(QStringLiteral("border:none; color:%1; font-size:14px; font-weight:600;")
+                         .arg(tk.ink100.name()));
+    auto *s = new QLabel(subtitle, box);
+    s->setAlignment(Qt::AlignCenter);
+    s->setWordWrap(true);
+    s->setStyleSheet(QStringLiteral("border:none; color:%1; font-size:12px;")
+                         .arg(tk.ink40.name()));
+    v->addWidget(t);
+    v->addWidget(s);
+    v->addStretch(1);
     return box;
+}
+
+QWidget *EffectsRackWidget::buildEffectCard(audio::AudioEffect *fx, int index) {
+    const auto &tk = Theme::tokens();
+    const QColor accent = fxAccent(fx->type());
+
+    auto *card = new QFrame(this);
+    card->setObjectName(QStringLiteral("fxCard"));
+    card->setFixedWidth(258);
+
+    auto *cv = new QVBoxLayout(card);
+    cv->setContentsMargins(0, 0, 0, 0);
+    cv->setSpacing(0);
+
+    // Accent stripe across the top of the card.
+    auto *stripe = new QFrame(card);
+    stripe->setFixedHeight(3);
+    stripe->setStyleSheet(QStringLiteral(
+        "background:%1; border-top-left-radius:7px; border-top-right-radius:7px;")
+        .arg(accent.name()));
+    cv->addWidget(stripe);
+
+    auto *inner = new QWidget(card);
+    auto *iv = new QVBoxLayout(inner);
+    iv->setContentsMargins(16, 14, 16, 16);
+    iv->setSpacing(10);
+
+    // ── Header: name + bypass + remove ─────────────────────────────────
+    auto *hdr = new QHBoxLayout();
+    hdr->setSpacing(8);
+    auto *name = new QLabel(fx->name(), inner);
+    name->setStyleSheet(QStringLiteral("color:%1; font-size:14px; font-weight:700;")
+                            .arg(tk.ink100.name()));
+    hdr->addWidget(name, 1);
+
+    auto *power = new QCheckBox(inner);
+    power->setChecked(fx->isEnabled());
+    power->setCursor(Qt::PointingHandCursor);
+    power->setToolTip(tr("Bypass this effect"));
+    connect(power, &QCheckBox::toggled, fx, &audio::AudioEffect::setEnabled);
+    hdr->addWidget(power, 0);
+
+    auto *close = new QToolButton(inner);
+    close->setObjectName(QStringLiteral("fxClose"));
+    close->setIcon(qApp->style()->standardIcon(QStyle::SP_TitleBarCloseButton));
+    close->setCursor(Qt::PointingHandCursor);
+    close->setToolTip(tr("Remove effect"));
+    connect(close, &QToolButton::clicked, this, [this, index] {
+        if (m_track) m_track->removeEffect(index);
+    });
+    hdr->addWidget(close, 0);
+    iv->addLayout(hdr);
+
+    // ── One-line description ───────────────────────────────────────────
+    auto *tag = new QLabel(fxTagline(fx->type()), inner);
+    tag->setWordWrap(true);
+    tag->setStyleSheet(QStringLiteral("color:%1; font-size:11px;").arg(tk.ink40.name()));
+    iv->addWidget(tag);
+
+    // ── Body: visual-editor launcher, or labelled sliders ──────────────
+    if (fxHasVisualEditor(fx->type())) {
+        iv->addStretch(1);
+        auto *open = new QPushButton(tr("Open Editor"), inner);
+        open->setCursor(Qt::PointingHandCursor);
+        open->setMinimumHeight(36);
+        open->setStyleSheet(QStringLiteral(
+            "QPushButton { background:transparent; color:%1; border:1px solid %1;"
+            "  border-radius:6px; font-size:12px; font-weight:600; }"
+            "QPushButton:hover  { background:%1; color:%2; }"
+            "QPushButton:pressed{ background:%3; }")
+            .arg(accent.name(), Theme::tokens().bgDeep.name(),
+                 accent.darker(120).name()));
+        connect(open, &QPushButton::clicked, this, [this, fx] { openEditor(fx); });
+        iv->addWidget(open);
+    } else {
+        for (const QString &id : fx->parameterIds())
+            iv->addWidget(buildParamRow(fx, id, inner));
+        iv->addStretch(1);
+    }
+
+    cv->addWidget(inner, 1);
+    return card;
+}
+
+QWidget *EffectsRackWidget::buildParamRow(audio::AudioEffect *fx,
+                                          const QString &id, QWidget *parent) {
+    const auto &tk = Theme::tokens();
+    auto [lo, hi] = fx->parameterRange(id);
+    const float cur = fx->parameterValue(id);
+    const int decimals = fx->parameterDecimals(id);
+    const int kRes = 1000;
+    auto toSlider = [lo, hi, kRes](float v) {
+        return (hi > lo) ? int((v - lo) / (hi - lo) * kRes) : 0;
+    };
+
+    auto *row = new QWidget(parent);
+    auto *v = new QVBoxLayout(row);
+    v->setContentsMargins(0, 0, 0, 0);
+    v->setSpacing(3);
+
+    auto *top = new QHBoxLayout();
+    top->setContentsMargins(0, 0, 0, 0);
+    auto *lab = new QLabel(fx->parameterLabel(id), row);
+    lab->setStyleSheet(QStringLiteral("color:%1; font-size:11px;").arg(tk.ink60.name()));
+    auto *val = new QLabel(QString::number(double(cur), 'f', decimals), row);
+    val->setAlignment(Qt::AlignRight | Qt::AlignVCenter);
+    val->setStyleSheet(QStringLiteral(
+        "color:%1; font-size:11px; font-family:'JetBrains Mono',monospace;")
+        .arg(tk.ink100.name()));
+    top->addWidget(lab, 1);
+    top->addWidget(val, 0);
+    v->addLayout(top);
+
+    auto *slider = new QSlider(Qt::Horizontal, row);
+    slider->setRange(0, kRes);
+    slider->setValue(toSlider(cur));
+    v->addWidget(slider);
+
+    connect(slider, &QSlider::valueChanged, this,
+            [fx, id, lo, hi, kRes, val, decimals](int sv) {
+        const float value = lo + float(sv) / float(kRes) * (hi - lo);
+        val->setText(QString::number(double(value), 'f', decimals));
+        fx->setParameterValue(id, value);
+    });
+    connect(fx, &audio::AudioEffect::parameterChanged, row,
+            [id, toSlider, slider, val, decimals](const QString &pid, float value) {
+        if (pid != id) return;
+        QSignalBlocker b(slider);
+        slider->setValue(toSlider(value));
+        val->setText(QString::number(double(value), 'f', decimals));
+    });
+    return row;
+}
+
+void EffectsRackWidget::openEditor(audio::AudioEffect *fx) {
+    QDialog *dlg = nullptr;
+    if (fx->type() == audio::AudioEffect::Type::Eq)
+        dlg = new ParametricEqDialog(static_cast<audio::EqEffect *>(fx), window());
+    else if (fx->type() == audio::AudioEffect::Type::Compressor)
+        dlg = new CompressorDialog(static_cast<audio::CompressorEffect *>(fx), window());
+    if (dlg) dlg->show();
 }
 
 void EffectsRackWidget::addEffect() {
