@@ -95,8 +95,12 @@ QByteArray SacnSender::buildPacket(const QUuid &sourceCid,
 bool SacnSender::sendUniverse(quint16 universe, const DmxFrame &frame)
 {
     if (!m_socket) return false;
+    // Per-universe sequence counter (E1.31 §6.7.2). operator[]
+    // default-inserts 0 for a universe's first packet, then we
+    // post-increment so each universe advances independently.
+    const quint8 seq = m_sequence[universe]++;
     const auto pkt = buildPacket(m_cid, m_sourceName, universe,
-                                 m_priority, m_sequence++, frame);
+                                 m_priority, seq, frame);
     const auto written = m_socket->writeDatagram(pkt, universeMulticast(universe), kAcnPort);
     return written == pkt.size();
 }

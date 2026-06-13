@@ -571,7 +571,13 @@ qint64 AudioEngine::Mixer::readData(char *data, qint64 maxlen)
                 ++framesWritten;
 
                 double envGain = 1.0;
-                const qint64 absSamp = v.readPos + f * static_cast<qint64>(rate);
+                // Source-frame playhead for this output frame. The cast
+                // must wrap the PRODUCT f*rate — casting `rate` alone
+                // truncated it to 0 for any downsampled material
+                // (44.1 kHz file on a 48 kHz device, rate ≈ 0.919),
+                // which froze the fade-in envelope flat within each
+                // buffer.
+                const qint64 absSamp = v.readPos + static_cast<qint64>(f * rate);
                 if (v.fadeInSamples > 0 && absSamp < v.fadeInSamples) {
                     envGain *= static_cast<double>(absSamp) / static_cast<double>(v.fadeInSamples);
                 }
@@ -598,7 +604,13 @@ qint64 AudioEngine::Mixer::readData(char *data, qint64 maxlen)
                     const double t = static_cast<double>(v.gainFadeCounter) / v.gainFadeSamples;
                     cur = v.gainFadeFrom + (v.targetGain.load() - v.gainFadeFrom) * t;
                     v.currentGain.store(cur, std::memory_order_relaxed);
-                    v.gainFadeCounter += static_cast<qint64>(rate);
+                    // gainFadeSamples is measured in OUTPUT frames
+                    // (durationSeconds * outputSampleRate), and this loop
+                    // runs once per output frame, so the counter advances
+                    // by exactly 1 here. The old `+= (qint64)rate`
+                    // truncated to 0 for downsampled material (fade never
+                    // finished) and doubled for upsampled material.
+                    ++v.gainFadeCounter;
                 } else {
                     cur = v.gain.load(std::memory_order_relaxed);
                     v.currentGain.store(cur, std::memory_order_relaxed);
@@ -695,7 +707,11 @@ qint64 AudioEngine::Mixer::readData(char *data, qint64 maxlen)
                 v.finished = true;
             }
 
-            if (v.stopRequested) v.fadeOutCounter += framesWanted;
+            // Advance the stop-fade by the frames we actually wrote, not
+            // the full buffer — on a decode stall (framesWritten <
+            // framesWanted) advancing by framesWanted would run the
+            // fade-out faster than real time and clip the tail.
+            if (v.stopRequested) v.fadeOutCounter += framesWritten;
 
             if (v.finished) finished.push_back(v.id);
         }

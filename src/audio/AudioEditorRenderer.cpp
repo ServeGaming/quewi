@@ -220,10 +220,17 @@ bool AudioEditorRenderer::writeWav(const QString &path,
     writeTag("data");
     write32(quint32(dataBytes));
 
-    // Write 24-bit samples
+    // Write 24-bit samples. Scale by 2^23-1 and clamp to the signed
+    // 24-bit range: multiplying by 2^23 maps +1.0 → 0x800000, which
+    // overflows the signed range (max 0x7FFFFF) and wraps to
+    // full-NEGATIVE — an audible click at every positive full-scale
+    // peak. Round rather than truncate for correct quantisation.
+    constexpr qint32 kMax24 =  8388607;   // 2^23 - 1
+    constexpr qint32 kMin24 = -8388608;   // -2^23
     for (float s : stereo) {
-        float clamped = std::clamp(s, -1.f, 1.f);
-        qint32 pcm = qint32(clamped * float(1 << 23));
+        const float clamped = std::clamp(s, -1.f, 1.f);
+        const qint32 pcm = std::clamp<qint32>(
+            qint32(std::lround(clamped * 8388607.0f)), kMin24, kMax24);
         // Write little-endian 3-byte
         f.putChar(char(pcm & 0xFF));
         f.putChar(char((pcm >> 8) & 0xFF));

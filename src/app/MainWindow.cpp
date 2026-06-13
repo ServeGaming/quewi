@@ -728,6 +728,25 @@ bool MainWindow::loadShowFromPath(const QString &path)
     prewarmAudioCues();
     wireOscNotifications();
     statusBar()->showMessage(tr("Opened %1").arg(path), 3000);
+
+    // Preferences → Show Mode → "Enter Show Mode automatically when
+    // opening a show". Honoured here (previously written but never
+    // read). Only auto-enter if not already in Show Mode and a show
+    // actually loaded.
+    {
+        QSettings autoSettings(QStringLiteral("ServeGaming"),
+                               QStringLiteral("quewi"));
+        if (!m_showMode
+            && autoSettings.value(QStringLiteral("showmode/autoEnterOnOpen"),
+                                  false).toBool()) {
+            m_showMode = true;
+            if (m_actShowMode) {
+                QSignalBlocker blocker(m_actShowMode);
+                m_actShowMode->setChecked(true);
+            }
+            applyShowMode();
+        }
+    }
     return true;
 }
 
@@ -984,8 +1003,12 @@ void MainWindow::showProjectionMapping()
 void MainWindow::showOscMonitor()
 {
     if (!m_oscMonitor) {
-        // Independent top-level window — outlives any single show.
-        m_oscMonitor = new ui::OscMonitor(m_oscEngine.get());
+        // Independent top-level window — outlives any single show, but
+        // parented to MainWindow (with the Window flag so it still
+        // floats free) so it's destroyed with the app instead of
+        // leaking for the process lifetime.
+        m_oscMonitor = new ui::OscMonitor(m_oscEngine.get(), this);
+        m_oscMonitor->setWindowFlag(Qt::Window);
         m_oscMonitor->setAttribute(Qt::WA_DeleteOnClose, false);
     }
     m_oscMonitor->show();
@@ -996,7 +1019,10 @@ void MainWindow::showOscMonitor()
 void MainWindow::showScriptWindow()
 {
     if (!m_scriptWindow) {
-        m_scriptWindow = new ui::ScriptWindow();
+        // Parented to MainWindow (Window flag keeps it free-floating)
+        // so it's cleaned up with the app rather than leaking.
+        m_scriptWindow = new ui::ScriptWindow(this);
+        m_scriptWindow->setWindowFlag(Qt::Window);
         m_scriptWindow->setAttribute(Qt::WA_DeleteOnClose, false);
         m_scriptWindow->setWorkspace(m_workspace.get());
         m_scriptWindow->setGoEngine(m_goEngine.get());
@@ -1635,54 +1661,54 @@ void MainWindow::toggleShowMode()
 {
     const bool wantOn = m_actShowMode ? m_actShowMode->isChecked() : !m_showMode;
 
-    // Password gate. The operator can set a 4+ digit code in QSettings
-    // (or via the prompt the first time they enter Show Mode) so an
-    // accidental Ctrl+Shift+L mid-show doesn't drop them back into
-    // Edit. Empty stored hash = no password, behaviour matches v0.6.
+    // Password gate. The operator sets an unlock PIN in
+    // Preferences → Show Mode (stored plaintext at "showmode/pin" —
+    // this is a fat-finger guard against accidental edits mid-show,
+    // not a security boundary, so plaintext in per-user QSettings is
+    // fine). A legacy SHA-256 hash at "showMode/passwordHash" set by
+    // older builds' inline prompt is still honoured for verification
+    // so nobody's existing lock breaks on upgrade.
     QSettings s(QStringLiteral("ServeGaming"), QStringLiteral("quewi"));
-    const QByteArray storedHash =
+    const QString  storedPin  =
+        s.value(QStringLiteral("showmode/pin")).toString();
+    const QByteArray legacyHash =
         s.value(QStringLiteral("showMode/passwordHash")).toByteArray();
+    const bool hasLock = !storedPin.isEmpty() || !legacyHash.isEmpty();
 
-    auto hashOf = [](const QString &pw) -> QByteArray {
-        return QCryptographicHash::hash(pw.toUtf8(),
-            QCryptographicHash::Sha256).toHex();
+    auto pinMatches = [&](const QString &entered) -> bool {
+        if (!storedPin.isEmpty()) return entered == storedPin;
+        const QByteArray h = QCryptographicHash::hash(
+            entered.toUtf8(), QCryptographicHash::Sha256).toHex();
+        return h == legacyHash;
     };
 
     if (wantOn && !m_showMode) {
-        // Entering: if no password set, offer to set one (skippable).
-        if (storedHash.isEmpty()) {
-            const auto answer = QMessageBox::question(this, tr("Set Show Mode password?"),
-                tr("Set a password to require confirmation when leaving Show Mode "
-                   "during a show. Skip if you don't want a lock."),
-                QMessageBox::Yes | QMessageBox::No);
-            if (answer == QMessageBox::Yes) {
-                bool ok = false;
-                const auto pw = QInputDialog::getText(this, tr("Set Show Mode password"),
-                    tr("Enter a password (4+ characters):"),
-                    QLineEdit::Password, QString(), &ok).trimmed();
-                if (ok && pw.size() >= 4) {
-                    s.setValue(QStringLiteral("showMode/passwordHash"), hashOf(pw));
-                } else if (ok) {
-                    QMessageBox::warning(this, tr("Show Mode password"),
-                        tr("Password must be at least 4 characters. No password set."));
-                }
-            }
+        // Entering: if no lock configured, point the operator at the
+        // Preferences page rather than running a second, divergent
+        // password-set flow (the old inline prompt wrote a different
+        // settings key, so a PIN set here never matched the one set
+        // in Preferences — that bug is why this is now a one-way nudge).
+        if (!hasLock) {
+            statusBar()->showMessage(
+                tr("Show Mode on. Set an unlock PIN in "
+                   "Preferences → Show Mode to require confirmation on exit."),
+                5000);
         }
         m_showMode = true;
     } else if (!wantOn && m_showMode) {
-        // Exiting: require password if one is set.
-        if (!storedHash.isEmpty()) {
+        // Exiting: require the PIN if one is set.
+        if (hasLock) {
             bool ok = false;
-            const auto pw = QInputDialog::getText(this, tr("Exit Show Mode"),
-                tr("Enter Show Mode password:"),
+            const auto entered = QInputDialog::getText(this, tr("Exit Show Mode"),
+                tr("Enter Show Mode PIN:"),
                 QLineEdit::Password, QString(), &ok);
             if (!ok) {
                 if (m_actShowMode) m_actShowMode->setChecked(true);   // revert
                 return;
             }
-            if (hashOf(pw) != storedHash) {
+            if (!pinMatches(entered)) {
                 QMessageBox::warning(this, tr("Show Mode"),
-                    tr("Incorrect password. Show Mode stays locked."));
+                    tr("Incorrect PIN. Show Mode stays locked."));
                 if (m_actShowMode) m_actShowMode->setChecked(true);   // revert
                 return;
             }
@@ -1724,6 +1750,24 @@ void MainWindow::applyShowMode()
     // cue list and bypass the lock. setAcceptDrops false makes Qt
     // skip our dragEnter/drop overrides entirely.
     setAcceptDrops(!m_showMode);
+
+    // Honour the Preferences → Show Mode toggles (previously written
+    // but never read). "Hide the menu bar" gives the operator a
+    // cleaner, harder-to-fat-finger surface during a run.
+    QSettings smSettings(QStringLiteral("ServeGaming"),
+                         QStringLiteral("quewi"));
+    const bool hideMenu = smSettings
+        .value(QStringLiteral("showmode/hideMenuBar"), false).toBool();
+    menuBar()->setVisible(!(m_showMode && hideMenu));
+
+    // "Allowed during Show Mode: Pause / resume" — when off, the
+    // Pause action is disabled during a run so the operator can't
+    // accidentally freeze a cue. GO and Panic are always live (hard
+    // rule, see the Preferences hint).
+    const bool allowPause = smSettings
+        .value(QStringLiteral("showmode/allowPause"), true).toBool();
+    if (m_actPause) m_actPause->setEnabled(!m_showMode || allowPause);
+
     updateTitle();
     statusBar()->showMessage(m_showMode ? tr("SHOW MODE — editing locked")
                                          : tr("Edit mode"), 2500);

@@ -64,7 +64,12 @@ public:
 private:
     QString m_portName;
     int     m_deviceId      = 0x7F;       // all-call by default
-    int     m_commandFormat = 0x10;       // Lighting (general)
+    // MSC command_format per MMA RP-002: 0x01 = Lighting (general),
+    // 0x10 = Sound (general), 0x40 = Projection. Default to Lighting —
+    // the most common MSC target in theatre (ETC Eos / grandMA taking
+    // GO). The old default 0x10 with a "Lighting" comment was
+    // self-contradictory and actually addressed sound devices.
+    int     m_commandFormat = 0x01;       // Lighting (general)
     int     m_command       = 0x01;       // GO
     QString m_qNumber;
     QString m_qList;

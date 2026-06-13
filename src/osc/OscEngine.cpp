@@ -20,8 +20,15 @@ QString peerKey(const QHostAddress &addr, quint16 port)
     return QStringLiteral("%1:%2").arg(addr.toString(), QString::number(port));
 }
 
+// Emit a monitor event. When `decoded` is provided the caller has
+// already parsed the packet (inbound dispatch path) and we reuse it —
+// avoiding a second full recursive decode of every datagram on the
+// GUI thread. Outbound callers pass nullopt and we decode here (lower
+// frequency, and we don't otherwise hold the Element).
 void emitEvent(OscEngine *engine, Direction dir, Transport tr,
-               const QByteArray &raw, const QString &host, quint16 port)
+               const QByteArray &raw, const QString &host, quint16 port,
+               const std::optional<Element> &decoded = std::nullopt,
+               bool haveDecoded = false)
 {
     PacketEvent e;
     e.direction = dir;
@@ -29,8 +36,11 @@ void emitEvent(OscEngine *engine, Direction dir, Transport tr,
     e.peerHost = host;
     e.peerPort = port;
     e.rawBytes = raw;
-    if (auto decoded = Codec::decode(raw)) {
-        e.parsed = *decoded;
+    if (haveDecoded) {
+        if (decoded) { e.parsed = *decoded; e.parseOk = true; }
+        else         { e.parseOk = false; }
+    } else if (auto d = Codec::decode(raw)) {
+        e.parsed = *d;
         e.parseOk = true;
     } else {
         e.parseOk = false;
@@ -292,9 +302,15 @@ void OscEngine::onWsDisconnected()
 void OscEngine::handleIncomingPacket(Transport tr, const QByteArray &bytes,
                                      const QString &peerHost, quint16 peerPort)
 {
-    emitEvent(this, Direction::Inbound, tr, bytes, peerHost, peerPort);
+    // Decode exactly once: the monitor event and the dispatcher both
+    // need the parsed form, so we parse here and hand the result to
+    // emitEvent rather than letting it re-decode (the recursive bundle
+    // decoder ran twice per datagram before this).
+    auto decoded = Codec::decode(bytes);
+    emitEvent(this, Direction::Inbound, tr, bytes, peerHost, peerPort,
+              decoded, /*haveDecoded=*/true);
 
-    if (auto decoded = Codec::decode(bytes)) {
+    if (decoded) {
         // Stash sender info so query handlers can reply back to the
         // peer that sent the request. Single-threaded — dispatch runs
         // synchronously on the GUI thread, the socket signals serialize.

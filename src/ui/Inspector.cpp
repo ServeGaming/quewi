@@ -355,7 +355,7 @@ Inspector::Inspector(QWidget *parent)
         m_mscDeviceId->setToolTip(tr("0x7F (127) = all-call"));
         f->addRow(tr("Device ID"), m_mscDeviceId);
         m_mscFormat = new QSpinBox(m_mscGroup); m_mscFormat->setRange(0, 127);
-        m_mscFormat->setToolTip(tr("0x10 Lighting · 0x01 Sound · 0x40 Sound general"));
+        m_mscFormat->setToolTip(tr("0x01 Lighting · 0x10 Sound · 0x40 Projection"));
         f->addRow(tr("Format"), m_mscFormat);
         m_mscCommand = new QSpinBox(m_mscGroup); m_mscCommand->setRange(0, 127);
         m_mscCommand->setToolTip(tr("0x01 GO · 0x02 STOP · 0x03 RESUME · 0x05 LOAD"));
@@ -1042,7 +1042,18 @@ Inspector::Inspector(QWidget *parent)
 
 Inspector::~Inspector() = default;
 
-void Inspector::setWorkspace(core::Workspace *workspace) { m_workspace = workspace; }
+void Inspector::setWorkspace(core::Workspace *workspace)
+{
+    m_workspace = workspace;
+    // Clear the current cue whenever the workspace is rebound (new /
+    // open / close show). Without this the Inspector keeps editing a
+    // cue from the OLD workspace — and because a fresh CueListModel's
+    // beginResetModel doesn't reliably emit a valid→invalid
+    // currentChanged, the stale cue survives and subsequent field
+    // edits push undo commands onto the NEW workspace's stack
+    // targeting a cue it doesn't own.
+    setCue(nullptr);
+}
 
 void Inspector::setAudioEngine(audio::AudioEngine *engine) { m_audioEngine = engine; }
 

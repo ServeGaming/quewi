@@ -3,6 +3,7 @@
 #include <QByteArray>
 #include <QHostAddress>
 #include <QString>
+#include <QHash>
 #include <QUuid>
 #include <array>
 #include <memory>
@@ -49,7 +50,12 @@ private:
     QUuid                       m_cid;
     QString                     m_sourceName = QStringLiteral("quewi");
     quint8                      m_priority   = 100;
-    quint8                      m_sequence   = 0;
+    // E1.31 sequence numbering is defined PER UNIVERSE. A single
+    // shared counter makes each universe see a gappy, non-monotonic
+    // sequence, and strict receivers run the out-of-sequence discard
+    // algorithm (>20 out of order) and drop frames. Track one counter
+    // per universe instead.
+    QHash<quint16, quint8>      m_sequence;
 };
 
 } // namespace quewi::lighting
