@@ -2,6 +2,7 @@
 
 #include "audio/AudioCue.h"
 #include "audio/AudioEngine.h"
+#include "audio/Db.h"
 #include "audio/AudioTrajectory.h"
 #include "audio/SpeakerPatch.h"
 #include "audio/Vbap.h"
@@ -173,7 +174,7 @@ void GoEngine::doFire(cues::Cue *cue)
                     QList<float> linear;
                     linear.reserve(audioCue->outputGainsDb().size());
                     for (double db : audioCue->outputGainsDb()) {
-                        linear.append(float(std::pow(10.0, db / 20.0)));
+                        linear.append(float(audio::dbToLinear(db)));
                     }
                     p.outputGains = std::move(linear);
                 }

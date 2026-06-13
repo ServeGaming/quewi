@@ -1,5 +1,6 @@
 #include "audio/AudioEditorRenderer.h"
 #include "audio/AudioEffect.h"
+#include "audio/Db.h"
 
 #include <QFile>
 #include <QDataStream>
@@ -104,7 +105,7 @@ bool AudioEditorRenderer::render(std::vector<float> &outStereo) {
             // Region length on the timeline grid after SRC.
             const qint64 regionDur = (rate > 0.0)
                 ? qint64(double(srcDur) / rate) : srcDur;
-            const float  regionGain = std::pow(10.f, region.gainDb / 20.f) * trackGain;
+            const float  regionGain = float(dbToLinear(region.gainDb)) * trackGain;
             const qint64 tPos = region.timelinePosSamples;
 
             for (qint64 f = 0; f < regionDur; ++f) {

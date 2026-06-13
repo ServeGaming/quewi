@@ -1,6 +1,7 @@
 #include "audio/AudioEngine.h"
 
 #include "audio/AudioFile.h"
+#include "audio/Db.h"
 
 #include <QAudioFormat>
 #include <QAudioSink>
@@ -13,19 +14,6 @@
 #include <cstring>
 
 namespace quewi::audio {
-
-namespace {
-
-double dbToLinear(double db) {
-    return std::pow(10.0, db / 20.0);
-}
-
-double linearToDb(double lin) {
-    if (lin <= 1e-9) return -90.0;
-    return 20.0 * std::log10(lin);
-}
-
-} // namespace
 
 // ---------------------------------------------------------------------
 // Mixer — the QIODevice the QAudioSink pulls from.

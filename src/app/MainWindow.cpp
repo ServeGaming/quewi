@@ -2566,44 +2566,23 @@ void MainWindow::registerOscRemoteHandlers()
         }, Qt::QueuedConnection);
     });
     sub("/quewi/cue/select", [this](const osc::Message &m) {
-        if (m.args.empty()) return;
-        double num = 0.0;
-        const auto &a = m.args.front();
-        switch (a.tag) {
-        case osc::Argument::Tag::Int32:   num = std::get<qint32>(a.value); break;
-        case osc::Argument::Tag::Float32: num = std::get<float>(a.value);  break;
-        case osc::Argument::Tag::Int64:   num = static_cast<double>(std::get<qint64>(a.value)); break;
-        case osc::Argument::Tag::Double:  num = std::get<double>(a.value); break;
-        default: return;
-        }
+        const auto numOpt = osc::firstNumber(m);
+        if (!numOpt) return;
+        const double num = *numOpt;
         QMetaObject::invokeMethod(this, [this, num]{ selectCueByNumber(num); },
                                   Qt::QueuedConnection);
     });
     sub("/quewi/cue/start", [this](const osc::Message &m) {
-        if (m.args.empty()) return;
-        double num = 0.0;
-        const auto &a = m.args.front();
-        switch (a.tag) {
-        case osc::Argument::Tag::Int32:   num = std::get<qint32>(a.value); break;
-        case osc::Argument::Tag::Float32: num = std::get<float>(a.value);  break;
-        case osc::Argument::Tag::Int64:   num = static_cast<double>(std::get<qint64>(a.value)); break;
-        case osc::Argument::Tag::Double:  num = std::get<double>(a.value); break;
-        default: return;
-        }
+        const auto numOpt = osc::firstNumber(m);
+        if (!numOpt) return;
+        const double num = *numOpt;
         QMetaObject::invokeMethod(this, [this, num]{ fireCueByNumber(num); },
                                   Qt::QueuedConnection);
     });
     sub("/quewi/cue/stop", [this](const osc::Message &m) {
-        if (m.args.empty()) return;
-        double num = 0.0;
-        const auto &a = m.args.front();
-        switch (a.tag) {
-        case osc::Argument::Tag::Int32:   num = std::get<qint32>(a.value); break;
-        case osc::Argument::Tag::Float32: num = std::get<float>(a.value);  break;
-        case osc::Argument::Tag::Int64:   num = static_cast<double>(std::get<qint64>(a.value)); break;
-        case osc::Argument::Tag::Double:  num = std::get<double>(a.value); break;
-        default: return;
-        }
+        const auto numOpt = osc::firstNumber(m);
+        if (!numOpt) return;
+        const double num = *numOpt;
         QMetaObject::invokeMethod(this, [this, num]{
             auto *list = m_workspace ? m_workspace->activeCueList() : nullptr;
             if (!list) return;
@@ -2784,16 +2763,9 @@ void MainWindow::registerOscRemoteHandlers()
 
     sub("/quewi/query/cue",
         [this, replyToSender, cueToJson](const osc::Message &m) {
-        if (m.args.empty()) return;
-        double num = 0.0;
-        const auto &a = m.args.front();
-        switch (a.tag) {
-        case osc::Argument::Tag::Int32:   num = std::get<qint32>(a.value); break;
-        case osc::Argument::Tag::Float32: num = std::get<float>(a.value);  break;
-        case osc::Argument::Tag::Int64:   num = static_cast<double>(std::get<qint64>(a.value)); break;
-        case osc::Argument::Tag::Double:  num = std::get<double>(a.value); break;
-        default: return;
-        }
+        const auto numOpt = osc::firstNumber(m);
+        if (!numOpt) return;
+        const double num = *numOpt;
         auto *list = activeOscList();
         if (!list) return;
         for (int r = 0; r < list->cueCount(); ++r) {
@@ -2934,15 +2906,7 @@ void MainWindow::registerOscRemoteHandlers()
     // then stops; audio uses stopAll(seconds) which respects each
     // voice's per-voice gain ramp.
     auto extractSeconds = [](const osc::Message &m, double fallback) -> double {
-        if (m.args.empty()) return fallback;
-        const auto &a = m.args.front();
-        switch (a.tag) {
-        case osc::Argument::Tag::Int32:   return std::get<qint32>(a.value);
-        case osc::Argument::Tag::Float32: return std::get<float>(a.value);
-        case osc::Argument::Tag::Int64:   return static_cast<double>(std::get<qint64>(a.value));
-        case osc::Argument::Tag::Double:  return std::get<double>(a.value);
-        default: return fallback;
-        }
+        return osc::firstNumber(m).value_or(fallback);
     };
 
     sub("/quewi/lighting/fadeOut", [this, extractSeconds](const osc::Message &m) {
@@ -3014,14 +2978,7 @@ void MainWindow::registerOscRemoteHandlers()
         double number = -1.0;
         QString name;
         if (m.args.size() > 1) {
-            const auto &a = m.args[1];
-            switch (a.tag) {
-            case osc::Argument::Tag::Int32:   number = std::get<qint32>(a.value); break;
-            case osc::Argument::Tag::Float32: number = std::get<float>(a.value);  break;
-            case osc::Argument::Tag::Int64:   number = static_cast<double>(std::get<qint64>(a.value)); break;
-            case osc::Argument::Tag::Double:  number = std::get<double>(a.value); break;
-            default: break;
-            }
+            number = osc::toNumber(m.args[1]).value_or(-1.0);
         }
         if (m.args.size() > 2 && m.args[2].tag == osc::Argument::Tag::String) {
             name = std::get<QString>(m.args[2].value);
@@ -3084,16 +3041,9 @@ void MainWindow::registerOscRemoteHandlers()
         bool ok = false;
         const double num = parts.value(2).toDouble(&ok);
         if (!ok) return;
-        if (m.args.empty()) return;
-        int newRow = -1;
-        const auto &a = m.args.front();
-        switch (a.tag) {
-        case osc::Argument::Tag::Int32:   newRow = std::get<qint32>(a.value); break;
-        case osc::Argument::Tag::Int64:   newRow = static_cast<int>(std::get<qint64>(a.value)); break;
-        case osc::Argument::Tag::Float32: newRow = static_cast<int>(std::get<float>(a.value)); break;
-        case osc::Argument::Tag::Double:  newRow = static_cast<int>(std::get<double>(a.value)); break;
-        default: return;
-        }
+        const auto rowOpt = osc::firstNumber(m);
+        if (!rowOpt) return;
+        const int newRow = static_cast<int>(*rowOpt);
         QMetaObject::invokeMethod(this, [this, num, newRow]{
             if (!m_workspace) return;
             auto *list = activeOscList();
@@ -3179,16 +3129,9 @@ void MainWindow::registerOscRemoteHandlers()
 
     // Cue remove by number. The recipient is the active cue list.
     sub("/quewi/cue/remove", [this](const osc::Message &m) {
-        if (m.args.empty()) return;
-        double num = 0.0;
-        const auto &a = m.args.front();
-        switch (a.tag) {
-        case osc::Argument::Tag::Int32:   num = std::get<qint32>(a.value); break;
-        case osc::Argument::Tag::Float32: num = std::get<float>(a.value);  break;
-        case osc::Argument::Tag::Int64:   num = static_cast<double>(std::get<qint64>(a.value)); break;
-        case osc::Argument::Tag::Double:  num = std::get<double>(a.value); break;
-        default: return;
-        }
+        const auto numOpt = osc::firstNumber(m);
+        if (!numOpt) return;
+        const double num = *numOpt;
         QMetaObject::invokeMethod(this, [this, num]{
             if (!m_workspace) return;
             auto *list = activeOscList();

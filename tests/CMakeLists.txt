@@ -1,38 +1,31 @@
-qt_add_executable(test_smoke test_smoke.cpp)
-target_link_libraries(test_smoke PRIVATE Qt6::Test quewi_core)
-add_test(NAME smoke COMMAND test_smoke)
+# Helper: declare a Qt Test executable, register it with CTest, and
+# accumulate its name so the Windows PATH fix-up below covers it
+# automatically. Previously the foreach list of names was maintained
+# by hand and a new test silently couldn't find Qt's DLLs on Windows
+# if you forgot to append to it.
+set(_quewi_test_names "")
+function(quewi_add_test name)
+    set(_src "test_${name}.cpp")
+    qt_add_executable(test_${name} ${_src})
+    target_link_libraries(test_${name} PRIVATE ${ARGN})
+    add_test(NAME ${name} COMMAND test_${name})
+    list(APPEND _quewi_test_names ${name})
+    set(_quewi_test_names "${_quewi_test_names}" PARENT_SCOPE)
+endfunction()
 
-qt_add_executable(test_osc_codec test_osc_codec.cpp)
-target_link_libraries(test_osc_codec PRIVATE Qt6::Test Qt6::Gui quewi_osc)
-add_test(NAME osc_codec COMMAND test_osc_codec)
-
-qt_add_executable(test_osc_pattern test_osc_pattern.cpp)
-target_link_libraries(test_osc_pattern PRIVATE Qt6::Test quewi_osc)
-add_test(NAME osc_pattern COMMAND test_osc_pattern)
-
-qt_add_executable(test_osc_slip test_osc_slip.cpp)
-target_link_libraries(test_osc_slip PRIVATE Qt6::Test quewi_osc)
-add_test(NAME osc_slip COMMAND test_osc_slip)
-
-qt_add_executable(test_osc_loopback test_osc_loopback.cpp)
-target_link_libraries(test_osc_loopback PRIVATE Qt6::Test Qt6::Network quewi_osc)
-add_test(NAME osc_loopback COMMAND test_osc_loopback)
-
-qt_add_executable(test_audio_smoke test_audio_smoke.cpp)
-target_link_libraries(test_audio_smoke PRIVATE Qt6::Test Qt6::Multimedia quewi_audio)
-add_test(NAME audio_smoke COMMAND test_audio_smoke)
-
-qt_add_executable(test_vbap test_vbap.cpp)
-target_link_libraries(test_vbap PRIVATE Qt6::Test quewi_audio)
-add_test(NAME vbap COMMAND test_vbap)
-
-qt_add_executable(test_trajectory test_trajectory.cpp)
-target_link_libraries(test_trajectory PRIVATE Qt6::Test quewi_audio)
-add_test(NAME trajectory COMMAND test_trajectory)
+quewi_add_test(smoke        Qt6::Test quewi_core)
+quewi_add_test(fade         Qt6::Test quewi_audio)
+quewi_add_test(osc_codec    Qt6::Test Qt6::Gui quewi_osc)
+quewi_add_test(osc_pattern  Qt6::Test quewi_osc)
+quewi_add_test(osc_slip     Qt6::Test quewi_osc)
+quewi_add_test(osc_loopback Qt6::Test Qt6::Network quewi_osc)
+quewi_add_test(audio_smoke  Qt6::Test Qt6::Multimedia quewi_audio)
+quewi_add_test(vbap         Qt6::Test quewi_audio)
+quewi_add_test(trajectory   Qt6::Test quewi_audio)
 
 # On Windows, Qt's DLLs need to be reachable via PATH at test runtime.
 if(WIN32)
-    foreach(name smoke osc_codec osc_pattern osc_slip osc_loopback audio_smoke vbap trajectory)
+    foreach(name ${_quewi_test_names})
         set_tests_properties(${name} PROPERTIES
             ENVIRONMENT_MODIFICATION
                 "PATH=path_list_prepend:$<TARGET_FILE_DIR:Qt6::Core>"

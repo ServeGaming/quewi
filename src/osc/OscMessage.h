@@ -5,6 +5,7 @@
 #include <QColor>
 #include <QString>
 #include <QtGlobal>
+#include <optional>
 #include <variant>
 #include <vector>
 
@@ -113,5 +114,29 @@ struct Bundle {
     TimeTag timeTag = TimeTag::immediate();
     std::vector<Element> elements;
 };
+
+// Coerce an argument's numeric tags (i / f / h / d) to a double.
+// Returns nullopt for non-numeric tags. Centralises the
+// Int32/Float32/Int64/Double switch that was hand-rolled at ~9 OSC
+// handler sites; keeping it here also makes it the natural unit-test
+// target for the coercion logic.
+inline std::optional<double> toNumber(const Argument &a)
+{
+    switch (a.tag) {
+    case Argument::Tag::Int32:   return static_cast<double>(std::get<qint32>(a.value));
+    case Argument::Tag::Float32: return static_cast<double>(std::get<float>(a.value));
+    case Argument::Tag::Int64:   return static_cast<double>(std::get<qint64>(a.value));
+    case Argument::Tag::Double:  return std::get<double>(a.value);
+    default:                     return std::nullopt;
+    }
+}
+
+// Same, reading the first argument of a message. Returns `fallback`
+// when the message has no args or the first arg isn't numeric.
+inline std::optional<double> firstNumber(const Message &m)
+{
+    if (m.args.empty()) return std::nullopt;
+    return toNumber(m.args.front());
+}
 
 } // namespace quewi::osc
