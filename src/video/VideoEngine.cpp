@@ -140,7 +140,9 @@ void VideoEngine::hideTestPattern(int screenIndex)
     auto it = m_testPatterns.find(screenIndex);
     if (it == m_testPatterns.end()) return;
     if (Layer *layer = it.value().data()) {
-        m_compositor->removeLayer(layer);
+        // The test pattern is a calibration aid, not a cue — let the window
+        // close when it's the last thing on screen (don't hold black).
+        m_compositor->removeLayer(layer, /*releaseWindowIfEmpty=*/true);
     }
     m_testPatterns.erase(it);
 }

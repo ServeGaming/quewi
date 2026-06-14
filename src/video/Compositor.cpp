@@ -30,7 +30,7 @@ void Compositor::addLayer(int screenIndex, Layer *layer)
     if (!win->isVisible()) win->show();
 }
 
-void Compositor::removeLayer(Layer *layer)
+void Compositor::removeLayer(Layer *layer, bool releaseWindowIfEmpty)
 {
     if (!layer) return;
     auto it = m_layerScreen.find(layer);
@@ -41,9 +41,12 @@ void Compositor::removeLayer(Layer *layer)
     auto winIt = m_windows.find(screen);
     if (winIt != m_windows.end() && winIt.value()) {
         winIt.value()->removeLayer(layer);
-        // Hide the window when the last layer leaves so a black
-        // rectangle doesn't sit on the projector between cues.
-        if (winIt.value()->layerCount() == 0) {
+        // When the last layer leaves, HOLD BLACK by default — keep the
+        // window up showing its black background so a finished cue doesn't
+        // flash the desktop onto the projector. Only release (hide) when the
+        // caller asks, e.g. the calibration test pattern. Panic routes
+        // through clear(), which closes the windows outright.
+        if (releaseWindowIfEmpty && winIt.value()->layerCount() == 0) {
             winIt.value()->hide();
         }
     }
