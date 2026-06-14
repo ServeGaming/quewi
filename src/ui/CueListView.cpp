@@ -594,6 +594,28 @@ void CueListView::contextMenuEvent(QContextMenuEvent *event)
     connect(insertBelow, &QAction::triggered, this,
             [this, currentRow]{ emit insertRequested(currentRow + 1); });
 
+    // ── Reorder ─────────────────────────────────────────────────────
+    // Move the clicked cue up/down one row. Reordering was drag-only
+    // before; the menu items make single-step moves discoverable and
+    // keyboard-free. MoveCueCommand uses the drag convention where `to`
+    // is the insertion index *before* the source is taken, so moving
+    // down one means inserting at row+2.
+    menu.addSeparator();
+    auto *moveUp   = menu.addAction(tr("Move &Up"));
+    auto *moveDown = menu.addAction(tr("Move &Down"));
+    moveUp->setEnabled(currentRow > 0);
+    moveDown->setEnabled(currentRow >= 0 && currentRow < m->rowCount() - 1);
+    connect(moveUp, &QAction::triggered, this, [this, m, currentRow]{
+        if (!m_workspace || currentRow <= 0) return;
+        m_workspace->undoStack()->push(
+            new core::MoveCueCommand(m->cueList(), currentRow, currentRow - 1));
+    });
+    connect(moveDown, &QAction::triggered, this, [this, m, currentRow]{
+        if (!m_workspace || currentRow < 0 || currentRow >= m->rowCount() - 1) return;
+        m_workspace->undoStack()->push(
+            new core::MoveCueCommand(m->cueList(), currentRow, currentRow + 2));
+    });
+
     menu.exec(event->globalPos());
 }
 
