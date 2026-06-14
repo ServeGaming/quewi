@@ -125,6 +125,10 @@ signals:
     void tracksChanged();
     void regionMoved(QUuid regionId);
     void dirtyChanged(bool);
+    // Emitted just BEFORE a track is destroyed, so the live preview (which
+    // holds a raw pointer to the track's effect chain and runs on the audio
+    // thread) can stop its sink before the track is freed.
+    void aboutToRemoveTrack();
 
 public slots:
     // Undoable mutations — push commands onto m_undoStack

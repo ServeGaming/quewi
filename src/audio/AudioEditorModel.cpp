@@ -340,6 +340,9 @@ AudioEditorTrack *AudioEditorModel::addTrack(const QString &name) {
 
 void AudioEditorModel::removeTrack(int idx) {
     if (idx < 0 || idx >= int(m_tracks.size())) return;
+    // Let the live preview stop its sink before we free the track — its
+    // LiveEffectDevice dereferences this track's effects on the audio thread.
+    emit aboutToRemoveTrack();
     m_tracks.erase(m_tracks.begin() + idx);
     setDirty();
     emit tracksChanged();

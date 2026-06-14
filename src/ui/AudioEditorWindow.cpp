@@ -173,6 +173,11 @@ AudioEditorWindow::AudioEditorWindow(audio::AudioCue *cue, QWidget *parent)
 
     m_model    = std::make_unique<audio::AudioEditorModel>(this);
     m_renderer = std::make_unique<audio::AudioEditorRenderer>(m_model.get(), this);
+    // Stop the live preview before any track is freed — the LiveEffectDevice
+    // reads the track's effects on the audio thread (m_sink->stop() is
+    // synchronous, so the callback can't be mid-readData after this).
+    connect(m_model.get(), &audio::AudioEditorModel::aboutToRemoveTrack,
+            this, [this] { if (m_isPlaying) stopPlayback(); });
 
     // Restore the saved multitrack session if the cue carries one; otherwise
     // derive a fresh single-track session from the cue's file. This is what

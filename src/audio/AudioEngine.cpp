@@ -438,6 +438,9 @@ private:
             , fadeOutFromGain(other.fadeOutFromGain)
             , loop(other.loop)
             , finished(other.finished)
+            , paused(other.paused)
+            , resumeFadeSamples(other.resumeFadeSamples)
+            , resumeFadeCounter(other.resumeFadeCounter)
             , channelGains(std::move(other.channelGains))
             , outputGains(std::move(other.outputGains))
             , peakPerChannel(std::move(other.peakPerChannel))
@@ -472,6 +475,9 @@ private:
             fadeOutFromGain = other.fadeOutFromGain;
             loop = other.loop;
             finished = other.finished;
+            paused = other.paused;
+            resumeFadeSamples = other.resumeFadeSamples;
+            resumeFadeCounter = other.resumeFadeCounter;
             channelGains   = std::move(other.channelGains);
             outputGains    = std::move(other.outputGains);
             peakPerChannel = std::move(other.peakPerChannel);
