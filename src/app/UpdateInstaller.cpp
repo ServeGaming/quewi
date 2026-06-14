@@ -381,7 +381,13 @@ bool UpdateInstaller::launchInstaller(const QString &msiPath)
                << ":run\r\n"
                << "msiexec /i \"" << QDir::toNativeSeparators(native)
                <<   "\" /passive /norestart\r\n"
-               << "start \"\" \"" << QDir::toNativeSeparators(
+               // Relaunch THROUGH Explorer so the upgraded quewi runs at the
+               // user's normal (medium) integrity instead of inheriting this
+               // helper's admin token. Launching it elevated would make the
+               // app run as administrator until the next normal start, which
+               // breaks drag-and-drop from Explorer and makes the install-dir
+               // write-probe falsely pass (mis-routing the next update).
+               << "explorer.exe \"" << QDir::toNativeSeparators(
                       installDir + QStringLiteral("/quewi.exe")) << "\"\r\n"
                << ":cleanup\r\n"
                << "del \"" << QDir::toNativeSeparators(native) << "\" 2>nul\r\n"
