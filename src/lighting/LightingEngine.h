@@ -12,6 +12,8 @@ class QTimer;
 
 namespace quewi::lighting {
 
+class ArtNetSender;
+
 // Owns the active universe states and the sACN sender. Ticks at 44 Hz
 // (the standard DMX refresh rate) and broadcasts every active universe.
 //
@@ -66,6 +68,11 @@ private slots:
     void tick();
 
 private:
+    // Create/destroy the Art-Net sender to match the lighting/artnetEnabled
+    // setting. Called at cue rate (from ensureRunning) so a Preferences
+    // toggle applies on the next light cue without an app restart.
+    void syncArtNet();
+
     struct ChannelFade {
         int    fromValue = 0;
         int    targetValue = 0;
@@ -79,6 +86,7 @@ private:
 
     QHash<quint16, UniverseState> m_universes;
     std::unique_ptr<SacnSender>   m_sender;
+    std::unique_ptr<ArtNetSender> m_artnet;   // null unless Art-Net is enabled
     QTimer                       *m_timer = nullptr;
     std::atomic<bool>             m_running{false};
 };

@@ -732,6 +732,18 @@ QWidget *makeLightingPage(QWidget *parent)
     });
     engForm->addRow(QString(), blackout);
 
+    auto *artnet = new QCheckBox(
+        QObject::tr("Also output Art-Net (broadcast, UDP 6454)"), engGroup);
+    artnet->setChecked(s.value(QStringLiteral("lighting/artnetEnabled"),
+                               false).toBool());
+    artnet->setToolTip(QObject::tr(
+        "Broadcast every active universe as Art-Net alongside sACN. "
+        "Applies on the next light cue."));
+    QObject::connect(artnet, &QCheckBox::toggled, engGroup, [](bool v) {
+        prefSettings().setValue(QStringLiteral("lighting/artnetEnabled"), v);
+    });
+    engForm->addRow(QString(), artnet);
+
     outer->addWidget(engGroup);
 
     auto *patchGroup = new QGroupBox(QObject::tr("Universes"), page);

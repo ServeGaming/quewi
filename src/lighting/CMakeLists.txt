@@ -1,6 +1,8 @@
 add_library(quewi_lighting STATIC
     Sacn.h
     Sacn.cpp
+    ArtNet.h
+    ArtNet.cpp
     LightingEngine.h
     LightingEngine.cpp
     LightCue.h

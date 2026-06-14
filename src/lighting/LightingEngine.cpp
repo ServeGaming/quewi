@@ -1,5 +1,8 @@
 #include "lighting/LightingEngine.h"
 
+#include "lighting/ArtNet.h"
+
+#include <QSettings>
 #include <QTimer>
 #include <algorithm>
 #include <cstring>
@@ -20,8 +23,19 @@ LightingEngine::LightingEngine(QObject *parent)
 
 LightingEngine::~LightingEngine() = default;
 
+void LightingEngine::syncArtNet()
+{
+    QSettings s(QStringLiteral("ServeGaming"), QStringLiteral("quewi"));
+    const bool want = s.value(QStringLiteral("lighting/artnetEnabled"), false).toBool();
+    if (want && !m_artnet)       m_artnet = std::make_unique<ArtNetSender>();
+    else if (!want && m_artnet)  m_artnet.reset();
+}
+
 void LightingEngine::ensureRunning()
 {
+    // Re-evaluate Art-Net each cue so a Preferences toggle applies without a
+    // restart (cheap — runs at cue rate, not the 44 Hz tick).
+    syncArtNet();
     if (m_running.load()) return;
     if (!m_sender) m_sender = std::make_unique<SacnSender>();
     if (!m_timer) {
@@ -38,6 +52,7 @@ void LightingEngine::shutdown()
     if (!m_running.load()) return;
     if (m_timer) m_timer->stop();
     m_sender.reset();
+    m_artnet.reset();
     m_universes.clear();
     m_running.store(false);
     emit runningChanged(false);
@@ -142,6 +157,7 @@ void LightingEngine::tick()
         }
 
         if (m_sender) m_sender->sendUniverse(universe, state.current);
+        if (m_artnet) m_artnet->sendUniverse(universe, state.current);
     }
 }
 
