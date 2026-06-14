@@ -591,8 +591,35 @@ bool UpdateInstaller::launchInstaller(const QString &msiPath,
                    << "  /usr/bin/open \"$DMG\"\n"
                    << "  exit 1\n"
                    << "fi\n"
-                   << "/usr/bin/rsync -a --delete \"$MOUNT/quewi.app/\" \"$BUNDLE/\"\n"
-                   << "/usr/bin/xattr -cr \"$BUNDLE\" 2>/dev/null || true\n"
+                   // Stage the new bundle BESIDE the live one (no --delete on
+                   // the running app), then atomically swap. Under `set -e` a
+                   // bare in-place rsync that hit any single file error would
+                   // abort the script before the relaunch — closing the app
+                   // AND leaving a half-overwritten bundle (the exact "closes,
+                   // nothing installs" failure we fixed on Windows). Here the
+                   // old bundle is intact until the final rename, and any
+                   // failure relaunches it.
+                   << "STAGE=\"$BUNDLE.new-$$\"\n"
+                   << "BACKUP=\"$BUNDLE.old-$$\"\n"
+                   << "rm -rf \"$STAGE\"\n"
+                   << "if ! /usr/bin/rsync -a \"$MOUNT/quewi.app/\" \"$STAGE/\"; then\n"
+                   << "  rm -rf \"$STAGE\"\n"
+                   << "  /usr/bin/hdiutil detach \"$MOUNT\" -quiet 2>/dev/null || true\n"
+                   << "  /usr/bin/open \"$DMG\"\n"
+                   << "  /usr/bin/open \"$BUNDLE\"\n"
+                   << "  exit 1\n"
+                   << "fi\n"
+                   << "/usr/bin/xattr -cr \"$STAGE\" 2>/dev/null || true\n"
+                   << "rm -rf \"$BACKUP\"\n"
+                   << "if mv \"$BUNDLE\" \"$BACKUP\" && mv \"$STAGE\" \"$BUNDLE\"; then\n"
+                   << "  rm -rf \"$BACKUP\"\n"
+                   << "else\n"
+                   << "  [ -d \"$BACKUP\" ] && [ ! -d \"$BUNDLE\" ] && mv \"$BACKUP\" \"$BUNDLE\"\n"
+                   << "  rm -rf \"$STAGE\"\n"
+                   << "  /usr/bin/hdiutil detach \"$MOUNT\" -quiet 2>/dev/null || true\n"
+                   << "  /usr/bin/open \"$BUNDLE\"\n"
+                   << "  exit 1\n"
+                   << "fi\n"
                    << "/usr/bin/hdiutil detach \"$MOUNT\" -quiet 2>/dev/null || true\n"
                    << "rm -f \"$DMG\"\n"
                    << "/usr/bin/open \"$BUNDLE\"\n"
@@ -665,11 +692,17 @@ bool UpdateInstaller::launchInstaller(const QString &msiPath,
                    << "  if ! kill -0 \"$PID\" 2>/dev/null; then break; fi\n"
                    << "  sleep 0.5\n"
                    << "done\n"
-                   << "mv -f " << QString(msiPath).replace('"', "\\\"") << " "
-                              << QString(runningPath).replace('"', "\\\"") << "\n"
-                   << "chmod +x " << QString(runningPath).replace('"', "\\\"") << "\n"
+                   // Quote the paths: $APPIMAGE and the Downloads dir can
+                   // contain spaces (spaced username, localized/custom dirs).
+                   // Escaping embedded quotes without WRAPPING does nothing
+                   // against word-splitting — mv/exec would mis-parse and the
+                   // update would silently no-op while the app has already quit.
+                   << "SRC=\"" << QString(msiPath).replace('"', "\\\"") << "\"\n"
+                   << "DST=\"" << QString(runningPath).replace('"', "\\\"") << "\"\n"
+                   << "mv -f \"$SRC\" \"$DST\"\n"
+                   << "chmod +x \"$DST\"\n"
                    << "rm -f \"$0\"\n"
-                   << "exec " << QString(runningPath).replace('"', "\\\"") << "\n";
+                   << "exec \"$DST\"\n";
                 h.close();
                 QFile::setPermissions(helperPath,
                     QFileDevice::ReadOwner  | QFileDevice::WriteOwner
