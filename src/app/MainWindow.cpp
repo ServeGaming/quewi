@@ -634,6 +634,7 @@ void MainWindow::resetWorkspace()
 
     m_inspector->setWorkspace(m_workspace.get());
     m_inspector->setAudioEngine(m_audioEngine.get());
+    m_inspector->setVideoEngine(m_videoEngine.get());
     m_inspector->setMidiEngine(m_midiEngine.get());
     if (m_activePanel) m_activePanel->setWorkspace(m_workspace.get());
     if (m_goEngine)    m_goEngine->setWorkspace(m_workspace.get());
@@ -715,6 +716,7 @@ bool MainWindow::loadShowFromPath(const QString &path)
     rebindModel();
     m_inspector->setWorkspace(m_workspace.get());
     m_inspector->setAudioEngine(m_audioEngine.get());
+    m_inspector->setVideoEngine(m_videoEngine.get());
     m_inspector->setMidiEngine(m_midiEngine.get());
     if (m_activePanel) m_activePanel->setWorkspace(m_workspace.get());
     if (m_goEngine)    m_goEngine->setWorkspace(m_workspace.get());
@@ -2199,7 +2201,7 @@ static void legacy_dispatch_keep_diff_small() {
             p.fontPixelSize = tc->fontPixelSize();
             p.textColor = tc->textColor();
         }
-        m_videoEngine->fire(p);
+        visualCue->setCurrentVoiceId(m_videoEngine->fire(p));
         statusBar()->showMessage(tr("GO: ▶ %1 on screen %2")
             .arg(cue->name().isEmpty() ? cue->typeName() : cue->name())
             .arg(visualCue->screenIndex()), 2000);
@@ -3383,13 +3385,33 @@ void MainWindow::wireOscNotifications()
                       osc::Argument::d(c->number()) });
             }));
     }
-    // VideoEngine-level: deferred. VideoEngine::voiceFinished does
-    // exist but VisualCue doesn't yet store the owning VideoVoiceId
-    // (AudioCue tracks its currentVoiceId; the video equivalent is
-    // a v1.1 refactor). Until then video cues only get the "fired"
-    // notification via GoEngine — the controller can poll
-    // /quewi/query/cue if it needs to know when video playback
-    // actually ends.
+    // VideoEngine-level: a video voice finished (natural end or stop).
+    // Clear the owning cue's live-voice handle (so the Inspector scrubber
+    // stops targeting a dead layer) and push the OSC "finished" state,
+    // mirroring the audio path above.
+    if (m_videoEngine) {
+        m_oscNotifyConnections.append(connect(m_videoEngine.get(),
+            &video::VideoEngine::voiceFinished, this,
+            [this](video::VideoVoiceId id) {
+                if (!m_workspace || id == 0) return;
+                for (const auto &up : m_workspace->cueLists()) {
+                    auto *list = up.get();
+                    if (!list) continue;
+                    for (int r = 0; r < list->cueCount(); ++r) {
+                        auto *vc = qobject_cast<video::VisualCue *>(list->cueAt(r));
+                        if (vc && vc->currentVoiceId() == id) {
+                            vc->setCurrentVoiceId(0);
+                            pushOscNotify(
+                                QStringLiteral("/quewi/notify/cue/state"),
+                                { osc::Argument::s(vc->id().toString()),
+                                  osc::Argument::s(QStringLiteral("finished")),
+                                  osc::Argument::d(vc->number()) });
+                            return;
+                        }
+                    }
+                }
+            }));
+    }
 
     // One-shot: tell subscribers the workspace just changed (e.g.,
     // file loaded) so they can re-query.

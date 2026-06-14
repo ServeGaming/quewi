@@ -66,6 +66,8 @@ add_library(quewi_ui STATIC
     ProjectionMappingDialog.cpp
     CartView.h
     CartView.cpp
+    VideoScrubber.h
+    VideoScrubber.cpp
     ScriptViewer.h
     ScriptViewer.cpp
     ScriptPdfView.h

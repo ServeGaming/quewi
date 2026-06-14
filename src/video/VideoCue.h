@@ -24,10 +24,18 @@ public:
     QVariant field(const QString &key) const override;
     void     setField(const QString &key, const QVariant &value) override;
 
+    // Live playing-voice handle, mirroring AudioCue::currentVoiceId. Set
+    // at fire time so the Inspector can resolve this cue to its live
+    // VideoLayer (scrubber/seek/pause); cleared on VideoEngine::voiceFinished.
+    // Transient runtime state — NOT serialized.
+    quint64 currentVoiceId() const { return m_currentVoiceId; }
+    void    setCurrentVoiceId(quint64 id) { m_currentVoiceId = id; }
+
 protected:
     QJsonObject visualToPayload() const;
     void        visualFromPayload(const QJsonObject &payload);
 
+    quint64 m_currentVoiceId = 0;
     int    m_screenIndex = 0;
     double m_posX = 0.0;
     double m_posY = 0.0;

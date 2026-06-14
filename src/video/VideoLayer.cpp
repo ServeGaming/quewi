@@ -53,6 +53,17 @@ void VideoLayer::teardown()
     if (m_player) m_player->stop();
 }
 
+qint64 VideoLayer::positionMs() const { return m_player ? m_player->position() : 0; }
+qint64 VideoLayer::durationMs() const { return m_player ? m_player->duration() : 0; }
+void   VideoLayer::seekMs(qint64 ms)  { if (m_player) m_player->setPosition(ms); }
+void   VideoLayer::pause()            { if (m_player) m_player->pause(); }
+void   VideoLayer::resume()           { if (m_player) m_player->play(); }
+
+bool VideoLayer::isPaused() const
+{
+    return m_player && m_player->playbackState() == QMediaPlayer::PausedState;
+}
+
 void VideoLayer::onMediaStatus(int status)
 {
     if (status == QMediaPlayer::EndOfMedia && !m_loop) {

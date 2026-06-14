@@ -290,7 +290,9 @@ void GoEngine::doFire(cues::Cue *cue)
                 p.fontPixelSize = tc->fontPixelSize();
                 p.textColor = tc->textColor();
             }
-            m_video->fire(p);
+            // Store the live voice id on the cue so the Inspector scrubber
+            // can resolve cue -> VideoVoiceId -> VideoLayer to seek/pause.
+            visualCue->setCurrentVoiceId(m_video->fire(p));
             status(tr("GO: ▶ %1 on screen %2")
                 .arg(cue->name().isEmpty() ? cue->typeName() : cue->name())
                 .arg(visualCue->screenIndex()));

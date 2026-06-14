@@ -21,9 +21,11 @@
 #include "ui/SpeakerPatchDialog.h"
 #include "ui/StageView.h"
 #include "ui/WaveformWidget.h"
+#include "ui/VideoScrubber.h"
 #include "audio/SpeakerPatch.h"
 #include "core/PatchManager.h"
 #include "video/VideoCue.h"
+#include "video/VideoEngine.h"
 
 #include <QAudioDevice>
 #include <QButtonGroup>
@@ -52,6 +54,7 @@
 #include <QScrollArea>
 #include <QScrollBar>
 #include <QSpinBox>
+#include <QTimer>
 #include <QUndoStack>
 #include <QVBoxLayout>
 #include <QToolButton>
@@ -813,6 +816,12 @@ Inspector::Inspector(QWidget *parent)
     visualFileRow->addWidget(m_visualBrowse);
     visualOuter->addLayout(visualFileRow);
 
+    // QLab-style transport scrubber — only meaningful for video cues and
+    // only live once the cue is playing. Sits below the file, above the
+    // geometry properties.
+    m_videoScrubber = new VideoScrubber(m_visualGroup);
+    visualOuter->addWidget(m_videoScrubber);
+
     m_textString = new QLineEdit(m_visualGroup);
     m_textString->setPlaceholderText(tr("Text to display"));
     visualOuter->addWidget(m_textString);
@@ -1040,6 +1049,36 @@ Inspector::Inspector(QWidget *parent)
         connect(s, &QDoubleSpinBox::editingFinished, this, &Inspector::commitVisualGeometry);
     }
     connect(m_videoLoop,     &QCheckBox::toggled,              this, &Inspector::commitVideoLoop);
+
+    // Video scrubber → live transport on the playing voice. Resolve the
+    // selected cue to its VideoVoiceId and drive the engine; no-op if the
+    // cue isn't currently playing.
+    connect(m_videoScrubber, &VideoScrubber::seekRequested, this,
+            [this](qint64 ms) {
+                if (!m_videoEngine) return;
+                if (auto *vc = qobject_cast<video::VideoCue *>(m_cue.data()))
+                    if (auto vid = vc->currentVoiceId())
+                        m_videoEngine->seek(vid, ms);
+            });
+    connect(m_videoScrubber, &VideoScrubber::playPauseRequested, this,
+            [this]() {
+                if (!m_videoEngine) return;
+                auto *vc = qobject_cast<video::VideoCue *>(m_cue.data());
+                if (!vc) return;
+                const auto vid = vc->currentVoiceId();
+                if (!vid) return;
+                const auto t = m_videoEngine->transport(vid);
+                if (!t.valid) return;
+                if (t.paused) m_videoEngine->resume(vid);
+                else          m_videoEngine->pause(vid);
+            });
+
+    // ~30 Hz follow of the selected video cue's live position. Started only
+    // while a video cue is selected (see rebuild()), so the Inspector stays
+    // idle for every other cue type.
+    m_videoPollTimer = new QTimer(this);
+    m_videoPollTimer->setInterval(33);
+    connect(m_videoPollTimer, &QTimer::timeout, this, &Inspector::pollVideoTransport);
     connect(m_textString,    &QLineEdit::editingFinished,      this, &Inspector::commitTextString);
     connect(m_textSize,      &QSpinBox::editingFinished,       this, &Inspector::commitTextSize);
     connect(m_textColorBtn,  &QPushButton::clicked,            this, &Inspector::pickTextColor);
@@ -1063,6 +1102,23 @@ void Inspector::setWorkspace(core::Workspace *workspace)
 }
 
 void Inspector::setAudioEngine(audio::AudioEngine *engine) { m_audioEngine = engine; }
+
+void Inspector::setVideoEngine(video::VideoEngine *engine) { m_videoEngine = engine; }
+
+void Inspector::pollVideoTransport()
+{
+    if (!m_videoScrubber) return;
+    auto *vc = qobject_cast<video::VideoCue *>(m_cue.data());
+    if (!vc || !m_videoEngine) { m_videoScrubber->setActive(false); return; }
+    const auto vid = vc->currentVoiceId();
+    if (!vid) { m_videoScrubber->setActive(false); return; }
+    const auto t = m_videoEngine->transport(vid);
+    if (!t.valid) { m_videoScrubber->setActive(false); return; }
+    m_videoScrubber->setActive(true);
+    m_videoScrubber->setDurationMs(t.durMs);
+    m_videoScrubber->setPositionMs(t.posMs);
+    m_videoScrubber->setPlaying(!t.paused);
+}
 
 void Inspector::setMidiEngine(midi::MidiEngine *engine) { m_midiEngine = engine; }
 
@@ -1103,6 +1159,8 @@ void Inspector::rebuild()
     if (m_inspectorBody) m_inspectorBody->setVisible(has);
 
     if (!has) {
+        if (m_videoPollTimer) m_videoPollTimer->stop();
+        if (m_videoScrubber)  m_videoScrubber->setActive(false);
         m_typeLabel->setText(tr("No cue selected"));
         m_number->setValue(0.0);
         m_name->clear();
@@ -1156,6 +1214,16 @@ void Inspector::rebuild()
     m_lightGroup->setVisible(lightCue != nullptr);
     m_lightFadeGroup->setVisible(lfadeCue != nullptr);
     m_visualGroup->setVisible(visualCue != nullptr);
+    // Follow live playback position only while a video cue is selected;
+    // stay idle (no timer) for every other cue type.
+    if (m_videoPollTimer) {
+        if (videoCue) {
+            m_videoPollTimer->start();
+        } else {
+            m_videoPollTimer->stop();
+            if (m_videoScrubber) m_videoScrubber->setActive(false);
+        }
+    }
     m_waitGroup->setVisible(waitCue != nullptr);
     m_targetGroup->setVisible(targetCue != nullptr);
     m_groupGroup->setVisible(groupCue != nullptr);
@@ -1272,6 +1340,7 @@ void Inspector::rebuild()
         m_visualBrowse->setVisible(hasFile);
         m_textString->setVisible(textCue != nullptr);
         m_videoLoop->setVisible(videoCue != nullptr);
+        m_videoScrubber->setVisible(videoCue != nullptr);
         m_textSize->setVisible(textCue != nullptr);
         m_textColorBtn->setVisible(textCue != nullptr);
 

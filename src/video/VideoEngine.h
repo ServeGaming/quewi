@@ -35,6 +35,7 @@ struct VideoVoiceParams {
 
 class Compositor;
 class Layer;
+class VideoLayer;
 
 // Owns a Compositor (one window per output screen). fire() creates the
 // matching Layer subclass and routes it onto the compositor; stop()
@@ -60,6 +61,21 @@ public:
 
     int activeVoiceCount() const { return static_cast<int>(m_voices.size()); }
 
+    // ── Live transport for a playing video voice ────────────────────────
+    // Lets a UI scrubber drive a fired video cue. A snapshot query (polled
+    // ~30 Hz, like the audio ACTIVE strip) plus seek/pause/resume.
+    struct VideoTransport {
+        bool   valid   = false;  // false if the id is unknown / not a video voice
+        qint64 posMs   = 0;
+        qint64 durMs   = 0;
+        bool   paused  = false;
+        bool   looping = false;
+    };
+    VideoTransport transport(VideoVoiceId id) const;
+    void seek(VideoVoiceId id, qint64 ms);
+    void pause(VideoVoiceId id);
+    void resume(VideoVoiceId id);
+
     // Per-screen projection mapping. Quad corners are normalised 0..1
     // window space; identity = {(0,0),(1,0),(1,1),(0,1)}.
     void  setCornerPin(int screenIndex, const QPolygonF &quad);
@@ -81,6 +97,7 @@ private:
         QPointer<Layer>     layer;
     };
     void onLayerFinished(Layer *layer);
+    VideoLayer *videoLayerFor(VideoVoiceId id) const;
 
     std::unique_ptr<Compositor> m_compositor;
     std::vector<Voice> m_voices;

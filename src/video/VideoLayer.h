@@ -29,6 +29,17 @@ public:
     QImage currentFrame() const override { return m_frame; }
     void   teardown() override;
 
+    // Transport — thin forwards onto the backing QMediaPlayer so a UI
+    // scrubber can drive a playing video cue. All null-guarded (m_player
+    // is a QPointer that goes null on teardown).
+    qint64 positionMs() const;
+    qint64 durationMs() const;
+    void   seekMs(qint64 ms);
+    void   pause();
+    void   resume();
+    bool   isPaused()  const;
+    bool   isLooping() const { return m_loop; }
+
 private slots:
     void onMediaStatus(int status);
 

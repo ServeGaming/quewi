@@ -58,6 +58,42 @@ VideoVoiceId VideoEngine::fire(const VideoVoiceParams &params)
     return id;
 }
 
+VideoLayer *VideoEngine::videoLayerFor(VideoVoiceId id) const
+{
+    auto it = std::find_if(m_voices.begin(), m_voices.end(),
+        [id](const Voice &v) { return v.id == id; });
+    if (it == m_voices.end()) return nullptr;
+    return qobject_cast<VideoLayer *>(it->layer.data());
+}
+
+VideoEngine::VideoTransport VideoEngine::transport(VideoVoiceId id) const
+{
+    VideoTransport t;
+    if (auto *vl = videoLayerFor(id)) {
+        t.valid   = true;
+        t.posMs   = vl->positionMs();
+        t.durMs   = vl->durationMs();
+        t.paused  = vl->isPaused();
+        t.looping = vl->isLooping();
+    }
+    return t;
+}
+
+void VideoEngine::seek(VideoVoiceId id, qint64 ms)
+{
+    if (auto *vl = videoLayerFor(id)) vl->seekMs(ms);
+}
+
+void VideoEngine::pause(VideoVoiceId id)
+{
+    if (auto *vl = videoLayerFor(id)) vl->pause();
+}
+
+void VideoEngine::resume(VideoVoiceId id)
+{
+    if (auto *vl = videoLayerFor(id)) vl->resume();
+}
+
 void VideoEngine::stop(VideoVoiceId id)
 {
     auto it = std::find_if(m_voices.begin(), m_voices.end(),

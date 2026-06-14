@@ -17,13 +17,14 @@ class QGridLayout;
 class QFormLayout;
 class QButtonGroup;
 class QListWidget;
+class QTimer;
 
 namespace quewi::core { class Workspace; class CueList; }
 namespace quewi::cues { class Cue; class FadeCue; }
 namespace quewi::osc  { class OscCue; }
 namespace quewi::audio { class AudioCue; class AudioEngine; }
 namespace quewi::lighting { class LightCue; class LightFadeCue; }
-namespace quewi::video { class VideoCue; class ImageCue; class TextCue; class VisualCue; }
+namespace quewi::video { class VideoCue; class ImageCue; class TextCue; class VisualCue; class VideoEngine; }
 namespace quewi::midi  { class MidiCue; class MscCue; class MidiEngine; }
 class QTableWidget;
 
@@ -31,6 +32,7 @@ namespace quewi::ui {
 
 class WaveformWidget;
 class StageView;
+class VideoScrubber;
 
 // Right-pane editor for the currently-selected cue. Common header
 // (number, name, pre/post wait, notes) for every type, plus
@@ -43,6 +45,7 @@ public:
 
     void setWorkspace(core::Workspace *workspace);
     void setAudioEngine(audio::AudioEngine *engine);
+    void setVideoEngine(video::VideoEngine *engine);
     void setMidiEngine(midi::MidiEngine *engine);
 
 public slots:
@@ -144,10 +147,13 @@ private:
     void rebuild();
     void rebuildFadeTargets();
     void pushFieldEdit(const QString &field, const QVariant &newValue);
+    void pollVideoTransport();
 
     QPointer<core::Workspace>   m_workspace;
     QPointer<cues::Cue>         m_cue;
     QPointer<audio::AudioEngine> m_audioEngine;
+    QPointer<video::VideoEngine> m_videoEngine;
+    QTimer                      *m_videoPollTimer = nullptr;
     midi::MidiEngine            *m_midiEngine = nullptr;
 
     QLabel         *m_typeLabel = nullptr;
@@ -284,6 +290,7 @@ private:
     QDoubleSpinBox *m_visualH           = nullptr;
     QDoubleSpinBox *m_visualOpacity     = nullptr;
     QCheckBox      *m_videoLoop         = nullptr;
+    VideoScrubber  *m_videoScrubber     = nullptr;
     QLineEdit      *m_textString        = nullptr;
     QSpinBox       *m_textSize          = nullptr;
     QPushButton    *m_textColorBtn      = nullptr;
