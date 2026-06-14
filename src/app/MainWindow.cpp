@@ -598,6 +598,13 @@ void MainWindow::buildMenus()
     themeMenu->addAction(tr("&Light"), this, [this]{ applyTheme(QStringLiteral("quewi-light")); });
     themeMenu->addAction(tr("&High contrast"),
                          this, [this]{ applyTheme(QStringLiteral("quewi-highcontrast")); });
+    themeMenu->addSeparator();
+    themeMenu->addAction(tr("&Midnight"),
+                         this, [this]{ applyTheme(QStringLiteral("quewi-midnight")); });
+    themeMenu->addAction(tr("&Forest"),
+                         this, [this]{ applyTheme(QStringLiteral("quewi-forest")); });
+    themeMenu->addAction(tr("&Synthwave"),
+                         this, [this]{ applyTheme(QStringLiteral("quewi-synthwave")); });
 
     viewMenu->addSeparator();
     // QDockWidget gives us a ready-made toggleViewAction whose checked
