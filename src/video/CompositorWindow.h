@@ -1,6 +1,7 @@
 #pragma once
 
 #include <QList>
+#include <QMetaObject>
 #include <QPointer>
 #include <QPolygonF>
 #include <QWidget>
@@ -51,6 +52,9 @@ private:
     QPolygonF m_pin;
     QTransform m_pinTransform;   // cached
     bool m_pinIsIdentity = true;
+    // Tracks the current target QScreen's geometryChanged connection so it
+    // can be re-wired when the target screen changes (display reorder).
+    QMetaObject::Connection m_screenGeomConn;
 };
 
 } // namespace quewi::video

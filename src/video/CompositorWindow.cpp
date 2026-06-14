@@ -39,6 +39,14 @@ CompositorWindow::CompositorWindow(int screenIndex, QWidget *parent)
     setAttribute(Qt::WA_DeleteOnClose, false);
     setAttribute(Qt::WA_OpaquePaintEvent, true);
     setStyleSheet(QStringLiteral("background:#000000;"));
+    // Follow display changes. These windows persist across the whole show
+    // (hold-black keeps them alive after a cue ends), so without this they'd
+    // keep stale geometry when a projector renegotiates resolution, a display
+    // is added/removed, or screens are reordered — landing on the wrong
+    // monitor or the operator's primary display.
+    connect(qGuiApp, &QGuiApplication::screenAdded,    this, [this](QScreen *){ layoutOnScreen(); });
+    connect(qGuiApp, &QGuiApplication::screenRemoved,  this, [this](QScreen *){ layoutOnScreen(); });
+    connect(qGuiApp, &QGuiApplication::primaryScreenChanged, this, [this](QScreen *){ layoutOnScreen(); });
     layoutOnScreen();
 }
 
@@ -115,6 +123,15 @@ void CompositorWindow::layoutOnScreen()
     const int idx = std::clamp(m_screenIndex, 0,
                                static_cast<int>(screens.size()) - 1);
     QScreen *target = screens.value(idx, screens.first());
+
+    // Re-wire to THIS screen's geometryChanged — the target can change when
+    // displays are reordered, and a projector waking up renegotiates its
+    // resolution, which we must follow.
+    QObject::disconnect(m_screenGeomConn);
+    if (target)
+        m_screenGeomConn = connect(target, &QScreen::geometryChanged, this,
+                                   [this](const QRect &){ layoutOnScreen(); });
+
     setGeometry(target->geometry());
     rebuildPinTransform();
 }
