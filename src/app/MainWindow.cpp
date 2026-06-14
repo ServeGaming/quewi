@@ -2546,6 +2546,11 @@ int MainWindow::insertCuesFromUrls(const QList<QUrl> &urls, int startRow,
                             : (m_workspace ? m_workspace->activeCueList() : nullptr);
     if (!list) return 0;
 
+    // Pads on the soundboard play audio only — an AV file (e.g. .webm) bound
+    // to a pad must become an AudioCue, not a VideoCue that opens a black
+    // video window. Covers every soundboard import path (drop, picker, …).
+    const bool audioOnly = list->kind() == core::CueList::Kind::Soundboard;
+
     int insertRow;
     if (startRow >= 0) {
         insertRow = std::min(startRow, list->cueCount());
@@ -2560,7 +2565,7 @@ int MainWindow::insertCuesFromUrls(const QList<QUrl> &urls, int startRow,
         const auto path = url.toLocalFile();
         if (path.isEmpty()) continue;
 
-        auto cue = cueFromFile(path);
+        auto cue = cueFromFile(path, audioOnly);
         if (!cue) continue;
 
         cue->setField(QStringLiteral("number"), static_cast<double>(insertRow + 1));
@@ -2589,7 +2594,7 @@ int MainWindow::insertCuesFromUrls(const QList<QUrl> &urls, int startRow,
     return created;
 }
 
-std::unique_ptr<cues::Cue> MainWindow::cueFromFile(const QString &path)
+std::unique_ptr<cues::Cue> MainWindow::cueFromFile(const QString &path, bool audioOnly)
 {
     static const QStringList audioExts = {
         QStringLiteral("wav"),  QStringLiteral("mp3"),  QStringLiteral("flac"),
@@ -2612,6 +2617,17 @@ std::unique_ptr<cues::Cue> MainWindow::cueFromFile(const QString &path)
     const QFileInfo info(path);
     const QString ext = info.suffix().toLower();
     const QString stem = info.completeBaseName();
+
+    // Audio-only mode (soundboard pads): route any AV container — audio OR
+    // video extension — through the AudioCue path. QAudioDecoder demuxes the
+    // container and decodes the audio stream regardless of a video track, so a
+    // .webm/.mp4 pad plays its sound with no video surface.
+    if (audioOnly && (audioExts.contains(ext) || videoExts.contains(ext))) {
+        auto cue = std::make_unique<audio::AudioCue>();
+        cue->setField(QStringLiteral("name"), stem);
+        cue->setField(QStringLiteral("filePath"), path);
+        return cue;
+    }
 
     if (audioExts.contains(ext)) {
         auto cue = std::make_unique<audio::AudioCue>();

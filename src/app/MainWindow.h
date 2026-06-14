@@ -123,7 +123,11 @@ private:
     void rebindModel();
     bool maybeSaveChanges();
     bool saveTo(const QString &path);
-    std::unique_ptr<cues::Cue> cueFromFile(const QString &path);
+    // Build a cue from a media file, classified by extension. When audioOnly
+    // is true (soundboard pads), audio-/video-container files both become an
+    // AudioCue so a pad plays just the sound — a .webm on a pad shouldn't open
+    // a (black) video surface.
+    std::unique_ptr<cues::Cue> cueFromFile(const QString &path, bool audioOnly = false);
     int  insertCuesFromUrls(const QList<QUrl> &urls, int startRow = -1,
                             core::CueList *targetList = nullptr);
     // The one soundboard cue list (its tab shows the pad grid). Created on
