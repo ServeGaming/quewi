@@ -165,13 +165,20 @@ void MediaImportService::search(const QString &query, int maxResults)
         : QStringLiteral("ytsearch%1:%2").arg(maxResults).arg(trimmed);
 
     m_search = new QProcess(this);
+    // NOTE: --no-warnings was dropped on purpose — it suppressed the real
+    // reason a URL returns nothing (private/age-gated/region-locked, or the
+    // "sign in to confirm you're not a bot" wall), leaving the user with a
+    // bare "0 results". We now surface stderr when the result set is empty.
     QStringList args{
         QStringLiteral("--dump-json"),
         QStringLiteral("--flat-playlist"),
-        QStringLiteral("--no-warnings"),
         QStringLiteral("--ignore-errors"),
-        target
     };
+    // Expand playlist / mix URLs so their entries list (a bare playlist URL,
+    // or a watch?v=...&list=... link, otherwise often yields nothing usable).
+    if (isUrl && target.contains(QLatin1String("list=")))
+        args << QStringLiteral("--yes-playlist");
+    args << target;
     connect(m_search, &QProcess::finished, this,
         [this](int, QProcess::ExitStatus) {
             QProcess *p = m_search;
@@ -208,8 +215,13 @@ void MediaImportService::search(const QString &query, int maxResults)
                 if (!r.title.isEmpty() && !r.url.isEmpty())
                     results.append(r);
             }
-            if (results.isEmpty() && !err.isEmpty()) {
-                emit searchFailed(err.section('\n', 0, 0));
+            if (results.isEmpty()) {
+                // Always give a reason rather than a silent "0 results".
+                const QString reason = !err.trimmed().isEmpty()
+                    ? err.section('\n', 0, 0)
+                    : tr("No results. The video or playlist may be private, "
+                         "age-restricted, region-locked, or require sign-in.");
+                emit searchFailed(reason);
             } else {
                 emit searchResults(results);
             }
