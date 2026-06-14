@@ -118,6 +118,11 @@ QJsonObject AudioCue::toPayload() const
             o.insert(QStringLiteral("trajectory"), m_trajectory.toJson());
         }
     }
+    // Editable audio-editor session — only written once the operator has
+    // actually edited in the editor, to keep untouched cues' payloads lean.
+    if (!m_editorModelJson.isEmpty()) {
+        o.insert(QStringLiteral("editorModel"), m_editorModelJson);
+    }
     return o;
 }
 
@@ -149,6 +154,7 @@ void AudioCue::fromPayload(const QJsonObject &payload)
     } else {
         m_trajectory = AudioTrajectory{};
     }
+    m_editorModelJson = payload.value(QStringLiteral("editorModel")).toObject();
     m_file.reset();
 }
 

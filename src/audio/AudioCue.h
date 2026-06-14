@@ -5,6 +5,7 @@
 #include "cues/Cue.h"
 
 #include <QUuid>
+#include <QJsonObject>
 #include <memory>
 
 namespace quewi::audio {
@@ -77,6 +78,13 @@ public:
     const AudioTrajectory& trajectory() const { return m_trajectory; }
     void  setTrajectory(AudioTrajectory t) { m_trajectory = std::move(t); emitChanged(); }
 
+    // The editable multitrack session from the audio editor, stored as
+    // opaque JSON (AudioEditorModel::toJson) so regions/tracks/gains/fades
+    // survive reopening the editor and a show save/load. The cue still
+    // *plays* its filePath; this only restores the editor's working state.
+    const QJsonObject &editorModelJson() const { return m_editorModelJson; }
+    void setEditorModelJson(const QJsonObject &j) { m_editorModelJson = j; emitChanged(); }
+
     std::shared_ptr<AudioFile> audioFile() const { return m_file; }
 
     quint64 currentVoiceId() const { return m_currentVoiceId; }
@@ -103,6 +111,10 @@ private:
 
     // Linear length matches whatever the operator set; mixer pads.
     QList<double> m_outputGainsDb;
+
+    // Editable audio-editor session (multitrack regions/effects). Empty
+    // until the operator opens the editor and makes an edit.
+    QJsonObject m_editorModelJson;
 
     std::shared_ptr<AudioFile> m_file;
     quint64                    m_currentVoiceId = 0;

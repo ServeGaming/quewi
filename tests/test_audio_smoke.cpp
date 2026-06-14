@@ -2,6 +2,7 @@
 #include <QTest>
 #include <QTemporaryFile>
 #include <QFile>
+#include <QJsonObject>
 
 #include "audio/AudioEditorModel.h"
 #include "audio/AudioEngine.h"
@@ -137,6 +138,72 @@ private slots:
             auto [ti, ri] = model.findRegion(origId);
             QVERIFY(ti >= 0);
             QCOMPARE(tr->regions()[ri].srcOutSamples, splitAt);
+        }
+    }
+
+    // Regions/tracks/gains/fades must survive toJson → fromJson so the
+    // editor's working state persists in the cue payload across reload.
+    void editorModelRoundTripsThroughJson()
+    {
+        AudioEditorModel model;
+        model.initFromFile(m_wav, 48000);
+        auto *tr = model.track(0);
+        QVERIFY(tr);
+
+        auto *file = tr->regions()[0].sourceFile.get();
+        QVERIFY(file);
+        QSignalSpy spy(file, &AudioFile::stateChanged);
+        while (file->state() == AudioFile::State::Loading)
+            QVERIFY(spy.wait(5000));
+        QCOMPARE(file->state(), AudioFile::State::Loaded);
+
+        // Representative edits: split, per-region gain + fade, and
+        // track-level name / volume / mute.
+        const QUuid  origId  = tr->regions()[0].id;
+        const qint64 splitAt = tr->regions()[0].timelineEndSamples() / 2;
+        model.splitRegion(origId, splitAt);
+        QCOMPARE(int(tr->regions().size()), 2);
+
+        QUuid rightId;
+        for (auto &r : tr->regions()) if (r.id != origId) rightId = r.id;
+        QVERIFY(!rightId.isNull());
+        model.setRegionGain(rightId, -6.0f);
+        {
+            auto [ti, ri] = model.findRegion(rightId);
+            QVERIFY(ti >= 0);
+            tr->regions()[ri].fadeIn.durationSamples = 1024;
+            tr->regions()[ri].fadeIn.type = FadeCurve::EqualPower;
+        }
+        tr->setName(QStringLiteral("Music"));
+        tr->setVolume(0.5f);
+        tr->setMuted(true);
+
+        // Round-trip through JSON into a fresh model.
+        const QJsonObject json = model.toJson();
+        AudioEditorModel restored;
+        restored.fromJson(json);
+
+        QCOMPARE(restored.sampleRate(), 48000);
+        QCOMPARE(restored.trackCount(), 1);
+        auto *rtr = restored.track(0);
+        QVERIFY(rtr);
+        QCOMPARE(rtr->name(), QStringLiteral("Music"));
+        QCOMPARE(rtr->volume(), 0.5f);
+        QVERIFY(rtr->isMuted());
+        QCOMPARE(int(rtr->regions().size()), 2);
+
+        // Left half kept its id + cut point; right half kept gain + fade.
+        {
+            auto [ti, ri] = restored.findRegion(origId);
+            QVERIFY(ti >= 0);
+            QCOMPARE(rtr->regions()[ri].srcOutSamples, splitAt);
+        }
+        {
+            auto [ti, ri] = restored.findRegion(rightId);
+            QVERIFY(ti >= 0);
+            QCOMPARE(rtr->regions()[ri].gainDb, -6.0f);
+            QCOMPARE(rtr->regions()[ri].fadeIn.durationSamples, qint64(1024));
+            QCOMPARE(int(rtr->regions()[ri].fadeIn.type), int(FadeCurve::EqualPower));
         }
     }
 

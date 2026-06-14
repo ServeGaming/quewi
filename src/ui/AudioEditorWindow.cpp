@@ -174,9 +174,15 @@ AudioEditorWindow::AudioEditorWindow(audio::AudioCue *cue, QWidget *parent)
     m_model    = std::make_unique<audio::AudioEditorModel>(this);
     m_renderer = std::make_unique<audio::AudioEditorRenderer>(m_model.get(), this);
 
-    // Initialise model from the cue's file (or empty if none)
+    // Restore the saved multitrack session if the cue carries one; otherwise
+    // derive a fresh single-track session from the cue's file. This is what
+    // makes region splits, gains, fades and multi-track layout survive
+    // closing and reopening the editor (and a show save/load).
     QString filePath = cue ? cue->filePath() : QString();
-    m_model->initFromFile(filePath, 48000);
+    if (cue && !cue->editorModelJson().isEmpty())
+        m_model->fromJson(cue->editorModelJson());
+    else
+        m_model->initFromFile(filePath, 48000);
 
     // Adopt the source file's sample rate once it finishes loading, so the
     // ruler/timeline measure time correctly and playback isn't sped-up.
@@ -660,16 +666,26 @@ void AudioEditorWindow::bounceToFile() {
 
 bool AudioEditorWindow::promptSaveIfDirty() {
     if (!m_model->isDirty()) return true;
-    auto btn = QMessageBox::question(this, tr("Unsaved Changes"),
-        tr("The audio editor has unsaved changes. Bounce to file before closing?"),
-        QMessageBox::Save | QMessageBox::Discard | QMessageBox::Cancel);
+    // The editable session is already saved into the cue (closeEvent does
+    // that unconditionally), so this is purely about flattening to a file
+    // the cue can *play* — the engine plays filePath, not the live model.
+    auto btn = QMessageBox::question(this, tr("Bounce for Playback?"),
+        tr("Your edits are saved with the cue. Bounce them to a file now so "
+           "the cue plays the edited audio?"),
+        QMessageBox::Yes | QMessageBox::No | QMessageBox::Cancel);
     if (btn == QMessageBox::Cancel) return false;
-    if (btn == QMessageBox::Save)   bounceToFile();
+    if (btn == QMessageBox::Yes)    bounceToFile();
+    m_model->markClean();
     return true;
 }
 
 void AudioEditorWindow::closeEvent(QCloseEvent *e) {
     stopPlayback();
+    // Auto-save the editable multitrack session into the cue so regions,
+    // tracks, gains and fades round-trip on reopen and across show save/load.
+    // Independent of bouncing — the cue still plays its filePath.
+    if (m_cue && m_model->isDirty())
+        m_cue->setEditorModelJson(m_model->toJson());
     if (!promptSaveIfDirty()) { e->ignore(); return; }
     e->accept();
 }

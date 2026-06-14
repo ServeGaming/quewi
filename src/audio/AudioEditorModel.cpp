@@ -4,6 +4,7 @@
 #include <QJsonObject>
 #include <QUndoCommand>
 #include <QJsonArray>
+#include <QHash>
 #include <algorithm>
 #include <cassert>
 #include <optional>
@@ -417,9 +418,44 @@ QJsonObject AudioEditorModel::toJson() const {
 void AudioEditorModel::fromJson(const QJsonObject &o) {
     m_sampleRate = o[QStringLiteral("sampleRate")].toInt(48000);
     m_tracks.clear();
-    // Deserialization of regions with file reloading is left as a no-op for now;
-    // the editor always re-initialises from the cue's file path when it opens.
+    m_undoStack.clear();   // stale commands would reference now-dead regions
+
+    // Decode each distinct source file once and share it across every region
+    // that references it (split halves, repeats). Decoding is async — each
+    // file's stateChanged drives a repaint so peaks appear once it's ready.
+    QHash<QString, std::shared_ptr<AudioFile>> fileCache;
+
+    const QJsonArray tracks = o.value(QStringLiteral("tracks")).toArray();
+    for (const auto &tv : tracks) {
+        const QJsonObject to = tv.toObject();
+        AudioEditorTrack *track = addTrack();
+        track->fromJson(to);   // id / name / volume / mute / solo + effects chain
+
+        // Regions are restored here (track->fromJson intentionally skips them
+        // since it has no file-decoding context).
+        const QJsonArray regs = to.value(QStringLiteral("regions")).toArray();
+        for (const auto &rv : regs) {
+            const QJsonObject ro = rv.toObject();
+            const QString path = ro.value(QStringLiteral("path")).toString();
+            std::shared_ptr<AudioFile> file;
+            if (!path.isEmpty()) {
+                auto it = fileCache.find(path);
+                if (it != fileCache.end()) {
+                    file = it.value();
+                } else {
+                    file = std::make_shared<AudioFile>();
+                    connect(file.get(), &AudioFile::stateChanged, this,
+                            [this](AudioFile::State){ emit tracksChanged(); });
+                    file->load(path);
+                    fileCache.insert(path, file);
+                }
+            }
+            track->regions().push_back(AudioRegion::fromJson(ro, file));
+        }
+    }
+
     m_dirty = false;
+    emit tracksChanged();   // rebuild scrollbars + repaint the timeline
 }
 
 } // namespace quewi::audio
