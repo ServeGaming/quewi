@@ -370,6 +370,16 @@ void MainWindow::buildLayout()
             m_workspace->undoStack()->push(
                 new core::MoveCueListCommand(m_workspace.get(), from, to));
     });
+    // Right-click a tab → detach that cue list into its own window.
+    m_listTabs->setContextMenuPolicy(Qt::CustomContextMenu);
+    connect(m_listTabs, &QWidget::customContextMenuRequested, this,
+            [this](const QPoint &pos) {
+        const int idx = m_listTabs->tabAt(pos);
+        if (idx < 0) return;
+        QMenu menu(this);
+        menu.addAction(tr("Detach to window"), this, [this, idx]{ detachCueListTab(idx); });
+        menu.exec(m_listTabs->mapToGlobal(pos));
+    });
 
     // Cue list pane: filter line on top, view fills the rest. Wrapping
     // them in one widget keeps the central layout clean.
@@ -445,10 +455,12 @@ void MainWindow::buildLayout()
     connect(m_activePanel, &ui::ActiveCuesPanel::runningCueIdsChanged,
             this, [this](const QSet<QUuid> &ids) {
                 if (m_model) m_model->setRunningCueIds(ids);
+                for (auto &m : m_detachedModels) if (m) m->setRunningCueIds(ids);
             });
     connect(m_activePanel, &ui::ActiveCuesPanel::peakLevelsChanged,
             this, [this](const QHash<QUuid, QPair<float, float>> &peaks) {
                 if (m_model) m_model->setPeakLevels(peaks);
+                for (auto &m : m_detachedModels) if (m) m->setPeakLevels(peaks);
             });
 
     m_transport = new ui::TransportBar(central);
@@ -1852,6 +1864,37 @@ void MainWindow::addSoundboardTab()
     // nothing above changes visibly, which read as "the button did nothing".
     statusBar()->showMessage(shown ? tr("Soundboard ready")
                                    : tr("Couldn't open the soundboard"), 2500);
+}
+
+void MainWindow::detachCueListTab(int idx)
+{
+    if (!m_workspace || idx < 0) return;
+    const auto id = m_listTabs->tabData(idx).toUuid();
+    core::CueList *list = nullptr;
+    for (const auto &cl : m_workspace->cueLists())
+        if (cl->id() == id) { list = cl.get(); break; }
+    if (!list) return;
+
+    // Floating top-level window mirroring this cue list. It shares the
+    // CueList, so edits in either window stay in sync; its model is fed the
+    // same running/peak state as the main view. Useful on a second monitor.
+    auto *win = new QMainWindow(this);
+    win->setAttribute(Qt::WA_DeleteOnClose);
+    win->setWindowFlag(Qt::Window);
+    win->setWindowTitle(tr("%1 — quewi").arg(list->name()));
+
+    auto *model = new core::CueListModel(win);
+    model->setCueList(list);
+    auto *view = new ui::CueListView(win);
+    view->setWorkspace(m_workspace.get());
+    view->setModel(model);
+    win->setCentralWidget(view);
+    win->resize(540, 640);
+
+    m_detachedModels.append(model);  // QPointer auto-nulls when the window closes
+    win->show();
+    win->raise();
+    statusBar()->showMessage(tr("Detached \"%1\"").arg(list->name()), 2500);
 }
 
 void MainWindow::addCueListTab()

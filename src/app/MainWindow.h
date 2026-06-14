@@ -129,6 +129,8 @@ private:
     // The one soundboard cue list (its tab shows the pad grid). Created on
     // first use. Pad cues are inserted here so they stay out of the set list.
     core::CueList *getOrCreateSoundboardList();
+    // Open the cue list at tab `idx` in its own floating window (multi-monitor).
+    void detachCueListTab(int idx);
     // Shared body for every New-<type> menu action: inserts `cue`
     // after the current selection, names + numbers it, pushes the
     // undo command, and selects the new row. Each insertXCue() slot
@@ -216,6 +218,9 @@ private:
 
     std::unique_ptr<core::Workspace>    m_workspace;
     std::unique_ptr<core::CueListModel> m_model;
+    // Models behind detached cue-list windows — fed the same running/peak
+    // state as the main view so their live dots/VU update too.
+    QList<QPointer<core::CueListModel>> m_detachedModels;
     std::unique_ptr<osc::OscEngine>     m_oscEngine;
     std::unique_ptr<audio::AudioEngine> m_audioEngine;
     std::unique_ptr<lighting::LightingEngine> m_lightingEngine;
