@@ -188,9 +188,9 @@ QPlainTextEdit,
 QComboBox {
     background: @bgInteractive;
     color: @ink100;
-    border: 1px solid @outline;
+    border: 2px solid @outline;
     border-radius: 5px;
-    padding: 6px 10px;
+    padding: 5px 9px;
     selection-background-color: @accent;
     selection-color: @bgDeep;
     /* Standardized at 26px so QLineEdit / QSpinBox / QDoubleSpinBox /
@@ -231,7 +231,7 @@ QDoubleSpinBox:focus,
 QPlainTextEdit:focus,
 QComboBox:focus {
     border: 2px solid @outlineFocus;
-    padding: 4px 7px;
+    padding: 5px 9px;
 }
 QLineEdit:disabled,
 QSpinBox:disabled,
@@ -257,7 +257,7 @@ QDoubleSpinBox::up-button:hover, QDoubleSpinBox::down-button:hover {
 QGroupBox {
     background: transparent;
     color: @ink60;
-    border: 1px solid @outline;
+    border: 2px solid @outline;
     border-radius: 4px;
     margin-top: 18px;
     padding: 14px 12px 12px 12px;
@@ -278,9 +278,9 @@ QGroupBox::title {
 QPushButton {
     background: @bgInteractive;
     color: @ink100;
-    border: 1px solid @outline;
+    border: 2px solid @outline;
     border-radius: 6px;
-    padding: 7px 16px;
+    padding: 6px 15px;
     /* Match form controls at 26 — see the QLineEdit block above. */
     min-height: 26px;
     font-weight: 500;
