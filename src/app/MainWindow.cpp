@@ -378,6 +378,8 @@ void MainWindow::buildLayout()
         if (idx < 0) return;
         QMenu menu(this);
         menu.addAction(tr("Detach to window"), this, [this, idx]{ detachCueListTab(idx); });
+        menu.addSeparator();
+        menu.addAction(tr("Delete cue list…"), this, [this, idx]{ removeCueListAt(idx); });
         menu.exec(m_listTabs->mapToGlobal(pos));
     });
 
@@ -1926,11 +1928,20 @@ void MainWindow::renameCueListTab()
 
 void MainWindow::removeCueListTab()
 {
-    if (!m_workspace || m_workspace->cueLists().size() <= 1) {
-        statusBar()->showMessage(tr("Can't remove the only cue list"), 2500);
+    // Menu-bar "Remove current" → delete whichever tab is showing.
+    removeCueListAt(m_listTabs ? m_listTabs->currentIndex() : -1);
+}
+
+void MainWindow::removeCueListAt(int idx)
+{
+    if (!m_workspace || !m_listTabs || idx < 0 || idx >= m_listTabs->count())
         return;
-    }
-    auto *list = m_workspace->activeCueList();
+    // Resolve the tab to its cue list by id (tab order ≠ workspace order once
+    // lists have been drag-reordered, so index alone isn't enough).
+    const auto id = m_listTabs->tabData(idx).toUuid();
+    core::CueList *list = nullptr;
+    for (const auto &cl : m_workspace->cueLists())
+        if (cl->id() == id) { list = cl.get(); break; }
     if (!list) return;
     // Never remove the last NORMAL list — the soundboard isn't a valid
     // set-list home (its pad cues would surface in the cue table and GO).

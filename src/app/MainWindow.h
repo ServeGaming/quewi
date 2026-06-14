@@ -131,6 +131,10 @@ private:
     core::CueList *getOrCreateSoundboardList();
     // Open the cue list at tab `idx` in its own floating window (multi-monitor).
     void detachCueListTab(int idx);
+    // Delete the cue list shown on tab `idx`, with confirmation. Guards against
+    // removing the last Normal list (the soundboard isn't a valid set-list
+    // home). Shared by the menu-bar action and the tab right-click → Delete.
+    void removeCueListAt(int idx);
     // Shared body for every New-<type> menu action: inserts `cue`
     // after the current selection, names + numbers it, pushes the
     // undo command, and selects the new row. Each insertXCue() slot
