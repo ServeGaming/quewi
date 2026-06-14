@@ -48,6 +48,13 @@ public:
     static bool launchInstaller(const QString &installerPath,
                                 bool reopenAfter = true);
 
+    // Append a timestamped breadcrumb to %APPDATA%/quewi/update-client.log
+    // (Application Support on macOS, ~/.local/share on Linux). The file is
+    // flushed per line and survives a crash or quit, so when the app "just
+    // closes" during an update the LAST line pinpoints the step it died on.
+    // Safe to call from anywhere; never throws.
+    static void logStep(const QString &msg);
+
 signals:
     void progress(qint64 received, qint64 total);
     void downloadFinished(const QString &localPath);

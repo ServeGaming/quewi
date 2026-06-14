@@ -1,6 +1,7 @@
 #include "UpdateInstaller.h"
 
 #include <QCoreApplication>
+#include <QDateTime>
 #include <QDesktopServices>
 #include <QDir>
 #include <QFile>
@@ -37,8 +38,27 @@ UpdateInstaller::~UpdateInstaller()
     if (m_file)   { m_file->close(); m_file->deleteLater(); }
 }
 
+void UpdateInstaller::logStep(const QString &msg)
+{
+    const QString dir =
+        QStandardPaths::writableLocation(QStandardPaths::AppDataLocation);
+    if (dir.isEmpty()) return;
+    QDir().mkpath(dir);
+    const QString path = dir + QStringLiteral("/update-client.log");
+    // Bound the file across many update attempts; start fresh if it's grown big.
+    if (QFileInfo(path).size() > 256 * 1024) QFile::remove(path);
+    QFile f(path);
+    if (!f.open(QIODevice::Append | QIODevice::Text)) return;
+    QTextStream ts(&f);
+    ts << QDateTime::currentDateTime().toString(Qt::ISODate)
+       << " v" << QStringLiteral(QUEWI_VERSION) << "  " << msg << '\n';
+    ts.flush();          // per-line flush so a crash can't lose the last step
+    f.close();
+}
+
 void UpdateInstaller::download(const QString &msiUrl)
 {
+    logStep(QStringLiteral("download(): start url=%1").arg(msiUrl));
     if (m_reply) {
         emit downloadFailed(tr("A download is already in progress."));
         return;
@@ -132,8 +152,12 @@ void UpdateInstaller::onReplyFinished()
         m_file = nullptr;
     }
 
+    logStep(QStringLiteral("onReplyFinished(): err=%1 (%2) bytes=%3")
+                .arg(int(err)).arg(errStr)
+                .arg(QFileInfo(m_localPath).size()));
     if (err != QNetworkReply::NoError) {
         QFile::remove(m_localPath);
+        logStep(QStringLiteral("download FAILED (network): %1").arg(errStr));
         emit downloadFailed(errStr);
         return;
     }
@@ -234,6 +258,8 @@ void UpdateInstaller::onReplyFinished()
             }
         }
     }
+    logStep(QStringLiteral("download OK, emitting downloadFinished: %1")
+                .arg(m_localPath));
     emit downloadFinished(m_localPath);
 }
 
@@ -257,7 +283,10 @@ bool UpdateInstaller::launchInstaller(const QString &msiPath,
     // app open with a clear path forward (the "Open folder" button on
     // the failure dialog) instead of a blank desktop.
     const QString native = QDir::toNativeSeparators(msiPath);
+    logStep(QStringLiteral("launchInstaller(): path=%1 reopen=%2")
+                .arg(msiPath).arg(reopenAfter));
     if (!QFileInfo::exists(msiPath)) {
+        logStep(QStringLiteral("launchInstaller: file does not exist -> false"));
         return false;
     }
     bool started = false;
@@ -450,10 +479,15 @@ bool UpdateInstaller::launchInstaller(const QString &msiPath,
             if (ShellExecuteExW(&sei)) {
                 if (sei.hProcess) CloseHandle(sei.hProcess);
                 started = true;
+                logStep(QStringLiteral("MSI elevated helper launched (UAC accepted)"));
             } else {
                 const DWORD e = GetLastError();
                 qWarning("UpdateInstaller: elevated MSI helper launch failed, "
                          "GetLastError=%lu", e);
+                logStep(QStringLiteral("MSI elevated helper launch FAILED, "
+                                       "GetLastError=%1%2").arg(e)
+                            .arg(e == 1223 ? QStringLiteral(" (UAC declined)")
+                                           : QString()));
                 QFile::remove(helperPath);
                 // e == ERROR_CANCELLED (1223) means the user declined UAC;
                 // fall through to the manual fallbacks below.
@@ -536,6 +570,8 @@ bool UpdateInstaller::launchInstaller(const QString &msiPath,
         qWarning("UpdateInstaller: all launch paths failed, "
                  "opened folder %ls instead",
                  qUtf16Printable(folder));
+        logStep(QStringLiteral("launchInstaller: ALL Windows launch paths "
+                               "failed; opened folder -> false"));
         return false;
     }
     }  // close in-place-zip fallback branch
@@ -774,6 +810,7 @@ bool UpdateInstaller::launchInstaller(const QString &msiPath,
     // here was the cause of the "downloads, closes, no installer"
     // reports: when SmartScreen/UAC silently rejected the launch, quewi
     // disappeared anyway and the user was stranded.
+    logStep(QStringLiteral("launchInstaller: interactive fallback launched -> true"));
     return true;
 }
 

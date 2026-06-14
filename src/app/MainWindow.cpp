@@ -1995,6 +1995,7 @@ void MainWindow::updateTitle()
 
 void MainWindow::runInAppInstall(const QString &msiUrl)
 {
+    UpdateInstaller::logStep(QStringLiteral("runInAppInstall: entry url=%1").arg(msiUrl));
     auto *installer = new UpdateInstaller(this);
     auto *prog = new QProgressDialog(tr("Downloading update…"),
                                      tr("Cancel"), 0, 100, this);
@@ -2018,6 +2019,8 @@ void MainWindow::runInAppInstall(const QString &msiUrl)
         });
     connect(installer, &UpdateInstaller::downloadFinished, this,
         [this, prog, installer](const QString &localPath) {
+            UpdateInstaller::logStep(QStringLiteral(
+                "runInAppInstall: downloadFinished, showing confirm dialog"));
             prog->close();
             installer->deleteLater();
             const QString installPrompt =
@@ -2043,11 +2046,19 @@ void MainWindow::runInAppInstall(const QString &msiUrl)
                 QStringLiteral("update/reopenAfter"), true).toBool());
             confirm.setCheckBox(reopenCheck);
             const auto answer = confirm.exec();
+            UpdateInstaller::logStep(QStringLiteral(
+                "runInAppInstall: confirm answer=%1")
+                .arg(answer == QMessageBox::Yes ? QStringLiteral("Yes")
+                                                : QStringLiteral("No")));
             if (answer == QMessageBox::Yes) {
                 const bool reopen = reopenCheck->isChecked();
                 updSettings.setValue(QStringLiteral("update/reopenAfter"), reopen);
                 const bool launched =
                     UpdateInstaller::launchInstaller(localPath, reopen);
+                UpdateInstaller::logStep(QStringLiteral(
+                    "runInAppInstall: launchInstaller returned %1")
+                    .arg(launched ? QStringLiteral("true (quitting)")
+                                  : QStringLiteral("false (showing fallback)")));
                 if (launched) {
                     // The installer/helper waits for quewi to exit before it
                     // swaps files and relaunches — so we MUST quit now, or
@@ -2128,6 +2139,8 @@ void MainWindow::runInAppInstall(const QString &msiUrl)
         });
     connect(installer, &UpdateInstaller::downloadFailed, this,
         [this, prog, installer](const QString &reason) {
+            UpdateInstaller::logStep(QStringLiteral(
+                "runInAppInstall: downloadFailed: %1").arg(reason));
             prog->close();
             installer->deleteLater();
             QMessageBox::warning(this, tr("Update download failed"),
