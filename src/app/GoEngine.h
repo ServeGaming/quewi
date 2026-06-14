@@ -7,6 +7,7 @@
 #include <QList>
 #include <QObject>
 #include <QPointer>
+#include <QSet>
 
 class QTimer;
 
@@ -44,6 +45,11 @@ public:
 
     void fire(cues::Cue *cue);
     void cancelAll(double fadeOutSeconds = 0.05);
+
+    // Set of audio voice ids currently alive. The soundboard polls this to
+    // light pads whose cue is playing (a cue is playing when its
+    // currentVoiceId() is in this set). Cheap; safe to call at a few Hz.
+    QSet<quint64> activeAudioVoiceIds() const;
 
 signals:
     void cueFired(quewi::cues::Cue *cue);

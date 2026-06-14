@@ -3,6 +3,7 @@
 #include <QTemporaryFile>
 #include <QFile>
 
+#include "audio/AudioEditorModel.h"
 #include "audio/AudioEngine.h"
 #include "audio/AudioFile.h"
 
@@ -83,6 +84,60 @@ private slots:
         QCOMPARE(f.channelCount(), 1);
         QVERIFY(f.frameCount() > 47000); // some Qt backends round
         QVERIFY(!f.peaks().empty());
+    }
+
+    void splitRegionIsUndoable()
+    {
+        AudioEditorModel model;
+        model.initFromFile(m_wav, 48000);
+        QCOMPARE(model.trackCount(), 1);
+        auto *tr = model.track(0);
+        QVERIFY(tr);
+        QCOMPARE(int(tr->regions().size()), 1);
+
+        // The decode is async; wait until the region's source file is Loaded
+        // so durationSamples()/timelineEndSamples() are meaningful.
+        auto *file = tr->regions()[0].sourceFile.get();
+        QVERIFY(file);
+        QSignalSpy spy(file, &AudioFile::stateChanged);
+        while (file->state() == AudioFile::State::Loading)
+            QVERIFY(spy.wait(5000));
+        QCOMPARE(file->state(), AudioFile::State::Loaded);
+
+        const QUuid   origId  = tr->regions()[0].id;
+        const qint64  origOut = tr->regions()[0].srcOutSamples; // -1 = end of file
+        const qint64  end     = tr->regions()[0].timelineEndSamples();
+        QVERIFY(end > 0);
+        const qint64  splitAt = end / 2;
+
+        // Split: one region becomes two, original now ends at the split point.
+        model.splitRegion(origId, splitAt);
+        QCOMPARE(int(tr->regions().size()), 2);
+        {
+            auto [ti, ri] = model.findRegion(origId);
+            QVERIFY(ti >= 0);
+            // srcIn was 0 and timelinePos 0, so the cut offset equals splitAt.
+            QCOMPARE(tr->regions()[ri].srcOutSamples, splitAt);
+        }
+        QVERIFY(model.undoStack()->canUndo());
+
+        // Undo merges the two halves back into the single original region.
+        model.undoStack()->undo();
+        QCOMPARE(int(tr->regions().size()), 1);
+        {
+            auto [ti, ri] = model.findRegion(origId);
+            QVERIFY(ti >= 0);
+            QCOMPARE(tr->regions()[ri].srcOutSamples, origOut);
+        }
+
+        // Redo re-splits to the same state.
+        model.undoStack()->redo();
+        QCOMPARE(int(tr->regions().size()), 2);
+        {
+            auto [ti, ri] = model.findRegion(origId);
+            QVERIFY(ti >= 0);
+            QCOMPARE(tr->regions()[ri].srcOutSamples, splitAt);
+        }
     }
 
 private:

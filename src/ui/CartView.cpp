@@ -1,144 +1,422 @@
 #include "ui/CartView.h"
 
 #include "app/GoEngine.h"
+#include "audio/AudioCue.h"
 #include "core/CartGrid.h"
 #include "core/CueList.h"
 #include "core/Workspace.h"
 #include "cues/Cue.h"
+#include "ui/Theme.h"
 
-#include <QAction>
-#include <QContextMenuEvent>
+#include <QColorDialog>
+#include <QDialog>
+#include <QDialogButtonBox>
 #include <QDragEnterEvent>
 #include <QDropEvent>
+#include <QEnterEvent>
+#include <QFormLayout>
 #include <QGridLayout>
+#include <QHBoxLayout>
 #include <QInputDialog>
+#include <QKeySequenceEdit>
+#include <QLabel>
+#include <QLinearGradient>
+#include <QLineEdit>
 #include <QMenu>
 #include <QMimeData>
 #include <QPainter>
-#include <QPointer>
+#include <QPainterPath>
 #include <QPushButton>
+#include <QShortcut>
+#include <QSpinBox>
+#include <QTimer>
 #include <QUrl>
+#include <QVBoxLayout>
+#include <cmath>
 
 namespace quewi::ui {
 
-// ---------------------------------------------------------------
-// CartCellButton — one tile in the grid.
-//
-// Subclasses QPushButton so we get hover/press visuals, focus, and
-// auto-style from the global QSS for free; overrides paintEvent to
-// stack the cue number, name, and a colour stripe inside one tile.
-// Accepts file drops; empty cells offer a "drop a sound here" hint.
-// ---------------------------------------------------------------
-class CartCellButton : public QPushButton {
+namespace {
+
+QColor textColorFor(const QColor &c)
+{
+    const double lum = 0.299 * c.redF() + 0.587 * c.greenF() + 0.114 * c.blueF();
+    return lum > 0.62 ? QColor(0x16, 0x18, 0x1e) : QColor(0xf2, 0xf5, 0xf8);
+}
+
+// A curated, vibrant palette for colour-coding pads — the soundboard reads
+// like a Launchpad rather than a wall of grey.
+const QList<QColor> &padPalette()
+{
+    static const QList<QColor> p = {
+        QColor("#E0564E"), QColor("#E08A3C"), QColor("#E8C24E"),
+        QColor("#7DBE5A"), QColor("#46A99A"), QColor("#4F8FCB"),
+        QColor("#7E6BD0"), QColor("#C264A6"), QColor("#5B6472"),
+    };
+    return p;
+}
+
+} // namespace
+
+// ───────────────────────────────────────────────────────────────────────────
+// CartPad — one tile. Custom-painted so we control the soundboard look.
+// ───────────────────────────────────────────────────────────────────────────
+class CartPad : public QWidget {
     Q_OBJECT
 public:
-    CartCellButton(int row, int col, QWidget *parent = nullptr)
-        : QPushButton(parent), m_row(row), m_col(col)
+    CartPad(int row, int col, QWidget *parent = nullptr)
+        : QWidget(parent), m_row(row), m_col(col)
     {
         setAcceptDrops(true);
-        setFocusPolicy(Qt::TabFocus);
-        setMinimumSize(120, 80);
-        setCheckable(false);
-        setObjectName(QStringLiteral("cartCell"));
+        setMinimumSize(112, 80);
         setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
+        setMouseTracking(true);
+        setCursor(Qt::PointingHandCursor);
     }
 
     int row() const { return m_row; }
     int col() const { return m_col; }
-
-    void setCue(cues::Cue *cue) {
-        if (m_cue == cue) return;
-        m_cue = cue;
-        update();
-    }
     cues::Cue *cue() const { return m_cue.data(); }
 
+    void setCue(cues::Cue *c)            { m_cue = c; update(); }
+    void setCell(const core::CartCell &c){ m_cell = c; update(); }
+    void setPlaying(bool p)              { if (m_playing == p) return; m_playing = p; update(); }
+    void setEditMode(bool e)             { if (m_editMode == e) return; m_editMode = e; update(); }
+
 signals:
+    void clicked(int row, int col);
+    void editRequested(int row, int col);
     void fileDropped(int row, int col, const QString &path);
 
 protected:
-    void paintEvent(QPaintEvent *event) override
-    {
-        // Let the QPushButton base paint hover/pressed/focus visuals
-        // first; we only stack our own labels and colour stripe on top.
-        QPushButton::paintEvent(event);
+    void enterEvent(QEnterEvent *) override { m_hover = true;  update(); }
+    void leaveEvent(QEvent *)      override { m_hover = false; m_pressed = false; update(); }
 
-        QPainter p(this);
-        p.setRenderHint(QPainter::Antialiasing, true);
-        const QRect r = rect().adjusted(8, 6, -8, -6);
-
-        if (!m_cue) {
-            // Empty cell — faint dashed border + drop hint. The base
-            // QPushButton already drew a tile background; we just
-            // overlay the suggestion text.
-            p.setPen(QPen(palette().color(QPalette::Mid), 1, Qt::DashLine));
-            p.drawRoundedRect(r.adjusted(2, 2, -2, -2), 4, 4);
-            p.setPen(palette().color(QPalette::Mid));
-            QFont f = font(); f.setItalic(true); p.setFont(f);
-            p.drawText(r, Qt::AlignCenter, tr("drop sound here"));
-            return;
+    void mousePressEvent(QMouseEvent *e) override {
+        if (e->button() == Qt::LeftButton) { m_pressed = true; update(); }
+        QWidget::mousePressEvent(e);
+    }
+    void mouseReleaseEvent(QMouseEvent *e) override {
+        if (e->button() == Qt::LeftButton) {
+            const bool was = m_pressed;
+            m_pressed = false; update();
+            if (was && rect().contains(e->pos())) {
+                if (m_editMode) emit editRequested(m_row, m_col);
+                else            emit clicked(m_row, m_col);
+            }
         }
-
-        // Cue number (top-left, small mono).
-        QFont small = font(); small.setPointSizeF(small.pointSizeF() - 1);
-        small.setStyleHint(QFont::Monospace);
-        p.setFont(small);
-        p.setPen(palette().color(QPalette::Mid));
-        p.drawText(r, Qt::AlignTop | Qt::AlignLeft,
-                   QStringLiteral("Q%1").arg(m_cue->number(), 0, 'f',
-                       qFuzzyCompare(m_cue->number(),
-                                     std::round(m_cue->number())) ? 0 : 2));
-
-        // Cue name centered, bold.
-        QFont big = font(); big.setBold(true); big.setPointSizeF(big.pointSizeF() + 1);
-        p.setFont(big);
-        p.setPen(palette().color(QPalette::WindowText));
-        const QString text = m_cue->name().isEmpty()
-            ? m_cue->typeName()
-            : m_cue->name();
-        p.drawText(r, Qt::AlignCenter | Qt::TextWordWrap, text);
-
-        // Colour stripe down the left edge if the cue has a colour.
-        if (m_cue->color().isValid()) {
-            QRect stripe(rect().left() + 2, rect().top() + 4,
-                         3, rect().height() - 8);
-            p.fillRect(stripe, m_cue->color());
-        }
+        QWidget::mouseReleaseEvent(e);
     }
 
-    void dragEnterEvent(QDragEnterEvent *e) override {
-        if (e->mimeData()->hasUrls() && !m_cue) e->acceptProposedAction();
-    }
-    void dragMoveEvent(QDragMoveEvent *e) override {
-        if (e->mimeData()->hasUrls() && !m_cue) e->acceptProposedAction();
-    }
+    void dragEnterEvent(QDragEnterEvent *e) override { if (e->mimeData()->hasUrls()) e->acceptProposedAction(); }
+    void dragMoveEvent (QDragMoveEvent  *e) override { if (e->mimeData()->hasUrls()) e->acceptProposedAction(); }
     void dropEvent(QDropEvent *e) override {
-        if (m_cue) return;
         const auto urls = e->mimeData()->urls();
         if (urls.isEmpty()) return;
-        const QString path = urls.first().toLocalFile();
-        if (path.isEmpty()) return;
-        emit fileDropped(m_row, m_col, path);
+        const QString p = urls.first().toLocalFile();
+        if (p.isEmpty()) return;
+        emit fileDropped(m_row, m_col, p);
         e->acceptProposedAction();
     }
 
+    void paintEvent(QPaintEvent *) override {
+        QPainter p(this);
+        p.setRenderHint(QPainter::Antialiasing, true);
+        const QRectF r = QRectF(rect()).adjusted(2, 2, -2, -2);
+        const qreal radius = 11;
+
+        if (!m_cue) {
+            // Empty pad — quiet dashed slot inviting a drop.
+            p.setPen(Qt::NoPen);
+            p.setBrush(QColor(255, 255, 255, m_hover ? 16 : 8));
+            p.drawRoundedRect(r, radius, radius);
+            QPen dash(QColor(255, 255, 255, m_hover ? 90 : 45), 1.2, Qt::DashLine);
+            p.setPen(dash); p.setBrush(Qt::NoBrush);
+            p.drawRoundedRect(r.adjusted(5, 5, -5, -5), radius - 3, radius - 3);
+            p.setPen(QColor(255, 255, 255, m_hover ? 150 : 80));
+            p.drawText(r, Qt::AlignCenter, tr("drop\nsound"));
+            return;
+        }
+
+        const QColor base = effectiveColor();
+        QColor top = base, bottom = base.darker(122);
+        if (m_pressed)      { top = base.darker(118); bottom = base.darker(145); }
+        else if (m_hover)   { top = base.lighter(110); bottom = base; }
+
+        QLinearGradient grad(r.topLeft(), r.bottomLeft());
+        grad.setColorAt(0.0, top);
+        grad.setColorAt(1.0, bottom);
+        p.setBrush(grad); p.setPen(Qt::NoPen);
+        p.drawRoundedRect(r, radius, radius);
+
+        if (m_playing) {
+            // Glow ring while the cue plays.
+            QColor glow = base.lighter(170); glow.setAlpha(235);
+            p.setPen(QPen(glow, 3)); p.setBrush(Qt::NoBrush);
+            p.drawRoundedRect(r.adjusted(1.5, 1.5, -1.5, -1.5), radius - 1, radius - 1);
+        } else {
+            p.setPen(QPen(base.lighter(138), 1)); p.setBrush(Qt::NoBrush);
+            p.drawRoundedRect(r, radius, radius);
+        }
+
+        const QColor ink = textColorFor(base);
+        QColor sub = ink; sub.setAlpha(165);
+
+        // Cue number, top-left.
+        QFont small = font(); small.setPointSizeF(std::max(7.0, small.pointSizeF() - 1.5));
+        small.setStyleHint(QFont::Monospace);
+        p.setFont(small); p.setPen(sub);
+        p.drawText(r.adjusted(9, 6, -9, -9), Qt::AlignTop | Qt::AlignLeft, numberText());
+
+        // Hotkey chip, top-right.
+        if (!m_cell.hotkey.isEmpty())
+            drawChip(p, r, m_cell.hotkey, Qt::AlignTop | Qt::AlignRight, base, ink);
+        // MIDI chip, bottom-right.
+        if (m_cell.midiNote >= 0)
+            drawChip(p, r, QStringLiteral("♪ %1").arg(m_cell.midiNote),
+                     Qt::AlignBottom | Qt::AlignRight, base, ink);
+
+        // Label, centred.
+        QFont big = font(); big.setBold(true); big.setPointSizeF(big.pointSizeF() + 1.0);
+        p.setFont(big); p.setPen(ink);
+        const QString label = m_cell.label.isEmpty()
+            ? (m_cue->name().isEmpty() ? m_cue->typeName() : m_cue->name())
+            : m_cell.label;
+        p.drawText(r.adjusted(9, 17, -9, -16), Qt::AlignCenter | Qt::TextWordWrap, label);
+
+        if (m_editMode) {
+            p.setFont(small); p.setPen(sub);
+            p.drawText(r.adjusted(9, 0, -9, -6), Qt::AlignBottom | Qt::AlignLeft, tr("edit"));
+        }
+    }
+
 private:
-    int m_row;
-    int m_col;
+    QColor effectiveColor() const {
+        if (m_cell.color.isValid()) return m_cell.color;
+        if (m_cue && m_cue->color().isValid()) return m_cue->color();
+        return Theme::tokens().accent;
+    }
+    QString numberText() const {
+        const double n = m_cue ? m_cue->number() : 0.0;
+        const bool whole = qFuzzyCompare(n, std::round(n));
+        return QStringLiteral("Q%1").arg(n, 0, 'f', whole ? 0 : 2);
+    }
+    void drawChip(QPainter &p, const QRectF &r, const QString &text,
+                  Qt::Alignment align, const QColor &base, const QColor &ink) const {
+        QFont chipF = font(); chipF.setPointSizeF(std::max(7.0, chipF.pointSizeF() - 1.5));
+        chipF.setBold(true);
+        p.setFont(chipF);
+        const QFontMetrics fm(chipF);
+        const int tw = fm.horizontalAdvance(text);
+        const QSizeF sz(tw + 12, fm.height() + 4);
+        qreal x = (align & Qt::AlignRight) ? r.right() - sz.width() - 6 : r.left() + 6;
+        qreal y = (align & Qt::AlignBottom) ? r.bottom() - sz.height() - 6 : r.top() + 6;
+        const QRectF chip(x, y, sz.width(), sz.height());
+        QColor chipBg = base.darker(150); chipBg.setAlpha(200);
+        p.setPen(Qt::NoPen); p.setBrush(chipBg);
+        p.drawRoundedRect(chip, 5, 5);
+        p.setPen(ink);
+        p.drawText(chip, Qt::AlignCenter, text);
+    }
+
+    int m_row, m_col;
     QPointer<cues::Cue> m_cue;
+    core::CartCell m_cell;
+    bool m_playing = false, m_editMode = false, m_hover = false, m_pressed = false;
 };
 
-// ---------------------------------------------------------------
+// ───────────────────────────────────────────────────────────────────────────
+// CartPadEditDialog — customise one pad: label, colour, hotkey, MIDI note.
+// ───────────────────────────────────────────────────────────────────────────
+class CartPadEditDialog : public QDialog {
+    Q_OBJECT
+public:
+    CartPadEditDialog(core::CartGrid *cart, CartView *view, int row, int col,
+                      const QString &cueName, QWidget *parent)
+        : QDialog(parent), m_cart(cart), m_view(view), m_row(row), m_col(col)
+    {
+        setWindowTitle(tr("Customise Pad"));
+        setModal(true);
+        const core::CartCell cell = cart->cell(row, col);
+        m_color = cell.color;
+
+        auto *form = new QFormLayout(this);
+
+        m_label = new QLineEdit(cell.label, this);
+        m_label->setPlaceholderText(cueName.isEmpty() ? tr("(cue name)") : cueName);
+        form->addRow(tr("Label"), m_label);
+
+        // Colour swatches + custom + default.
+        auto *colorRow = new QWidget(this);
+        auto *cl = new QHBoxLayout(colorRow);
+        cl->setContentsMargins(0, 0, 0, 0); cl->setSpacing(4);
+        for (const QColor &c : padPalette()) {
+            auto *sw = new QPushButton(colorRow);
+            sw->setFixedSize(22, 22);
+            sw->setCheckable(true);
+            sw->setStyleSheet(QStringLiteral(
+                "QPushButton{background:%1;border:1px solid #00000060;border-radius:5px;}"
+                "QPushButton:checked{border:2px solid white;}").arg(c.name()));
+            connect(sw, &QPushButton::clicked, this, [this, c]{ setColor(c); });
+            m_swatches.append(sw);
+            cl->addWidget(sw);
+        }
+        auto *custom = new QPushButton(tr("Custom…"), colorRow);
+        connect(custom, &QPushButton::clicked, this, [this]{
+            const QColor c = QColorDialog::getColor(
+                m_color.isValid() ? m_color : Qt::white, this, tr("Pad colour"));
+            if (c.isValid()) setColor(c);
+        });
+        cl->addWidget(custom);
+        auto *def = new QPushButton(tr("Default"), colorRow);
+        connect(def, &QPushButton::clicked, this, [this]{ setColor(QColor()); });
+        cl->addWidget(def);
+        cl->addStretch(1);
+        form->addRow(tr("Colour"), colorRow);
+        refreshSwatchChecks();
+
+        m_hotkey = new QKeySequenceEdit(this);
+        m_hotkey->setMaximumSequenceLength(1);
+        if (!cell.hotkey.isEmpty())
+            m_hotkey->setKeySequence(QKeySequence(cell.hotkey));
+        form->addRow(tr("Hotkey"), m_hotkey);
+
+        auto *midiRow = new QWidget(this);
+        auto *ml = new QHBoxLayout(midiRow);
+        ml->setContentsMargins(0, 0, 0, 0); ml->setSpacing(6);
+        m_midi = new QSpinBox(midiRow);
+        m_midi->setRange(-1, 127);
+        m_midi->setSpecialValueText(tr("None"));
+        m_midi->setValue(cell.midiNote < 0 ? -1 : cell.midiNote);
+        ml->addWidget(m_midi);
+        m_learnBtn = new QPushButton(tr("Learn"), midiRow);
+        m_learnBtn->setCheckable(true);
+        m_learnBtn->setToolTip(tr("Press a pad on your MIDI controller to assign it"));
+        connect(m_learnBtn, &QPushButton::toggled, this, [this](bool on){
+            if (on) {
+                m_learnBtn->setText(tr("Press a pad…"));
+                m_view->beginMidiLearn(m_row, m_col, [this](int note){
+                    m_midi->setValue(note);
+                    m_learnBtn->setChecked(false);
+                });
+            } else {
+                m_learnBtn->setText(tr("Learn"));
+                m_view->cancelMidiLearn();
+            }
+        });
+        ml->addWidget(m_learnBtn);
+        ml->addStretch(1);
+        form->addRow(tr("MIDI note"), midiRow);
+
+        auto *bb = new QDialogButtonBox(this);
+        auto *unbind = bb->addButton(tr("Unbind cue"), QDialogButtonBox::DestructiveRole);
+        bb->addButton(QDialogButtonBox::Ok);
+        bb->addButton(QDialogButtonBox::Cancel);
+        connect(bb, &QDialogButtonBox::accepted, this, &QDialog::accept);
+        connect(bb, &QDialogButtonBox::rejected, this, &QDialog::reject);
+        connect(unbind, &QPushButton::clicked, this, [this]{ m_unbind = true; accept(); });
+        form->addRow(bb);
+    }
+
+    void apply() {
+        if (!m_cart) return;
+        if (m_unbind) { m_cart->setCell(m_row, m_col, QUuid()); return; }
+        m_cart->setCellLabel(m_row, m_col, m_label->text());
+        m_cart->setCellColor(m_row, m_col, m_color);
+        const auto seq = m_hotkey->keySequence();
+        m_cart->setCellHotkey(m_row, m_col,
+            seq.isEmpty() ? QString() : seq.toString(QKeySequence::PortableText));
+        m_cart->setCellMidiNote(m_row, m_col, m_midi->value());
+    }
+
+protected:
+    void done(int r) override { if (m_view) m_view->cancelMidiLearn(); QDialog::done(r); }
+
+private:
+    void setColor(const QColor &c) { m_color = c; refreshSwatchChecks(); }
+    void refreshSwatchChecks() {
+        for (int i = 0; i < m_swatches.size(); ++i)
+            m_swatches[i]->setChecked(m_color.isValid()
+                                      && padPalette()[i].name() == m_color.name());
+    }
+
+    core::CartGrid *m_cart;
+    CartView       *m_view;
+    int m_row, m_col;
+    QColor m_color;
+    bool   m_unbind = false;
+    QLineEdit        *m_label = nullptr;
+    QKeySequenceEdit *m_hotkey = nullptr;
+    QSpinBox         *m_midi = nullptr;
+    QPushButton      *m_learnBtn = nullptr;
+    QList<QPushButton *> m_swatches;
+};
+
+// ───────────────────────────────────────────────────────────────────────────
 // CartView
-// ---------------------------------------------------------------
+// ───────────────────────────────────────────────────────────────────────────
 
 CartView::CartView(QWidget *parent) : QWidget(parent)
 {
     setObjectName(QStringLiteral("cartView"));
-    auto *outer = new QGridLayout(this);
-    outer->setContentsMargins(8, 8, 8, 8);
-    outer->setSpacing(6);
-    m_grid = outer;
+    auto *outer = new QVBoxLayout(this);
+    outer->setContentsMargins(10, 8, 10, 10);
+    outer->setSpacing(8);
+
+    // ── Toolbar ────────────────────────────────────────────────────────
+    const auto &tk = Theme::tokens();
+    auto *bar = new QHBoxLayout();
+    bar->setSpacing(8);
+    auto *title = new QLabel(tr("SOUNDBOARD"), this);
+    title->setStyleSheet(QStringLiteral(
+        "color:%1; font-size:12px; font-weight:800; letter-spacing:0.18em;")
+        .arg(tk.ink60.name()));
+    bar->addWidget(title);
+    bar->addStretch(1);
+
+    m_editBtn = new QPushButton(tr("Edit Layout"), this);
+    m_editBtn->setCheckable(true);
+    m_editBtn->setCursor(Qt::PointingHandCursor);
+    m_editBtn->setStyleSheet(QStringLiteral(
+        "QPushButton{background:%1;color:%2;border:1px solid %3;border-radius:6px;"
+        "  padding:6px 14px;font-weight:600;}"
+        "QPushButton:checked{background:%4;color:%5;border-color:%4;}")
+        .arg(tk.bgInteractive.name(), tk.ink100.name(), tk.outline.name(),
+             tk.accent.name(), tk.bgDeep.name()));
+    connect(m_editBtn, &QPushButton::clicked, this, &CartView::toggleEditMode);
+    bar->addWidget(m_editBtn);
+
+    auto *resizeBtn = new QPushButton(tr("Resize…"), this);
+    resizeBtn->setCursor(Qt::PointingHandCursor);
+    resizeBtn->setStyleSheet(QStringLiteral(
+        "QPushButton{background:%1;color:%2;border:1px solid %3;border-radius:6px;"
+        "  padding:6px 14px;font-weight:600;}")
+        .arg(tk.bgInteractive.name(), tk.ink100.name(), tk.outline.name()));
+    connect(resizeBtn, &QPushButton::clicked, this, &CartView::resizeBoard);
+    bar->addWidget(resizeBtn);
+
+    auto *stopBtn = new QPushButton(tr("Stop All"), this);
+    stopBtn->setCursor(Qt::PointingHandCursor);
+    stopBtn->setStyleSheet(QStringLiteral(
+        "QPushButton{background:%1;color:white;border:none;border-radius:6px;"
+        "  padding:6px 16px;font-weight:700;}"
+        "QPushButton:hover{background:%2;}")
+        .arg(tk.err.name(), tk.err.lighter(115).name()));
+    connect(stopBtn, &QPushButton::clicked, this, &CartView::stopAllRequested);
+    bar->addWidget(stopBtn);
+    outer->addLayout(bar);
+
+    // ── Pad grid ───────────────────────────────────────────────────────
+    m_gridHost = new QWidget(this);
+    m_grid = new QGridLayout(m_gridHost);
+    m_grid->setContentsMargins(0, 0, 0, 0);
+    m_grid->setSpacing(8);
+    outer->addWidget(m_gridHost, 1);
+
+    // Poll playing state so pads glow while their cue runs.
+    m_pollTimer = new QTimer(this);
+    m_pollTimer->setInterval(120);
+    connect(m_pollTimer, &QTimer::timeout, this, &CartView::onPollPlaying);
 }
 
 CartView::~CartView() = default;
@@ -150,108 +428,181 @@ void CartView::setWorkspace(core::Workspace *ws)
             disconnect(cart, nullptr, this, nullptr);
     }
     m_workspace = ws;
-    if (auto *cart = ws ? ws->cart() : nullptr) {
-        connect(cart, &core::CartGrid::layoutChanged,
-                this, &CartView::onLayoutChanged);
-    }
+    if (auto *cart = ws ? ws->cart() : nullptr)
+        connect(cart, &core::CartGrid::layoutChanged, this, &CartView::onLayoutChanged);
     rebuildGrid();
 }
 
 void CartView::setGoEngine(GoEngine *engine) { m_goEngine = engine; }
 
+void CartView::showEvent(QShowEvent *event)
+{
+    QWidget::showEvent(event);
+    m_pollTimer->start();
+    setFocus();
+}
+
 void CartView::onLayoutChanged() { rebuildGrid(); }
 
-void CartView::onCueChanged()
-{
-    // Cue's name / colour / number changed — find the affected cell
-    // and trigger a repaint. Cheap to just repaint the whole cart.
-    for (auto *btn : m_cells) btn->update();
-}
+void CartView::onCueChanged() { for (auto *pad : m_pads) pad->update(); }
 
 cues::Cue *CartView::cueForCellId(const QUuid &id) const
 {
     if (id.isNull() || !m_workspace) return nullptr;
-    for (const auto &list : m_workspace->cueLists()) {
-        for (int row = 0; row < list->cueCount(); ++row) {
-            auto *c = list->cueAt(row);
-            if (c && c->id() == id) return c;
-        }
-    }
+    for (const auto &list : m_workspace->cueLists())
+        for (int row = 0; row < list->cueCount(); ++row)
+            if (auto *c = list->cueAt(row); c && c->id() == id) return c;
     return nullptr;
 }
 
 void CartView::rebuildGrid()
 {
-    // Wipe and rebuild — cheap for sane cart sizes (~24 cells), and
-    // keeps the grid layout in lockstep with size changes.
     while (m_grid->count() > 0) {
         if (auto *w = m_grid->itemAt(0)->widget()) {
             m_grid->removeWidget(w);
             w->deleteLater();
         }
     }
-    m_cells.clear();
+    m_pads.clear();
     if (!m_workspace || !m_workspace->cart()) return;
 
     auto *cart = m_workspace->cart();
     for (int r = 0; r < cart->rows(); ++r) {
         for (int c = 0; c < cart->cols(); ++c) {
-            auto *btn = new CartCellButton(r, c, this);
-            const auto id = cart->cueAt(r, c);
-            btn->setCue(cueForCellId(id));
+            auto *pad = new CartPad(r, c, m_gridHost);
+            const core::CartCell cell = cart->cell(r, c);
+            pad->setCell(cell);
+            pad->setCue(cueForCellId(cell.cueId));
+            pad->setEditMode(m_editMode);
 
-            connect(btn, &QPushButton::clicked, this, [this, btn] {
-                if (auto *c = btn->cue()) emit fireRequested(c);
-            });
-            connect(btn, &CartCellButton::fileDropped,
-                    this, &CartView::fileDropped);
-            // Hook cue change signal so renames / colour swaps repaint
-            // the cell live.
-            if (auto *c = btn->cue()) {
-                connect(c, &cues::Cue::changed, this, &CartView::onCueChanged);
-            }
+            connect(pad, &CartPad::clicked,      this, &CartView::onPadClicked);
+            connect(pad, &CartPad::editRequested, this, &CartView::onPadEdit);
+            connect(pad, &CartPad::fileDropped,  this, &CartView::fileDropped);
+            if (auto *cue = pad->cue())
+                connect(cue, &cues::Cue::changed, this, &CartView::onCueChanged);
 
-            m_grid->addWidget(btn, r, c);
-            m_cells.append(btn);
+            m_grid->addWidget(pad, r, c);
+            m_pads.append(pad);
+        }
+    }
+    rebuildHotkeys();
+}
+
+void CartView::rebuildHotkeys()
+{
+    qDeleteAll(m_shortcuts);
+    m_shortcuts.clear();
+    if (!m_workspace || !m_workspace->cart()) return;
+    auto *cart = m_workspace->cart();
+    for (int r = 0; r < cart->rows(); ++r) {
+        for (int c = 0; c < cart->cols(); ++c) {
+            const auto cell = cart->cell(r, c);
+            if (cell.hotkey.isEmpty() || cell.cueId.isNull()) continue;
+            auto *sc = new QShortcut(QKeySequence(cell.hotkey), this);
+            sc->setContext(Qt::WidgetWithChildrenShortcut);
+            connect(sc, &QShortcut::activated, this, [this, r, c]{ firePadAt(r, c); });
+            m_shortcuts.append(sc);
         }
     }
 }
 
-void CartView::contextMenuEvent(QContextMenuEvent *event)
+void CartView::onPadClicked(int row, int col) { firePadAt(row, col); }
+
+void CartView::onPadEdit(int row, int col)
+{
+    if (cueForCellId(m_workspace && m_workspace->cart()
+                     ? m_workspace->cart()->cueAt(row, col) : QUuid()))
+        editPad(row, col);
+    // Clicking an EMPTY pad in edit mode does nothing yet — drop a sound on it.
+}
+
+bool CartView::firePadAt(int row, int col)
+{
+    if (!m_workspace || !m_workspace->cart()) return false;
+    const QUuid id = m_workspace->cart()->cueAt(row, col);
+    auto *cue = cueForCellId(id);
+    if (!cue) return false;
+    // Flash the pad immediately for tactile feedback.
+    for (auto *pad : m_pads)
+        if (pad->row() == row && pad->col() == col) { pad->setPlaying(true); break; }
+    emit fireRequested(cue);
+    return true;
+}
+
+bool CartView::firePadIndex(int index)
+{
+    if (!m_workspace || !m_workspace->cart()) return false;
+    auto *cart = m_workspace->cart();
+    if (index < 0 || index >= cart->rows() * cart->cols()) return false;
+    return firePadAt(index / cart->cols(), index % cart->cols());
+}
+
+bool CartView::handleMidiNote(int note)
+{
+    // MIDI learn in progress — capture this note for the pad being edited.
+    if (m_learnRow >= 0 && m_learnCol >= 0) {
+        if (m_learnCallback) m_learnCallback(note);
+        m_learnRow = m_learnCol = -1;
+        m_learnCallback = nullptr;
+        return true;
+    }
+    if (!m_workspace || !m_workspace->cart()) return false;
+    const auto [r, c] = m_workspace->cart()->cellOfMidiNote(note);
+    if (r < 0) return false;
+    return firePadAt(r, c);
+}
+
+void CartView::beginMidiLearn(int row, int col, std::function<void(int)> onLearned)
+{
+    m_learnRow = row; m_learnCol = col; m_learnCallback = std::move(onLearned);
+}
+
+void CartView::cancelMidiLearn()
+{
+    m_learnRow = m_learnCol = -1;
+    m_learnCallback = nullptr;
+}
+
+void CartView::editPad(int row, int col)
 {
     if (!m_workspace || !m_workspace->cart()) return;
     auto *cart = m_workspace->cart();
+    auto *cue = cueForCellId(cart->cueAt(row, col));
+    const QString name = cue ? (cue->name().isEmpty() ? cue->typeName() : cue->name()) : QString();
+    CartPadEditDialog dlg(cart, this, row, col, name, this);
+    if (dlg.exec() == QDialog::Accepted) dlg.apply(); // apply mutates the cart → rebuild
+}
 
-    QMenu menu(this);
-    auto *resize = menu.addAction(tr("Resize cart…"));
-    menu.addSeparator();
-    QPointer<CartCellButton> hit;
-    for (auto *btn : m_cells) {
-        if (btn->geometry().contains(btn->mapFromParent(event->pos()))
-            || btn->underMouse()) {
-            hit = btn;
-            break;
-        }
-    }
-    QAction *unbind = nullptr;
-    if (hit && hit->cue()) {
-        unbind = menu.addAction(tr("Unbind cell (Q%1 stays in cue list)")
-                                    .arg(hit->cue()->number()));
-    }
+void CartView::toggleEditMode()
+{
+    m_editMode = m_editBtn->isChecked();
+    for (auto *pad : m_pads) pad->setEditMode(m_editMode);
+}
 
-    auto *picked = menu.exec(event->globalPos());
-    if (!picked) return;
-    if (picked == resize) {
-        bool ok = false;
-        const auto rows = QInputDialog::getInt(this, tr("Resize cart"),
-            tr("Rows:"), cart->rows(), 1, 16, 1, &ok);
-        if (!ok) return;
-        const auto cols = QInputDialog::getInt(this, tr("Resize cart"),
-            tr("Columns:"), cart->cols(), 1, 12, 1, &ok);
-        if (!ok) return;
-        cart->setSize(rows, cols);
-    } else if (unbind && picked == unbind && hit) {
-        cart->clearCell(hit->row(), hit->col());
+void CartView::resizeBoard()
+{
+    if (!m_workspace || !m_workspace->cart()) return;
+    auto *cart = m_workspace->cart();
+    bool ok = false;
+    const int rows = QInputDialog::getInt(this, tr("Resize soundboard"),
+        tr("Rows:"), cart->rows(), 1, 16, 1, &ok);
+    if (!ok) return;
+    const int cols = QInputDialog::getInt(this, tr("Resize soundboard"),
+        tr("Columns:"), cart->cols(), 1, 12, 1, &ok);
+    if (!ok) return;
+    cart->setSize(rows, cols);
+}
+
+void CartView::onPollPlaying()
+{
+    if (!isVisible()) { m_pollTimer->stop(); return; }
+    QSet<quint64> playing;
+    if (m_goEngine) playing = m_goEngine->activeAudioVoiceIds();
+    for (auto *pad : m_pads) {
+        bool on = false;
+        if (auto *ac = qobject_cast<audio::AudioCue *>(pad->cue()))
+            on = ac->currentVoiceId() != 0 && playing.contains(ac->currentVoiceId());
+        pad->setPlaying(on);
     }
 }
 

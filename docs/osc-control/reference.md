@@ -76,6 +76,33 @@ These let a controller stop one engine without affecting the others. Use `/quewi
 
 Cue numbers accept any numeric type (`i / f / h / d`). Use whatever your client emits.
 
+### Soundboard (cart)
+
+The cart view is a tap-to-fire **soundboard** — a grid of colour-coded pads, each
+bound to a cue, MIDI-pad style. Toggle to it from the View menu, or push it to the
+front with `/quewi/cart/show`. Pads are addressed either by a **flat row-major
+index** (0 = top-left, counting left-to-right then top-to-bottom) or by explicit
+**row + column** (both 0-based).
+
+| Address | Args | Effect |
+|---|---|---|
+| `/quewi/cart/fire` | `i` index | Fire the pad at that flat index (row-major, 0-based) |
+| `/quewi/cart/fire` | `i` row, `i` col | Fire the pad at that row + column (both 0-based) |
+| `/quewi/cart/stop` | — | Stop everything the board started (audio fade + lighting blackout + video stop) |
+| `/quewi/cart/show` | — | Bring the soundboard to the front |
+
+Index / row / col accept any numeric type (`i / f / h / d`). A pad with no cue
+bound is a no-op. Locally, pads also fire from a keyboard **hotkey** or an assigned
+**MIDI note** (set per pad in Edit Layout → click a pad). The OSC paths above are
+the network equivalent — handy for a tablet remote, a Stream Deck, or a lighting
+console macro.
+
+```
+# Fire the third pad (flat index 2), then the pad at row 1, column 0:
+/quewi/cart/fire 2
+/quewi/cart/fire 1 0
+```
+
 ### Cue editing
 
 | Address | Args | Effect |

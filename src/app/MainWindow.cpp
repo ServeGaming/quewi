@@ -371,6 +371,8 @@ void MainWindow::buildLayout()
         [this](cues::Cue *c) { if (m_goEngine && c) m_goEngine->fire(c); });
     connect(m_cartView, &ui::CartView::fileDropped,
             this, &MainWindow::onCartFileDropped);
+    connect(m_cartView, &ui::CartView::stopAllRequested, this,
+        [this] { if (m_goEngine) m_goEngine->cancelAll(); });
 
     m_centerStack = new QStackedWidget(central);
     m_centerStack->addWidget(cuePane);     // index 0 = list view
@@ -1907,6 +1909,15 @@ void MainWindow::onMidiTrigger(quint8 status, const QByteArray &bytes)
     if (high == 0x80) return;
     if (high == 0x90 && bytes.size() >= 3 && quint8(bytes[2]) == 0) return;
 
+    // Soundboard: a Note On fires (or MIDI-learns) the matching pad when the
+    // cart is the active view — so a Launchpad / pad controller drives it
+    // directly. If the board consumes the note, don't also run a transport
+    // binding for it.
+    if (high == 0x90 && m_cartView && m_centerStack
+        && m_centerStack->currentWidget() == m_cartView) {
+        if (m_cartView->handleMidiNote(int(quint8(bytes[1])))) return;
+    }
+
     // Match on (status nibble, channel, second byte). Channel 0 is
     // encoded as 0 in the lower nibble; we keep it in the binding key
     // so different controllers on different channels don't clash.
@@ -2445,6 +2456,38 @@ void MainWindow::registerOscRemoteHandlers()
             statusBar()->showMessage(tr("Resumed %1 voices via OSC").arg(n), 2000);
         }, Qt::QueuedConnection);
     });
+
+    // ── Soundboard (cart) ───────────────────────────────────────────
+    // Fire a pad by flat row-major index, or by explicit row + column:
+    //   /quewi/cart/fire  i(index)
+    //   /quewi/cart/fire  i(row) i(col)
+    sub("/quewi/cart/fire", [this](const osc::Message &m) {
+        if (m.args.empty()) return;
+        const auto a0 = osc::toNumber(m.args[0]);
+        const auto a1 = m.args.size() >= 2 ? osc::toNumber(m.args[1]) : std::nullopt;
+        if (!a0) return;
+        const int x = int(*a0);
+        const int y = a1 ? int(*a1) : -1;
+        QMetaObject::invokeMethod(this, [this, x, y]{
+            if (!m_cartView) return;
+            if (y >= 0) m_cartView->firePadAt(x, y);
+            else        m_cartView->firePadIndex(x);
+        }, Qt::QueuedConnection);
+    });
+    // Stop everything the board started (panic-lite).
+    sub("/quewi/cart/stop", [this](const osc::Message &) {
+        QMetaObject::invokeMethod(this, [this]{
+            if (m_goEngine) m_goEngine->cancelAll();
+        }, Qt::QueuedConnection);
+    });
+    // Bring the soundboard to the front.
+    sub("/quewi/cart/show", [this](const osc::Message &) {
+        QMetaObject::invokeMethod(this, [this]{
+            if (m_centerStack && m_cartView)
+                m_centerStack->setCurrentWidget(m_cartView);
+        }, Qt::QueuedConnection);
+    });
+
     sub("/quewi/cue/select", [this](const osc::Message &m) {
         const auto numOpt = osc::firstNumber(m);
         if (!numOpt) return;

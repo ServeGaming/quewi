@@ -14,11 +14,10 @@ namespace quewi {
 // update) and from File → Check for updates… (verbose mode — confirm
 // "you're up to date" even when there isn't one).
 //
-// The "download" action opens the .msi asset URL in the user's browser
-// rather than auto-installing. Self-installing on Windows requires
-// elevation, a signed installer, and a proper update protocol — out
-// of scope for now. Browser download + double-click works today and
-// matches what we already document for first-time installs.
+// The "download" action performs an in-app install (see
+// UpdateInstaller): the portable ZIP is swapped in place where the
+// install dir is writable, falling back to re-running the .msi with
+// elevation otherwise.
 class UpdateChecker : public QObject {
     Q_OBJECT
 public:

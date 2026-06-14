@@ -571,4 +571,14 @@ void GoEngine::cancelAll(double fadeOutSeconds)
     if (m_trajectoryTimer) m_trajectoryTimer->stop();
 }
 
+QSet<quint64> GoEngine::activeAudioVoiceIds() const
+{
+    QSet<quint64> ids;
+    if (!m_audio) return ids;
+    const auto voices = m_audio->activeVoices();
+    ids.reserve(voices.size());
+    for (const auto &v : voices) ids.insert(v.id);
+    return ids;
+}
+
 } // namespace quewi

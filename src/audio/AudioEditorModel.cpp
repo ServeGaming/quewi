@@ -212,6 +212,40 @@ private:
     }
 };
 
+class SplitRegionCmd : public QUndoCommand {
+    AudioEditorModel *m; QUuid id; qint64 origOut; AudioRegion rightSaved;
+public:
+    // id        – the original (left-hand) region being split
+    // origOut   – its srcOutSamples before the split, for restoring on undo
+    // right     – the fully-formed right-hand region the split produces; it
+    //             carries a fixed id so redo re-creates the same region.
+    SplitRegionCmd(AudioEditorModel *m, QUuid id, qint64 origOut, AudioRegion right)
+        : m(m), id(id), origOut(origOut), rightSaved(std::move(right)) { setText(QStringLiteral("Split Region")); }
+    void redo() override {
+        auto [ti, ri] = m->findRegion(id);
+        if (ti < 0) return;
+        // Left region now ends where the right one begins.
+        m->m_tracks[ti]->regions()[ri].srcOutSamples = rightSaved.srcInSamples;
+        m->m_tracks[ti]->regions().push_back(rightSaved);
+        std::sort(m->m_tracks[ti]->regions().begin(), m->m_tracks[ti]->regions().end(),
+            [](auto &a, auto &b){ return a.timelinePosSamples < b.timelinePosSamples; });
+        emit m->tracksChanged();
+        m->setDirty();
+    }
+    void undo() override {
+        // Drop the right-hand region, then heal the left one back to full length.
+        auto [tiR, riR] = m->findRegion(rightSaved.id);
+        if (tiR >= 0) {
+            auto &regs = m->m_tracks[tiR]->regions();
+            regs.erase(regs.begin() + riR);
+        }
+        auto [ti, ri] = m->findRegion(id);
+        if (ti >= 0) m->m_tracks[ti]->regions()[ri].srcOutSamples = origOut;
+        emit m->tracksChanged();
+        m->setDirty();
+    }
+};
+
 class RemoveRegionCmd : public QUndoCommand {
     AudioEditorModel *m; int ti; AudioRegion saved;
 public:
@@ -345,21 +379,17 @@ void AudioEditorModel::trimRegion(QUuid id, bool leftEdge, qint64 newSample) {
 void AudioEditorModel::splitRegion(QUuid regionId, qint64 splitAtTimeline) {
     auto [ti, ri] = findRegion(regionId);
     if (ti < 0) return;
-    auto &r = m_tracks[ti]->regions()[ri];
+    const auto &r = m_tracks[ti]->regions()[ri];
     if (splitAtTimeline <= r.timelinePosSamples || splitAtTimeline >= r.timelineEndSamples()) return;
 
     qint64 offsetInSrc = r.srcInSamples + (splitAtTimeline - r.timelinePosSamples);
-    AudioRegion right = r;
+    qint64 origOut = r.srcOutSamples;
+    AudioRegion right = r;                  // inherits gain/fades/color/srcOut
     right.id = QUuid::createUuid();
     right.timelinePosSamples = splitAtTimeline;
-    right.srcInSamples = offsetInSrc;
-    r.srcOutSamples = offsetInSrc;
+    right.srcInSamples = offsetInSrc;       // srcOutSamples (== origOut) kept from copy
 
-    m_tracks[ti]->regions().push_back(std::move(right));
-    std::sort(m_tracks[ti]->regions().begin(), m_tracks[ti]->regions().end(),
-        [](auto &a, auto &b){ return a.timelinePosSamples < b.timelinePosSamples; });
-    setDirty();
-    emit tracksChanged();
+    m_undoStack.push(new SplitRegionCmd(this, regionId, origOut, std::move(right)));
 }
 
 void AudioEditorModel::removeRegion(QUuid id) {
