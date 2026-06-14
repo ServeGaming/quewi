@@ -138,15 +138,27 @@ void CompressorDialog::paintEvent(QPaintEvent *) {
     QPainter p(this);
     p.setRenderHint(QPainter::Antialiasing);
 
-    p.fillRect(rect(), QColor(0x18, 0x1c, 0x22));
+    const auto &tk = Theme::tokens();
+    p.fillRect(rect(), tk.bgDeep);
     if (m_graphRect.isNull()) layoutGraph();
+
+    // Float coord helpers — the curve must NOT snap to whole pixels; the
+    // int-snapped polyline is what made the knee read as a jagged staircase.
+    auto inToXf = [&](float dB) -> qreal {
+        return m_graphRect.left()
+             + qreal(dB - kInMin) / (kInMax - kInMin) * m_graphRect.width();
+    };
+    auto outToYf = [&](float dB) -> qreal {
+        return m_graphRect.top()
+             + qreal(kOutMax - dB) / (kOutMax - kOutMin) * m_graphRect.height();
+    };
 
     // Graph background — slight vertical gradient.
     QLinearGradient grad(0, m_graphRect.top(), 0, m_graphRect.bottom());
-    grad.setColorAt(0.0, QColor(0x1c, 0x20, 0x26));
-    grad.setColorAt(1.0, QColor(0x10, 0x14, 0x19));
+    grad.setColorAt(0.0, tk.bgPanel);
+    grad.setColorAt(1.0, tk.bgDeep);
     p.fillRect(m_graphRect, grad);
-    p.setPen(QColor(0x41, 0x47, 0x52));
+    p.setPen(tk.outline);
     p.drawRect(m_graphRect.adjusted(0, 0, -1, -1));
 
     // ── dB grid (both axes share dB units) ──────────────────────────
@@ -154,65 +166,114 @@ void CompressorDialog::paintEvent(QPaintEvent *) {
     for (int dB = -60; dB <= 0; dB += 6) {
         const int x = inToX(float(dB));
         const bool major = (dB == 0 || dB == -60);
-        p.setPen(major ? QColor(0x41, 0x47, 0x52) : QColor(0x26, 0x2a, 0x38));
+        p.setPen(major ? tk.outline : tk.divider);
         p.drawLine(x, m_graphRect.top(), x, m_graphRect.bottom());
-        p.setPen(QColor(0x8a, 0x91, 0x9e));
-        p.drawText(x - 10, m_graphRect.bottom() + 16, QString::number(dB));
+        p.setPen(tk.ink40);
+        p.drawText(QRect(x - 16, m_graphRect.bottom() + 3, 32, 14),
+                   Qt::AlignCenter, QString::number(dB));
     }
     for (int dB = -60; dB <= 12; dB += 6) {
         const int y = outToY(float(dB));
         const bool major = (dB == 0);
-        p.setPen(major ? QColor(0x8a, 0x91, 0x9e) : QColor(0x26, 0x2a, 0x38));
+        p.setPen(major ? tk.ink40 : tk.divider);
         p.drawLine(m_graphRect.left(), y, m_graphRect.right(), y);
-        p.setPen(QColor(0x8a, 0x91, 0x9e));
-        p.drawText(m_graphRect.left() - 36, y + 4,
+        p.setPen(tk.ink40);
+        p.drawText(QRect(m_graphRect.left() - 44, y - 7, 38, 14),
+                   Qt::AlignRight | Qt::AlignVCenter,
                    dB > 0 ? QStringLiteral("+%1").arg(dB) : QString::number(dB));
     }
 
-    // Axis captions
-    p.setPen(QColor(0x6b, 0x72, 0x80));
+    // Axis caption
+    p.setPen(tk.ink60);
     p.setFont(QFont(font().family(), 8, QFont::DemiBold));
     p.drawText(QRect(m_graphRect.left(), m_graphRect.bottom() + 18, m_graphRect.width(), 14),
                Qt::AlignCenter, tr("INPUT  (dBFS)"));
 
     if (!m_comp) return;
 
+    const float thr    = m_comp->thresholdDb();
+    const float knee   = m_comp->kneeDb();
+    const float makeup = m_comp->makeupDb();
+
+    // Knee band — faint accent shade across [thr-knee/2, thr+knee/2] so the
+    // soft-knee region is visible.
+    if (knee > 0.1f) {
+        QColor kb = tk.accent; kb.setAlpha(22);
+        const qreal x0 = inToXf(std::max(kInMin, thr - knee * 0.5f));
+        const qreal x1 = inToXf(std::min(kInMax, thr + knee * 0.5f));
+        p.fillRect(QRectF(x0, m_graphRect.top(), x1 - x0, m_graphRect.height()), kb);
+    }
+
     // ── 1:1 reference (no compression, no makeup) ───────────────────
     {
-        QPen ref(QColor(0x55, 0x5c, 0x6b)); ref.setStyle(Qt::DashLine); ref.setWidthF(1.0);
+        QPen ref(tk.ink40); ref.setStyle(Qt::DashLine); ref.setWidthF(1.2);
         p.setPen(ref);
-        p.drawLine(inToX(kInMin), outToY(std::clamp(kInMin, kOutMin, kOutMax)),
-                   inToX(kInMax), outToY(std::clamp(kInMax, kOutMin, kOutMax)));
+        p.drawLine(QPointF(inToXf(kInMin), outToYf(std::clamp(kInMin, kOutMin, kOutMax))),
+                   QPointF(inToXf(kInMax), outToYf(std::clamp(kInMax, kOutMin, kOutMax))));
+    }
+    // Makeup reference (1:1 shifted up by makeup) so the output lift is visible.
+    if (std::abs(makeup) > 0.05f) {
+        QColor mc = tk.warn; mc.setAlpha(120);
+        QPen mk(mc); mk.setStyle(Qt::DotLine); mk.setWidthF(1.1);
+        p.setPen(mk);
+        p.drawLine(QPointF(inToXf(kInMin), outToYf(std::clamp(kInMin + makeup, kOutMin, kOutMax))),
+                   QPointF(inToXf(kInMax), outToYf(std::clamp(kInMax + makeup, kOutMin, kOutMax))));
     }
 
-    // ── Transfer curve + filled area ────────────────────────────────
-    const int nPts = m_graphRect.width();
-    QVector<QPointF> curve;
-    curve.reserve(nPts);
-    for (int i = 0; i < nPts; ++i) {
-        const int x   = m_graphRect.left() + i;
-        const float in  = xToIn(x);
-        const float out = std::clamp(m_comp->transferOutputDb(in), kOutMin, kOutMax);
-        curve.append(QPointF(x, outToY(out)));
+    // ── Transfer curve as a smooth float path — sub-pixel, densified
+    //    through the knee where the slope bends (no int staircase). ───
+    QPainterPath curvePath, fillPath;
+    {
+        const float kneeLo = thr - knee * 0.5f - 1.f;
+        const float kneeHi = thr + knee * 0.5f + 1.f;
+        bool first = true;
+        float in = kInMin;
+        while (true) {
+            const float out = std::clamp(m_comp->transferOutputDb(in), kOutMin, kOutMax);
+            const QPointF pt(inToXf(in), outToYf(out));
+            if (first) { curvePath.moveTo(pt);
+                         fillPath.moveTo(pt.x(), m_graphRect.bottom());
+                         fillPath.lineTo(pt); first = false; }
+            else       { curvePath.lineTo(pt); fillPath.lineTo(pt); }
+            if (in >= kInMax) break;
+            in = std::min(kInMax, in + ((in > kneeLo && in < kneeHi) ? 0.25f : 0.75f));
+        }
+        fillPath.lineTo(inToXf(kInMax), m_graphRect.bottom());
+        fillPath.closeSubpath();
     }
-    QPainterPath fill;
-    fill.moveTo(curve.front().x(), m_graphRect.bottom());
-    for (auto &pt : curve) fill.lineTo(pt);
-    fill.lineTo(curve.back().x(), m_graphRect.bottom());
-    fill.closeSubpath();
     QLinearGradient fg(0, m_graphRect.top(), 0, m_graphRect.bottom());
-    fg.setColorAt(0.0, QColor(0xa4, 0xc9, 0xff, 60));
-    fg.setColorAt(1.0, QColor(0xa4, 0xc9, 0xff, 0));
-    p.fillPath(fill, fg);
+    QColor fgTop = tk.info; fgTop.setAlpha(50);
+    QColor fgBot = tk.info; fgBot.setAlpha(0);
+    fg.setColorAt(0.0, fgTop); fg.setColorAt(1.0, fgBot);
+    p.fillPath(fillPath, fg);
 
-    QPen curvePen(QColor(0xa4, 0xc9, 0xff)); curvePen.setWidthF(2.0);
-    p.setPen(curvePen);
-    p.drawPolyline(curve.constData(), int(curve.size()));
+    // ── Gain-reduction WEDGE — the gap between the (de-makeup'd) curve and
+    //    the 1:1 line, which only opens above threshold. The single clearest
+    //    way to SEE how much the compressor is pulling the signal down. ──
+    {
+        QPainterPath wedge;
+        bool w0 = true;
+        for (float x = kInMin; x <= kInMax; x += 0.75f) {
+            const float out = std::clamp(m_comp->transferOutputDb(x) - makeup, kOutMin, kOutMax);
+            const QPointF pt(inToXf(x), outToYf(out));
+            if (w0) { wedge.moveTo(pt); w0 = false; } else wedge.lineTo(pt);
+        }
+        for (float x = kInMax; x >= kInMin; x -= 0.75f)
+            wedge.lineTo(QPointF(inToXf(x), outToYf(std::clamp(x, kOutMin, kOutMax))));
+        wedge.closeSubpath();
+        QColor wc = tk.err; wc.setAlpha(40);
+        p.fillPath(wedge, wc);
+    }
+
+    QPen curvePen(tk.info); curvePen.setWidthF(2.2);
+    p.setPen(curvePen); p.setBrush(Qt::NoBrush);
+    p.drawPath(curvePath);
 
     // Threshold guide line
     {
-        const int tx = inToX(m_comp->thresholdDb());
-        QPen tp(QColor(0xff, 0xc8, 0x4a, 150)); tp.setStyle(Qt::DashLine);
+        const int tx = inToX(thr);
+        QColor tc = tk.accent; tc.setAlpha(160);
+        QPen tp(tc); tp.setStyle(Qt::DashLine);
         p.setPen(tp);
         p.drawLine(tx, m_graphRect.top(), tx, m_graphRect.bottom());
     }
@@ -225,80 +286,99 @@ void CompressorDialog::paintEvent(QPaintEvent *) {
             p.drawEllipse(c, kHandleRadius * 2, kHandleRadius * 2);
         }
         p.setBrush(col);
-        p.setPen(QPen(QColor(0x10, 0x14, 0x19), 2));
+        p.setPen(QPen(tk.bgDeep, 2));
         p.drawEllipse(c, kHandleRadius, kHandleRadius);
     };
-    drawHandle(thresholdHandlePos(), QColor(0xff, 0xc8, 0x4a),
+    drawHandle(thresholdHandlePos(), tk.accent,
                m_hoverHandle == 1 || m_drag == Drag::Threshold);
-    drawHandle(ratioHandlePos(), QColor(0x5f, 0xdc, 0xc8),
+    drawHandle(ratioHandlePos(), tk.running,
                m_hoverHandle == 2 || m_drag == Drag::Ratio);
 
-    // ── Live program level riding the curve ─────────────────────────
+    // ── Live program level riding the curve (peak + RMS dots) ───────
     const bool liveScope = (m_scope && m_scope->active());
     if (liveScope) {
         const float lvl    = std::clamp(m_scope->peakDb(), kInMin, kInMax);
         const float outLvl = std::clamp(m_comp->transferOutputDb(lvl), kOutMin, kOutMax);
-        const int lx = inToX(lvl);
-        p.setPen(QPen(QColor(0x5f, 0xdc, 0xc8, 130), 1, Qt::DashLine));
-        p.drawLine(lx, m_graphRect.top(), lx, m_graphRect.bottom());
-        const QPoint dot(lx, outToY(outLvl));
-        p.setBrush(QColor(0x9f, 0xf0, 0xe0));
-        p.setPen(QPen(QColor(0x10, 0x14, 0x19), 2));
-        p.drawEllipse(dot, 5, 5);
+        const qreal lx = inToXf(lvl);
+        QColor gl = tk.running; gl.setAlpha(120);
+        p.setPen(QPen(gl, 1, Qt::DashLine));
+        p.drawLine(QPointF(lx, m_graphRect.top()), QPointF(lx, m_graphRect.bottom()));
+        // RMS dot (smaller, behind the peak dot).
+        const float rms  = std::clamp(m_scope->rmsDb(), kInMin, kInMax);
+        const float rOut = std::clamp(m_comp->transferOutputDb(rms), kOutMin, kOutMax);
+        QColor rc = tk.running; rc.setAlpha(150);
+        p.setBrush(rc); p.setPen(Qt::NoPen);
+        p.drawEllipse(QPointF(inToXf(rms), outToYf(rOut)), 3.5, 3.5);
+        // Peak dot.
+        p.setBrush(tk.running); p.setPen(QPen(tk.bgDeep, 2));
+        p.drawEllipse(QPointF(lx, outToYf(outLvl)), 5, 5);
     }
 
-    // ── Gain-reduction meter ────────────────────────────────────────
+    // ── Gain-reduction meter (driven by the real envelope so attack/release
+    //    ballistics are visible — the static curve value can't show motion) ──
     const int mx = m_graphRect.right() + 18;
     const QRect meter(mx, m_graphRect.top(), kMeterWidth, m_graphRect.height());
-    p.fillRect(meter, QColor(0x10, 0x14, 0x19));
-    p.setPen(QColor(0x41, 0x47, 0x52));
+    p.fillRect(meter, tk.bgDeep);
+    p.setPen(tk.outline);
     p.drawRect(meter.adjusted(0, 0, -1, -1));
-    // While the analyzer is live, show the reduction the curve applies at the
-    // current program level; otherwise fall back to the processor's own GR.
-    float gr;
-    if (liveScope) {
-        const float lvl  = std::clamp(m_scope->peakDb(), kInMin, kInMax);
-        const float redu = m_comp->transferOutputDb(lvl) - lvl - m_comp->makeupDb();
-        gr = std::clamp(-redu, 0.f, kMeterRange);
-    } else {
-        gr = std::clamp(-m_comp->currentGainReductionDb(), 0.f, kMeterRange);
-    }
+    const float gr = std::clamp(-m_comp->currentGainReductionDb(), 0.f, kMeterRange);
     const int barH = int(gr / kMeterRange * meter.height());
     if (barH > 0) {
         QLinearGradient mg(0, meter.top(), 0, meter.bottom());
-        mg.setColorAt(0.0, QColor(0xff, 0x6b, 0x6b));
-        mg.setColorAt(0.5, QColor(0xff, 0xc8, 0x4a));
-        mg.setColorAt(1.0, QColor(0x5f, 0xdc, 0xc8));
+        mg.setColorAt(0.0, tk.err);
+        mg.setColorAt(0.5, tk.warn);
+        mg.setColorAt(1.0, tk.running);
         p.fillRect(QRect(meter.left() + 1, meter.top() + 1,
                          meter.width() - 2, barH), mg);
     }
-    p.setPen(QColor(0x8a, 0x91, 0x9e));
+    // dB ticks down the meter's right edge.
+    p.setPen(tk.ink40);
+    for (int d : {0, 3, 6, 12, 18, 24}) {
+        const int ty = meter.top() + int(float(d) / kMeterRange * meter.height());
+        p.drawLine(meter.right(), ty, meter.right() + 3, ty);
+    }
+    p.setPen(tk.ink60);
     p.setFont(QFont(font().family(), 7, QFont::DemiBold));
     p.drawText(QRect(mx - 6, meter.bottom() + 4, kMeterWidth + 30, 12),
                Qt::AlignLeft, tr("GR"));
-    p.drawText(QRect(mx - 14, m_graphRect.top() - 16, kMeterWidth + 40, 12),
-               Qt::AlignCenter, QStringLiteral("-%1").arg(gr, 0, 'f', 1));
+
+    // ── IN / OUT / GR readout — the numbers that make compression legible ──
+    {
+        const float inDb  = liveScope ? m_scope->peakDb() : -99.f;
+        const float outDb = liveScope
+            ? m_comp->transferOutputDb(std::clamp(inDb, kInMin, kInMax)) : -99.f;
+        auto fmt = [](float v) {
+            return v <= -90.f ? QStringLiteral("––") : QString::number(v, 'f', 1);
+        };
+        const QString line = QStringLiteral("IN %1     OUT %2     GR -%3")
+            .arg(fmt(inDb), fmt(outDb)).arg(gr, 0, 'f', 1);
+        p.setFont(QFont(QStringLiteral("Space Grotesk"), 9, QFont::DemiBold));
+        p.setPen(liveScope ? tk.ink100 : tk.ink40);
+        p.drawText(QRect(m_graphRect.left() + 8, m_graphRect.top() + 5,
+                         m_graphRect.width() - 16, 16),
+                   Qt::AlignLeft, line);
+    }
 
     // ── Cursor readout ──────────────────────────────────────────────
     if (m_graphRect.contains(m_cursor)) {
-        p.setPen(QPen(QColor(0xc0, 0xc7, 0xd4, 140), 1, Qt::DashLine));
+        QColor cl = tk.ink60; cl.setAlpha(140);
+        p.setPen(QPen(cl, 1, Qt::DashLine));
         p.drawLine(m_cursor.x(), m_graphRect.top(), m_cursor.x(), m_graphRect.bottom());
         const float in  = xToIn(m_cursor.x());
         const float out = m_comp->transferOutputDb(in);
         const QString readout =
-            QStringLiteral("in %1   out %2")
-                .arg(in,  0, 'f', 1)
-                .arg(out, 0, 'f', 1);
+            QStringLiteral("in %1   out %2").arg(in, 0, 'f', 1).arg(out, 0, 'f', 1);
         p.setFont(QFont(QStringLiteral("Space Grotesk"), 9, QFont::Medium));
         const QFontMetrics fm(p.font());
         const QSize sz = fm.size(0, readout) + QSize(14, 8);
         const int rx = std::min(m_cursor.x() + 12, m_graphRect.right() - sz.width());
-        const int ry = m_graphRect.top() + 4;
+        const int ry = m_graphRect.top() + 24;   // sits below the IN/OUT/GR line
         const QRect rrect(rx, ry, sz.width(), sz.height());
-        p.fillRect(rrect, QColor(0x10, 0x14, 0x19, 220));
-        p.setPen(QColor(0x41, 0x47, 0x52));
+        QColor box = tk.bgDeep; box.setAlpha(220);
+        p.fillRect(rrect, box);
+        p.setPen(tk.outline);
         p.drawRect(rrect.adjusted(0, 0, -1, -1));
-        p.setPen(QColor(0xe0, 0xe2, 0xeb));
+        p.setPen(tk.ink100);
         p.drawText(rrect, Qt::AlignCenter, readout);
     }
 }
