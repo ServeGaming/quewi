@@ -13,8 +13,11 @@ class QRadioButton;
 class QNetworkAccessManager;
 class QMediaPlayer;
 class QAudioOutput;
+class QAudioBufferOutput;
 
 namespace quewi::ui {
+
+class LevelMeter;
 
 // "Import from URL" — search YouTube and ~1800 other sites via yt-dlp,
 // preview audio in-app, and download a clip straight into the show's
@@ -45,6 +48,9 @@ private slots:
 private:
     void setBusy(const QString &what, bool busy);
     void loadThumbnail(int row, const QString &url);
+    void stopPreview();
+    void updatePreviewButtons();
+    bool isPreviewPlaying() const;
 
     MediaImportService    *m_svc = nullptr;
     QString                m_destDir;
@@ -58,14 +64,17 @@ private:
     QRadioButton  *m_audioRadio  = nullptr;
     QRadioButton  *m_videoRadio  = nullptr;
     QPushButton   *m_previewBtn  = nullptr;
+    QPushButton   *m_stopBtn     = nullptr;
     QPushButton   *m_downloadBtn = nullptr;
     QProgressBar  *m_progress    = nullptr;
     QLabel        *m_status      = nullptr;
     QPushButton   *m_updateBtn   = nullptr;
+    LevelMeter    *m_meter       = nullptr;
 
     QNetworkAccessManager *m_thumbNam = nullptr;
     QMediaPlayer          *m_player   = nullptr;
     QAudioOutput          *m_audioOut = nullptr;
+    QAudioBufferOutput    *m_bufOut   = nullptr;
 };
 
 } // namespace quewi::ui

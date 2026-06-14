@@ -54,7 +54,7 @@ AudioEditorRenderer::AudioEditorRenderer(AudioEditorModel *model, QObject *paren
     : QObject(parent), m_model(model)
 {}
 
-bool AudioEditorRenderer::render(std::vector<float> &outStereo) {
+bool AudioEditorRenderer::render(std::vector<float> &outStereo, bool applyEffects) {
     if (!m_model) { m_error = QStringLiteral("No model"); return false; }
 
     qint64 totalFrames = m_model->totalDurationSamples();
@@ -149,16 +149,18 @@ bool AudioEditorRenderer::render(std::vector<float> &outStereo) {
         // the render as they will at play time.
         constexpr int kFxBlockFrames = 1024;
         const int sampleRate = m_model->sampleRate();
-        for (const auto &fx : track->effects()) {
-            if (!fx || !fx->isEnabled()) continue;
-            fx->prepare(sampleRate);
-            fx->reset();
-            qint64 done = 0;
-            while (done < totalFrames) {
-                const int chunk = int(std::min<qint64>(kFxBlockFrames,
-                                                       totalFrames - done));
-                fx->process(trackBuf.data() + done * 2, chunk);
-                done += chunk;
+        if (applyEffects) {
+            for (const auto &fx : track->effects()) {
+                if (!fx || !fx->isEnabled()) continue;
+                fx->prepare(sampleRate);
+                fx->reset();
+                qint64 done = 0;
+                while (done < totalFrames) {
+                    const int chunk = int(std::min<qint64>(kFxBlockFrames,
+                                                           totalFrames - done));
+                    fx->process(trackBuf.data() + done * 2, chunk);
+                    done += chunk;
+                }
             }
         }
 

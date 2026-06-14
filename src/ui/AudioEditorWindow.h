@@ -18,6 +18,7 @@
 namespace quewi::ui {
 
 class LiveAudioScope;
+class LiveEffectDevice;
 
 // Full audio editor window — Phase 9.
 //
@@ -89,11 +90,14 @@ private:
     QLabel *m_statusLabel  = nullptr;
     void updateHeader();
 
-    // Playback
-    std::unique_ptr<QAudioSink> m_sink;
-    QBuffer                     m_playBuffer;
-    std::vector<float>          m_renderedPcm;
-    QTimer                      m_playTimer;
+    // Playback. m_renderedPcm holds the DRY mix; m_liveDevice streams it
+    // through the active track's effects in real time so EQ/compressor edits
+    // are heard live. m_activeTrack is whose chain the device applies.
+    std::unique_ptr<QAudioSink>       m_sink;
+    std::unique_ptr<LiveEffectDevice> m_liveDevice;
+    std::vector<float>                m_renderedPcm;
+    audio::AudioEditorTrack          *m_activeTrack = nullptr;
+    QTimer                            m_playTimer;
     bool                        m_looping  = false;
     bool                        m_isPlaying = false;
     qint64                      m_playFrameOffset = 0; // first frame of current loop

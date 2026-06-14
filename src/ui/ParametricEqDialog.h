@@ -1,8 +1,11 @@
 #pragma once
 
 #include <QDialog>
+#include <QList>
 #include <QPoint>
 #include <QPointer>
+
+class QUndoStack;
 
 namespace quewi::audio { class EqEffect; }
 
@@ -30,6 +33,11 @@ public:
     // drawn behind the EQ response so you can see where the program is peaking.
     void setScope(LiveAudioScope *scope);
 
+    // Snapshot of all bands — the unit of undo/redo. Public so the dialog's
+    // undo command (defined in the .cpp) can restore it.
+    struct EqBandState { float freq; float gainDb; float Q; int type; bool enabled; };
+    void applyState(const QList<EqBandState> &st);
+
 protected:
     void paintEvent(QPaintEvent *) override;
     void mousePressEvent(QMouseEvent *) override;
@@ -43,6 +51,13 @@ protected:
 private:
     QPointer<audio::EqEffect> m_eq;
     QPointer<LiveAudioScope>  m_scope;
+
+    // Undo/redo for band edits. m_prevState is the last committed snapshot;
+    // maybeCommit() pushes a command whenever the bands differ from it.
+    QUndoStack          *m_undo = nullptr;
+    QList<EqBandState>   m_prevState;
+    void captureState(QList<EqBandState> &out) const;
+    void maybeCommit();
 
     static constexpr int kHandleRadius = 9;
 

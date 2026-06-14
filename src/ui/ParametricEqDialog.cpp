@@ -3,6 +3,10 @@
 #include "ui/LiveAudioScope.h"
 #include "ui/Theme.h"
 
+#include <QAction>
+#include <QUndoCommand>
+#include <QUndoStack>
+
 #include <QCheckBox>
 #include <QComboBox>
 #include <QDoubleSpinBox>
@@ -44,7 +48,7 @@ ParametricEqDialog::ParametricEqDialog(audio::EqEffect *eq, QWidget *parent)
     : QDialog(parent), m_eq(eq)
 {
     setWindowTitle(tr("Parametric EQ"));
-    setMinimumSize(960, 560);
+    setMinimumSize(980, 660);
     setAttribute(Qt::WA_DeleteOnClose);
     setMouseTracking(true);
 
@@ -53,7 +57,9 @@ ParametricEqDialog::ParametricEqDialog(audio::EqEffect *eq, QWidget *parent)
     vl->setSpacing(0);
 
     m_panel = new QWidget(this);
-    m_panel->setFixedHeight(160);
+    // Tall enough for the full band column (swatch + type + freq + gain + Q)
+    // without the controls overlapping or the bottom row clipping.
+    m_panel->setFixedHeight(238);
     m_panel->setStyleSheet(QStringLiteral("background:%1;")
                               .arg(Theme::tokens().bgDeep.name()));
 
@@ -62,6 +68,19 @@ ParametricEqDialog::ParametricEqDialog(audio::EqEffect *eq, QWidget *parent)
 
     rebuildBandPanel();
 
+    // Undo/redo for band edits — Ctrl+Z / Ctrl+Y / Ctrl+Shift+Z.
+    m_undo = new QUndoStack(this);
+    captureState(m_prevState);
+    auto *undoAct = new QAction(tr("Undo"), this);
+    undoAct->setShortcut(QKeySequence::Undo);
+    connect(undoAct, &QAction::triggered, this, [this] { if (m_undo) m_undo->undo(); });
+    addAction(undoAct);
+    auto *redoAct = new QAction(tr("Redo"), this);
+    redoAct->setShortcuts(QList<QKeySequence>{
+        QKeySequence::Redo, QKeySequence(QStringLiteral("Ctrl+Shift+Z")) });
+    connect(redoAct, &QAction::triggered, this, [this] { if (m_undo) m_undo->redo(); });
+    addAction(redoAct);
+
     if (m_eq) {
         connect(m_eq, &audio::AudioEffect::parameterChanged, this,
                 [this](const QString &, float) {
@@ -69,6 +88,69 @@ ParametricEqDialog::ParametricEqDialog(audio::EqEffect *eq, QWidget *parent)
             update();
         });
     }
+}
+
+namespace {
+// Coarse-grained EQ undo: stores the full 6-band state before and after a
+// gesture and restores it wholesale. Simpler and more robust than per-control
+// commands, and an EQ has few enough bands that it's cheap.
+class EqStateCommand : public QUndoCommand {
+public:
+    EqStateCommand(ParametricEqDialog *dlg,
+                   QList<ParametricEqDialog::EqBandState> before,
+                   QList<ParametricEqDialog::EqBandState> after)
+        : m_dlg(dlg), m_before(std::move(before)), m_after(std::move(after)) {
+        setText(QStringLiteral("EQ change"));
+    }
+    void undo() override { if (m_dlg) m_dlg->applyState(m_before); }
+    void redo() override { if (m_dlg) m_dlg->applyState(m_after); }
+private:
+    QPointer<ParametricEqDialog> m_dlg;
+    QList<ParametricEqDialog::EqBandState> m_before, m_after;
+};
+
+bool eqStatesEqual(const QList<ParametricEqDialog::EqBandState> &a,
+                   const QList<ParametricEqDialog::EqBandState> &b) {
+    if (a.size() != b.size()) return false;
+    for (int i = 0; i < a.size(); ++i) {
+        const auto &x = a[i]; const auto &y = b[i];
+        if (x.freq != y.freq || x.gainDb != y.gainDb || x.Q != y.Q
+            || x.type != y.type || x.enabled != y.enabled)
+            return false;
+    }
+    return true;
+}
+} // namespace
+
+void ParametricEqDialog::captureState(QList<EqBandState> &out) const {
+    out.clear();
+    if (!m_eq) return;
+    for (int i = 0; i < audio::EqEffect::kNumBands; ++i) {
+        const auto sn = m_eq->bandSnapshot(i);
+        out.push_back({sn.freq, sn.gainDb, sn.Q, int(sn.type), sn.enabled});
+    }
+}
+
+void ParametricEqDialog::applyState(const QList<EqBandState> &st) {
+    if (!m_eq) return;
+    for (int i = 0; i < st.size() && i < audio::EqEffect::kNumBands; ++i) {
+        const auto &s = st[i];
+        m_eq->setBandType(i, audio::EqEffect::FilterType(s.type));
+        m_eq->setBand(i, s.freq, s.gainDb, s.Q);
+        m_eq->setBandEnabled(i, s.enabled);
+    }
+    m_prevState = st;   // stay in sync so the next maybeCommit() is a no-op
+    updatePanel();
+    update();
+}
+
+void ParametricEqDialog::maybeCommit() {
+    if (!m_eq || !m_undo) return;
+    QList<EqBandState> cur;
+    captureState(cur);
+    if (eqStatesEqual(cur, m_prevState)) return;
+    m_undo->push(new EqStateCommand(this, m_prevState, cur));
+    m_prevState = cur;
 }
 
 void ParametricEqDialog::setScope(LiveAudioScope *scope) {
@@ -209,8 +291,18 @@ void ParametricEqDialog::paintEvent(QPaintEvent *) {
                 for (const auto &pt : pts) area.lineTo(pt);
                 area.lineTo(pts.back().x(), m_graphRect.bottom());
                 area.closeSubpath();
-                p.fillPath(area, QColor(0x6c, 0xc0, 0xff, 38));
-                p.setPen(QPen(QColor(0x8f, 0xcf, 0xff, 120), 1.0));
+                // DM7-style level colouring: loud content (toward the top of
+                // the graph) reads red, mids amber/yellow, quiet content green.
+                // The gradient is keyed to graph height, so a peak that climbs
+                // into the red zone shows red at its tip.
+                QLinearGradient g(0, m_graphRect.top(), 0, m_graphRect.bottom());
+                g.setColorAt(0.00, QColor(0xff, 0x46, 0x46, 195)); // red — peaking
+                g.setColorAt(0.22, QColor(0xff, 0x9b, 0x3d, 170)); // orange
+                g.setColorAt(0.45, QColor(0xf2, 0xd6, 0x44, 135)); // yellow
+                g.setColorAt(0.72, QColor(0x5f, 0xd9, 0x6a, 100)); // green
+                g.setColorAt(1.00, QColor(0x5f, 0xd9, 0x6a, 0));   // fade at the floor
+                p.fillPath(area, g);
+                p.setPen(QPen(QColor(0xff, 0xff, 0xff, 60), 1.0));
                 p.drawPolyline(pts.constData(), int(pts.size()));
             }
         }
@@ -347,7 +439,9 @@ void ParametricEqDialog::mouseMoveEvent(QMouseEvent *e) {
 }
 
 void ParametricEqDialog::mouseReleaseEvent(QMouseEvent *) {
+    const bool wasDragging = (m_dragBand >= 0);
     m_dragBand = -1;
+    if (wasDragging) maybeCommit(); // one undo step per drag
 }
 
 void ParametricEqDialog::mouseDoubleClickEvent(QMouseEvent *e) {
@@ -357,6 +451,7 @@ void ParametricEqDialog::mouseDoubleClickEvent(QMouseEvent *e) {
     const auto sn = m_eq->bandSnapshot(b);
     // Reset the band to flat at the same frequency.
     m_eq->setBand(b, sn.freq, 0.f, 0.707f);
+    maybeCommit();
 }
 
 void ParametricEqDialog::wheelEvent(QWheelEvent *e) {
@@ -367,6 +462,7 @@ void ParametricEqDialog::wheelEvent(QWheelEvent *e) {
     const float factor = (e->angleDelta().y() > 0) ? 1.15f : 1.f / 1.15f;
     const float newQ = std::clamp(sn.Q * factor, 0.1f, 10.f);
     m_eq->setBand(b, sn.freq, sn.gainDb, newQ);
+    maybeCommit();
 }
 
 void ParametricEqDialog::leaveEvent(QEvent *) {
@@ -431,6 +527,7 @@ void ParametricEqDialog::rebuildBandPanel() {
         connect(enableBox, &QCheckBox::toggled, this, [this, b](bool on) {
             if (m_eq) m_eq->setBandEnabled(b, on);
             update();
+            maybeCommit();
         });
 
         hl->addWidget(swatch); hl->addWidget(title); hl->addStretch(); hl->addWidget(enableBox);
@@ -447,6 +544,7 @@ void ParametricEqDialog::rebuildBandPanel() {
                 this, [this, b](int idx) {
             if (m_eq) m_eq->setBandType(b, audio::EqEffect::FilterType(idx));
             update();
+            maybeCommit();
         });
 
         // Numeric controls
@@ -476,6 +574,7 @@ void ParametricEqDialog::rebuildBandPanel() {
             if (!m_eq) return;
             m_eq->setBand(b, float(freqSpin->value()), float(gainSpin->value()),
                           float(qSpin->value()));
+            maybeCommit();
         };
         connect(freqSpin, &QDoubleSpinBox::valueChanged, this, [pushBand](double){ pushBand(); });
         connect(gainSpin, &QDoubleSpinBox::valueChanged, this, [pushBand](double){ pushBand(); });

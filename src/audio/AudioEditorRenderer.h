@@ -22,7 +22,11 @@ public:
 
     // Render the full mix into an interleaved stereo float buffer.
     // Returns false and sets errorString() on failure.
-    bool render(std::vector<float> &outStereo);
+    // When applyEffects is false the per-track effect chains are skipped,
+    // producing a "dry" mix — used by the live-preview path, which applies
+    // the active track's effects in real time so EQ/compressor tweaks are
+    // heard immediately without re-rendering.
+    bool render(std::vector<float> &outStereo, bool applyEffects = true);
 
     // Render and write to a 24-bit PCM WAV file.
     bool renderToWav(const QString &path);

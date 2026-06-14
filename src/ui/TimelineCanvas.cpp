@@ -612,13 +612,20 @@ void TimelineCanvas::contextMenuEvent(QContextMenuEvent *e) {
     const int x = e->pos().x();
     const int y = e->pos().y();
 
-    // Right-click on track header: track-scoped actions.
+    // Right-click on the track-header strip (left side): track-scoped actions.
     if (x < kHeaderWidth && y >= kRulerHeight) {
         const int ti = trackAtY(y);
-        if (ti < 0) return;
+        if (ti < 0) {
+            // Empty header area below the last track — just offer Add Track.
+            auto *addAct = menu.addAction(tr("Add Track"));
+            if (menu.exec(e->globalPos()) == addAct) emit requestAddTrack();
+            return;
+        }
         auto *track = m_model->track(ti);
         const QString tname = track ? track->name() : tr("Track %1").arg(ti + 1);
 
+        auto *addTrackAct = menu.addAction(tr("Add Track"));
+        menu.addSeparator();
         auto *renameAct = menu.addAction(tr("Rename \"%1\"…").arg(tname));
         auto *muteAct   = menu.addAction(track && track->isMuted()  ? tr("Unmute") : tr("Mute"));
         auto *soloAct   = menu.addAction(track && track->isSoloed() ? tr("Unsolo") : tr("Solo"));
@@ -628,7 +635,9 @@ void TimelineCanvas::contextMenuEvent(QContextMenuEvent *e) {
 
         QAction *chosen = menu.exec(e->globalPos());
         if (!chosen) return;
-        if (chosen == removeAct) {
+        if (chosen == addTrackAct) {
+            emit requestAddTrack();
+        } else if (chosen == removeAct) {
             // Refuse to remove the last track — the editor needs at least
             // one to draw against. The button could be disabled instead,
             // but a status hint feels less surprising.

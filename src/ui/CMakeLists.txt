@@ -33,6 +33,9 @@ add_library(quewi_ui STATIC
     SpectrogramImage.cpp
     LiveAudioScope.h
     LiveAudioScope.cpp
+    LiveEffectDevice.h
+    LiveEffectDevice.cpp
+    LevelMeter.h
     ActiveCuesPanel.h
     ActiveCuesPanel.cpp
     PreflightDialog.h

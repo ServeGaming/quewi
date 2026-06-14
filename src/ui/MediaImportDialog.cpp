@@ -1,7 +1,11 @@
 #include "ui/MediaImportDialog.h"
 
+#include "ui/LevelMeter.h"
 #include "ui/Theme.h"
 
+#include <QAudioBuffer>
+#include <QAudioBufferOutput>
+#include <QAudioFormat>
 #include <QAudioOutput>
 #include <QCheckBox>
 #include <QDesktopServices>
@@ -21,6 +25,8 @@
 #include <QSettings>
 #include <QUrl>
 #include <QVBoxLayout>
+#include <algorithm>
+#include <cmath>
 
 namespace quewi::ui {
 
@@ -33,6 +39,41 @@ QString fmtDuration(qint64 sec)
         return QStringLiteral("%1:%2:%3").arg(h)
             .arg(m, 2, 10, QChar('0')).arg(s, 2, 10, QChar('0'));
     return QStringLiteral("%1:%2").arg(m).arg(s, 2, 10, QChar('0'));
+}
+
+// Peak absolute sample of an audio buffer, normalised to 0..1, across the
+// common decoder output formats. Used to drive the preview level meter.
+float bufferPeak(const QAudioBuffer &buf)
+{
+    if (!buf.isValid()) return 0.f;
+    const QAudioFormat fmt = buf.format();
+    const int n = buf.frameCount() * fmt.channelCount();
+    if (n <= 0) return 0.f;
+    float peak = 0.f;
+    switch (fmt.sampleFormat()) {
+    case QAudioFormat::Float: {
+        const float *d = buf.constData<float>();
+        for (int i = 0; i < n; ++i) peak = std::max(peak, std::fabs(d[i]));
+        break;
+    }
+    case QAudioFormat::Int16: {
+        const qint16 *d = buf.constData<qint16>();
+        for (int i = 0; i < n; ++i) peak = std::max(peak, std::fabs(float(d[i]) / 32768.f));
+        break;
+    }
+    case QAudioFormat::Int32: {
+        const qint32 *d = buf.constData<qint32>();
+        for (int i = 0; i < n; ++i) peak = std::max(peak, std::fabs(float(d[i]) / 2147483648.f));
+        break;
+    }
+    case QAudioFormat::UInt8: {
+        const quint8 *d = buf.constData<quint8>();
+        for (int i = 0; i < n; ++i) peak = std::max(peak, std::fabs((float(d[i]) - 128.f) / 128.f));
+        break;
+    }
+    default: break;
+    }
+    return peak;
 }
 } // namespace
 
@@ -89,12 +130,18 @@ MediaImportDialog::MediaImportDialog(const QString &destDir, QWidget *parent)
     searchRow->addWidget(m_searchBtn);
     root->addLayout(searchRow);
 
-    // ── Results ───────────────────────────────────────────────────
+    // ── Results (+ a live gain meter on the right) ─────────────────
     m_resultsList = new QListWidget(this);
     m_resultsList->setIconSize(QSize(120, 68));
     m_resultsList->setUniformItemSizes(false);
     m_resultsList->setAlternatingRowColors(false);
-    root->addWidget(m_resultsList, 1);
+    auto *listRow = new QHBoxLayout();
+    listRow->setSpacing(8);
+    listRow->addWidget(m_resultsList, 1);
+    m_meter = new LevelMeter(this);
+    m_meter->setToolTip(tr("Preview level"));
+    listRow->addWidget(m_meter, 0);
+    root->addLayout(listRow, 1);
 
     // ── Mode + actions ────────────────────────────────────────────
     auto *modeRow = new QHBoxLayout();
@@ -106,10 +153,13 @@ MediaImportDialog::MediaImportDialog(const QString &destDir, QWidget *parent)
     modeRow->addWidget(m_videoRadio);
     modeRow->addStretch(1);
     m_previewBtn  = new QPushButton(tr("Preview"), this);
+    m_stopBtn     = new QPushButton(tr("Stop"), this);
     m_downloadBtn = new QPushButton(tr("Download + add cue"), this);
     m_previewBtn->setEnabled(false);
+    m_stopBtn->setEnabled(false);
     m_downloadBtn->setEnabled(false);
     modeRow->addWidget(m_previewBtn);
+    modeRow->addWidget(m_stopBtn);
     modeRow->addWidget(m_downloadBtn);
     root->addLayout(modeRow);
 
@@ -142,6 +192,7 @@ MediaImportDialog::MediaImportDialog(const QString &destDir, QWidget *parent)
     connect(m_resultsList, &QListWidget::itemSelectionChanged,
             this, &MediaImportDialog::onResultSelectionChanged);
     connect(m_previewBtn, &QPushButton::clicked, this, &MediaImportDialog::onPreviewClicked);
+    connect(m_stopBtn, &QPushButton::clicked, this, &MediaImportDialog::stopPreview);
     connect(m_downloadBtn, &QPushButton::clicked, this, &MediaImportDialog::onDownloadClicked);
     connect(m_audioRadio, &QRadioButton::toggled, this,
             [this](bool on) { if (on) m_audioMode = true; });
@@ -197,10 +248,24 @@ MediaImportDialog::MediaImportDialog(const QString &destDir, QWidget *parent)
             m_player = new QMediaPlayer(this);
             m_audioOut = new QAudioOutput(this);
             m_player->setAudioOutput(m_audioOut);
+            // Tap the decoded audio for the level meter (Qt 6.8+). The buffer
+            // output gets a copy of the same audio that reaches the speakers.
+            m_bufOut = new QAudioBufferOutput(this);
+            m_player->setAudioBufferOutput(m_bufOut);
+            connect(m_bufOut, &QAudioBufferOutput::audioBufferReceived, this,
+                    [this](const QAudioBuffer &buf) {
+                if (m_meter) m_meter->setLevel(bufferPeak(buf));
+            });
+            connect(m_player, &QMediaPlayer::playbackStateChanged, this,
+                    [this](QMediaPlayer::PlaybackState st) {
+                if (st != QMediaPlayer::PlayingState && m_meter) m_meter->reset();
+                updatePreviewButtons();
+            });
         }
         m_player->setSource(QUrl(url));
         m_player->play();
-        m_status->setText(tr("Previewing… (press Preview again to stop)"));
+        m_status->setText(tr("Previewing…"));
+        updatePreviewButtons();
     });
     connect(m_svc, &MediaImportService::streamUrlFailed, this, [this](const QString &msg) {
         setBusy(QString(), false);
@@ -282,22 +347,37 @@ void MediaImportDialog::onSearchClicked()
 
 void MediaImportDialog::onResultSelectionChanged()
 {
-    const bool has = m_resultsList->currentRow() >= 0;
-    m_previewBtn->setEnabled(has);
-    m_downloadBtn->setEnabled(has);
+    m_downloadBtn->setEnabled(m_resultsList->currentRow() >= 0);
+    updatePreviewButtons();
+}
+
+bool MediaImportDialog::isPreviewPlaying() const
+{
+    return m_player && m_player->playbackState() == QMediaPlayer::PlayingState;
+}
+
+void MediaImportDialog::updatePreviewButtons()
+{
+    const bool playing = isPreviewPlaying();
+    const bool hasSel  = m_resultsList->currentRow() >= 0;
+    // Preview is greyed while something is playing; the Stop button takes over.
+    m_previewBtn->setEnabled(hasSel && !playing);
+    m_stopBtn->setEnabled(playing);
+}
+
+void MediaImportDialog::stopPreview()
+{
+    if (m_player) m_player->stop();
+    if (m_meter)  m_meter->reset();
+    updatePreviewButtons();
+    m_status->setText(tr("Preview stopped."));
 }
 
 void MediaImportDialog::onPreviewClicked()
 {
     const int row = m_resultsList->currentRow();
     if (row < 0 || row >= m_results.size()) return;
-
-    // Toggle: if already previewing, stop.
-    if (m_player && m_player->playbackState() == QMediaPlayer::PlayingState) {
-        m_player->stop();
-        m_status->setText(tr("Preview stopped."));
-        return;
-    }
+    if (isPreviewPlaying()) return; // the Stop button handles stopping
 
     if (m_audioMode) {
         setBusy(tr("Resolving preview…"), true);
@@ -313,7 +393,7 @@ void MediaImportDialog::onDownloadClicked()
 {
     const int row = m_resultsList->currentRow();
     if (row < 0 || row >= m_results.size()) return;
-    if (m_player) m_player->stop();
+    stopPreview();
     m_downloadBtn->setEnabled(false);
     m_progress->setVisible(true);
     m_progress->setRange(0, 100);

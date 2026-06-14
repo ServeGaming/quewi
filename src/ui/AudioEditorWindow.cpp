@@ -1,6 +1,7 @@
 #include "ui/AudioEditorWindow.h"
 
 #include "ui/LiveAudioScope.h"
+#include "ui/LiveEffectDevice.h"
 #include "ui/Theme.h"
 
 #include <QAction>
@@ -417,6 +418,7 @@ void AudioEditorWindow::buildCentral() {
 
     connect(m_timeline, &TimelineCanvas::regionSelected, this, &AudioEditorWindow::onRegionSelected);
     connect(m_timeline, &TimelineCanvas::trackSelected,  this, &AudioEditorWindow::onTrackSelected);
+    connect(m_timeline, &TimelineCanvas::requestAddTrack, this, &AudioEditorWindow::addTrack);
 
     vl->addWidget(timelineArea, 1);
     setCentralWidget(central);
@@ -455,8 +457,10 @@ void AudioEditorWindow::buildBottomPanel() {
     if (vl) vl->addWidget(bottom);
 
     // Select first track's effects by default
-    if (m_model->trackCount() > 0)
-        m_effectsRack->setTrack(m_model->track(0));
+    if (m_model->trackCount() > 0) {
+        m_activeTrack = m_model->track(0);
+        m_effectsRack->setTrack(m_activeTrack);
+    }
 }
 
 void AudioEditorWindow::updateHeader() {
@@ -505,10 +509,12 @@ void AudioEditorWindow::onLoopToggled(bool on) { m_looping = on; }
 void AudioEditorWindow::startPlayback() {
     stopPlayback();
 
-    // Render mix
+    // DRY render (no effects). The active track's effect chain is applied in
+    // real time by LiveEffectDevice during playback, so EQ / compressor edits
+    // and effect toggles are heard immediately without re-rendering.
     QProgressDialog prog(tr("Rendering mix…"), tr("Cancel"), 0, 100, this);
     prog.setMinimumDuration(400);
-    bool ok = m_renderer->render(m_renderedPcm);
+    bool ok = m_renderer->render(m_renderedPcm, /*applyEffects=*/false);
     prog.close();
 
     if (!ok) {
@@ -516,24 +522,12 @@ void AudioEditorWindow::startPlayback() {
         return;
     }
 
-    // 16-bit interleaved for QAudioSink
-    std::vector<qint16> pcm16(m_renderedPcm.size());
-    for (size_t i = 0; i < m_renderedPcm.size(); ++i)
-        pcm16[i] = qint16(std::clamp(m_renderedPcm[i], -1.f, 1.f) * 32767.f);
-
     // Start from the edit cursor (Audacity-style: click sets where playback
     // begins). The render is the whole mix from timeline frame 0, so the
     // cursor frame maps directly to a sample offset. Clamp into range.
-    const qint64 totalFrames = qint64(pcm16.size() / 2);
-    qint64 startFrame = std::clamp<qint64>(m_timeline->editCursorFrame(),
-                                           0, std::max<qint64>(0, totalFrames - 1));
-    const qint64 startByte = startFrame * 2 * qint64(sizeof(qint16));
-
-    QByteArray bytes(reinterpret_cast<const char*>(pcm16.data()) + startByte,
-                     qsizetype(qint64(pcm16.size()) * qint64(sizeof(qint16)) - startByte));
-    m_playBuffer.close();
-    m_playBuffer.setData(bytes);
-    m_playBuffer.open(QIODevice::ReadOnly);
+    const qint64 totalFrames = qint64(m_renderedPcm.size() / 2);
+    const qint64 startFrame = std::clamp<qint64>(m_timeline->editCursorFrame(),
+                                                 0, std::max<qint64>(0, totalFrames - 1));
 
     QAudioFormat fmt;
     fmt.setSampleRate(m_model->sampleRate());
@@ -542,7 +536,12 @@ void AudioEditorWindow::startPlayback() {
 
     const QAudioDevice dev = QMediaDevices::defaultAudioOutput();
     m_sink = std::make_unique<QAudioSink>(dev, fmt, this);
-    m_sink->start(&m_playBuffer);
+
+    if (!m_activeTrack && m_model->trackCount() > 0)
+        m_activeTrack = m_model->track(0);
+    m_liveDevice = std::make_unique<LiveEffectDevice>(this);
+    m_liveDevice->start(&m_renderedPcm, m_activeTrack, m_model->sampleRate(), startFrame);
+    m_sink->start(m_liveDevice.get());
 
     m_sinkStartFrame  = startFrame;
     m_isPlaying       = true;
@@ -553,7 +552,7 @@ void AudioEditorWindow::startPlayback() {
 void AudioEditorWindow::stopPlayback() {
     m_playTimer.stop();
     if (m_sink) { m_sink->stop(); m_sink.reset(); }
-    m_playBuffer.close();
+    if (m_liveDevice) { m_liveDevice->close(); m_liveDevice.reset(); }
     m_isPlaying = false;
     if (m_scope) m_scope->setInactive();
     // Hide the playhead while stopped; the blue edit cursor stays put to
@@ -570,6 +569,15 @@ void AudioEditorWindow::onPlaybackTick() {
     // Estimate playback position from bytes processed
     qint64 bytesProcessed = m_sink->processedUSecs() * m_model->sampleRate() * 2 * 2 / 1000000;
     qint64 frame = m_sinkStartFrame + bytesProcessed / 4; // 4 bytes/frame (2ch * int16)
+
+    // Natural end of the mix. A pull QIODevice goes Idle (not Stopped) when
+    // exhausted, so detect end by the heard position instead.
+    const qint64 total = qint64(m_renderedPcm.size() / 2);
+    if (total > 0 && frame >= total) {
+        if (m_looping) { startPlayback(); return; }
+        stopPlayback(); return;
+    }
+
     m_timeline->setPlayheadFrame(frame);
     // Feed the live analyzer the window at the current playback position so
     // any open EQ / Compressor editor shows the program in real time.
@@ -592,6 +600,7 @@ void AudioEditorWindow::zoomFit() {
 
 void AudioEditorWindow::addTrack() {
     auto *t = m_model->addTrack(tr("Track %1").arg(m_model->trackCount() + 1));
+    m_activeTrack = t;
     m_effectsRack->setTrack(t);
 }
 
@@ -604,7 +613,8 @@ void AudioEditorWindow::onRegionSelected(QUuid regionId) {
     for (int ti = 0; ti < m_model->trackCount(); ++ti) {
         for (const auto &r : m_model->track(ti)->regions()) {
             if (r.id == regionId && r.sourceFile) {
-                m_effectsRack->setTrack(m_model->track(ti));
+                m_activeTrack = m_model->track(ti);
+                m_effectsRack->setTrack(m_activeTrack);
                 return;
             }
         }
@@ -612,8 +622,10 @@ void AudioEditorWindow::onRegionSelected(QUuid regionId) {
 }
 
 void AudioEditorWindow::onTrackSelected(int trackIndex) {
-    if (auto *t = m_model->track(trackIndex))
+    if (auto *t = m_model->track(trackIndex)) {
+        m_activeTrack = t;
         m_effectsRack->setTrack(t);
+    }
 }
 
 // ── Bounce ────────────────────────────────────────────────────────────────────
