@@ -558,7 +558,13 @@ bool UpdateInstaller::launchInstaller(const QString &msiPath,
         const QString bundlePath = d.absolutePath();
         const bool runningFromBundle =
             bundlePath.endsWith(QStringLiteral(".app"))
-            && QFileInfo(bundlePath).isWritable();
+            && QFileInfo(bundlePath).isWritable()
+            // The swap renames the bundle inside its parent directory (e.g.
+            // /Applications), so that directory must be writable too. If it
+            // isn't (a read-only or admin-owned /Applications), the mv would
+            // fail and we'd just bounce the app — fall through to the Finder
+            // drag-install instead of attempting a doomed in-place swap.
+            && QFileInfo(QFileInfo(bundlePath).absolutePath()).isWritable();
 
         if (runningFromBundle) {
             const QString helperPath = QDir::tempPath()
@@ -583,12 +589,32 @@ bool UpdateInstaller::launchInstaller(const QString &msiPath,
                    << "  if ! kill -0 \"$PID\" 2>/dev/null; then break; fi\n"
                    << "  sleep 0.5\n"
                    << "done\n"
-                   << "MOUNT=$(/usr/bin/hdiutil attach -nobrowse \"$DMG\" "
-                   <<   "| grep '/Volumes/' | tail -1 "
-                   <<   "| sed -E 's,^.*(/Volumes/[^\\\\t]+).*$,\\1,')\n"
-                   << "if [ -z \"$MOUNT\" ] || [ ! -d \"$MOUNT/quewi.app\" ]; then\n"
-                   << "  /usr/bin/hdiutil detach \"$MOUNT\" -quiet 2>/dev/null || true\n"
+                   // Mount the DMG as its OWN command. In a pipeline `set -e`
+                   // reads the status of the LAST stage (grep/sed), which is 0
+                   // even when hdiutil failed and nothing mounted — the failure
+                   // was silently swallowed and the app stayed closed with
+                   // nothing installed. Capture hdiutil's status explicitly and,
+                   // on any failure, hand the DMG to Finder AND relaunch the
+                   // (un-updated) app so the operator is never stranded.
+                   << "set +e\n"
+                   << "ATTACH=$(/usr/bin/hdiutil attach -nobrowse \"$DMG\" 2>/dev/null)\n"
+                   << "RC=$?\n"
+                   << "set -e\n"
+                   << "if [ $RC -ne 0 ]; then\n"
                    << "  /usr/bin/open \"$DMG\"\n"
+                   << "  /usr/bin/open \"$BUNDLE\"\n"
+                   << "  exit 1\n"
+                   << "fi\n"
+                   // Extract the mount point straight off hdiutil's output: the
+                   // last '/Volumes/…' run to end-of-line. `grep -o` sidesteps
+                   // the BSD-sed bracket-class pitfall (in BSD sed `[^\\t]` is
+                   // 'not backslash or t', NOT 'not tab', which could truncate
+                   // the volume name) and preserves spaces in the volume name.
+                   << "MOUNT=$(printf '%s\\n' \"$ATTACH\" | grep -o '/Volumes/.*' | tail -1)\n"
+                   << "if [ -z \"$MOUNT\" ] || [ ! -d \"$MOUNT/quewi.app\" ]; then\n"
+                   << "  [ -n \"$MOUNT\" ] && /usr/bin/hdiutil detach \"$MOUNT\" -quiet 2>/dev/null || true\n"
+                   << "  /usr/bin/open \"$DMG\"\n"
+                   << "  /usr/bin/open \"$BUNDLE\"\n"
                    << "  exit 1\n"
                    << "fi\n"
                    // Stage the new bundle BESIDE the live one (no --delete on
