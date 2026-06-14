@@ -14,10 +14,12 @@ class QNetworkAccessManager;
 class QMediaPlayer;
 class QAudioOutput;
 class QAudioBufferOutput;
+class QVideoWidget;
 
 namespace quewi::ui {
 
 class LevelMeter;
+class VideoScrubber;
 
 // "Import from URL" — search YouTube and ~1800 other sites via yt-dlp,
 // preview audio in-app, and download a clip straight into the show's
@@ -75,6 +77,8 @@ private:
     QMediaPlayer          *m_player   = nullptr;
     QAudioOutput          *m_audioOut = nullptr;
     QAudioBufferOutput    *m_bufOut   = nullptr;
+    QVideoWidget          *m_video    = nullptr;
+    VideoScrubber         *m_scrub    = nullptr;
 };
 
 } // namespace quewi::ui

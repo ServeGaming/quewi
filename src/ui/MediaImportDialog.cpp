@@ -2,6 +2,7 @@
 
 #include "ui/LevelMeter.h"
 #include "ui/Theme.h"
+#include "ui/VideoScrubber.h"
 
 #include <QAudioBuffer>
 #include <QAudioBufferOutput>
@@ -27,6 +28,7 @@
 #include <QStyledItemDelegate>
 #include <QUrl>
 #include <QVBoxLayout>
+#include <QVideoWidget>
 #include <algorithm>
 #include <cmath>
 
@@ -181,6 +183,16 @@ MediaImportDialog::MediaImportDialog(const QString &destDir, QWidget *parent)
     listRow->addWidget(m_meter, 0);
     root->addLayout(listRow, 1);
 
+    // ── Preview pane: in-app video (shown for video previews) + a scrub
+    //    playbar (audio and video). ───────────────────────────────────
+    m_video = new QVideoWidget(this);
+    m_video->setMinimumHeight(200);
+    m_video->setVisible(false);
+    root->addWidget(m_video);
+    m_scrub = new VideoScrubber(this);
+    m_scrub->setActive(false);
+    root->addWidget(m_scrub);
+
     // ── Mode + actions ────────────────────────────────────────────
     auto *modeRow = new QHBoxLayout();
     modeRow->setSpacing(10);
@@ -289,6 +301,7 @@ MediaImportDialog::MediaImportDialog(const QString &destDir, QWidget *parent)
             m_player = new QMediaPlayer(this);
             m_audioOut = new QAudioOutput(this);
             m_player->setAudioOutput(m_audioOut);
+            m_player->setVideoOutput(m_video);   // in-app video preview
             // Tap the decoded audio for the level meter (Qt 6.8+). The buffer
             // output gets a copy of the same audio that reaches the speakers.
             m_bufOut = new QAudioBufferOutput(this);
@@ -300,9 +313,29 @@ MediaImportDialog::MediaImportDialog(const QString &destDir, QWidget *parent)
             connect(m_player, &QMediaPlayer::playbackStateChanged, this,
                     [this](QMediaPlayer::PlaybackState st) {
                 if (st != QMediaPlayer::PlayingState && m_meter) m_meter->reset();
+                if (m_scrub) {
+                    m_scrub->setActive(st != QMediaPlayer::StoppedState);
+                    m_scrub->setPlaying(st == QMediaPlayer::PlayingState);
+                }
                 updatePreviewButtons();
             });
+            // Scrub playbar <-> player (drag to seek, button to play/pause).
+            connect(m_player, &QMediaPlayer::durationChanged, this,
+                    [this](qint64 d) { if (m_scrub) m_scrub->setDurationMs(d); });
+            connect(m_player, &QMediaPlayer::positionChanged, this,
+                    [this](qint64 pos) { if (m_scrub) m_scrub->setPositionMs(pos); });
+            connect(m_scrub, &VideoScrubber::seekRequested, this,
+                    [this](qint64 ms) { if (m_player) m_player->setPosition(ms); });
+            connect(m_scrub, &VideoScrubber::playPauseRequested, this, [this] {
+                if (!m_player) return;
+                if (m_player->playbackState() == QMediaPlayer::PlayingState)
+                    m_player->pause();
+                else
+                    m_player->play();
+            });
         }
+        m_video->setVisible(!m_audioMode);   // show the frame only for video
+        m_scrub->setActive(true);
         m_player->setSource(QUrl(url));
         m_player->play();
         m_status->setText(tr("Previewing…"));
@@ -410,6 +443,8 @@ void MediaImportDialog::stopPreview()
 {
     if (m_player) m_player->stop();
     if (m_meter)  m_meter->reset();
+    if (m_video)  m_video->setVisible(false);
+    if (m_scrub)  m_scrub->setActive(false);
     updatePreviewButtons();
     m_status->setText(tr("Preview stopped."));
 }
@@ -420,14 +455,11 @@ void MediaImportDialog::onPreviewClicked()
     if (row < 0 || row >= m_results.size()) return;
     if (isPreviewPlaying()) return; // the Stop button handles stopping
 
-    if (m_audioMode) {
-        setBusy(tr("Resolving preview…"), true);
-        m_svc->resolveStreamUrl(m_results[row].url, /*audioOnly=*/true);
-    } else {
-        // Video preview opens the source page in the browser to avoid
-        // bundling a heavy embedded web view (per the design).
-        QDesktopServices::openUrl(QUrl(m_results[row].url));
-    }
+    // Preview audio OR video in-app (video shows in the QVideoWidget; both
+    // get the scrub playbar). resolveStreamUrl(audioOnly=false) returns a
+    // pre-muxed video stream URL.
+    setBusy(tr("Resolving preview…"), true);
+    m_svc->resolveStreamUrl(m_results[row].url, /*audioOnly=*/m_audioMode);
 }
 
 void MediaImportDialog::onDownloadClicked()
