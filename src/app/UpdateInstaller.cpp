@@ -237,7 +237,8 @@ void UpdateInstaller::onReplyFinished()
     emit downloadFinished(m_localPath);
 }
 
-bool UpdateInstaller::launchInstaller(const QString &msiPath)
+bool UpdateInstaller::launchInstaller(const QString &msiPath,
+                                      [[maybe_unused]] bool reopenAfter)
 {
     // Per-platform handoff:
     //   Windows: ShellExecuteW with the default verb — exactly what a
@@ -365,9 +366,31 @@ bool UpdateInstaller::launchInstaller(const QString &msiPath)
         const QString installDir = QCoreApplication::applicationDirPath();
         const QString folder     = QFileInfo(msiPath).absolutePath();
         const QString helperPath = folder + QStringLiteral("/quewi-msi-update.bat");
+
+        // Diagnostics live in the app-data dir, with ABSOLUTE paths baked
+        // into the batch, so the ELEVATED helper and the user-context quewi
+        // agree on the location despite running under different tokens
+        // (%APPDATA% inside the elevated cmd would resolve to the admin's).
+        const QString appData = QStandardPaths::writableLocation(
+            QStandardPaths::AppDataLocation);
+        QDir().mkpath(appData);
+        const QString logPath  = QDir::toNativeSeparators(
+            appData + QStringLiteral("/update-install.log"));
+        const QString flagPath = QDir::toNativeSeparators(
+            appData + QStringLiteral("/update-failed.flag"));
+        const QString exePath  = QDir::toNativeSeparators(
+            installDir + QStringLiteral("/quewi.exe"));
+        const QString msiNative = QDir::toNativeSeparators(native);
+
         QFile h(helperPath);
         if (h.open(QIODevice::WriteOnly | QIODevice::Truncate)) {
             QTextStream ts(&h);
+            // Relaunch THROUGH Explorer so the upgraded quewi runs at the
+            // user's normal (medium) integrity instead of inheriting this
+            // helper's admin token (which would break Explorer drag-and-drop
+            // and falsely pass the install-dir write-probe next update).
+            const QString relaunch =
+                QStringLiteral("explorer.exe \"%1\"\r\n").arg(exePath);
             ts << "@echo off\r\n"
                << "set PID=" << QCoreApplication::applicationPid() << "\r\n"
                << "set TRIES=0\r\n"
@@ -375,22 +398,41 @@ bool UpdateInstaller::launchInstaller(const QString &msiPath)
                << "tasklist /FI \"PID eq %PID%\" 2>nul | find \"%PID%\" >nul\r\n"
                << "if errorlevel 1 goto run\r\n"
                << "set /a TRIES+=1\r\n"
-               << "if %TRIES% GEQ 150 goto cleanup\r\n"
+               // ~10 min safety bound (the app is quitting, so this is rarely
+               // reached). On timeout we do NOT delete the MSI — leave it so
+               // the user can retry by double-clicking.
+               << "if %TRIES% GEQ 600 goto timedout\r\n"
                << "ping -n 2 127.0.0.1 >nul\r\n"
                << "goto wait\r\n"
                << ":run\r\n"
-               << "msiexec /i \"" << QDir::toNativeSeparators(native)
-               <<   "\" /passive /norestart\r\n"
-               // Relaunch THROUGH Explorer so the upgraded quewi runs at the
-               // user's normal (medium) integrity instead of inheriting this
-               // helper's admin token. Launching it elevated would make the
-               // app run as administrator until the next normal start, which
-               // breaks drag-and-drop from Explorer and makes the install-dir
-               // write-probe falsely pass (mis-routing the next update).
-               << "explorer.exe \"" << QDir::toNativeSeparators(
-                      installDir + QStringLiteral("/quewi.exe")) << "\"\r\n"
-               << ":cleanup\r\n"
-               << "del \"" << QDir::toNativeSeparators(native) << "\" 2>nul\r\n"
+               // /qb! = basic UI: a progress bar AND error dialogs, no Cancel.
+               // The old /passive suppressed error UI, so a failed install
+               // vanished silently — the reported "closes app, does nothing".
+               // /L*v writes a verbose log for diagnosis.
+               << "msiexec /i \"" << msiNative
+               <<   "\" /qb! /norestart /L*v \"" << logPath << "\"\r\n"
+               << "set RC=%ERRORLEVEL%\r\n"
+               << "if \"%RC%\"==\"0\" goto ok\r\n"
+               << "if \"%RC%\"==\"3010\" goto ok\r\n"  // 3010 = success, reboot later
+               << "goto failed\r\n"
+               << ":ok\r\n"
+               // Only delete the installer once the install actually succeeded.
+               << "del \"" << msiNative << "\" 2>nul\r\n"
+               << (reopenAfter ? relaunch : QString())
+               << "goto done\r\n"
+               << ":failed\r\n"
+               // Keep the MSI; record the reason and relaunch the (still old)
+               // quewi so it surfaces the failure on next start. Never silent.
+               << "echo The last update did not install (msiexec code %RC%). "
+                  "The installer is still in your Downloads folder - "
+                  "double-click it to retry.> \"" << flagPath << "\"\r\n"
+               << relaunch
+               << "goto done\r\n"
+               << ":timedout\r\n"
+               << "echo The update timed out waiting for quewi to close and "
+                  "was not installed. The installer is in your Downloads "
+                  "folder.> \"" << flagPath << "\"\r\n"
+               << ":done\r\n"
                << "(goto) 2>nul & del \"%~f0\"\r\n";
             h.close();
 

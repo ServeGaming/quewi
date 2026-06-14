@@ -42,7 +42,11 @@ public:
     // always reveals the installer in the file manager so the user
     // has a visible path forward, and quewi only exits when the
     // installer's Restart Manager actually asks for it.
-    static bool launchInstaller(const QString &installerPath);
+    // reopenAfter: when true (default) the installer helper relaunches
+    // quewi once the install succeeds. When false the app stays closed.
+    // A FAILED install always relaunches so the error can be surfaced.
+    static bool launchInstaller(const QString &installerPath,
+                                bool reopenAfter = true);
 
 signals:
     void progress(qint64 received, qint64 total);

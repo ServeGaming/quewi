@@ -72,6 +72,7 @@
 #include <QMediaDevices>
 #include <QItemSelectionModel>
 #include <QSet>
+#include <QCheckBox>
 #include <QSettings>
 #include <QKeySequence>
 #include <QMenu>
@@ -299,6 +300,25 @@ MainWindow::MainWindow(QWidget *parent)
     if (s.value(QStringLiteral("update/checkOnStartup"), true).toBool()) {
         QTimer::singleShot(3000, this, [this]{ checkForUpdates(false); });
     }
+
+    // If a prior update install failed, the elevated helper left a flag
+    // file (it can't pop its own UI). Surface it now so a silent failure
+    // can't happen twice — and point the user at the installer it kept.
+    QTimer::singleShot(1500, this, [this]{
+        const QString flag = QStandardPaths::writableLocation(
+            QStandardPaths::AppDataLocation)
+            + QStringLiteral("/update-failed.flag");
+        QFile f(flag);
+        if (!f.exists()) return;
+        QString msg = tr("The last update didn't finish installing.");
+        if (f.open(QIODevice::ReadOnly | QIODevice::Text)) {
+            const QString detail = QString::fromUtf8(f.readAll()).trimmed();
+            f.close();
+            if (!detail.isEmpty()) msg = detail;
+        }
+        QFile::remove(flag);
+        QMessageBox::warning(this, tr("Update didn't install"), msg);
+    });
 }
 
 MainWindow::~MainWindow() = default;
@@ -1832,12 +1852,25 @@ void MainWindow::runInAppInstall(const QString &msiUrl)
                 tr("Download complete. quewi will close, install the update, "
                    "and reopen automatically. Continue?");
 #endif
-            const auto answer = QMessageBox::question(this, tr("Install update"),
-                installPrompt,
-                QMessageBox::Yes | QMessageBox::No);
+            QMessageBox confirm(this);
+            confirm.setIcon(QMessageBox::Question);
+            confirm.setWindowTitle(tr("Install update"));
+            confirm.setText(installPrompt);
+            confirm.setStandardButtons(QMessageBox::Yes | QMessageBox::No);
+            confirm.setDefaultButton(QMessageBox::Yes);
+            QSettings updSettings(QStringLiteral("ServeGaming"),
+                                  QStringLiteral("quewi"));
+            auto *reopenCheck = new QCheckBox(
+                tr("Reopen quewi when the update finishes"), &confirm);
+            reopenCheck->setChecked(updSettings.value(
+                QStringLiteral("update/reopenAfter"), true).toBool());
+            confirm.setCheckBox(reopenCheck);
+            const auto answer = confirm.exec();
             if (answer == QMessageBox::Yes) {
+                const bool reopen = reopenCheck->isChecked();
+                updSettings.setValue(QStringLiteral("update/reopenAfter"), reopen);
                 const bool launched =
-                    UpdateInstaller::launchInstaller(localPath);
+                    UpdateInstaller::launchInstaller(localPath, reopen);
                 if (launched) {
                     // The installer/helper waits for quewi to exit before it
                     // swaps files and relaunches — so we MUST quit now, or
