@@ -405,6 +405,13 @@ bool UpdateInstaller::launchInstaller(const QString &msiPath,
         QDir().mkpath(appData);
         const QString logPath  = QDir::toNativeSeparators(
             appData + QStringLiteral("/update-install.log"));
+        // Step-log for the ELEVATED helper itself (distinct from msiexec's own
+        // /L*v log): records the post-quit steps the client can't see — waiting
+        // for quewi to exit, the msiexec exit code, and the relaunch — so a
+        // "closes, nothing installs" failure that happens after the app quits
+        // is still traceable.
+        const QString helperLog = QDir::toNativeSeparators(
+            appData + QStringLiteral("/update-helper.log"));
         const QString flagPath = QDir::toNativeSeparators(
             appData + QStringLiteral("/update-failed.flag"));
         const QString exePath  = QDir::toNativeSeparators(
@@ -422,6 +429,8 @@ bool UpdateInstaller::launchInstaller(const QString &msiPath,
                 QStringLiteral("explorer.exe \"%1\"\r\n").arg(exePath);
             ts << "@echo off\r\n"
                << "set PID=" << QCoreApplication::applicationPid() << "\r\n"
+               << "echo [%date% %time%] helper start pid=%PID%> \""
+               <<   helperLog << "\"\r\n"
                << "set TRIES=0\r\n"
                << ":wait\r\n"
                << "tasklist /FI \"PID eq %PID%\" 2>nul | find \"%PID%\" >nul\r\n"
@@ -434,6 +443,8 @@ bool UpdateInstaller::launchInstaller(const QString &msiPath,
                << "ping -n 2 127.0.0.1 >nul\r\n"
                << "goto wait\r\n"
                << ":run\r\n"
+               << "echo [%date% %time%] quewi exited; running msiexec>> \""
+               <<   helperLog << "\"\r\n"
                // /qb! = basic UI: a progress bar AND error dialogs, no Cancel.
                // The old /passive suppressed error UI, so a failed install
                // vanished silently — the reported "closes app, does nothing".
@@ -441,15 +452,27 @@ bool UpdateInstaller::launchInstaller(const QString &msiPath,
                << "msiexec /i \"" << msiNative
                <<   "\" /qb! /norestart /L*v \"" << logPath << "\"\r\n"
                << "set RC=%ERRORLEVEL%\r\n"
+               << "echo [%date% %time%] msiexec returned %RC%>> \""
+               <<   helperLog << "\"\r\n"
                << "if \"%RC%\"==\"0\" goto ok\r\n"
                << "if \"%RC%\"==\"3010\" goto ok\r\n"  // 3010 = success, reboot later
                << "goto failed\r\n"
                << ":ok\r\n"
+               // NB: keep the echoed text from ENDING in a digit right before
+               // '>>' — cmd would parse e.g. `1>>` as a stream-1 redirect and
+               // swallow the digit. The reopen choice is already in the client
+               // log, so just record success here.
+               << "echo [%date% %time%] install OK>> \"" << helperLog << "\"\r\n"
                // Only delete the installer once the install actually succeeded.
                << "del \"" << msiNative << "\" 2>nul\r\n"
-               << (reopenAfter ? relaunch : QString())
+               << (reopenAfter
+                     ? (QStringLiteral("echo [%date% %time%] relaunching quewi>> \"")
+                        + helperLog + QStringLiteral("\"\r\n") + relaunch)
+                     : QString())
                << "goto done\r\n"
                << ":failed\r\n"
+               << "echo [%date% %time%] install FAILED rc=%RC%; relaunching old quewi>> \""
+               <<   helperLog << "\"\r\n"
                // Keep the MSI; record the reason and relaunch the (still old)
                // quewi so it surfaces the failure on next start. Never silent.
                << "echo The last update did not install (msiexec code %RC%). "
@@ -458,6 +481,8 @@ bool UpdateInstaller::launchInstaller(const QString &msiPath,
                << relaunch
                << "goto done\r\n"
                << ":timedout\r\n"
+               << "echo [%date% %time%] TIMED OUT waiting for quewi to exit>> \""
+               <<   helperLog << "\"\r\n"
                << "echo The update timed out waiting for quewi to close and "
                   "was not installed. The installer is in your Downloads "
                   "folder.> \"" << flagPath << "\"\r\n"
