@@ -108,4 +108,15 @@ RenameCueListCommand::RenameCueListCommand(CueList *list, QString newName, QUndo
 void RenameCueListCommand::redo() { m_list->setName(m_new); }
 void RenameCueListCommand::undo() { m_list->setName(m_old); }
 
+MoveCueListCommand::MoveCueListCommand(Workspace *ws, int from, int to,
+                                       QUndoCommand *parent)
+    : QUndoCommand(parent), m_ws(ws), m_from(from), m_to(to)
+{
+    setText(QObject::tr("Reorder cue lists"));
+}
+// The tab bar already moved itself; redo only syncs the model order. undo
+// moves the element now at `to` back to `from`.
+void MoveCueListCommand::redo() { if (m_ws) m_ws->moveCueList(m_from, m_to); }
+void MoveCueListCommand::undo() { if (m_ws) m_ws->moveCueList(m_to, m_from); }
+
 } // namespace quewi::core

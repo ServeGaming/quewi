@@ -82,4 +82,17 @@ private:
     QString  m_new;
 };
 
+// Drag-reorder of cue-list tabs. Undoable so the new order is dirty-tracked.
+class MoveCueListCommand : public QUndoCommand {
+public:
+    MoveCueListCommand(Workspace *ws, int from, int to, QUndoCommand *parent = nullptr);
+    void undo() override;
+    void redo() override;
+
+private:
+    Workspace *m_ws;
+    int m_from;
+    int m_to;
+};
+
 } // namespace quewi::core

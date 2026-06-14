@@ -38,6 +38,9 @@ public:
     // Used by ShowFile during load and by undo commands.
     CueList *addCueList(std::unique_ptr<CueList> list);
     std::unique_ptr<CueList> takeCueList(CueListId id);
+    // Reorder: move the cue list at index `from` to index `to`. The tab
+    // order persists via the show file's per-list `ord`. Used by drag-reorder.
+    void moveCueList(int from, int to);
 
     QUndoStack *undoStack() { return &m_undoStack; }
 

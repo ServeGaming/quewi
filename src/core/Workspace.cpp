@@ -72,4 +72,14 @@ std::unique_ptr<CueList> Workspace::takeCueList(CueListId id)
     return taken;
 }
 
+void Workspace::moveCueList(int from, int to)
+{
+    const int n = static_cast<int>(m_cueLists.size());
+    if (from < 0 || to < 0 || from >= n || to >= n || from == to) return;
+    auto item = std::move(m_cueLists[from]);
+    m_cueLists.erase(m_cueLists.begin() + from);
+    m_cueLists.insert(m_cueLists.begin() + to, std::move(item));
+    emit cueListsChanged();
+}
+
 } // namespace quewi::core

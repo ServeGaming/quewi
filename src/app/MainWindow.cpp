@@ -360,9 +360,16 @@ void MainWindow::buildLayout()
     m_listTabs->setExpanding(false);
     m_listTabs->setDocumentMode(true);
     m_listTabs->setTabsClosable(false);
-    m_listTabs->setMovable(false);
+    m_listTabs->setMovable(true);   // drag to reorder cue lists
     connect(m_listTabs, &QTabBar::currentChanged, this, &MainWindow::onTabSelected);
     connect(m_listTabs, &QTabBar::tabBarDoubleClicked, this, [this](int){ renameCueListTab(); });
+    // The tab bar reorders itself on drag; sync the model order (undoable, so
+    // the new order is dirty-tracked and persists via each list's `ord`).
+    connect(m_listTabs, &QTabBar::tabMoved, this, [this](int from, int to) {
+        if (m_workspace)
+            m_workspace->undoStack()->push(
+                new core::MoveCueListCommand(m_workspace.get(), from, to));
+    });
 
     // Cue list pane: filter line on top, view fills the rest. Wrapping
     // them in one widget keeps the central layout clean.
@@ -705,6 +712,10 @@ void MainWindow::resetWorkspace()
     connect(stack, &QUndoStack::canUndoChanged, m_actUndo, &QAction::setEnabled);
     connect(stack, &QUndoStack::canRedoChanged, m_actRedo, &QAction::setEnabled);
     connect(m_workspace.get(), &core::Workspace::dirtyChanged, this, &MainWindow::updateTitle);
+    // Re-sync the tab strip when the cue-list ORDER changes (e.g. undoing a
+    // drag-reorder). Queued so it never mutates the tab bar mid-signal.
+    connect(m_workspace.get(), &core::Workspace::cueListsChanged, this,
+            [this]{ rebuildListTabs(); }, Qt::QueuedConnection);
 
     m_currentPath.clear();
     updateTitle();
@@ -787,6 +798,10 @@ bool MainWindow::loadShowFromPath(const QString &path)
     connect(stack, &QUndoStack::canUndoChanged, m_actUndo, &QAction::setEnabled);
     connect(stack, &QUndoStack::canRedoChanged, m_actRedo, &QAction::setEnabled);
     connect(m_workspace.get(), &core::Workspace::dirtyChanged, this, &MainWindow::updateTitle);
+    // Re-sync the tab strip when the cue-list ORDER changes (e.g. undoing a
+    // drag-reorder). Queued so it never mutates the tab bar mid-signal.
+    connect(m_workspace.get(), &core::Workspace::cueListsChanged, this,
+            [this]{ rebuildListTabs(); }, Qt::QueuedConnection);
 
     m_currentPath = path;
     updateTitle();
@@ -1822,15 +1837,21 @@ void MainWindow::addSoundboardTab()
     auto *sb = getOrCreateSoundboardList();
     if (!sb) return;
     rebuildListTabs();
+    bool shown = false;
     for (int i = 0; i < m_listTabs->count(); ++i)
         if (m_listTabs->tabData(i).toUuid() == sb->id()) {
             m_listTabs->setCurrentIndex(i);
             // setCurrentIndex only emits currentChanged on an actual change;
             // force the page switch in case the soundboard tab was already
-            // current (e.g. just created at index 0).
+            // current (e.g. it already existed and was showing).
             onTabSelected(i);
+            shown = true;
             break;
         }
+    // Always give feedback — if a board already existed and was current,
+    // nothing above changes visibly, which read as "the button did nothing".
+    statusBar()->showMessage(shown ? tr("Soundboard ready")
+                                   : tr("Couldn't open the soundboard"), 2500);
 }
 
 void MainWindow::addCueListTab()
