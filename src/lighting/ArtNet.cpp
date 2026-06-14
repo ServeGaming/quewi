@@ -17,6 +17,15 @@ ArtNetSender::ArtNetSender()
 
 ArtNetSender::~ArtNetSender() = default;
 
+void ArtNetSender::setOutputInterface(const QHostAddress &localAddr)
+{
+    if (!m_socket || localAddr.isNull()) return;
+    // Art-Net is broadcast, so setMulticastInterface doesn't apply; binding
+    // the send socket to the chosen NIC's address scopes egress to it.
+    if (m_socket->localAddress() == localAddr) return;  // already bound there
+    m_socket->bind(localAddr, 0, QAbstractSocket::ReuseAddressHint);
+}
+
 QByteArray ArtNetSender::buildPacket(quint16 universe, quint8 sequenceNumber,
                                      const DmxFrame &frame)
 {

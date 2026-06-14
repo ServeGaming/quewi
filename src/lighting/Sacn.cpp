@@ -1,5 +1,6 @@
 #include "lighting/Sacn.h"
 
+#include <QNetworkInterface>
 #include <QUdpSocket>
 #include <QVariant>
 #include <QtEndian>
@@ -39,6 +40,19 @@ SacnSender::SacnSender()
 }
 
 SacnSender::~SacnSender() = default;
+
+void SacnSender::setOutputInterface(const QHostAddress &localAddr)
+{
+    if (!m_socket || localAddr.isNull()) return;
+    for (const auto &iface : QNetworkInterface::allInterfaces()) {
+        for (const auto &entry : iface.addressEntries()) {
+            if (entry.ip() == localAddr) {
+                m_socket->setMulticastInterface(iface);
+                return;
+            }
+        }
+    }
+}
 
 QByteArray SacnSender::buildPacket(const QUuid &sourceCid,
                                    const QString &sourceName,

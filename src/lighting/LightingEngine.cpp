@@ -2,6 +2,7 @@
 
 #include "lighting/ArtNet.h"
 
+#include <QHostAddress>
 #include <QSettings>
 #include <QTimer>
 #include <algorithm>
@@ -31,13 +32,23 @@ void LightingEngine::syncArtNet()
     else if (!want && m_artnet)  m_artnet.reset();
 }
 
+void LightingEngine::applyOutputInterface()
+{
+    QSettings s(QStringLiteral("ServeGaming"), QStringLiteral("quewi"));
+    const QHostAddress addr(
+        s.value(QStringLiteral("lighting/outputInterface")).toString());
+    if (m_sender) m_sender->setOutputInterface(addr);  // null addr = default
+    if (m_artnet) m_artnet->setOutputInterface(addr);
+}
+
 void LightingEngine::ensureRunning()
 {
-    // Re-evaluate Art-Net each cue so a Preferences toggle applies without a
-    // restart (cheap — runs at cue rate, not the 44 Hz tick).
+    // Re-evaluate Art-Net + the egress NIC each cue so a Preferences change
+    // applies without a restart (cheap — runs at cue rate, not the 44 Hz tick).
     syncArtNet();
-    if (m_running.load()) return;
     if (!m_sender) m_sender = std::make_unique<SacnSender>();
+    applyOutputInterface();
+    if (m_running.load()) return;
     if (!m_timer) {
         m_timer = new QTimer(this);
         connect(m_timer, &QTimer::timeout, this, &LightingEngine::tick);

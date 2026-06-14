@@ -33,6 +33,11 @@ public:
     void setSourceName(const QString &name)        { m_sourceName = name; }
     void setPriority(quint8 priority)              { m_priority = priority; }
 
+    // Pin multicast egress to the NIC that owns `localAddr`, so on a
+    // multi-homed FOH machine sACN doesn't leave via the house/Internet NIC.
+    // Null address = OS default routing.
+    void setOutputInterface(const QHostAddress &localAddr);
+
     // Send one DMX frame to the universe's multicast group. Returns
     // false if the socket fails. Sequence numbers are tracked per-call.
     bool sendUniverse(quint16 universe, const DmxFrame &frame);

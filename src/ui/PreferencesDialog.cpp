@@ -744,6 +744,20 @@ QWidget *makeLightingPage(QWidget *parent)
     });
     engForm->addRow(QString(), artnet);
 
+    auto *iface = new QLineEdit(engGroup);
+    iface->setPlaceholderText(QObject::tr("(default route) — e.g. 192.168.0.10"));
+    iface->setText(s.value(QStringLiteral("lighting/outputInterface")).toString());
+    iface->setToolTip(QObject::tr(
+        "Local IP of the network card to send sACN / Art-Net from. Leave blank "
+        "for the OS default route — set it on a multi-NIC FOH machine so "
+        "lighting doesn't leave via the house/Internet NIC. Applies on the "
+        "next light cue."));
+    QObject::connect(iface, &QLineEdit::editingFinished, engGroup, [iface] {
+        prefSettings().setValue(QStringLiteral("lighting/outputInterface"),
+                                iface->text().trimmed());
+    });
+    engForm->addRow(QObject::tr("Output interface"), iface);
+
     outer->addWidget(engGroup);
 
     auto *patchGroup = new QGroupBox(QObject::tr("Universes"), page);

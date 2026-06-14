@@ -72,6 +72,9 @@ private:
     // setting. Called at cue rate (from ensureRunning) so a Preferences
     // toggle applies on the next light cue without an app restart.
     void syncArtNet();
+    // Pin both senders' egress NIC to the lighting/outputInterface setting
+    // (empty = OS default). Also re-applied at cue rate.
+    void applyOutputInterface();
 
     struct ChannelFade {
         int    fromValue = 0;

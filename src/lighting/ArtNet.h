@@ -30,6 +30,10 @@ public:
 
     void setBroadcastAddress(const QHostAddress &addr) { m_target = addr; }
 
+    // Bind to the NIC that owns `localAddr` so broadcast frames egress there
+    // on a multi-homed machine. Null address = OS default routing.
+    void setOutputInterface(const QHostAddress &localAddr);
+
     // Send one DMX frame for `universe`. Returns false if the socket fails.
     bool sendUniverse(quint16 universe, const DmxFrame &frame);
 
