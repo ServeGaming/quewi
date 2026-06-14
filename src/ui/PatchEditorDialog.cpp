@@ -124,9 +124,30 @@ QWidget *PatchEditorDialog::buildTab(Category cat) {
 
 void PatchEditorDialog::refreshList(Category cat, QListWidget *list) {
     if (!m_manager) return;
+    const auto patches = m_manager->patchesIn(cat);
+
+    // Idempotency guard — CRITICAL. Editing a patch field (e.g. choosing a
+    // device in the form's combo) calls setFields(), which emits
+    // patchesChanged(), which lands here. If we blindly clear()+rebuild the
+    // list, that fires currentRowChanged() and tears down the form — deleting
+    // the very combo whose currentIndexChanged() is still on the stack, a
+    // use-after-free that crashed the whole app when picking an audio device
+    // or video display. A field edit changes no list entry, so when the list
+    // already matches (same ids + names, in order) we simply return and leave
+    // the live form untouched.
+    if (list->count() == patches.size()) {
+        bool same = true;
+        for (int i = 0; i < patches.size(); ++i) {
+            auto *it = list->item(i);
+            if (!it || it->data(Qt::UserRole).toUuid() != patches[i].id
+                    || it->text() != patches[i].name) { same = false; break; }
+        }
+        if (same) return;
+    }
+
     QUuid kept = list->currentItem() ? list->currentItem()->data(Qt::UserRole).toUuid() : QUuid();
     list->clear();
-    for (const auto &p : m_manager->patchesIn(cat)) {
+    for (const auto &p : patches) {
         auto *item = new QListWidgetItem(p.name, list);
         item->setData(Qt::UserRole, p.id);
     }
