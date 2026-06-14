@@ -174,6 +174,10 @@ void GoEngine::doFire(cues::Cue *cue, const QByteArray &outputDeviceOverride)
                 p.trimOutSeconds = audioCue->trimOutSeconds();
                 p.pan            = audioCue->pan();
                 p.loop           = audioCue->loop();
+                // Per-cue effects chain (EQ/comp/reverb/delay) built fresh
+                // for this voice from the cue's saved editor rack. Empty =
+                // dry. Applied as a stereo insert in the mixer.
+                p.effects        = audioCue->buildEffectChain();
                 p.outputDeviceId = outputDeviceOverride.isEmpty()
                                        ? audioCue->outputDeviceId()
                                        : outputDeviceOverride;

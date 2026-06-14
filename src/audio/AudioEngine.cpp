@@ -1,10 +1,12 @@
 #include "audio/AudioEngine.h"
 
+#include "audio/AudioEffect.h"
 #include "audio/AudioFile.h"
 #include "audio/Db.h"
 
 #include <QAudioFormat>
 #include <QAudioSink>
+#include <QHash>
 #include <QMediaDevices>
 #include <QtMath>
 
@@ -67,10 +69,35 @@ public:
         v.outputGains   = params.outputGains;
         v.peakPerChannel.fill(0.0f, m_outputChannels);
 
+        // Effects chain — prepared HERE (the GUI/fire thread) because
+        // Reverb/Delay prepare() allocate. Cache raw pointers for the audio
+        // callback and keep the owning shared_ptrs in m_voiceFx so the
+        // AudioEffect objects are destroyed on this thread (reapEffects),
+        // never on the audio callback. Pre-size the scratch once.
+        if (!params.effects.empty()) {
+            auto chain = params.effects;   // this voice's own fresh chain
+            v.effects.reserve(chain.size());
+            for (const auto &fx : chain) {
+                if (!fx) continue;
+                fx->prepare(m_outputSampleRate);
+                fx->reset();
+                v.effects.push_back(fx.get());
+            }
+            if (!v.effects.empty()) {
+                v.fxScratch.assign(static_cast<size_t>(kFxScratchFrames) * 2, 0.f);
+                m_voiceFx.insert(id, std::move(chain));
+            }
+        }
+
         std::lock_guard<std::mutex> lock(m_mutex);
         m_voices.push_back(std::move(v));
         return m_voices.back().id;
     }
+
+    // GUI thread: drop a finished voice's effects chain so the AudioEffect
+    // objects are destroyed HERE, never on the audio callback. No-op if this
+    // mixer didn't own that voice id.
+    void reapEffects(VoiceId id) { m_voiceFx.remove(id); }
 
     void stopVoice(VoiceId id, double fadeOutSeconds)
     {
@@ -378,6 +405,16 @@ private:
         // the existing mutex snapshot so no atomics required.
         QList<float> peakPerChannel;
 
+        // Per-cue effects chain — RAW non-owning pointers for the audio
+        // callback. The shared_ptr owners live in Mixer::m_voiceFx (GUI
+        // thread) and are destroyed there when the voice finishes, so the
+        // callback never constructs or destroys an AudioEffect. Empty = dry.
+        std::vector<AudioEffect *> effects;
+        // Pre-allocated interleaved-stereo scratch (sized once at addVoice,
+        // never resized on the audio thread) where the voice renders before
+        // its chain runs. Only allocated for voices that carry effects.
+        std::vector<float> fxScratch;
+
         Voice() = default;
         Voice(const Voice &) = delete;
         Voice &operator=(const Voice &) = delete;
@@ -404,6 +441,8 @@ private:
             , channelGains(std::move(other.channelGains))
             , outputGains(std::move(other.outputGains))
             , peakPerChannel(std::move(other.peakPerChannel))
+            , effects(std::move(other.effects))
+            , fxScratch(std::move(other.fxScratch))
         {
             gain.store(other.gain.load(std::memory_order_relaxed), std::memory_order_relaxed);
             currentGain.store(other.currentGain.load(std::memory_order_relaxed), std::memory_order_relaxed);
@@ -436,6 +475,8 @@ private:
             channelGains   = std::move(other.channelGains);
             outputGains    = std::move(other.outputGains);
             peakPerChannel = std::move(other.peakPerChannel);
+            effects        = std::move(other.effects);
+            fxScratch      = std::move(other.fxScratch);
             gain.store(other.gain.load(std::memory_order_relaxed), std::memory_order_relaxed);
             currentGain.store(other.currentGain.load(std::memory_order_relaxed), std::memory_order_relaxed);
             targetGain.store(other.targetGain.load(std::memory_order_relaxed), std::memory_order_relaxed);
@@ -450,8 +491,19 @@ private:
     int m_outputSampleRate = 48000;
     int m_outputChannels = 2;
 
+    // Upper bound on a single readData block we run effects over. The
+    // per-voice scratch is sized to this; if a callback ever asks for more
+    // frames (never in practice) the voice plays dry for that buffer rather
+    // than allocate on the audio thread.
+    static constexpr qint64 kFxScratchFrames = 1 << 16;
+
     mutable std::mutex m_mutex;
     std::vector<Voice> m_voices;
+    // Owns each voice's effects chain, keyed by VoiceId. GUI-thread only
+    // (inserted in addVoice, removed in reapEffects); the audio callback only
+    // ever reads the raw pointers cached in Voice::effects. Keeping ownership
+    // here is what makes a finished voice's effects destruct on the GUI thread.
+    QHash<VoiceId, std::vector<std::shared_ptr<AudioEffect>>> m_voiceFx;
 };
 
 qint64 AudioEngine::Mixer::readData(char *data, qint64 maxlen)
@@ -555,6 +607,15 @@ qint64 AudioEngine::Mixer::readData(char *data, qint64 maxlen)
             // early and we must stay parked at end-of-decoded-data
             // until more arrives.
             qint64 framesWritten = 0;
+            // Stereo-insert effects run only for non-object-audio voices that
+            // carry a chain, and only when this block fits the pre-allocated
+            // scratch (otherwise play dry for this buffer rather than allocate
+            // on the RT thread). useChannelGains (object audio) takes priority
+            // inside the loop, so an object-audio voice never hits this path.
+            const bool hasEffects =
+                !v.effects.empty()
+                && framesWanted <= kFxScratchFrames
+                && static_cast<qint64>(v.fxScratch.size()) >= framesWanted * 2;
             for (qint64 f = 0; f < framesWanted; ++f) {
                 if (v.finished) break;
 
@@ -663,6 +724,29 @@ qint64 AudioEngine::Mixer::readData(char *data, qint64 maxlen)
                     continue;
                 }
 
+                if (hasEffects) {
+                    // Render this frame's gained + panned stereo pair into the
+                    // scratch. The chain and the output-sum happen after the
+                    // loop so the chain sees a contiguous interleaved block.
+                    auto interpCh = [&](int sc) -> float {
+                        auto smp = [&](qint64 idx) -> float {
+                            if (idx < 0) idx = 0;
+                            if (idx >= totalFrames) idx = totalFrames - 1;
+                            return samples[static_cast<size_t>(idx) * static_cast<size_t>(inChans)
+                                           + static_cast<size_t>(sc)];
+                        };
+                        const float a = smp(i0), b = smp(i1);
+                        return a + static_cast<float>(frac) * (b - a);
+                    };
+                    const float sL = interpCh(0);
+                    const float sR = interpCh(inChans > 1 ? 1 : 0);
+                    v.fxScratch[static_cast<size_t>(f) * 2 + 0] =
+                        static_cast<float>(sL * finalGain) * leftPan;
+                    v.fxScratch[static_cast<size_t>(f) * 2 + 1] =
+                        static_cast<float>(sR * finalGain) * rightPan;
+                    continue;
+                }
+
                 for (int oc = 0; oc < outChans; ++oc) {
                     int srcCh;
                     if (inChans == 1)               srcCh = 0;
@@ -696,6 +780,34 @@ qint64 AudioEngine::Mixer::readData(char *data, qint64 maxlen)
                     if (oc < 16 && a > bufPeaks[oc]) bufPeaks[oc] = a;
                 }
             }
+
+            // Run this voice's chain over the rendered stereo block (a no-op
+            // for disabled effects), then sum into the output applying the
+            // per-output send gains. process() is allocation- and lock-free.
+            if (hasEffects) {
+                const int n = static_cast<int>(framesWritten);
+                for (auto *fx : v.effects)
+                    if (fx && fx->isEnabled())
+                        fx->process(v.fxScratch.data(), n);
+                for (qint64 f = 0; f < framesWritten; ++f) {
+                    const float L = v.fxScratch[static_cast<size_t>(f) * 2 + 0];
+                    const float R = v.fxScratch[static_cast<size_t>(f) * 2 + 1];
+                    for (int oc = 0; oc < outChans; ++oc) {
+                        float chanS;
+                        if (outChans == 1)   chanS = 0.5f * (L + R);
+                        else if (oc == 0)    chanS = L;
+                        else if (oc == 1)    chanS = R;
+                        else                 chanS = (oc % 2 == 0) ? L : R;
+                        const float sendGain = (oc < v.outputGains.size())
+                                                  ? v.outputGains[oc] : 1.f;
+                        const float written = chanS * sendGain;
+                        out[f * outChans + oc] += written;
+                        const float a = std::fabs(written);
+                        if (oc < 16 && a > bufPeaks[oc]) bufPeaks[oc] = a;
+                    }
+                }
+            }
+
             // bufPeaks[0/1] also drive the legacy peakL/R atomics so the
             // existing stereo readers keep working.
             bufPeakL = bufPeaks[0];
@@ -1150,6 +1262,12 @@ bool AudioEngine::seek(VoiceId id, double seconds)
 
 void AudioEngine::onMixerVoiceFinished(VoiceId id)
 {
+    // Destroy the finished voice's effects chain on THIS (GUI) thread — the
+    // mixer erased the voice on the audio callback but deliberately left the
+    // owning shared_ptrs in m_voiceFx so the AudioEffect (QObject) destructors
+    // never run on the RT thread. VoiceIds are global, so only one mixer owns it.
+    for (auto &ctx : m_contexts)
+        if (ctx->mixer) ctx->mixer->reapEffects(id);
     emit voiceFinished(id);
 }
 
