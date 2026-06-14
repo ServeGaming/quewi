@@ -258,9 +258,10 @@ Inspector::Inspector(QWidget *parent)
     m_continueMode->addItem(tr("Auto-continue"),  1);
     m_continueMode->addItem(tr("Auto-follow"),    2);
     m_continueMode->setToolTip(tr(
-        "Don't continue: stop here.\n"
-        "Auto-continue: fire next cue after post-wait.\n"
-        "Auto-follow: fire next cue immediately on start."));
+        "Don't continue: stop here; the next GO fires the next cue.\n"
+        "Auto-continue: fire the next cue immediately on GO (after pre-wait).\n"
+        "Auto-follow: fire the next cue only after this cue's action finishes "
+        "(e.g. the audio reaches its end), then post-wait."));
     form->addRow(tr("Continue"), m_continueMode);
 
     m_armedCheck = new QCheckBox(tr("Armed"), this);

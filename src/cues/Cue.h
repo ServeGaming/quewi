@@ -10,10 +10,14 @@
 
 namespace quewi::cues {
 
+// Numeric values are persisted in show files and the Inspector combo — keep
+// them stable. Semantics follow QLab:
 enum class ContinueMode {
     DoNotContinue = 0,
-    AutoContinue,   // when this cue's post-wait elapses, fire next
-    AutoFollow,     // when this cue starts, fire next immediately
+    AutoContinue,   // on GO, fire the NEXT cue immediately (after pre-wait)
+    AutoFollow,     // fire the next cue only AFTER this cue's action finishes
+                    // (audio/video reaches its end, or the duration elapses),
+                    // then this cue's post-wait
 };
 
 // Polymorphic base for every cue type. Subclasses register with a

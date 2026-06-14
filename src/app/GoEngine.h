@@ -77,6 +77,18 @@ private:
     cues::Cue *nextCueAfter(cues::Cue *cue) const;
     cues::Cue *findCue(core::CueId id) const;
 
+    // Auto-follow: a cue is added to m_followPending when it fires in
+    // AutoFollow mode, and its continue is triggered only when its action
+    // actually finishes — cueFinished (instant/duration cues) or a voice's
+    // NATURAL end (audio/video). cancelAll() empties the set so a panic or a
+    // manual stop never advances the list. tryFollow() fires the deferred
+    // continue iff the cue is still pending (i.e. not cancelled).
+    void tryFollow(cues::Cue *cue);
+    void onCueFinishedFollow(cues::Cue *cue);
+    void onAudioVoiceFinishedNatural(quint64 voiceId);
+    void onVideoVoiceFinishedNatural(quint64 voiceId);
+    QSet<cues::Cue *> m_followPending;
+
     // Raw pointers — MainWindow owns both us and the engines and outlives us.
     core::Workspace              *m_workspace = nullptr;
     audio::AudioEngine           *m_audio = nullptr;

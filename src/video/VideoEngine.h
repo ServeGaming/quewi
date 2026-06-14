@@ -95,6 +95,9 @@ public:
 
 signals:
     void voiceFinished(quewi::video::VideoVoiceId id);
+    // Emitted ONLY when the media played to its natural end (onLayerFinished),
+    // not on stop()/stopAll()/fade-out. Drives auto-follow in the GoEngine.
+    void voiceFinishedNatural(quewi::video::VideoVoiceId id);
 
 private:
     struct Voice {

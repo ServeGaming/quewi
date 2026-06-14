@@ -524,7 +524,8 @@ qint64 AudioEngine::Mixer::readData(char *data, qint64 maxlen)
     auto *out = reinterpret_cast<float *>(data);
     std::memset(out, 0, framesWanted * frameBytes);
 
-    std::vector<VoiceId> finished;
+    // (voiceId, natural) — natural == reached EOF, vs. stop-requested.
+    std::vector<std::pair<VoiceId, bool>> finished;
 
     {
         std::lock_guard<std::mutex> lock(m_mutex);
@@ -841,7 +842,7 @@ qint64 AudioEngine::Mixer::readData(char *data, qint64 maxlen)
             // fade-out faster than real time and clip the tail.
             if (v.stopRequested) v.fadeOutCounter += framesWritten;
 
-            if (v.finished) finished.push_back(v.id);
+            if (v.finished) finished.push_back({ v.id, !v.stopRequested });
         }
 
         if (!finished.empty()) {
@@ -850,9 +851,10 @@ qint64 AudioEngine::Mixer::readData(char *data, qint64 maxlen)
         }
     }
 
-    for (auto id : finished) {
+    for (const auto &[id, natural] : finished) {
         QMetaObject::invokeMethod(m_engine, "onMixerVoiceFinished",
-            Qt::QueuedConnection, Q_ARG(quewi::audio::VoiceId, id));
+            Qt::QueuedConnection, Q_ARG(quewi::audio::VoiceId, id),
+            Q_ARG(bool, natural));
     }
 
     return framesWanted * frameBytes;
@@ -1266,7 +1268,7 @@ bool AudioEngine::seek(VoiceId id, double seconds)
     return false;
 }
 
-void AudioEngine::onMixerVoiceFinished(VoiceId id)
+void AudioEngine::onMixerVoiceFinished(VoiceId id, bool natural)
 {
     // Destroy the finished voice's effects chain on THIS (GUI) thread — the
     // mixer erased the voice on the audio callback but deliberately left the
@@ -1275,6 +1277,8 @@ void AudioEngine::onMixerVoiceFinished(VoiceId id)
     for (auto &ctx : m_contexts)
         if (ctx->mixer) ctx->mixer->reapEffects(id);
     emit voiceFinished(id);
+    // Auto-follow hook: only a true EOF advances the cue list.
+    if (natural) emit voiceFinishedNatural(id);
 }
 
 } // namespace quewi::audio

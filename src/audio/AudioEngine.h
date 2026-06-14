@@ -160,6 +160,11 @@ public:
 signals:
     void runningChanged(bool running);
     void voiceFinished(quewi::audio::VoiceId id);
+    // Same as voiceFinished, but ONLY when the voice reached its natural end
+    // (read past EOF) — never on stop()/stopAll()/eviction fade-outs. The
+    // GoEngine uses this to drive auto-follow so a panic or a manual stop
+    // never advances the cue list.
+    void voiceFinishedNatural(quewi::audio::VoiceId id);
     void engineError(const QString &reason);
 
 private:
@@ -177,7 +182,10 @@ private:
     DeviceContext *contextForDeviceId(const QByteArray &deviceId);
     QAudioDevice   resolveDevice(const QByteArray &deviceId) const;
 
-    void onMixerVoiceFinished(VoiceId id);
+    // Queued from the audio thread when the mixer drops a voice. natural =
+    // the voice reached EOF (vs. it was stop-requested). Q_INVOKABLE so the
+    // by-name QMetaObject::invokeMethod from the mixer resolves it.
+    Q_INVOKABLE void onMixerVoiceFinished(VoiceId id, bool natural);
     // Called when the system default audio output changes (headphones
     // plugged in, Control-Center / sound-prefs output switch). Drops
     // any context bound to the old default so the next GO rebuilds on

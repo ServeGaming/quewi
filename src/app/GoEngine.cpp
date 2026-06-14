@@ -31,7 +31,12 @@
 
 namespace quewi {
 
-GoEngine::GoEngine(QObject *parent) : QObject(parent) {}
+GoEngine::GoEngine(QObject *parent) : QObject(parent)
+{
+    // Instant/duration cues (memo, wait, fade, light-fade, …) advertise their
+    // completion via cueFinished; route that into the auto-follow check.
+    connect(this, &GoEngine::cueFinished, this, &GoEngine::onCueFinishedFollow);
+}
 GoEngine::~GoEngine() { cancelAll(0.0); }
 
 void GoEngine::onTrajectoryTick()
@@ -67,9 +72,24 @@ void GoEngine::onTrajectoryTick()
 }
 
 void GoEngine::setWorkspace(core::Workspace *ws)              { m_workspace = ws; }
-void GoEngine::setAudioEngine(audio::AudioEngine *e)          { m_audio = e; }
+void GoEngine::setAudioEngine(audio::AudioEngine *e)
+{
+    m_audio = e;
+    // Only a natural EOF advances an auto-follow audio cue (never a stop).
+    if (m_audio)
+        connect(m_audio, &audio::AudioEngine::voiceFinishedNatural,
+                this, &GoEngine::onAudioVoiceFinishedNatural,
+                Qt::UniqueConnection);
+}
 void GoEngine::setLightingEngine(lighting::LightingEngine *e) { m_lighting = e; }
-void GoEngine::setVideoEngine(video::VideoEngine *e)          { m_video = e; }
+void GoEngine::setVideoEngine(video::VideoEngine *e)
+{
+    m_video = e;
+    if (m_video)
+        connect(m_video, &video::VideoEngine::voiceFinishedNatural,
+                this, &GoEngine::onVideoVoiceFinishedNatural,
+                Qt::UniqueConnection);
+}
 void GoEngine::setOscEngine(osc::OscEngine *e)                { m_osc = e; }
 void GoEngine::setMidiEngine(midi::MidiEngine *e)             { m_midi = e; }
 
@@ -549,9 +569,21 @@ void GoEngine::doFire(cues::Cue *cue, const QByteArray &outputDeviceOverride)
     if (auto *w = qobject_cast<cues::WaitCue *>(cue)) waitExtra = w->durationSeconds();
 
     switch (cue->continueMode()) {
-    case cues::ContinueMode::DoNotContinue: break;
-    case cues::ContinueMode::AutoFollow:    scheduleContinue(cue, waitExtra); break;
-    case cues::ContinueMode::AutoContinue:  scheduleContinue(cue, waitExtra + cue->postWait()); break;
+    case cues::ContinueMode::DoNotContinue:
+        break;
+    case cues::ContinueMode::AutoContinue:
+        // Fire the NEXT cue immediately on GO (after pre-wait). A Wait cue
+        // folds its duration in, so Wait + AutoContinue still waits it out.
+        scheduleContinue(cue, waitExtra);
+        break;
+    case cues::ContinueMode::AutoFollow:
+        // Defer: the next cue fires only when THIS cue's action finishes.
+        // Mark it pending; onCueFinishedFollow (instant/duration cues) or
+        // on{Audio,Video}VoiceFinishedNatural (a track reaching its end) does
+        // the actual continue, then post-wait. cancelAll() clears the set so
+        // a panic mid-cue never advances.
+        m_followPending.insert(cue);
+        break;
     }
 }
 
@@ -590,11 +622,42 @@ void GoEngine::cancelAll(double fadeOutSeconds)
 {
     for (auto *t : m_pending) { t->stop(); t->deleteLater(); }
     m_pending.clear();
+    // Disarm every pending auto-follow so a cueFinished timer or a late
+    // voiceFinishedNatural that arrives after the panic can't advance.
+    m_followPending.clear();
     if (m_audio)    m_audio->stopAll(fadeOutSeconds);
     if (m_lighting) m_lighting->blackout();
     if (m_video)    m_video->stopAll();
     m_trajectories.clear();
     if (m_trajectoryTimer) m_trajectoryTimer->stop();
+}
+
+void GoEngine::tryFollow(cues::Cue *cue)
+{
+    // remove() returns true only if the cue is still armed — cancelAll() (a
+    // panic) empties the set, so a follow can't fire after a stop.
+    if (cue && m_followPending.remove(cue))
+        scheduleContinue(cue, cue->postWait());
+}
+
+void GoEngine::onCueFinishedFollow(cues::Cue *cue) { tryFollow(cue); }
+
+void GoEngine::onAudioVoiceFinishedNatural(quint64 voiceId)
+{
+    if (!m_workspace) return;
+    for (const auto &list : m_workspace->cueLists())
+        for (int i = 0; i < list->cueCount(); ++i)
+            if (auto *ac = qobject_cast<audio::AudioCue *>(list->cueAt(i)))
+                if (ac->currentVoiceId() == voiceId) { tryFollow(ac); return; }
+}
+
+void GoEngine::onVideoVoiceFinishedNatural(quint64 voiceId)
+{
+    if (!m_workspace) return;
+    for (const auto &list : m_workspace->cueLists())
+        for (int i = 0; i < list->cueCount(); ++i)
+            if (auto *vc = qobject_cast<video::VisualCue *>(list->cueAt(i)))
+                if (vc->currentVoiceId() == voiceId) { tryFollow(vc); return; }
 }
 
 QSet<quint64> GoEngine::activeAudioVoiceIds() const

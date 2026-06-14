@@ -220,6 +220,7 @@ void VideoEngine::onLayerFinished(Layer *layer)
     if (auto *l = it->layer.data()) m_compositor->removeLayer(l);
     m_voices.erase(it);
     emit voiceFinished(id);
+    emit voiceFinishedNatural(id);   // natural end only — drives auto-follow
 }
 
 } // namespace quewi::video
