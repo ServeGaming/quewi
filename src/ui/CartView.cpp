@@ -8,7 +8,9 @@
 #include "cues/Cue.h"
 #include "ui/Theme.h"
 
+#include <QAudioDevice>
 #include <QColorDialog>
+#include <QComboBox>
 #include <QDialog>
 #include <QDialogButtonBox>
 #include <QDragEnterEvent>
@@ -24,6 +26,7 @@
 #include <QLabel>
 #include <QLinearGradient>
 #include <QLineEdit>
+#include <QMediaDevices>
 #include <QMenu>
 #include <QMimeData>
 #include <QPainter>
@@ -420,6 +423,21 @@ CartView::CartView(QWidget *parent) : QWidget(parent)
     bar->addWidget(title);
     bar->addStretch(1);
 
+    // Output-device picker — route the whole board to a chosen device
+    // (e.g. a virtual cable) independent of the main playback device.
+    m_outputCombo = new QComboBox(this);
+    m_outputCombo->setCursor(Qt::PointingHandCursor);
+    m_outputCombo->setToolTip(tr("Route the whole soundboard to this output device"));
+    m_outputCombo->addItem(tr("Output: (default)"), QByteArray());
+    for (const auto &dev : QMediaDevices::audioOutputs())
+        m_outputCombo->addItem(tr("Output: %1").arg(dev.description()), dev.id());
+    connect(m_outputCombo, &QComboBox::currentIndexChanged, this, [this](int) {
+        if (m_workspace && m_workspace->cart())
+            m_workspace->cart()->setOutputDeviceId(
+                m_outputCombo->currentData().toByteArray());
+    });
+    bar->addWidget(m_outputCombo);
+
     m_editBtn = new QPushButton(tr("Edit Layout"), this);
     m_editBtn->setCheckable(true);
     m_editBtn->setCursor(Qt::PointingHandCursor);
@@ -476,6 +494,18 @@ void CartView::setWorkspace(core::Workspace *ws)
     m_workspace = ws;
     if (auto *cart = ws ? ws->cart() : nullptr)
         connect(cart, &core::CartGrid::layoutChanged, this, &CartView::onLayoutChanged);
+
+    // Reflect the saved board output device in the picker. Block signals so
+    // restoring doesn't write back (and an unplugged saved device falls back
+    // to "default" visually while the cart keeps its id for when it returns).
+    if (m_outputCombo) {
+        const QByteArray dev = (ws && ws->cart()) ? ws->cart()->outputDeviceId()
+                                                  : QByteArray();
+        m_outputCombo->blockSignals(true);
+        const int idx = m_outputCombo->findData(dev);
+        m_outputCombo->setCurrentIndex(idx >= 0 ? idx : 0);
+        m_outputCombo->blockSignals(false);
+    }
     rebuildGrid();
 }
 

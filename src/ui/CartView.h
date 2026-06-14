@@ -7,6 +7,7 @@
 #include <QWidget>
 #include <functional>
 
+class QComboBox;
 class QGridLayout;
 class QPushButton;
 class QShortcut;
@@ -84,6 +85,7 @@ private:
     QGridLayout       *m_grid = nullptr;
     QWidget           *m_gridHost = nullptr;
     QPushButton       *m_editBtn = nullptr;
+    QComboBox         *m_outputCombo = nullptr;
     QList<CartPad *>   m_pads;
     QList<QShortcut *> m_shortcuts;
     QTimer            *m_pollTimer = nullptr;

@@ -3,6 +3,7 @@
 #include "audio/Vbap.h"
 #include "core/Workspace.h"
 
+#include <QByteArray>
 #include <QHash>
 #include <QList>
 #include <QObject>
@@ -43,7 +44,11 @@ public:
     void setOscEngine(osc::OscEngine *e);
     void setMidiEngine(midi::MidiEngine *e);
 
-    void fire(cues::Cue *cue);
+    // outputDeviceOverride: when non-empty, audio cues fired through this
+    // call route to that output device instead of their own — used by the
+    // soundboard to send its whole board to a chosen device (e.g. a virtual
+    // cable) without mutating the shared cue. Empty = use the cue's device.
+    void fire(cues::Cue *cue, const QByteArray &outputDeviceOverride = {});
     void cancelAll(double fadeOutSeconds = 0.05);
 
     // Set of audio voice ids currently alive. The soundboard polls this to
@@ -67,7 +72,7 @@ signals:
     void gotoRequested(quewi::core::CueId targetId);
 
 private:
-    void doFire(cues::Cue *cue);
+    void doFire(cues::Cue *cue, const QByteArray &outputDeviceOverride = {});
     void scheduleContinue(cues::Cue *cue, double delaySeconds);
     cues::Cue *nextCueAfter(cues::Cue *cue) const;
     cues::Cue *findCue(core::CueId id) const;

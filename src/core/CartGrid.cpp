@@ -64,6 +64,13 @@ void CartGrid::clearCell(int row, int col)
     if (m_cells.remove(packKey(row, col))) emit layoutChanged();
 }
 
+void CartGrid::setOutputDeviceId(const QByteArray &id)
+{
+    if (m_outputDeviceId == id) return;
+    m_outputDeviceId = id;
+    emit layoutChanged();
+}
+
 void CartGrid::setCellColor(int row, int col, const QColor &color)
 {
     if (row < 0 || row >= m_rows || col < 0 || col >= m_cols) return;
@@ -143,6 +150,9 @@ QJsonObject CartGrid::toJson() const
     QJsonObject o;
     o.insert(QStringLiteral("rows"), m_rows);
     o.insert(QStringLiteral("cols"), m_cols);
+    if (!m_outputDeviceId.isEmpty())
+        o.insert(QStringLiteral("outputDevice"),
+                 QString::fromLatin1(m_outputDeviceId));
     QJsonArray cells;
     for (auto it = m_cells.constBegin(); it != m_cells.constEnd(); ++it) {
         const CartCell &cell = it.value();
@@ -164,6 +174,7 @@ void CartGrid::fromJson(const QJsonObject &o)
 {
     m_rows = o.value(QStringLiteral("rows")).toInt(4);
     m_cols = o.value(QStringLiteral("cols")).toInt(6);
+    m_outputDeviceId = o.value(QStringLiteral("outputDevice")).toString().toLatin1();
     m_cells.clear();
     const auto arr = o.value(QStringLiteral("cells")).toArray();
     for (const auto &v : arr) {

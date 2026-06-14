@@ -388,7 +388,14 @@ void MainWindow::buildLayout()
     // in either mode.
     m_cartView = new ui::CartView(central);
     connect(m_cartView, &ui::CartView::fireRequested, this,
-        [this](cues::Cue *c) { if (m_goEngine && c) m_goEngine->fire(c); });
+        [this](cues::Cue *c) {
+            if (!m_goEngine || !c) return;
+            // Soundboard pads route to the board's chosen output device
+            // (e.g. a virtual cable), overriding each cue's own device.
+            const QByteArray dev = (m_workspace && m_workspace->cart())
+                ? m_workspace->cart()->outputDeviceId() : QByteArray();
+            m_goEngine->fire(c, dev);
+        });
     connect(m_cartView, &ui::CartView::fileDropped,
             this, &MainWindow::onCartFileDropped);
     connect(m_cartView, &ui::CartView::stopAllRequested, this,

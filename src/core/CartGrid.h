@@ -1,5 +1,6 @@
 #pragma once
 
+#include <QByteArray>
 #include <QColor>
 #include <QHash>
 #include <QJsonObject>
@@ -58,6 +59,13 @@ public:
     QPair<int,int> cellOfMidiNote(int note) const;             // first match
     QPair<int,int> firstEmpty() const;
 
+    // The whole board routes to this output device (empty = engine default).
+    // Voicemod-style: send every pad to a chosen device (e.g. a virtual
+    // cable) independent of the main playback device. Applied as a fire-time
+    // override so the shared cues themselves are never mutated.
+    QByteArray outputDeviceId() const { return m_outputDeviceId; }
+    void       setOutputDeviceId(const QByteArray &id);
+
     QJsonObject toJson() const;
     void        fromJson(const QJsonObject &o);
 
@@ -69,6 +77,7 @@ private:
     int m_cols = 6;
     // Row-major key: row * 1000 + col (≤ 999 cols).
     QHash<int, CartCell> m_cells;
+    QByteArray m_outputDeviceId;   // empty = engine default output
 
     static int packKey(int row, int col) { return row * 1000 + col; }
     CartCell &mutableCell(int row, int col); // creates if absent

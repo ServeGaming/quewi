@@ -105,7 +105,7 @@ cues::Cue *GoEngine::nextCueAfter(cues::Cue *cue) const
     return nullptr;
 }
 
-void GoEngine::fire(cues::Cue *cue)
+void GoEngine::fire(cues::Cue *cue, const QByteArray &outputDeviceOverride)
 {
     if (!cue || !cue->isArmed()) return;
 
@@ -115,18 +115,18 @@ void GoEngine::fire(cues::Cue *cue)
         t->setSingleShot(true);
         m_pending.append(t);
         QPointer<cues::Cue> guard(cue);
-        connect(t, &QTimer::timeout, this, [this, t, guard] {
+        connect(t, &QTimer::timeout, this, [this, t, guard, outputDeviceOverride] {
             m_pending.removeAll(t);
             t->deleteLater();
-            if (guard) doFire(guard);
+            if (guard) doFire(guard, outputDeviceOverride);
         });
         t->start(static_cast<int>(preWait * 1000.0));
     } else {
-        doFire(cue);
+        doFire(cue, outputDeviceOverride);
     }
 }
 
-void GoEngine::doFire(cues::Cue *cue)
+void GoEngine::doFire(cues::Cue *cue, const QByteArray &outputDeviceOverride)
 {
     if (!cue) return;
     using namespace quewi;
@@ -174,7 +174,9 @@ void GoEngine::doFire(cues::Cue *cue)
                 p.trimOutSeconds = audioCue->trimOutSeconds();
                 p.pan            = audioCue->pan();
                 p.loop           = audioCue->loop();
-                p.outputDeviceId = audioCue->outputDeviceId();
+                p.outputDeviceId = outputDeviceOverride.isEmpty()
+                                       ? audioCue->outputDeviceId()
+                                       : outputDeviceOverride;
                 // Per-output sends (dB → linear). Object-audio cues
                 // don't use this path — channelGains owns routing.
                 if (!audioCue->objectAudioEnabled()
