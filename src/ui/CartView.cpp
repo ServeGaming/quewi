@@ -29,12 +29,14 @@
 #include <QLineEdit>
 #include <QMediaDevices>
 #include <QMenu>
+#include <QMessageBox>
 #include <QMimeData>
 #include <QPainter>
 #include <QPainterPath>
 #include <QPushButton>
 #include <QShortcut>
 #include <QSpinBox>
+#include <QTabBar>
 #include <QTimer>
 #include <QUrl>
 #include <QVBoxLayout>
@@ -483,6 +485,51 @@ CartView::CartView(QWidget *parent) : QWidget(parent)
     bar->addWidget(stopBtn);
     outer->addLayout(bar);
 
+    // ── Layer switcher ─────────────────────────────────────────────────
+    // Stack several boards behind one soundboard tab (Act 1 / Act 2 / spot
+    // FX). Only the active layer is shown and fires. Double-click a tab to
+    // rename it; right-click for rename/delete; "+" adds a layer.
+    auto *layerRow = new QHBoxLayout();
+    layerRow->setSpacing(6);
+    m_layerTabs = new QTabBar(this);
+    m_layerTabs->setExpanding(false);
+    m_layerTabs->setDrawBase(false);
+    m_layerTabs->setFocusPolicy(Qt::NoFocus);
+    m_layerTabs->setContextMenuPolicy(Qt::CustomContextMenu);
+    connect(m_layerTabs, &QTabBar::currentChanged, this, [this](int i) {
+        if (m_syncingLayers) return;        // programmatic sync, not a user click
+        if (m_workspace && m_workspace->cart()) m_workspace->cart()->setActiveLayer(i);
+    });
+    connect(m_layerTabs, &QTabBar::tabBarDoubleClicked, this, &CartView::renameLayer);
+    connect(m_layerTabs, &QWidget::customContextMenuRequested, this,
+            [this](const QPoint &pos) {
+        const int idx = m_layerTabs->tabAt(pos);
+        if (idx < 0) return;
+        QMenu menu(this);
+        menu.addAction(tr("Rename layer…"), this, [this, idx]{ renameLayer(idx); });
+        QAction *del = menu.addAction(tr("Delete layer"), this,
+                                      [this, idx]{ deleteLayer(idx); });
+        del->setEnabled(m_workspace && m_workspace->cart()
+                        && m_workspace->cart()->layerCount() > 1);
+        menu.exec(m_layerTabs->mapToGlobal(pos));
+    });
+    layerRow->addWidget(m_layerTabs);
+
+    auto *addLayerBtn = new QPushButton(QStringLiteral("+"), this);
+    addLayerBtn->setCursor(Qt::PointingHandCursor);
+    addLayerBtn->setToolTip(tr("Add a layer"));
+    addLayerBtn->setFixedSize(26, 24);
+    addLayerBtn->setStyleSheet(QStringLiteral(
+        "QPushButton{background:%1;color:%2;border:1px solid %3;border-radius:6px;"
+        "  font-size:15px;font-weight:700;}"
+        "QPushButton:hover{border-color:%4;color:%4;}")
+        .arg(tk.bgInteractive.name(), tk.ink100.name(), tk.outline.name(),
+             tk.accent.name()));
+    connect(addLayerBtn, &QPushButton::clicked, this, &CartView::addLayer);
+    layerRow->addWidget(addLayerBtn);
+    layerRow->addStretch(1);
+    outer->addLayout(layerRow);
+
     // ── Pad grid ───────────────────────────────────────────────────────
     m_gridHost = new QWidget(this);
     m_grid = new QGridLayout(m_gridHost);
@@ -505,8 +552,10 @@ void CartView::setWorkspace(core::Workspace *ws)
             disconnect(cart, nullptr, this, nullptr);
     }
     m_workspace = ws;
-    if (auto *cart = ws ? ws->cart() : nullptr)
+    if (auto *cart = ws ? ws->cart() : nullptr) {
         connect(cart, &core::CartGrid::layoutChanged, this, &CartView::onLayoutChanged);
+        connect(cart, &core::CartGrid::layersChanged, this, &CartView::rebuildLayerBar);
+    }
 
     // Reflect the saved board output device in the picker. Block signals so
     // restoring doesn't write back (and an unplugged saved device falls back
@@ -519,6 +568,7 @@ void CartView::setWorkspace(core::Workspace *ws)
         m_outputCombo->setCurrentIndex(idx >= 0 ? idx : 0);
         m_outputCombo->blockSignals(false);
     }
+    rebuildLayerBar();
     rebuildGrid();
 }
 
@@ -532,6 +582,51 @@ void CartView::showEvent(QShowEvent *event)
 }
 
 void CartView::onLayoutChanged() { rebuildGrid(); }
+
+void CartView::rebuildLayerBar()
+{
+    if (!m_layerTabs) return;
+    auto *cart = m_workspace ? m_workspace->cart() : nullptr;
+    // Block the currentChanged echo while we mirror the model into the tabs.
+    m_syncingLayers = true;
+    while (m_layerTabs->count() > 0) m_layerTabs->removeTab(0);
+    if (cart) {
+        for (int i = 0; i < cart->layerCount(); ++i)
+            m_layerTabs->addTab(cart->layerName(i));
+        const int a = cart->activeLayer();
+        if (a >= 0 && a < m_layerTabs->count())
+            m_layerTabs->setCurrentIndex(a);
+    }
+    m_syncingLayers = false;
+}
+
+void CartView::addLayer()
+{
+    if (m_workspace && m_workspace->cart())
+        m_workspace->cart()->addLayer();   // becomes active; signals refresh the UI
+}
+
+void CartView::renameLayer(int index)
+{
+    auto *cart = m_workspace ? m_workspace->cart() : nullptr;
+    if (!cart || index < 0 || index >= cart->layerCount()) return;
+    bool ok = false;
+    const auto name = QInputDialog::getText(this, tr("Rename layer"),
+        tr("Name:"), QLineEdit::Normal, cart->layerName(index), &ok);
+    if (ok && !name.isEmpty()) cart->setLayerName(index, name);
+}
+
+void CartView::deleteLayer(int index)
+{
+    auto *cart = m_workspace ? m_workspace->cart() : nullptr;
+    if (!cart || cart->layerCount() <= 1) return;     // keep at least one layer
+    if (index < 0 || index >= cart->layerCount()) return;
+    if (QMessageBox::question(this, tr("Delete layer"),
+            tr("Delete layer \"%1\"? Its pad layout is removed — the cues "
+               "themselves stay in the show.").arg(cart->layerName(index)))
+        != QMessageBox::Yes) return;
+    cart->removeLayer(index);
+}
 
 void CartView::onCueChanged() { for (auto *pad : m_pads) pad->update(); }
 

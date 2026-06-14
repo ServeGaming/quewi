@@ -11,6 +11,7 @@ class QComboBox;
 class QGridLayout;
 class QPushButton;
 class QShortcut;
+class QTabBar;
 class QTimer;
 
 namespace quewi { class GoEngine; }
@@ -75,6 +76,14 @@ private slots:
 private:
     void rebuildGrid();
     void rebuildHotkeys();
+    // Sync the layer switcher (tab per layer + add button) to the cart's
+    // layers. Re-runs whenever a layer is added/removed/renamed or the active
+    // layer changes. Guarded so syncing the tab bar doesn't echo back as a
+    // user layer-switch.
+    void rebuildLayerBar();
+    void addLayer();
+    void renameLayer(int index);
+    void deleteLayer(int index);
     cues::Cue *cueForCellId(const QUuid &id) const;
     void onPadClicked(int row, int col);
     void onPadEdit(int row, int col);
@@ -87,6 +96,8 @@ private:
     QWidget           *m_gridHost = nullptr;
     QPushButton       *m_editBtn = nullptr;
     QComboBox         *m_outputCombo = nullptr;
+    QTabBar           *m_layerTabs = nullptr;
+    bool               m_syncingLayers = false;
     QList<CartPad *>   m_pads;
     QList<QShortcut *> m_shortcuts;
     QTimer            *m_pollTimer = nullptr;

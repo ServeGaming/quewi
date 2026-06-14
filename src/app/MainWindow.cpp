@@ -479,8 +479,10 @@ void MainWindow::buildLayout()
         addTabBtn->setCursor(Qt::PointingHandCursor);
         addTabBtn->setAutoRaise(true);
         auto *addMenu = new QMenu(addTabBtn);
-        addMenu->addAction(tr("New cue list"),  this, &MainWindow::addCueListTab);
-        addMenu->addAction(tr("New soundboard"), this, &MainWindow::addSoundboardTab);
+        addMenu->addAction(tr("New cue list"), this, &MainWindow::addCueListTab);
+        // One soundboard per show — it holds multiple switchable layers instead
+        // of multiple boards. This opens it (creating it on first use).
+        addMenu->addAction(tr("Soundboard"), this, &MainWindow::addSoundboardTab);
         addTabBtn->setMenu(addMenu);
         addTabBtn->setPopupMode(QToolButton::InstantPopup);
         tabRow->addWidget(addTabBtn, 0);
