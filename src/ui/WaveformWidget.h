@@ -38,12 +38,22 @@ public:
     void setMarkers(double trimInSec, double trimOutSec,
                     double fadeInSec, double fadeOutSec);
 
+    // Position of the playhead marker, in absolute file seconds. A negative
+    // value hides it (not playing). Driven by the Inspector from the live
+    // preview voice's position.
+    void setPlayheadSeconds(double sec);
+
 signals:
     // Emitted live (every drag delta) and again on release.
     void trimInChanged(double seconds);
     void trimOutChanged(double seconds);
     void fadeInChanged(double seconds);
     void fadeOutChanged(double seconds);
+
+    // Left-click or left-drag anywhere that isn't a trim/fade handle — the
+    // operator wants to move the playhead there. Carries absolute file
+    // seconds. The Inspector forwards this to AudioEngine::seek.
+    void seekRequested(double seconds);
 
     // Emitted only on mouse release — the inspector pushes one undo
     // step at the final position.
@@ -86,6 +96,11 @@ private:
     double m_fadeOut = 0.0;
 
     Handle m_dragging = Handle::None;
+    // Left-drag scrub state — true between press and release on empty space
+    // (no handle grabbed), so mouseMove keeps emitting seekRequested.
+    bool   m_seeking = false;
+    // Playhead position in absolute file seconds; negative = hidden.
+    double m_playhead = -1.0;
     // Press-anchored fine-drag state. When Shift is held during a
     // handle drag, the value moves by 0.1× the cursor delta from
     // press, instead of tracking the cursor 1:1 — useful for sample-

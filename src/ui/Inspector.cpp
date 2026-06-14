@@ -1027,6 +1027,17 @@ Inspector::Inspector(QWidget *parent)
         commitAudioFadeOut();
     });
 
+    // Click / drag the waveform → move the playhead on the playing voice.
+    // Mirrors the video scrubber's seek; no-op if the cue isn't playing
+    // (AudioEngine::seek returns false when there's no live voice).
+    connect(m_audioWaveform, &WaveformWidget::seekRequested, this,
+            [this](double sec) {
+                if (!m_audioEngine) return;
+                if (auto *ac = qobject_cast<audio::AudioCue *>(m_cue.data()))
+                    if (auto vid = ac->currentVoiceId())
+                        m_audioEngine->seek(vid, sec);
+            });
+
     connect(m_colorChip,  &QPushButton::clicked, this, &Inspector::pickCueColor);
     connect(m_colorClear, &QPushButton::clicked, this, &Inspector::clearCueColor);
 
@@ -1080,6 +1091,10 @@ Inspector::Inspector(QWidget *parent)
     m_videoPollTimer = new QTimer(this);
     m_videoPollTimer->setInterval(33);
     connect(m_videoPollTimer, &QTimer::timeout, this, &Inspector::pollVideoTransport);
+
+    m_audioPollTimer = new QTimer(this);
+    m_audioPollTimer->setInterval(33);
+    connect(m_audioPollTimer, &QTimer::timeout, this, &Inspector::pollAudioPlayhead);
     connect(m_textString,    &QLineEdit::editingFinished,      this, &Inspector::commitTextString);
     connect(m_textSize,      &QSpinBox::editingFinished,       this, &Inspector::commitTextSize);
     connect(m_textColorBtn,  &QPushButton::clicked,            this, &Inspector::pickTextColor);
@@ -1119,6 +1134,19 @@ void Inspector::pollVideoTransport()
     m_videoScrubber->setDurationMs(t.durMs);
     m_videoScrubber->setPositionMs(t.posMs);
     m_videoScrubber->setPlaying(!t.paused);
+}
+
+void Inspector::pollAudioPlayhead()
+{
+    if (!m_audioWaveform) return;
+    double sec = -1.0;   // negative = hide the playhead
+    if (auto *ac = qobject_cast<audio::AudioCue *>(m_cue.data()); ac && m_audioEngine) {
+        if (const auto vid = ac->currentVoiceId()) {
+            for (const auto &av : m_audioEngine->activeVoices())
+                if (av.id == vid) { sec = av.positionSeconds; break; }
+        }
+    }
+    m_audioWaveform->setPlayheadSeconds(sec);
 }
 
 void Inspector::setMidiEngine(midi::MidiEngine *engine) { m_midiEngine = engine; }
@@ -1162,6 +1190,8 @@ void Inspector::rebuild()
     if (!has) {
         if (m_videoPollTimer) m_videoPollTimer->stop();
         if (m_videoScrubber)  m_videoScrubber->setActive(false);
+        if (m_audioPollTimer) m_audioPollTimer->stop();
+        if (m_audioWaveform)  m_audioWaveform->setPlayheadSeconds(-1.0);
         m_typeLabel->setText(tr("No cue selected"));
         m_number->setValue(0.0);
         m_name->clear();
@@ -1223,6 +1253,16 @@ void Inspector::rebuild()
         } else {
             m_videoPollTimer->stop();
             if (m_videoScrubber) m_videoScrubber->setActive(false);
+        }
+    }
+    // Same idea for the audio waveform playhead — only follow while an audio
+    // cue is selected; clear the marker otherwise.
+    if (m_audioPollTimer) {
+        if (audioCue) {
+            m_audioPollTimer->start();
+        } else {
+            m_audioPollTimer->stop();
+            if (m_audioWaveform) m_audioWaveform->setPlayheadSeconds(-1.0);
         }
     }
     m_waitGroup->setVisible(waitCue != nullptr);

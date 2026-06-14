@@ -148,12 +148,16 @@ private:
     void rebuildFadeTargets();
     void pushFieldEdit(const QString &field, const QVariant &newValue);
     void pollVideoTransport();
+    // ~30 Hz follow of the selected audio cue's live voice position, used to
+    // move the waveform playhead. Runs only while an audio cue is selected.
+    void pollAudioPlayhead();
 
     QPointer<core::Workspace>   m_workspace;
     QPointer<cues::Cue>         m_cue;
     QPointer<audio::AudioEngine> m_audioEngine;
     QPointer<video::VideoEngine> m_videoEngine;
     QTimer                      *m_videoPollTimer = nullptr;
+    QTimer                      *m_audioPollTimer = nullptr;
     midi::MidiEngine            *m_midiEngine = nullptr;
 
     QLabel         *m_typeLabel = nullptr;

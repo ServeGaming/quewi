@@ -304,6 +304,27 @@ void WaveformWidget::paintEvent(QPaintEvent *)
         p.drawRect(xFadeIn  - 4, h / 2 - 14, 8, 28);
         p.drawRect(xFadeOut - 4, h / 2 - 14, 8, 28);
     }
+
+    // Playhead — the live preview voice's current position, in absolute file
+    // seconds. Hidden when negative (nothing playing). A bright line with a
+    // little top cap so it reads distinctly from the trim/fade bars.
+    if (m_playhead >= 0.0) {
+        const int px = secondsToPixel(m_playhead);
+        if (px >= 0 && px <= w) {
+            p.setPen(QPen(QColor(0xF2, 0xF5, 0xF8), 1.5));
+            p.drawLine(px, 0, px, h);
+            p.setBrush(QColor(0xF2, 0xF5, 0xF8));
+            p.setPen(Qt::NoPen);
+            p.drawRect(px - 3, 0, 6, 4);
+        }
+    }
+}
+
+void WaveformWidget::setPlayheadSeconds(double sec)
+{
+    if (m_playhead == sec) return;
+    m_playhead = sec;
+    update();
 }
 
 void WaveformWidget::mousePressEvent(QMouseEvent *event)
@@ -337,6 +358,12 @@ void WaveformWidget::mousePressEvent(QMouseEvent *event)
         case Handle::None: break;
         }
         setCursor(Qt::SplitHCursor);
+    } else {
+        // Empty space (or default mode with no handles) — left click/drag
+        // scrubs the playhead. Works in every mode; grabbing a trim/fade
+        // handle above takes precedence so editing is unaffected.
+        m_seeking = true;
+        emit seekRequested(pixelToSeconds(x));
     }
 }
 
@@ -352,6 +379,11 @@ void WaveformWidget::mouseMoveEvent(QMouseEvent *event)
         m_viewEnd   = m_viewStart + span;
         clampView();
         update();
+        return;
+    }
+
+    if (m_seeking && (event->buttons() & Qt::LeftButton)) {
+        emit seekRequested(pixelToSeconds(x));
         return;
     }
 
@@ -424,6 +456,11 @@ void WaveformWidget::mouseReleaseEvent(QMouseEvent *event)
         return;
     }
     if (event->button() != Qt::LeftButton) return;
+    if (m_seeking) {
+        // The final position was already emitted on the last press/move.
+        m_seeking = false;
+        return;
+    }
     if (m_dragging != Handle::None) {
         // Snap-to-zero-crossing on trim handles only — fade edges
         // don't audibly benefit (the fade itself smooths the
