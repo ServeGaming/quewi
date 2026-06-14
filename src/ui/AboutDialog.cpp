@@ -1,4 +1,5 @@
 #include "ui/AboutDialog.h"
+#include "ui/Theme.h"
 
 #include <QApplication>
 #include <QDialogButtonBox>
@@ -51,7 +52,7 @@ AboutDialog::AboutDialog(QWidget *parent)
         .arg(QApplication::applicationVersion(),
              QString::fromLatin1(qVersion()),
              QSysInfo::prettyProductName()));
-    version->setStyleSheet(QStringLiteral("color: palette(mid);"));
+    version->setStyleSheet(QStringLiteral("color: %1;").arg(Theme::tokens().ink60.name()));
     col->addWidget(version);
 
     col->addSpacing(8);
@@ -78,8 +79,9 @@ AboutDialog::AboutDialog(QWidget *parent)
     credits->setTextFormat(Qt::RichText);
     credits->setOpenExternalLinks(true);
     credits->setText(tr(
-        "<p style='margin:8px 0 0 0; color: palette(mid);'>"
-        "Built with Qt, RtMidi, and a pile of hand-rolled OSC.</p>"));
+        "<p style='margin:8px 0 0 0; color: %1;'>"
+        "Built with Qt, RtMidi, and a pile of hand-rolled OSC.</p>")
+        .arg(Theme::tokens().ink60.name()));
     col->addWidget(credits);
 
     col->addStretch(1);

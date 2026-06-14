@@ -315,8 +315,10 @@ public:
             sw->setFixedSize(22, 22);
             sw->setCheckable(true);
             sw->setStyleSheet(QStringLiteral(
-                "QPushButton{background:%1;border:1px solid #00000060;border-radius:5px;}"
-                "QPushButton:checked{border:2px solid white;}").arg(c.name()));
+                "QPushButton{background:%1;border:1px solid %2;border-radius:5px;}"
+                "QPushButton:checked{border:2px solid %3;}")
+                .arg(c.name(), Theme::tokens().bgDeep.name(),
+                     Theme::tokens().accent.name()));
             connect(sw, &QPushButton::clicked, this, [this, c]{ setColor(c); });
             m_swatches.append(sw);
             cl->addWidget(sw);

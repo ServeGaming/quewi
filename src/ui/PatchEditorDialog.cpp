@@ -1,4 +1,5 @@
 #include "ui/PatchEditorDialog.h"
+#include "ui/Theme.h"
 
 #include <QAudioDevice>
 #include <QComboBox>
@@ -303,7 +304,7 @@ QWidget *PatchEditorDialog::buildForm(Category cat, QListWidget *list) {
                                 .toJsonArray().size();
             auto *summary = new QLabel(
                 tr("Template: %1 · %2 speakers").arg(tmpl).arg(count), form);
-            summary->setStyleSheet(QStringLiteral("color: palette(mid);"));
+            summary->setStyleSheet(QStringLiteral("color: %1;").arg(Theme::tokens().ink60.name()));
             fl->addRow(summary);
             auto *hint = new QLabel(
                 tr("Use Tools → Speaker Patch… to edit positions."), form);
