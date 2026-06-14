@@ -16,6 +16,7 @@ class QMediaDevices;
 namespace quewi::audio {
 
 class AudioFile;
+class AudioEffect;
 
 using VoiceId = quint64;
 
@@ -48,6 +49,13 @@ struct VoiceParams {
     // 0 dB and lobby at -12 dB without touching the pan. Object-audio
     // cues ignore it (channelGains already encodes the routing).
     QList<float> outputGains;
+
+    // Per-cue effects chain (EQ/comp/reverb/delay) applied to the fired
+    // voice as a stereo insert before the send matrix. Built fresh per
+    // fire from the cue's saved rack; empty = dry. Ignored for object-
+    // audio (channelGains) voices in v1. See docs/dev/realtime-fx-plan.md.
+    // (Carried here now; the mixer wires it in a follow-up commit.)
+    std::vector<std::shared_ptr<AudioEffect>> effects;
 };
 
 // Snapshot of a currently-playing voice — surfaced to the UI so the

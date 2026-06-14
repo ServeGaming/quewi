@@ -95,9 +95,11 @@ effects chain.*
 - (optional) `src/ui/Inspector.cpp` — "Edit Effects…" button.
 
 ## Suggested commit slicing (so a budget cap never leaves broken code)
-1. **Foundation (builds, no behavior change):** extract `buildEffectsFromJson`,
-   add `AudioCue::buildEffectChain()`, add `VoiceParams::effects` (unused yet).
-   Ship as a version. Low risk.
+1. ~~**Foundation (builds, no behavior change):** add `AudioCue::buildEffectChain()`,
+   add `VoiceParams::effects` (unused yet).~~ ✅ **DONE v0.9.81.** (Deserialize loop
+   was inlined in `AudioCue.cpp` rather than extracted into a shared helper — a
+   small duplication of the 4-key type map; dedup with `AudioEditorTrack::fromJson`
+   is a future cleanup.) Next: step 2.
 2. **Engine wiring:** Voice member + scratch + addVoice prepare/reset + deferred
    destruction + the readData scratch-render branch + GoEngine line. This is the
    real-time-critical commit — test hard (play overlapping cues with reverb,

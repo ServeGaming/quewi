@@ -1,7 +1,11 @@
 #include "audio/AudioCue.h"
 
+#include "audio/AudioEffect.h"
+
 #include <QJsonArray>
 #include <QJsonObject>
+
+#include <optional>
 
 namespace quewi::audio {
 
@@ -156,6 +160,41 @@ void AudioCue::fromPayload(const QJsonObject &payload)
     }
     m_editorModelJson = payload.value(QStringLiteral("editorModel")).toObject();
     m_file.reset();
+}
+
+std::vector<std::shared_ptr<AudioEffect>> AudioCue::buildEffectChain() const
+{
+    std::vector<std::shared_ptr<AudioEffect>> chain;
+
+    // Stable JSON type keys, matching AudioEditorModel's effectTypeKey().
+    auto typeFromKey = [](const QString &k) -> std::optional<AudioEffect::Type> {
+        if (k == QLatin1String("eq"))         return AudioEffect::Type::Eq;
+        if (k == QLatin1String("compressor")) return AudioEffect::Type::Compressor;
+        if (k == QLatin1String("reverb"))     return AudioEffect::Type::Reverb;
+        if (k == QLatin1String("delay"))      return AudioEffect::Type::Delay;
+        return std::nullopt;
+    };
+
+    // The cue's rack == track 0's effects in the saved editor session.
+    // Mirrors AudioEditorTrack::fromJson's effects loop so live playback
+    // and the editor stay in lockstep.
+    const auto tracks = m_editorModelJson.value(QStringLiteral("tracks")).toArray();
+    if (tracks.isEmpty()) return chain;
+    const auto fxArr = tracks.at(0).toObject()
+                           .value(QStringLiteral("effects")).toArray();
+    for (const auto &v : fxArr) {
+        const QJsonObject fxo = v.toObject();
+        const auto typeOpt = typeFromKey(fxo.value(QStringLiteral("type")).toString());
+        if (!typeOpt) continue;
+        auto fx = AudioEffect::create(*typeOpt, nullptr);
+        if (!fx) continue;
+        fx->setEnabled(fxo.value(QStringLiteral("enabled")).toBool(true));
+        const QJsonObject params = fxo.value(QStringLiteral("params")).toObject();
+        for (auto it = params.begin(); it != params.end(); ++it)
+            fx->setParameterValue(it.key(), float(it.value().toDouble()));
+        chain.push_back(std::shared_ptr<AudioEffect>(std::move(fx)));
+    }
+    return chain;
 }
 
 void AudioCue::prepare()

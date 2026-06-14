@@ -7,10 +7,12 @@
 #include <QUuid>
 #include <QJsonObject>
 #include <memory>
+#include <vector>
 
 namespace quewi::audio {
 
 class AudioEngine;
+class AudioEffect;
 
 // A cue that plays an audio file through the AudioEngine.
 //
@@ -84,6 +86,12 @@ public:
     // *plays* its filePath; this only restores the editor's working state.
     const QJsonObject &editorModelJson() const { return m_editorModelJson; }
     void setEditorModelJson(const QJsonObject &j) { m_editorModelJson = j; emitChanged(); }
+
+    // Build a fresh effects chain from the saved editor session (track 0's
+    // rack in editorModelJson). GoEngine uses it to apply the cue's
+    // EQ/comp/reverb/delay to the fired voice. Empty when the cue has no
+    // editor session or no effects. See docs/dev/realtime-fx-plan.md.
+    std::vector<std::shared_ptr<AudioEffect>> buildEffectChain() const;
 
     std::shared_ptr<AudioFile> audioFile() const { return m_file; }
 
