@@ -89,15 +89,21 @@ void AnimatedButton::paintEvent(QPaintEvent *)
     if (m_pressed) bg = m_bgPressed;
     if (!isEnabled()) bg = m_bgNormal.darker(110);
 
+    // Inset the path by half the pen width so the 1.5 px stroke sits fully
+    // inside the widget rect (a hairline 1 px pen on fractional DPI shimmers
+    // — the source of the "weird thin border" the buttons used to show).
+    const qreal bw = m_useBorder ? 1.5 : 0.0;
+    const qreal inset = bw * 0.5;
     QPainterPath path;
-    path.addRoundedRect(rect().adjusted(0, 0, -1, -1), m_radius, m_radius);
+    path.addRoundedRect(QRectF(rect()).adjusted(inset, inset, -inset, -inset),
+                        m_radius, m_radius);
     p.fillPath(path, bg);
 
     if (m_useBorder) {
         QColor border = isEnabled()
-            ? lerp(m_borderColor, m_borderColor.lighter(140), m_hoverProgress)
+            ? lerp(m_borderColor, m_borderColor.lighter(125), m_hoverProgress)
             : m_borderColor;
-        QPen pen(border); pen.setWidthF(1.0);
+        QPen pen(border); pen.setWidthF(bw);
         p.setPen(pen);
         p.setBrush(Qt::NoBrush);
         p.drawPath(path);

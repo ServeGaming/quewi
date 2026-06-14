@@ -2,6 +2,7 @@
 
 #include "cues/Cue.h"
 #include "ui/AnimatedButton.h"
+#include "ui/Theme.h"
 
 #include <QHBoxLayout>
 #include <QLabel>
@@ -10,6 +11,18 @@
 #include <QVBoxLayout>
 
 namespace quewi::ui {
+
+namespace {
+// Blend `a` parts of `c` over `base` — used to build the subtle tinted-dark
+// fills for the Fade All / Panic chips so they read as filled, intentional
+// buttons instead of invisible-body wireframes.
+QColor tintOver(const QColor &base, const QColor &c, float a)
+{
+    return QColor::fromRgbF(base.redF()   * (1 - a) + c.redF()   * a,
+                            base.greenF() * (1 - a) + c.greenF() * a,
+                            base.blueF()  * (1 - a) + c.blueF()  * a);
+}
+} // namespace
 
 TransportBar::TransportBar(QWidget *parent)
     : QWidget(parent)
@@ -59,25 +72,33 @@ TransportBar::TransportBar(QWidget *parent)
                         QColor(0xE8, 0xE2, 0xD4));
     m_pause = pauseBtn;
 
+    const auto &tk = Theme::tokens();
+
+    // Fade All — amber. A tinted-dark fill at rest (a real "amber chip", not
+    // a wireframe), a subtle lift on hover, and bright amber text + amber
+    // border carrying the meaning. Theme-token driven so it follows themes.
     auto *fadeBtn = new AnimatedButton(tr("Fade All"), this);
     fadeBtn->setMinimumHeight(44);
     fadeBtn->setBorderRadius(6);
-    fadeBtn->setColors(QColor(0x26, 0x24, 0x22),
-                        QColor(0xD7, 0xA2, 0x4E),  // amber on hover
-                        QColor(0xB0, 0x82, 0x3E),
-                        QColor(0xD7, 0xA2, 0x4E));
-    fadeBtn->setBorderColor(QColor(0xD7, 0xA2, 0x4E));
+    fadeBtn->setColors(tintOver(tk.bgPanel, tk.warn, 0.16f),   // rest
+                       tintOver(tk.bgPanel, tk.warn, 0.32f),   // hover lift
+                       tintOver(tk.bgPanel, tk.warn, 0.10f),   // pressed
+                       tk.warnBright);                          // text
+    fadeBtn->setBorderColor(tk.warn);
     fadeBtn->setToolTip(tr("Fade every running cue out over 2 seconds"));
     m_fadeAll = fadeBtn;
 
+    // Panic — terracotta. Same chip treatment, slightly more present (it's the
+    // danger control), with bright terracotta text + border.
     auto *panicBtn = new AnimatedButton(tr("Panic"), this);
     panicBtn->setMinimumHeight(44);
     panicBtn->setBorderRadius(6);
-    panicBtn->setColors(QColor(0x26, 0x24, 0x22),
-                        QColor(0xC2, 0x6A, 0x55),  // terracotta on hover
-                        QColor(0x9E, 0x55, 0x44),
-                        QColor(0xC2, 0x6A, 0x55));
-    panicBtn->setBorderColor(QColor(0xC2, 0x6A, 0x55));
+    panicBtn->setColors(tintOver(tk.bgPanel, tk.err, 0.18f),   // rest
+                        tintOver(tk.bgPanel, tk.err, 0.36f),   // hover lift
+                        tintOver(tk.bgPanel, tk.err, 0.10f),   // pressed
+                        tk.errBright);                          // text
+    panicBtn->setBorderColor(tk.err);
+    panicBtn->setToolTip(tr("Stop everything immediately"));
     m_panic = panicBtn;
 
     m_goButton = new QPushButton(tr("GO"), this);

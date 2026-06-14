@@ -356,19 +356,8 @@ QPushButton#goButton:disabled {
     border: 1px solid @divider;
 }
 
-QPushButton#fadeAllButton {
-    color: @warn;
-    border: 1px solid @warn;
-    background: transparent;
-}
-QPushButton#fadeAllButton:hover  { background: @warn; color: @bgDeep; }
-
-QPushButton#panicButton {
-    color: @err;
-    border: 1px solid @err;
-    background: transparent;
-}
-QPushButton#panicButton:hover   { background: @err; color: @bgDeep; }
+/* Fade All / Panic are custom-painted AnimatedButtons (see TransportBar.cpp)
+   — they carry no object name, so any rules here would be dead. Styled in C++. */
 
 /* ============================ Transport bar ============================ */
 /* Floats above the deep bg with rounded corners — not a welded strip. */

@@ -178,11 +178,8 @@ QPushButton#goButton {
 QPushButton#goButton:hover { background: #EFF4FF; }
 QPushButton#goButton:pressed { background: #E84A2F; color: #FFFFFF; border-color: #E84A2F; }
 
-QPushButton#fadeAllButton { color: #B45309; border: 1px solid #F2C94C; background: transparent; }
-QPushButton#fadeAllButton:hover { background: #F2C94C; color: #1A1D24; }
-
-QPushButton#panicButton { color: #B91C1C; border: 1px solid #FCA5A5; background: transparent; }
-QPushButton#panicButton:hover { background: #FCA5A5; color: #1A1D24; }
+/* Fade All / Panic are custom-painted AnimatedButtons (TransportBar.cpp) — no
+   object name, so rules here would be dead. Styled in C++ from Theme tokens. */
 
 QWidget#transportBar { background: #ECEEF3; border-top: 1px solid #D7D9DF; }
 QWidget#activeCuesPanel { background: #ECEEF3; border-top: 1px solid #D7D9DF; }
