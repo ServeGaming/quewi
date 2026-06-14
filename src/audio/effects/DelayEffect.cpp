@@ -4,7 +4,13 @@
 
 namespace quewi::audio {
 
-DelayEffect::DelayEffect(QObject *parent) : AudioEffect(parent) {}
+DelayEffect::DelayEffect(QObject *parent) : AudioEffect(parent) {
+    // Allocate the delay buffers up-front so process() — which indexes them and
+    // does `% size` — can't read out of bounds or divide by zero if it runs
+    // before prepare() (e.g. the effect is added to an already-playing chain).
+    // prepare() re-runs at the real sample rate when playback (re)starts.
+    prepare(m_sampleRate);
+}
 
 void DelayEffect::prepare(int sr) {
     m_sampleRate = sr;

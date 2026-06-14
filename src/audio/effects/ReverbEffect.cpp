@@ -13,7 +13,16 @@ static constexpr float kScaleRoom  = 0.28f;
 static constexpr float kOffsetRoom = 0.7f;
 static constexpr float kFixedGain  = 0.015f;
 
-ReverbEffect::ReverbEffect(QObject *parent) : AudioEffect(parent) {}
+ReverbEffect::ReverbEffect(QObject *parent) : AudioEffect(parent) {
+    // Size the comb/allpass delay lines up-front. Without this the buffers are
+    // empty until prepare() runs, and process() -> CombFilter::tick() reads
+    // buf[writePos] on an empty vector — an out-of-bounds crash. That happens
+    // whenever an effect is added to a chain that is ALREADY playing (the live
+    // editor preview prepares only the effects that existed when playback
+    // started), which is exactly the "selecting Reverb just crashes" report.
+    // prepare() re-runs at the real device sample rate when playback (re)starts.
+    prepare(m_sampleRate);
+}
 
 void ReverbEffect::prepare(int sr) {
     m_sampleRate = sr;
