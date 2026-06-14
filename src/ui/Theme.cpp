@@ -118,7 +118,16 @@ Theme::Tokens tokensForName(const QString &name)
     if (name == QLatin1String("quewi-midnight"))     return midnightTokens();
     if (name == QLatin1String("quewi-forest"))       return forestTokens();
     if (name == QLatin1String("quewi-synthwave"))    return synthwaveTokens();
-    return Theme::tokens();
+    return Theme::Tokens{};   // warm-dark default
+}
+
+// The palette the C++-painted widgets read. load() updates it so the fun
+// themes / high-contrast / light actually reach widgets that paint from
+// Theme::tokens() (soundboard pads, video scrubber) rather than via QSS.
+Theme::Tokens &activeTokensRef()
+{
+    static Theme::Tokens t{};
+    return t;
 }
 } // namespace
 
@@ -140,6 +149,7 @@ QString Theme::load(const QString &name)
     // the palette without a build-time codegen step. (Light has no
     // @placeholders, so this is a no-op there.)
     const Tokens t = tokensForName(name);
+    activeTokensRef() = t;   // so C++-painted widgets pick up the theme too
     const QHash<QString, QColor> map {
         {"bgDeep",        t.bgDeep},
         {"bgPanel",       t.bgPanel},
@@ -176,8 +186,7 @@ QString Theme::load(const QString &name)
 
 const Theme::Tokens &Theme::tokens()
 {
-    static const Tokens t{};
-    return t;
+    return activeTokensRef();
 }
 
 } // namespace quewi::ui

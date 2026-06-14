@@ -55,7 +55,16 @@ std::unique_ptr<CueList> Workspace::takeCueList(CueListId id)
     auto taken = std::move(*it);
     m_cueLists.erase(it);
     if (m_activeCueList == taken.get()) {
-        m_activeCueList = m_cueLists.empty() ? nullptr : m_cueLists.front().get();
+        // Prefer a Normal list as the fallback — the soundboard is not a
+        // valid set-list home (its pad cues would surface in the cue table
+        // and the GO context). Fall back to whatever remains only if there
+        // is no normal list left.
+        m_activeCueList = nullptr;
+        for (const auto &cl : m_cueLists) {
+            if (cl->kind() == CueList::Kind::Normal) { m_activeCueList = cl.get(); break; }
+        }
+        if (!m_activeCueList && !m_cueLists.empty())
+            m_activeCueList = m_cueLists.front().get();
         emit activeCueListChanged();
     }
     taken->setParent(nullptr);

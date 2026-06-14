@@ -571,7 +571,11 @@ void CartView::rebuildGrid()
                     emit editCueRequested(cue);
             });
             if (auto *cue = pad->cue())
-                connect(cue, &cues::Cue::changed, this, &CartView::onCueChanged);
+                // UniqueConnection: rebuildGrid re-runs on every layout change
+                // but the Cue and CartView both outlive the rebuild, so without
+                // this the slot accumulates a duplicate per rebuild.
+                connect(cue, &cues::Cue::changed, this, &CartView::onCueChanged,
+                        Qt::UniqueConnection);
 
             m_grid->addWidget(pad, r, c);
             m_pads.append(pad);

@@ -1762,6 +1762,24 @@ void MainWindow::rebuildListTabs()
         ++idx;
     }
     if (m_listTabs->count() > 0) m_listTabs->setCurrentIndex(currentIdx);
+
+    // If the soundboard page is the one actually showing, keep its tab
+    // highlighted (selecting a soundboard tab doesn't change activeCueList,
+    // so the loop above would otherwise snap the highlight onto the set-list
+    // tab while the center area still shows the board). Under the signal
+    // blocker, so this only fixes the highlight — the visible page is intact.
+    if (m_centerStack && m_cartView
+        && m_centerStack->currentWidget() == m_cartView) {
+        for (int i = 0; i < m_listTabs->count(); ++i) {
+            const auto id = m_listTabs->tabData(i).toUuid();
+            for (const auto &list : m_workspace->cueLists())
+                if (list->id() == id
+                    && list->kind() == core::CueList::Kind::Soundboard) {
+                    m_listTabs->setCurrentIndex(i);
+                    break;
+                }
+        }
+    }
 }
 
 void MainWindow::onTabSelected(int index)
@@ -1850,6 +1868,17 @@ void MainWindow::removeCueListTab()
     }
     auto *list = m_workspace->activeCueList();
     if (!list) return;
+    // Never remove the last NORMAL list — the soundboard isn't a valid
+    // set-list home (its pad cues would surface in the cue table and GO).
+    if (list->kind() == core::CueList::Kind::Normal) {
+        int normals = 0;
+        for (const auto &cl : m_workspace->cueLists())
+            if (cl->kind() == core::CueList::Kind::Normal) ++normals;
+        if (normals <= 1) {
+            statusBar()->showMessage(tr("Can't remove the last cue list"), 2500);
+            return;
+        }
+    }
     if (QMessageBox::question(this, tr("Remove cue list"),
             tr("Remove \"%1\" and all its cues?").arg(list->name()))
         != QMessageBox::Yes) return;
@@ -2044,7 +2073,12 @@ void MainWindow::onCartFileDropped(int row, int col, const QString &path)
     // Re-use the existing drag-import path that knows how to make a
     // cue from any supported file type, then bind whichever cue id
     // came back to the dropped cart cell.
-    const auto added = insertCuesFromUrls({ QUrl::fromLocalFile(path) }, -1, list);
+    // Append explicitly: startRow=-1 would derive the insert row from the
+    // cue-LIST view's selection, which is still on the SET LIST while the
+    // soundboard tab is showing — so the new cue could land mid-board and
+    // cueAt(cueCount()-1) would return the wrong (pre-existing) cue.
+    const auto added = insertCuesFromUrls({ QUrl::fromLocalFile(path) },
+                                          list->cueCount(), list);
     if (added <= 0) return;
     auto *newCue = list->cueAt(list->cueCount() - 1);
     if (!newCue) return;
