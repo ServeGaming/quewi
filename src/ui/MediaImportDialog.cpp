@@ -18,11 +18,13 @@
 #include <QMessageBox>
 #include <QNetworkAccessManager>
 #include <QNetworkReply>
+#include <QPainter>
 #include <QPixmap>
 #include <QProgressBar>
 #include <QPushButton>
 #include <QRadioButton>
 #include <QSettings>
+#include <QStyledItemDelegate>
 #include <QUrl>
 #include <QVBoxLayout>
 #include <algorithm>
@@ -31,6 +33,34 @@
 namespace quewi::ui {
 
 namespace {
+
+// Frames the SELECTED search result with an accent border + soft fill so the
+// chosen item is unmistakable — the default selection wash is too faint to
+// read behind the large thumbnail.
+class ResultDelegate : public QStyledItemDelegate {
+public:
+    using QStyledItemDelegate::QStyledItemDelegate;
+    void paint(QPainter *p, const QStyleOptionViewItem &opt,
+               const QModelIndex &idx) const override
+    {
+        const bool sel = opt.state & QStyle::State_Selected;
+        QStyleOptionViewItem o = opt;
+        o.state &= ~QStyle::State_Selected;   // we draw our own selection chrome
+        QStyledItemDelegate::paint(p, o, idx);
+        if (!sel) return;
+        const auto &tk = Theme::tokens();
+        p->save();
+        p->setRenderHint(QPainter::Antialiasing, true);
+        const QRectF r = QRectF(opt.rect).adjusted(2, 2, -2, -2);
+        QColor fill = tk.accent; fill.setAlpha(30);
+        p->setPen(Qt::NoPen); p->setBrush(fill);
+        p->drawRoundedRect(r, 6, 6);
+        p->setPen(QPen(tk.accent, 2)); p->setBrush(Qt::NoBrush);
+        p->drawRoundedRect(r, 6, 6);
+        p->restore();
+    }
+};
+
 QString fmtDuration(qint64 sec)
 {
     if (sec <= 0) return QStringLiteral("—");
@@ -135,6 +165,14 @@ MediaImportDialog::MediaImportDialog(const QString &destDir, QWidget *parent)
     m_resultsList->setIconSize(QSize(120, 68));
     m_resultsList->setUniformItemSizes(false);
     m_resultsList->setAlternatingRowColors(false);
+    // Per-PIXEL scroll: the app-wide SmoothScroll filter animates the
+    // scrollbar's value in pixels, but a QListWidget defaults to per-ITEM
+    // scrolling, so a pixel delta jumped ~60 items per notch (the "flies
+    // through the whole thing"). Mirrors CueListView.
+    m_resultsList->setVerticalScrollMode(QAbstractItemView::ScrollPerPixel);
+    // Frame the SELECTED result clearly (an accent border around the whole
+    // row), not just the dim default wash behind the thumbnail.
+    m_resultsList->setItemDelegate(new ResultDelegate(m_resultsList));
     auto *listRow = new QHBoxLayout();
     listRow->setSpacing(8);
     listRow->addWidget(m_resultsList, 1);
@@ -188,7 +226,10 @@ MediaImportDialog::MediaImportDialog(const QString &destDir, QWidget *parent)
 
     // ── Wiring ────────────────────────────────────────────────────
     connect(m_searchBtn, &QPushButton::clicked, this, &MediaImportDialog::onSearchClicked);
-    connect(m_searchEdit, &QLineEdit::returnPressed, this, &MediaImportDialog::onSearchClicked);
+    // NOTE: deliberately NOT connecting returnPressed. m_searchBtn is the
+    // dialog's default button, so Enter in the field already triggers it.
+    // Wiring returnPressed too made Enter fire onSearchClicked TWICE, and the
+    // second call's search() cancelled the first one's process -> "0 results".
     connect(m_resultsList, &QListWidget::itemSelectionChanged,
             this, &MediaImportDialog::onResultSelectionChanged);
     connect(m_previewBtn, &QPushButton::clicked, this, &MediaImportDialog::onPreviewClicked);
