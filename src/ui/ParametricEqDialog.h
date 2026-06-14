@@ -86,6 +86,20 @@ private:
     void rebuildBandPanel();
     void updatePanel();
 
+    // Per-pixel frequency cache for the response graph. xToFreq() is a
+    // log10+pow per call; the curve loops it ~width()×(bands+1) times every
+    // repaint. The mapping only changes on resize, so precompute it in
+    // layoutGraph() and index it in paintEvent instead of recomputing.
+    QList<float> m_curveFreqs;
+    void rebuildCurveFreqs();
+
+    // Coalesce repaints to ~60fps. A fast handle drag emits paint requests far
+    // faster than the screen refreshes; painting every one starves the editor
+    // preview's (GUI-thread) audio sink and the sound stutters. scheduleRepaint
+    // collapses a burst of requests into one update() per frame.
+    QTimer *m_repaintTimer = nullptr;
+    void scheduleRepaint();
+
     class QWidget *m_panel = nullptr;
 };
 

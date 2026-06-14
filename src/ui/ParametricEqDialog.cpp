@@ -18,6 +18,7 @@
 #include <QPainter>
 #include <QPainterPath>
 #include <QSignalBlocker>
+#include <QTimer>
 #include <QVBoxLayout>
 #include <QWheelEvent>
 #include <algorithm>
@@ -81,11 +82,24 @@ ParametricEqDialog::ParametricEqDialog(audio::EqEffect *eq, QWidget *parent)
     connect(redoAct, &QAction::triggered, this, [this] { if (m_undo) m_undo->redo(); });
     addAction(redoAct);
 
+    // Coalesced repaint — at most one update() per ~16ms frame.
+    m_repaintTimer = new QTimer(this);
+    m_repaintTimer->setSingleShot(true);
+    m_repaintTimer->setInterval(16);
+    connect(m_repaintTimer, &QTimer::timeout, this, qOverload<>(&QWidget::update));
+
     if (m_eq) {
         connect(m_eq, &audio::AudioEffect::parameterChanged, this,
                 [this](const QString &, float) {
-            updatePanel();
-            update();
+            // setBand() emits three parameterChanged signals per change, so this
+            // slot fires 3× per drag move. updatePanel() does ~30 findChild()
+            // scans; running it 3× per move (with the heavy repaint) saturates
+            // the GUI thread and the editor preview's audio sink underruns.
+            // During a drag the panel is resynced once on mouse-release, so skip
+            // it here; otherwise (spin-box / type edits) keep it live. Repaints
+            // are coalesced to one per frame either way.
+            if (m_dragBand < 0) updatePanel();
+            scheduleRepaint();
         });
     }
 }
@@ -169,6 +183,19 @@ void ParametricEqDialog::resizeEvent(QResizeEvent *) {
 void ParametricEqDialog::layoutGraph() {
     m_graphRect = QRect(0, 0, width(), height() - m_panel->height());
     m_graphRect.adjust(48, 18, -18, -22); // axis margins
+    rebuildCurveFreqs();
+}
+
+void ParametricEqDialog::rebuildCurveFreqs() {
+    const int n = std::max(0, m_graphRect.width());
+    m_curveFreqs.resize(n);
+    for (int i = 0; i < n; ++i)
+        m_curveFreqs[i] = xToFreq(m_graphRect.left() + i);
+}
+
+void ParametricEqDialog::scheduleRepaint() {
+    if (m_repaintTimer && !m_repaintTimer->isActive()) m_repaintTimer->start();
+    else if (!m_repaintTimer) update();
 }
 
 // ── Coord helpers ────────────────────────────────────────────────────────────
@@ -316,14 +343,25 @@ void ParametricEqDialog::paintEvent(QPaintEvent *) {
     // exactly which band is doing what.
     const int yZero = gainToY(0.f);
     const int nPts = m_graphRect.width();
+    // Index the precomputed per-pixel frequency map when it matches the current
+    // width; fall back to xToFreq() if it's momentarily stale (pre-resize).
+    const bool haveCache = (m_curveFreqs.size() == nPts);
     for (int b = 0; b < audio::EqEffect::kNumBands; ++b) {
         const auto sn = m_eq->bandSnapshot(b);
+        // A peaking/shelf band sitting at ~0 dB is flat everywhere — skip its
+        // ghost curve before paying for nPts biquad-magnitude evaluations.
+        // Low/high-pass filters always shape the signal, so never skip those.
+        if ((sn.type == audio::EqEffect::Peaking
+             || sn.type == audio::EqEffect::LowShelf
+             || sn.type == audio::EqEffect::HighShelf)
+            && std::abs(sn.gainDb) < 0.05f)
+            continue;
         QVector<QPointF> bandCurve;
         bandCurve.reserve(nPts);
         bool nonTrivial = false;
         for (int i = 0; i < nPts; ++i) {
             const int x = m_graphRect.left() + i;
-            const float f  = xToFreq(x);
+            const float f  = haveCache ? m_curveFreqs[i] : xToFreq(x);
             const float dB = m_eq->bandResponseDb(b, f);
             if (std::abs(dB) > 0.05f) nonTrivial = true;
             bandCurve.append(QPointF(x, gainToY(std::clamp(dB, kGainMin, kGainMax))));
@@ -342,7 +380,7 @@ void ParametricEqDialog::paintEvent(QPaintEvent *) {
     curve.reserve(nPts);
     for (int i = 0; i < nPts; ++i) {
         const int x = m_graphRect.left() + i;
-        const float f  = xToFreq(x);
+        const float f  = haveCache ? m_curveFreqs[i] : xToFreq(x);
         const float dB = m_eq->responseDb(f);
         curve.append(QPointF(x, gainToY(std::clamp(dB, kGainMin, kGainMax))));
     }
@@ -435,13 +473,16 @@ void ParametricEqDialog::mouseMoveEvent(QMouseEvent *e) {
         m_eq->setBand(m_dragBand, f, g, sn.Q);
     }
     setCursor(newHover >= 0 ? Qt::OpenHandCursor : Qt::ArrowCursor);
-    update();
+    scheduleRepaint();
 }
 
 void ParametricEqDialog::mouseReleaseEvent(QMouseEvent *) {
     const bool wasDragging = (m_dragBand >= 0);
     m_dragBand = -1;
-    if (wasDragging) maybeCommit(); // one undo step per drag
+    if (wasDragging) {
+        updatePanel();  // resync spin boxes to the final drag values (gated above)
+        maybeCommit();  // one undo step per drag
+    }
 }
 
 void ParametricEqDialog::mouseDoubleClickEvent(QMouseEvent *e) {
