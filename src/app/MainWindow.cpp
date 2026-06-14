@@ -692,6 +692,16 @@ void MainWindow::buildMenus()
     helpMenu->addSeparator();
     helpMenu->addAction(tr("&Report a bug…"),
                         this, &MainWindow::reportBug);
+    // One-click access to the update step-logs (update-client.log /
+    // update-helper.log / update-install.log) so a failed auto-update can be
+    // diagnosed without hunting through %APPDATA%.
+    helpMenu->addAction(tr("Open &update logs…"), this, [this] {
+        const QString dir = QStandardPaths::writableLocation(
+            QStandardPaths::AppDataLocation);
+        if (dir.isEmpty()) return;
+        QDir().mkpath(dir);
+        QDesktopServices::openUrl(QUrl::fromLocalFile(dir));
+    });
     helpMenu->addSeparator();
     helpMenu->addAction(tr("&About quewi…"),
                         QKeySequence(QStringLiteral("Ctrl+?")),
