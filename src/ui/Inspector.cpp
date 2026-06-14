@@ -711,6 +711,7 @@ Inspector::Inspector(QWidget *parent)
 
     m_fadeParam = new QComboBox(m_fadeGroup);
     m_fadeParam->addItem(tr("Gain (dB)"), QStringLiteral("gainDb"));
+    m_fadeParam->addItem(tr("Opacity"),   QStringLiteral("opacity"));
     fadeForm->addRow(tr("Parameter"), m_fadeParam);
 
     m_fadeValue = new QDoubleSpinBox(m_fadeGroup);
@@ -1574,8 +1575,9 @@ void Inspector::rebuildFadeTargets()
     for (int row = 0; row < list->cueCount(); ++row) {
         auto *c = list->cueAt(row);
         if (!c || c == m_cue) continue;
-        // For Phase 3 the only valid target is an audio cue.
-        if (qobject_cast<audio::AudioCue *>(c) == nullptr) continue;
+        // Valid fade targets: audio cues (gainDb) and visual cues (opacity).
+        if (qobject_cast<audio::AudioCue *>(c) == nullptr
+            && qobject_cast<video::VisualCue *>(c) == nullptr) continue;
         m_fadeTarget->addItem(
             QStringLiteral("%1  %2")
                 .arg(QString::number(c->number(), 'f', 2),

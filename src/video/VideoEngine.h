@@ -59,6 +59,11 @@ public:
     // produces. Duration ≤ 0 falls back to instant stopAll.
     void fadeOutAll(double durationSeconds);
 
+    // Fade one playing video voice's opacity to `targetOpacity` (0..1) over
+    // durationSeconds. Drives FadeCue with parameter "opacity". No-op if the
+    // voice has already ended.
+    void fadeOpacity(VideoVoiceId id, double targetOpacity, double durationSeconds);
+
     int activeVoiceCount() const { return static_cast<int>(m_voices.size()); }
 
     // ── Live transport for a playing video voice ────────────────────────

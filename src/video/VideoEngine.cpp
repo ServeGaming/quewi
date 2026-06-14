@@ -149,6 +149,28 @@ void VideoEngine::fadeOutAll(double durationSeconds)
     QTimer::singleShot(durMs, this, &VideoEngine::stopAll);
 }
 
+void VideoEngine::fadeOpacity(VideoVoiceId id, double targetOpacity,
+                              double durationSeconds)
+{
+    auto it = std::find_if(m_voices.begin(), m_voices.end(),
+        [id](const Voice &v) { return v.id == id; });
+    if (it == m_voices.end() || !it->layer) return;
+    const double target = std::clamp(targetOpacity, 0.0, 1.0);
+    QPointer<Layer> layer = it->layer;
+    if (durationSeconds <= 0.0) { layer->setOpacity(target); return; }
+
+    const int durMs = std::max(1, int(durationSeconds * 1000));
+    auto *anim = new QVariantAnimation(this);
+    anim->setStartValue(layer->opacity());
+    anim->setEndValue(target);
+    anim->setDuration(durMs);
+    connect(anim, &QVariantAnimation::valueChanged, this,
+            [layer](const QVariant &val) {
+                if (layer) layer->setOpacity(val.toDouble());
+            });
+    anim->start(QAbstractAnimation::DeleteWhenStopped);
+}
+
 void VideoEngine::setCornerPin(int screenIndex, const QPolygonF &quad)
 {
     if (m_compositor) m_compositor->setCornerPin(screenIndex, quad);

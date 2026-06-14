@@ -304,13 +304,22 @@ void GoEngine::doFire(cues::Cue *cue, const QByteArray &outputDeviceOverride)
                 .arg(visualCue->screenIndex()));
         }
     } else if (auto *fadeCue = qobject_cast<cues::FadeCue *>(cue)) {
-        auto *target = qobject_cast<audio::AudioCue *>(findCue(fadeCue->targetId()));
-        if (m_audio && target && target->currentVoiceId() != 0
+        auto *targetCue   = findCue(fadeCue->targetId());
+        auto *audioTarget = qobject_cast<audio::AudioCue *>(targetCue);
+        auto *videoTarget = qobject_cast<video::VisualCue *>(targetCue);
+        if (m_audio && audioTarget && audioTarget->currentVoiceId() != 0
             && fadeCue->parameter() == QLatin1String("gainDb")) {
-            m_audio->fadeGain(target->currentVoiceId(),
+            m_audio->fadeGain(audioTarget->currentVoiceId(),
                               fadeCue->targetValue(), fadeCue->durationSeconds());
             status(tr("Fade → %1 dB over %2 s")
                 .arg(fadeCue->targetValue()).arg(fadeCue->durationSeconds()));
+        } else if (m_video && videoTarget && videoTarget->currentVoiceId() != 0
+                   && fadeCue->parameter() == QLatin1String("opacity")) {
+            m_video->fadeOpacity(videoTarget->currentVoiceId(),
+                                 fadeCue->targetValue(), fadeCue->durationSeconds());
+            status(tr("Fade → %1 opacity over %2 s")
+                .arg(fadeCue->targetValue(), 0, 'f', 2)
+                .arg(fadeCue->durationSeconds()));
         } else {
             status(tr("Fade: target not playing"));
         }
