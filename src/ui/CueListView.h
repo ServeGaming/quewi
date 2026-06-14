@@ -32,6 +32,11 @@ public:
     cues::Cue *currentCue() const;
     cues::Cue *nextCue() const;
 
+    // Clipboard helpers exposed for the empty-area context menu (the menu
+    // itself is built by MainWindow, which owns the cue-creation actions).
+    bool canPasteCues() const;
+    void pasteCuesAtEnd();
+
     // Re-reads QSettings ui/cueColumns/* and updates which optional columns
     // are visible. Called after Preferences saves.
     void applyColumnVisibility();
@@ -54,6 +59,9 @@ signals:
     // Insert above / below from the context menu — MainWindow opens its
     // own insert flow at the requested row (typically the new-cue picker).
     void insertRequested(int row);
+    // Right-click on empty space (no cue under the cursor). MainWindow pops
+    // a menu to create a new cue, paste, import from URL, or open preferences.
+    void emptyAreaContextMenuRequested(const QPoint &globalPos);
 
 protected:
     void keyPressEvent(QKeyEvent *event) override;

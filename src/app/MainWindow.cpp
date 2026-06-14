@@ -455,6 +455,8 @@ void MainWindow::buildLayout()
             if (m_model->rowCount() > target)
                 m_cueListView->setCurrentIndex(m_model->index(target, 0));
         });
+    connect(m_cueListView, &ui::CueListView::emptyAreaContextMenuRequested,
+            this, &MainWindow::showCueListContextMenu);
     // Transport bar buttons trigger the rebindable QActions so they
     // share one source of truth with the keyboard shortcuts.
     connect(m_transport, &ui::TransportBar::goPressed,
@@ -1081,6 +1083,59 @@ void MainWindow::insertCueOfType(std::unique_ptr<cues::Cue> cue,
         new core::InsertCueCommand(list, insertRow, std::move(cue)));
     if (m_model->rowCount() > insertRow)
         m_cueListView->setCurrentIndex(m_model->index(insertRow, 0));
+}
+
+void MainWindow::populateNewCueMenu(QMenu *menu)
+{
+    // Each action clears the current index first so the new cue appends at
+    // the END of the list (the user right-clicked empty space below the
+    // cues), then runs the same insert slot the menu bar uses.
+    auto add = [this, menu](const QString &label, void (MainWindow::*slot)()) {
+        menu->addAction(label, this, [this, slot]{
+            m_cueListView->setCurrentIndex(QModelIndex());
+            (this->*slot)();
+        });
+    };
+    add(tr("Memo"),       &MainWindow::insertMemoCue);
+    add(tr("OSC"),        &MainWindow::insertOscCue);
+    add(tr("Audio"),      &MainWindow::insertAudioCue);
+    add(tr("Fade"),       &MainWindow::insertFadeCue);
+    add(tr("Light"),      &MainWindow::insertLightCue);
+    add(tr("Light Fade"), &MainWindow::insertLightFadeCue);
+    add(tr("Video"),      &MainWindow::insertVideoCue);
+    add(tr("Image"),      &MainWindow::insertImageCue);
+    add(tr("Text"),       &MainWindow::insertTextCue);
+    menu->addSeparator();
+    add(tr("Wait"),       &MainWindow::insertWaitCue);
+    add(tr("Start"),      &MainWindow::insertStartCue);
+    add(tr("Stop"),       &MainWindow::insertStopCue);
+    add(tr("Goto"),       &MainWindow::insertGotoCue);
+    add(tr("Pause"),      &MainWindow::insertPauseCue);
+    add(tr("Load"),       &MainWindow::insertLoadCue);
+    add(tr("Reset"),      &MainWindow::insertResetCue);
+    add(tr("Devamp"),     &MainWindow::insertDevampCue);
+    add(tr("Group"),      &MainWindow::insertGroupCue);
+    add(tr("MIDI"),       &MainWindow::insertMidiCue);
+    add(tr("MSC"),        &MainWindow::insertMscCue);
+}
+
+void MainWindow::showCueListContextMenu(const QPoint &globalPos)
+{
+    QMenu menu(this);
+
+    auto *newMenu = menu.addMenu(tr("New Cue"));
+    populateNewCueMenu(newMenu);
+
+    menu.addSeparator();
+    auto *pasteAct = menu.addAction(tr("Paste"), this,
+        [this]{ m_cueListView->pasteCuesAtEnd(); });
+    pasteAct->setEnabled(m_cueListView->canPasteCues());
+    menu.addAction(tr("Import from URL…"), this, &MainWindow::showMediaImport);
+
+    menu.addSeparator();
+    menu.addAction(tr("Preferences…"), this, &MainWindow::showPreferences);
+
+    menu.exec(globalPos);
 }
 
 // Each New-<type> menu action is a one-liner over insertCueOfType.

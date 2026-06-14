@@ -10,6 +10,8 @@ namespace quewi::audio { class CompressorEffect; }
 
 namespace quewi::ui {
 
+class LiveAudioScope;
+
 // Visual compressor editor. A live transfer-curve graph (input level →
 // output level) sits above a strip of numeric controls. A gain-reduction
 // meter runs down the right edge of the graph and moves during preview
@@ -27,6 +29,11 @@ public:
     explicit CompressorDialog(audio::CompressorEffect *comp, QWidget *parent = nullptr);
     ~CompressorDialog() override = default;
 
+    // Optional live analyzer — when set and playing, the current program
+    // level is shown moving along the transfer curve and the GR meter tracks
+    // the reduction the curve applies at that level.
+    void setScope(LiveAudioScope *scope);
+
 protected:
     void paintEvent(QPaintEvent *) override;
     void mousePressEvent(QMouseEvent *) override;
@@ -39,6 +46,7 @@ protected:
 
 private:
     QPointer<audio::CompressorEffect> m_comp;
+    QPointer<LiveAudioScope>          m_scope;
 
     // Graph axis ranges (dBFS). Input spans the usable signal range; output
     // is given headroom above 0 so makeup gain is visible.

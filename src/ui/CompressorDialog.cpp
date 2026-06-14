@@ -1,5 +1,6 @@
 #include "ui/CompressorDialog.h"
 #include "audio/effects/CompressorEffect.h"
+#include "ui/LiveAudioScope.h"
 #include "ui/Theme.h"
 
 #include <QDoubleSpinBox>
@@ -59,6 +60,15 @@ CompressorDialog::CompressorDialog(audio::CompressorEffect *comp, QWidget *paren
         }
     });
     m_meterTimer->start();
+}
+
+void CompressorDialog::setScope(LiveAudioScope *scope) {
+    if (m_scope) disconnect(m_scope, nullptr, this, nullptr);
+    m_scope = scope;
+    if (m_scope)
+        connect(m_scope, &LiveAudioScope::updated, this,
+                qOverload<>(&QWidget::update));
+    update();
 }
 
 void CompressorDialog::resizeEvent(QResizeEvent *) { layoutGraph(); }
@@ -223,13 +233,36 @@ void CompressorDialog::paintEvent(QPaintEvent *) {
     drawHandle(ratioHandlePos(), QColor(0x5f, 0xdc, 0xc8),
                m_hoverHandle == 2 || m_drag == Drag::Ratio);
 
+    // ── Live program level riding the curve ─────────────────────────
+    const bool liveScope = (m_scope && m_scope->active());
+    if (liveScope) {
+        const float lvl    = std::clamp(m_scope->peakDb(), kInMin, kInMax);
+        const float outLvl = std::clamp(m_comp->transferOutputDb(lvl), kOutMin, kOutMax);
+        const int lx = inToX(lvl);
+        p.setPen(QPen(QColor(0x5f, 0xdc, 0xc8, 130), 1, Qt::DashLine));
+        p.drawLine(lx, m_graphRect.top(), lx, m_graphRect.bottom());
+        const QPoint dot(lx, outToY(outLvl));
+        p.setBrush(QColor(0x9f, 0xf0, 0xe0));
+        p.setPen(QPen(QColor(0x10, 0x14, 0x19), 2));
+        p.drawEllipse(dot, 5, 5);
+    }
+
     // ── Gain-reduction meter ────────────────────────────────────────
     const int mx = m_graphRect.right() + 18;
     const QRect meter(mx, m_graphRect.top(), kMeterWidth, m_graphRect.height());
     p.fillRect(meter, QColor(0x10, 0x14, 0x19));
     p.setPen(QColor(0x41, 0x47, 0x52));
     p.drawRect(meter.adjusted(0, 0, -1, -1));
-    const float gr = std::clamp(-m_comp->currentGainReductionDb(), 0.f, kMeterRange);
+    // While the analyzer is live, show the reduction the curve applies at the
+    // current program level; otherwise fall back to the processor's own GR.
+    float gr;
+    if (liveScope) {
+        const float lvl  = std::clamp(m_scope->peakDb(), kInMin, kInMax);
+        const float redu = m_comp->transferOutputDb(lvl) - lvl - m_comp->makeupDb();
+        gr = std::clamp(-redu, 0.f, kMeterRange);
+    } else {
+        gr = std::clamp(-m_comp->currentGainReductionDb(), 0.f, kMeterRange);
+    }
     const int barH = int(gr / kMeterRange * meter.height());
     if (barH > 0) {
         QLinearGradient mg(0, meter.top(), 0, meter.bottom());

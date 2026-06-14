@@ -62,32 +62,31 @@ EffectsRackWidget::EffectsRackWidget(QWidget *parent) : QWidget(parent) {
     setStyleSheet(QStringLiteral(
         // Add button — accent-filled pill.
         "QPushButton#fxAddButton {"
-        "  background:%1; color:%2; border:none; border-radius:6px;"
-        "  padding:7px 16px; font-size:12px; font-weight:600; min-height:18px; }"
+        "  background:%1; color:%2; border:none; border-radius:7px;"
+        "  padding:8px 18px; font-size:12px; font-weight:600; }"
         "QPushButton#fxAddButton:hover  { background:%3; }"
         "QPushButton#fxAddButton:pressed{ background:%4; }"
-        // Effect card surface.
-        "QFrame#fxCard { background:%5; border:1px solid %6; border-radius:8px; }"
+        // Card: a lifted, rounded surface. No hairline border — the lift
+        // comes purely from the bg contrast against the darker panel, which
+        // reads cleaner than a thin 1px outline.
+        "QFrame#fxCard { background:%5; border:none; border-radius:11px; }"
         // Remove (×) button on a card.
-        "QToolButton#fxClose { background:transparent; border:none; color:%7;"
-        "  min-width:22px; max-width:22px; min-height:22px; max-height:22px; }"
+        "QToolButton#fxClose { background:transparent; border:none; color:%6;"
+        "  font-size:17px; padding:0; min-width:20px; max-width:20px; }"
         "QToolButton#fxClose:hover { color:%2; }"
-        // Slider — slim track, round handle.
-        "QFrame#fxCard QSlider::groove:horizontal { height:4px; background:%6;"
-        "  border-radius:2px; }"
-        "QFrame#fxCard QSlider::sub-page:horizontal { background:%8;"
-        "  border-radius:2px; }"
-        "QFrame#fxCard QSlider::handle:horizontal { background:%2; width:13px;"
-        "  height:13px; margin:-5px 0; border-radius:6px; }"
-        "QFrame#fxCard QSlider::handle:horizontal:hover { background:%8; }")
-        .arg(tk.bgInteractive.name(),  // %1 add bg
-             tk.ink100.name(),         // %2 text / handle
-             tk.bgRowHover.name(),     // %3 add hover
-             tk.bgPanel.name(),        // %4 add pressed
-             tk.bgPanel.name(),        // %5 card bg
-             tk.outline.name(),        // %6 borders / groove
-             tk.ink40.name(),          // %7 close idle
-             tk.accent.name()));       // %8 slider fill
+        // Sliders — chunkier groove + ring handle. Per-card accent fill is
+        // set inline in buildParamRow.
+        "QFrame#fxCard QSlider::groove:horizontal { height:6px; background:%7;"
+        "  border-radius:3px; }"
+        "QFrame#fxCard QSlider::handle:horizontal { background:%2; width:14px;"
+        "  height:14px; margin:-5px 0; border-radius:7px; border:3px solid %5; }")
+        .arg(tk.bgInteractive.name(),          // %1 add bg
+             tk.ink100.name(),                 // %2 text / handle
+             tk.bgRowHover.name(),             // %3 add hover
+             tk.bgInteractive.darker(115).name(), // %4 add pressed
+             tk.bgPanel.name(),                // %5 card bg / handle ring
+             tk.ink40.name(),                  // %6 close idle
+             tk.bgDeep.name()));               // %7 groove inset
 
     auto *outer = new QVBoxLayout(this);
     outer->setContentsMargins(16, 14, 16, 16);
@@ -199,43 +198,36 @@ QWidget *EffectsRackWidget::buildEffectCard(audio::AudioEffect *fx, int index) {
 
     auto *card = new QFrame(this);
     card->setObjectName(QStringLiteral("fxCard"));
-    card->setFixedWidth(258);
+    card->setFixedWidth(280);
 
-    auto *cv = new QVBoxLayout(card);
-    cv->setContentsMargins(0, 0, 0, 0);
-    cv->setSpacing(0);
-
-    // Accent stripe across the top of the card.
-    auto *stripe = new QFrame(card);
-    stripe->setFixedHeight(3);
-    stripe->setStyleSheet(QStringLiteral(
-        "background:%1; border-top-left-radius:7px; border-top-right-radius:7px;")
-        .arg(accent.name()));
-    cv->addWidget(stripe);
-
-    auto *inner = new QWidget(card);
-    auto *iv = new QVBoxLayout(inner);
-    iv->setContentsMargins(16, 14, 16, 16);
+    auto *iv = new QVBoxLayout(card);
+    iv->setContentsMargins(18, 15, 18, 16);
     iv->setSpacing(10);
 
-    // ── Header: name + bypass + remove ─────────────────────────────────
+    // ── Header: accent dot + name + bypass + remove ────────────────────
     auto *hdr = new QHBoxLayout();
-    hdr->setSpacing(8);
-    auto *name = new QLabel(fx->name(), inner);
+    hdr->setSpacing(9);
+
+    auto *dot = new QLabel(card);
+    dot->setFixedSize(9, 9);
+    dot->setStyleSheet(QStringLiteral("background:%1; border-radius:4px;").arg(accent.name()));
+    hdr->addWidget(dot, 0);
+
+    auto *name = new QLabel(fx->name(), card);
     name->setStyleSheet(QStringLiteral("color:%1; font-size:14px; font-weight:700;")
                             .arg(tk.ink100.name()));
     hdr->addWidget(name, 1);
 
-    auto *power = new QCheckBox(inner);
+    auto *power = new QCheckBox(card);
     power->setChecked(fx->isEnabled());
     power->setCursor(Qt::PointingHandCursor);
     power->setToolTip(tr("Bypass this effect"));
     connect(power, &QCheckBox::toggled, fx, &audio::AudioEffect::setEnabled);
     hdr->addWidget(power, 0);
 
-    auto *close = new QToolButton(inner);
+    auto *close = new QToolButton(card);
     close->setObjectName(QStringLiteral("fxClose"));
-    close->setIcon(qApp->style()->standardIcon(QStyle::SP_TitleBarCloseButton));
+    close->setText(QString(QChar(0x00D7))); // × — present in every default font
     close->setCursor(Qt::PointingHandCursor);
     close->setToolTip(tr("Remove effect"));
     connect(close, &QToolButton::clicked, this, [this, index] {
@@ -245,7 +237,7 @@ QWidget *EffectsRackWidget::buildEffectCard(audio::AudioEffect *fx, int index) {
     iv->addLayout(hdr);
 
     // ── One-line description ───────────────────────────────────────────
-    auto *tag = new QLabel(fxTagline(fx->type()), inner);
+    auto *tag = new QLabel(fxTagline(fx->type()), card);
     tag->setWordWrap(true);
     tag->setStyleSheet(QStringLiteral("color:%1; font-size:11px;").arg(tk.ink40.name()));
     iv->addWidget(tag);
@@ -253,30 +245,30 @@ QWidget *EffectsRackWidget::buildEffectCard(audio::AudioEffect *fx, int index) {
     // ── Body: visual-editor launcher, or labelled sliders ──────────────
     if (fxHasVisualEditor(fx->type())) {
         iv->addStretch(1);
-        auto *open = new QPushButton(tr("Open Editor"), inner);
+        auto *open = new QPushButton(tr("Open Editor"), card);
         open->setCursor(Qt::PointingHandCursor);
-        open->setMinimumHeight(36);
+        open->setMinimumHeight(38);
         open->setStyleSheet(QStringLiteral(
-            "QPushButton { background:transparent; color:%1; border:1px solid %1;"
-            "  border-radius:6px; font-size:12px; font-weight:600; }"
-            "QPushButton:hover  { background:%1; color:%2; }"
-            "QPushButton:pressed{ background:%3; }")
-            .arg(accent.name(), Theme::tokens().bgDeep.name(),
-                 accent.darker(120).name()));
+            "QPushButton { background:%1; color:%2; border:none;"
+            "  border-radius:8px; font-size:12px; font-weight:600; }"
+            "QPushButton:hover  { background:%3; }"
+            "QPushButton:pressed{ background:%4; }")
+            .arg(accent.name(), tk.bgDeep.name(),
+                 accent.lighter(112).name(), accent.darker(115).name()));
         connect(open, &QPushButton::clicked, this, [this, fx] { openEditor(fx); });
         iv->addWidget(open);
     } else {
+        iv->addSpacing(2);
         for (const QString &id : fx->parameterIds())
-            iv->addWidget(buildParamRow(fx, id, inner));
+            iv->addWidget(buildParamRow(fx, id, accent, card));
         iv->addStretch(1);
     }
 
-    cv->addWidget(inner, 1);
     return card;
 }
 
-QWidget *EffectsRackWidget::buildParamRow(audio::AudioEffect *fx,
-                                          const QString &id, QWidget *parent) {
+QWidget *EffectsRackWidget::buildParamRow(audio::AudioEffect *fx, const QString &id,
+                                          const QColor &accent, QWidget *parent) {
     const auto &tk = Theme::tokens();
     auto [lo, hi] = fx->parameterRange(id);
     const float cur = fx->parameterValue(id);
@@ -307,6 +299,10 @@ QWidget *EffectsRackWidget::buildParamRow(audio::AudioEffect *fx,
     auto *slider = new QSlider(Qt::Horizontal, row);
     slider->setRange(0, kRes);
     slider->setValue(toSlider(cur));
+    // Fill the played portion with this card's accent colour.
+    slider->setStyleSheet(QStringLiteral(
+        "QSlider::sub-page:horizontal { background:%1; border-radius:3px; }")
+        .arg(accent.name()));
     v->addWidget(slider);
 
     connect(slider, &QSlider::valueChanged, this,
@@ -327,10 +323,15 @@ QWidget *EffectsRackWidget::buildParamRow(audio::AudioEffect *fx,
 
 void EffectsRackWidget::openEditor(audio::AudioEffect *fx) {
     QDialog *dlg = nullptr;
-    if (fx->type() == audio::AudioEffect::Type::Eq)
-        dlg = new ParametricEqDialog(static_cast<audio::EqEffect *>(fx), window());
-    else if (fx->type() == audio::AudioEffect::Type::Compressor)
-        dlg = new CompressorDialog(static_cast<audio::CompressorEffect *>(fx), window());
+    if (fx->type() == audio::AudioEffect::Type::Eq) {
+        auto *eq = new ParametricEqDialog(static_cast<audio::EqEffect *>(fx), window());
+        eq->setScope(m_scope);
+        dlg = eq;
+    } else if (fx->type() == audio::AudioEffect::Type::Compressor) {
+        auto *comp = new CompressorDialog(static_cast<audio::CompressorEffect *>(fx), window());
+        comp->setScope(m_scope);
+        dlg = comp;
+    }
     if (dlg) dlg->show();
 }
 

@@ -457,7 +457,12 @@ void CueListView::contextMenuEvent(QContextMenuEvent *event)
 
     const QModelIndex idx = indexAt(event->pos());
     auto *cue = m->cueAt(idx);
-    if (!cue) return;
+    if (!cue) {
+        // Empty space below the cues — let MainWindow show the "new cue /
+        // preferences" menu, which it can build from its cue-creation actions.
+        emit emptyAreaContextMenuRequested(event->globalPos());
+        return;
+    }
 
     // If the user right-clicked a row outside the current selection,
     // include only that row; otherwise the action applies to all
@@ -608,6 +613,18 @@ bool CueListView::clipboardHasCues() const
 {
     const auto *mime = QGuiApplication::clipboard()->mimeData();
     return mime && mime->hasFormat(QString::fromLatin1(kCueClipMime));
+}
+
+bool CueListView::canPasteCues() const
+{
+    return clipboardHasCues();
+}
+
+void CueListView::pasteCuesAtEnd()
+{
+    auto *m = qobject_cast<core::CueListModel *>(model());
+    // afterRow = last row → pasteCuesFromClipboard inserts at the very end.
+    pasteCuesFromClipboard(m ? m->rowCount() - 1 : -1);
 }
 
 void CueListView::pasteCuesFromClipboard(int afterRow)

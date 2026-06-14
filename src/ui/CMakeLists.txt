@@ -31,6 +31,8 @@ add_library(quewi_ui STATIC
     PatchEditorDialog.cpp
     SpectrogramImage.h
     SpectrogramImage.cpp
+    LiveAudioScope.h
+    LiveAudioScope.cpp
     ActiveCuesPanel.h
     ActiveCuesPanel.cpp
     PreflightDialog.h

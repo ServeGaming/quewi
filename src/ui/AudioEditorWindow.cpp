@@ -1,5 +1,6 @@
 #include "ui/AudioEditorWindow.h"
 
+#include "ui/LiveAudioScope.h"
 #include "ui/Theme.h"
 
 #include <QAction>
@@ -307,15 +308,26 @@ void AudioEditorWindow::buildToolbar() {
     tb->addWidget(toolbarDivider(tb));
 
     // ── HISTORY ───────────────────────────────────────────────────────
+    // Undo/redo drive the editor's OWN undo stack (separate from the show's).
+    // Shortcuts are registered window-wide (WindowShortcut + addAction on the
+    // window) so Ctrl+Z / Ctrl+Y / Ctrl+Shift+Z fire no matter which child
+    // widget — timeline, scrollbars, toolbar — currently holds focus.
     tb->addWidget(sectionLabel(tr("HISTORY"), tb));
     auto *undoAct = m_model->undoStack()->createUndoAction(this, tr("Undo"));
     undoAct->setIcon(makeEditorIcon("undo"));
-    undoAct->setShortcut(QKeySequence::Undo);
+    undoAct->setShortcuts(QList<QKeySequence>{ QKeySequence::Undo });
+    undoAct->setShortcutContext(Qt::WindowShortcut);
     auto *redoAct = m_model->undoStack()->createRedoAction(this, tr("Redo"));
     redoAct->setIcon(makeEditorIcon("redo"));
-    redoAct->setShortcut(QKeySequence::Redo);
+    redoAct->setShortcuts(QList<QKeySequence>{
+        QKeySequence::Redo, QKeySequence(QStringLiteral("Ctrl+Shift+Z")) });
+    redoAct->setShortcutContext(Qt::WindowShortcut);
     tb->addAction(undoAct);
     tb->addAction(redoAct);
+    // Belt-and-suspenders: also own the actions at the window level so the
+    // shortcuts stay live even if the toolbar is ever hidden.
+    addAction(undoAct);
+    addAction(redoAct);
 
     // Spacer pushes Render to the far right.
     auto *spacer = new QWidget(tb);
@@ -432,6 +444,11 @@ void AudioEditorWindow::buildBottomPanel() {
     m_effectsRack = new EffectsRackWidget(bottom);
     bvl->addWidget(m_effectsRack);
 
+    // The live analyzer is owned here and handed to the rack so any editor
+    // it opens (EQ / Compressor) can subscribe to it.
+    m_scope = new LiveAudioScope(this);
+    m_effectsRack->setScope(m_scope);
+
     // Attach via a dock-like bottom widget
     auto *central = centralWidget();
     auto *vl = qobject_cast<QVBoxLayout *>(central->layout());
@@ -529,7 +546,7 @@ void AudioEditorWindow::startPlayback() {
 
     m_sinkStartFrame  = startFrame;
     m_isPlaying       = true;
-    m_playTimer.start(50); // 20 Hz cursor update
+    m_playTimer.start(33); // ~30 Hz — smooth playhead + live analyzer
     statusBar()->showMessage(tr("Playing…"));
 }
 
@@ -538,6 +555,7 @@ void AudioEditorWindow::stopPlayback() {
     if (m_sink) { m_sink->stop(); m_sink.reset(); }
     m_playBuffer.close();
     m_isPlaying = false;
+    if (m_scope) m_scope->setInactive();
     // Hide the playhead while stopped; the blue edit cursor stays put to
     // show where the next GO will start from.
     m_timeline->setPlayheadFrame(-1);
@@ -553,6 +571,9 @@ void AudioEditorWindow::onPlaybackTick() {
     qint64 bytesProcessed = m_sink->processedUSecs() * m_model->sampleRate() * 2 * 2 / 1000000;
     qint64 frame = m_sinkStartFrame + bytesProcessed / 4; // 4 bytes/frame (2ch * int16)
     m_timeline->setPlayheadFrame(frame);
+    // Feed the live analyzer the window at the current playback position so
+    // any open EQ / Compressor editor shows the program in real time.
+    if (m_scope) m_scope->analyze(m_renderedPcm, frame, m_model->sampleRate());
 }
 
 // ── Zoom ──────────────────────────────────────────────────────────────────────

@@ -17,6 +17,8 @@
 
 namespace quewi::ui {
 
+class LiveAudioScope;
+
 // Full audio editor window — Phase 9.
 //
 // Features:
@@ -75,6 +77,10 @@ private:
 
     // Bottom panel
     EffectsRackWidget *m_effectsRack = nullptr;
+
+    // Real-time analyzer fed from the preview playback; the open EQ /
+    // Compressor editors read it to draw a live spectrum / level.
+    LiveAudioScope    *m_scope = nullptr;
 
     // Header strip + status
     QLabel *m_headerNumber = nullptr;

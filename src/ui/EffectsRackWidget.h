@@ -8,6 +8,8 @@ class QLabel;
 
 namespace quewi::ui {
 
+class LiveAudioScope;
+
 // The per-track effects rack shown along the bottom of the audio editor.
 //
 // Effects are laid out as a horizontal row of channel-strip "cards" — one
@@ -25,17 +27,23 @@ public:
 
     void setTrack(audio::AudioEditorTrack *track);
 
+    // Live analyzer (owned by the editor window) handed to any EQ / Compressor
+    // editor this rack opens, so they can draw a real-time spectrum / level.
+    void setScope(LiveAudioScope *scope) { m_scope = scope; }
+
 private slots:
     void addEffect();
     void rebuild();
 
 private:
     audio::AudioEditorTrack *m_track = nullptr;
+    LiveAudioScope *m_scope = nullptr;
     QHBoxLayout *m_cardsLayout = nullptr; // horizontal strip of effect cards
     QLabel      *m_trackLabel  = nullptr;
 
     QWidget *buildEffectCard(audio::AudioEffect *fx, int index);
-    QWidget *buildParamRow(audio::AudioEffect *fx, const QString &id, QWidget *parent);
+    QWidget *buildParamRow(audio::AudioEffect *fx, const QString &id,
+                           const QColor &accent, QWidget *parent);
     QWidget *buildPlaceholder(const QString &title, const QString &subtitle);
     void     openEditor(audio::AudioEffect *fx);
 };

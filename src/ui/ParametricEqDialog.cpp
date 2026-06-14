@@ -1,5 +1,6 @@
 #include "ui/ParametricEqDialog.h"
 #include "audio/effects/EqEffect.h"
+#include "ui/LiveAudioScope.h"
 #include "ui/Theme.h"
 
 #include <QCheckBox>
@@ -68,6 +69,15 @@ ParametricEqDialog::ParametricEqDialog(audio::EqEffect *eq, QWidget *parent)
             update();
         });
     }
+}
+
+void ParametricEqDialog::setScope(LiveAudioScope *scope) {
+    if (m_scope) disconnect(m_scope, nullptr, this, nullptr);
+    m_scope = scope;
+    if (m_scope)
+        connect(m_scope, &LiveAudioScope::updated, this,
+                qOverload<>(&QWidget::update));
+    update();
 }
 
 void ParametricEqDialog::resizeEvent(QResizeEvent *) {
@@ -170,6 +180,40 @@ void ParametricEqDialog::paintEvent(QPaintEvent *) {
         p.drawText(m_graphRect.left() - 36, y + 4,
                    QStringLiteral("%1").arg(dB > 0 ? QStringLiteral("+%1").arg(dB)
                                                   : QString::number(dB)));
+    }
+
+    // ── Live spectrum analyzer (behind the EQ curves) ───────────────
+    if (m_scope && m_scope->active()) {
+        const auto &mag = m_scope->magnitudes();
+        const int bins = int(mag.size());
+        if (bins > 1) {
+            const float nyq = float(m_scope->sampleRate()) * 0.5f;
+            // Map analyzer level (dBFS, -100..0) across the graph height.
+            auto specY = [&](float db) {
+                const float t = std::clamp((db + 100.f) / 100.f, 0.f, 1.f);
+                return float(m_graphRect.bottom()) - t * float(m_graphRect.height());
+            };
+            QVector<QPointF> pts;
+            pts.reserve(m_graphRect.width() / 2 + 2);
+            for (int px = 0; px <= m_graphRect.width(); px += 2) {
+                const int x = m_graphRect.left() + px;
+                const float f = xToFreq(x);
+                int bin = std::clamp(int(f / nyq * float(bins - 1)), 1, bins - 1);
+                const float m = mag[size_t(bin)];
+                const float db = (m > 1e-9f) ? 20.f * std::log10(m) : -100.f;
+                pts.append(QPointF(double(x), double(specY(db))));
+            }
+            if (pts.size() >= 2) {
+                QPainterPath area;
+                area.moveTo(pts.front().x(), m_graphRect.bottom());
+                for (const auto &pt : pts) area.lineTo(pt);
+                area.lineTo(pts.back().x(), m_graphRect.bottom());
+                area.closeSubpath();
+                p.fillPath(area, QColor(0x6c, 0xc0, 0xff, 38));
+                p.setPen(QPen(QColor(0x8f, 0xcf, 0xff, 120), 1.0));
+                p.drawPolyline(pts.constData(), int(pts.size()));
+            }
+        }
     }
 
     if (!m_eq) return;

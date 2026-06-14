@@ -8,6 +8,8 @@ namespace quewi::audio { class EqEffect; }
 
 namespace quewi::ui {
 
+class LiveAudioScope;
+
 // Visual parametric EQ editor. A live response graph with one draggable
 // handle per band sits above a strip of per-band controls (filter type,
 // frequency, gain, Q, enable). Band ghost-curves are drawn under the
@@ -24,6 +26,10 @@ public:
     explicit ParametricEqDialog(audio::EqEffect *eq, QWidget *parent = nullptr);
     ~ParametricEqDialog() override = default;
 
+    // Optional live analyzer — when set and playing, a real-time spectrum is
+    // drawn behind the EQ response so you can see where the program is peaking.
+    void setScope(LiveAudioScope *scope);
+
 protected:
     void paintEvent(QPaintEvent *) override;
     void mousePressEvent(QMouseEvent *) override;
@@ -36,6 +42,7 @@ protected:
 
 private:
     QPointer<audio::EqEffect> m_eq;
+    QPointer<LiveAudioScope>  m_scope;
 
     static constexpr int kHandleRadius = 9;
 

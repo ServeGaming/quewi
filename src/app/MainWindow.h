@@ -14,6 +14,7 @@ class QPushButton;
 class QDockWidget;
 class QSplitter;
 class QStackedWidget;
+class QMenu;
 class QDragEnterEvent;
 class QDragMoveEvent;
 class QDropEvent;
@@ -94,6 +95,9 @@ private slots:
     void showAbout();
     void showNotifications();
     void showMediaImport();
+    // Right-click on empty space in the cue list — pop a menu to create a
+    // new cue (any type), paste, import from URL, or open preferences.
+    void showCueListContextMenu(const QPoint &globalPos);
     void openRecent(const QString &path);
     void rebuildRecentMenu();
     void onMidiTrigger(quint8 status, const QByteArray &bytes);
@@ -124,6 +128,11 @@ private:
     // undo command, and selects the new row. Each insertXCue() slot
     // is a one-liner over this.
     void insertCueOfType(std::unique_ptr<cues::Cue> cue, const QString &name);
+    // Fills `menu` with one action per cue type, each wired to append a new
+    // cue at the end of the active list. Used by the empty-area right-click
+    // menu. Kept separate from the menu-bar Cue menu so the two don't fight
+    // over the type keyboard shortcuts.
+    void populateNewCueMenu(QMenu *menu);
     // Walks every cue list and kicks off prepare() on each AudioCue so
     // QAudioDecoder runs in the background. Without this the first GO
     // after opening a show is the one that starts decoding, which
