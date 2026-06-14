@@ -12,8 +12,10 @@
 #include <QDialog>
 #include <QDialogButtonBox>
 #include <QDragEnterEvent>
+#include <QDragLeaveEvent>
 #include <QDropEvent>
 #include <QEnterEvent>
+#include <QFileDialog>
 #include <QFormLayout>
 #include <QGridLayout>
 #include <QHBoxLayout>
@@ -107,10 +109,32 @@ protected:
         }
         QWidget::mouseReleaseEvent(e);
     }
+    void mouseDoubleClickEvent(QMouseEvent *e) override {
+        // Double-clicking an EMPTY pad opens a file picker to assign a sound.
+        // Bound pads keep their click=fire behaviour (no dialog), so this only
+        // ever triggers on a blank tile. Reuses the fileDropped pipeline so
+        // the cue is created and bound exactly as a drag-drop would.
+        if (e->button() == Qt::LeftButton && !m_cue) {
+            m_pressed = false;
+            const QString p = QFileDialog::getOpenFileName(this,
+                tr("Pick a sound for this pad"), QString(),
+                tr("Audio files (*.wav *.mp3 *.flac *.aiff *.aif *.ogg *.oga "
+                   "*.opus *.m4a *.aac *.wma *.webm);;All files (*.*)"));
+            if (!p.isEmpty()) emit fileDropped(m_row, m_col, p);
+            return;
+        }
+        QWidget::mouseDoubleClickEvent(e);
+    }
 
-    void dragEnterEvent(QDragEnterEvent *e) override { if (e->mimeData()->hasUrls()) e->acceptProposedAction(); }
-    void dragMoveEvent (QDragMoveEvent  *e) override { if (e->mimeData()->hasUrls()) e->acceptProposedAction(); }
+    void dragEnterEvent(QDragEnterEvent *e) override {
+        if (e->mimeData()->hasUrls()) { m_dragHover = true; update(); e->acceptProposedAction(); }
+    }
+    void dragMoveEvent(QDragMoveEvent *e) override {
+        if (e->mimeData()->hasUrls()) e->acceptProposedAction();
+    }
+    void dragLeaveEvent(QDragLeaveEvent *) override { m_dragHover = false; update(); }
     void dropEvent(QDropEvent *e) override {
+        m_dragHover = false; update();
         const auto urls = e->mimeData()->urls();
         if (urls.isEmpty()) return;
         const QString p = urls.first().toLocalFile();
@@ -126,7 +150,20 @@ protected:
         const qreal radius = 11;
 
         if (!m_cue) {
-            // Empty pad — quiet dashed slot inviting a drop.
+            // Empty pad — quiet dashed slot inviting a drop. When a file is
+            // being dragged over it, light up in the accent colour so the
+            // operator sees exactly which pad will receive the drop.
+            if (m_dragHover) {
+                const QColor acc = Theme::tokens().accent;
+                QColor fill = acc; fill.setAlpha(40);
+                p.setPen(Qt::NoPen); p.setBrush(fill);
+                p.drawRoundedRect(r, radius, radius);
+                p.setPen(QPen(acc, 2.4)); p.setBrush(Qt::NoBrush);
+                p.drawRoundedRect(r.adjusted(3, 3, -3, -3), radius - 2, radius - 2);
+                p.setPen(acc);
+                p.drawText(r, Qt::AlignCenter, tr("drop\nhere"));
+                return;
+            }
             p.setPen(Qt::NoPen);
             p.setBrush(QColor(255, 255, 255, m_hover ? 16 : 8));
             p.drawRoundedRect(r, radius, radius);
@@ -188,6 +225,14 @@ protected:
             p.setFont(small); p.setPen(sub);
             p.drawText(r.adjusted(9, 0, -9, -6), Qt::AlignBottom | Qt::AlignLeft, tr("edit"));
         }
+
+        // Drop-target ring — a file dragged over a BOUND pad will replace it,
+        // so show the same accent ring as an empty target.
+        if (m_dragHover) {
+            const QColor acc = Theme::tokens().accent;
+            p.setPen(QPen(acc, 2.6)); p.setBrush(Qt::NoBrush);
+            p.drawRoundedRect(r, radius, radius);
+        }
     }
 
 private:
@@ -223,6 +268,7 @@ private:
     QPointer<cues::Cue> m_cue;
     core::CartCell m_cell;
     bool m_playing = false, m_editMode = false, m_hover = false, m_pressed = false;
+    bool m_dragHover = false;
 };
 
 // ───────────────────────────────────────────────────────────────────────────
