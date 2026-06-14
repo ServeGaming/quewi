@@ -322,6 +322,15 @@ QVariant CueListModel::data(const QModelIndex &index, int role) const
         }
     }
 
+    if (role == Qt::ForegroundRole) {
+        // Disarmed cues are skipped on GO — dim the whole row's text so
+        // they recede, matching the dimmer state dot. Hardcoded to mirror
+        // Theme::tokens().ink40 (core can't depend on ui/Theme.h). Running
+        // cues stay full-strength so the live row never looks disabled.
+        if (!cue->isArmed() && !m_runningIds.contains(cue->id()))
+            return QBrush(QColor(0x7A, 0x73, 0x68));
+    }
+
     if (role == Qt::BackgroundRole) {
         // Running cues take precedence — a soft mossy-green wash makes
         // the active row obvious at a glance during a show, even if

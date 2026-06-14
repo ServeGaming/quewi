@@ -604,6 +604,8 @@ void MainWindow::buildMenus()
                        QKeySequence(QStringLiteral("Ctrl+U")),
                        this, &MainWindow::showMediaImport);
     cueMenu->addSeparator();
+    cueMenu->addAction(tr("Toggle &Arm"), QKeySequence(Qt::Key_E),
+                       this, &MainWindow::toggleArmSelectedCue);
     cueMenu->addAction(tr("&Delete"), QKeySequence::Delete, this, &MainWindow::deleteSelectedCue);
 
     auto *helpMenu = menuBar()->addMenu(tr("&Help"));
@@ -1224,6 +1226,50 @@ void MainWindow::deleteSelectedCue()
     } else {
         stack->push(new core::RemoveCueCommand(list, rows.first()));
     }
+}
+
+void MainWindow::toggleArmSelectedCue()
+{
+    auto *list = m_workspace->activeCueList();
+    if (!list) return;
+
+    // Collect selected rows, falling back to the current row so the
+    // hotkey works on a single highlighted cue with nothing multi-selected.
+    QList<int> rows;
+    if (auto *sel = m_cueListView->selectionModel()) {
+        for (const auto &idx : sel->selectedRows())
+            if (idx.isValid()) rows << idx.row();
+    }
+    if (rows.isEmpty()) {
+        const auto idx = m_cueListView->currentIndex();
+        if (!idx.isValid()) return;
+        rows << idx.row();
+    }
+
+    // Flip the whole selection to one uniform state, derived from the first
+    // cue (arm-all if it's disarmed, else disarm-all), so a mixed selection
+    // resolves predictably. The batch is a single undoable macro.
+    auto *first = list->cueAt(rows.first());
+    if (!first) return;
+    const bool newArmed = !first->isArmed();
+
+    auto *stack = m_workspace->undoStack();
+    stack->beginMacro(newArmed ? tr("Arm cues") : tr("Disarm cues"));
+    int changed = 0;
+    for (int row : rows) {
+        auto *c = list->cueAt(row);
+        if (!c || c->isArmed() == newArmed) continue;
+        stack->push(new core::EditCueFieldCommand(
+            c, QStringLiteral("armed"),
+            QVariant::fromValue(c->isArmed()),
+            QVariant::fromValue(newArmed)));
+        ++changed;
+    }
+    stack->endMacro();
+
+    statusBar()->showMessage(
+        newArmed ? tr("Armed %1 cue(s)").arg(changed)
+                 : tr("Disarmed %1 cue(s)").arg(changed), 2500);
 }
 
 void MainWindow::renumberSelection()
@@ -2025,9 +2071,21 @@ void MainWindow::onGoRequested()
 
     if (m_goEngine) m_goEngine->fire(cue);
 
-    const auto idx = m_cueListView->currentIndex();
-    const int curRow = idx.isValid() ? idx.row() : -1;
-    const int nextRow = curRow + 1;
+    // Advance the standby past the cue we just fired, then skip over any
+    // disarmed cues so the playhead lands on the next ARMED target (QLab
+    // "skip disarmed on GO" semantics). nextCue() returned the first armed
+    // cue at/after the playhead, which may be ahead of the selected row, so
+    // resume from that fired cue's row rather than the raw selection.
+    int firedRow = -1;
+    for (int r = 0; r < m_model->rowCount(); ++r) {
+        if (m_model->cueAt(m_model->index(r, 0)) == cue) { firedRow = r; break; }
+    }
+    int nextRow = firedRow + 1;
+    while (nextRow < m_model->rowCount()) {
+        auto *c = m_model->cueAt(m_model->index(nextRow, 0));
+        if (c && c->isArmed()) break;
+        ++nextRow;
+    }
     if (nextRow < m_model->rowCount()) {
         m_cueListView->setCurrentIndex(m_model->index(nextRow, 0));
     }

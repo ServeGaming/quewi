@@ -260,6 +260,12 @@ Inspector::Inspector(QWidget *parent)
         "Auto-follow: fire next cue immediately on start."));
     form->addRow(tr("Continue"), m_continueMode);
 
+    m_armedCheck = new QCheckBox(tr("Armed"), this);
+    m_armedCheck->setToolTip(tr(
+        "When unchecked, this cue is skipped when GO reaches it. "
+        "Disarmed cues read dimmed in the list."));
+    form->addRow(QString(), m_armedCheck);
+
     m_notes = new QPlainTextEdit(this);
     m_notes->setMaximumBlockCount(0);
     // Cap the Notes field at 4 lines tall so a wall-of-text cue
@@ -921,6 +927,7 @@ Inspector::Inspector(QWidget *parent)
     connect(m_notes,    &QPlainTextEdit::textChanged,     this, &Inspector::commitNotes);
     connect(m_continueMode, &QComboBox::currentIndexChanged,
             this, [this](int){ commitContinueMode(); });
+    connect(m_armedCheck, &QCheckBox::toggled, this, [this](bool){ commitArmed(); });
     connect(m_waitDuration, &QDoubleSpinBox::editingFinished,
             this, &Inspector::commitWaitDuration);
     connect(m_targetCombo, &QComboBox::currentIndexChanged,
@@ -1124,6 +1131,7 @@ void Inspector::rebuild()
     m_preWait->setValue(m_cue->preWait());
     m_postWait->setValue(m_cue->postWait());
     m_continueMode->setCurrentIndex(static_cast<int>(m_cue->continueMode()));
+    m_armedCheck->setChecked(m_cue->isArmed());
     if (m_notes->toPlainText() != m_cue->notes())
         m_notes->setPlainText(m_cue->notes());
 
@@ -1531,6 +1539,12 @@ void Inspector::commitContinueMode()
 {
     if (m_loading) return;
     pushFieldEdit(QStringLiteral("continueMode"), m_continueMode->currentData().toInt());
+}
+
+void Inspector::commitArmed()
+{
+    if (m_loading) return;
+    pushFieldEdit(QStringLiteral("armed"), m_armedCheck->isChecked());
 }
 
 void Inspector::commitWaitDuration()

@@ -77,6 +77,7 @@ private slots:
     void insertMidiCue();
     void insertMscCue();
     void deleteSelectedCue();
+    void toggleArmSelectedCue();
     void renumberSelection();
     void onSelectionChanged();
     void updateTitle();

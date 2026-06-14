@@ -251,15 +251,20 @@ cues::Cue *CueListView::currentCue() const
 
 cues::Cue *CueListView::nextCue() const
 {
-    // QLab semantics: "next" is the cue the playhead is on — i.e. the
-    // currently selected one. Pressing GO fires it and the caller is
-    // responsible for advancing selection to row+1.
+    // QLab semantics: "next" is the cue the playhead is on — but disarmed
+    // cues are skipped on GO, so the real target is the first ARMED cue
+    // at or after the playhead. Pressing GO fires it and the caller is
+    // responsible for advancing the standby past it.
     auto *m = qobject_cast<core::CueListModel *>(model());
     if (!m || m->rowCount() == 0) return nullptr;
     const auto idx = currentIndex();
-    const int row = idx.isValid() ? idx.row() : 0;
-    if (row < 0 || row >= m->rowCount()) return nullptr;
-    return m->cueAt(m->index(row, 0));
+    int row = idx.isValid() ? idx.row() : 0;
+    if (row < 0) row = 0;
+    for (; row < m->rowCount(); ++row) {
+        if (auto *c = m->cueAt(m->index(row, 0)))
+            if (c->isArmed()) return c;
+    }
+    return nullptr;
 }
 
 void CueListView::keyPressEvent(QKeyEvent *event)
@@ -528,6 +533,31 @@ void CueListView::contextMenuEvent(QContextMenuEvent *event)
     colorMenu->addSeparator();
     auto *clear = colorMenu->addAction(tr("Clear color"));
     connect(clear, &QAction::triggered, this, [applyColor]{ applyColor(QColor()); });
+
+    menu.addSeparator();
+
+    // ── Arm / Disarm ────────────────────────────────────────────────
+    // A disarmed cue is skipped when GO reaches it. Flip the whole
+    // selection to one uniform state derived from the first cue, so a
+    // mixed selection resolves cleanly. One undoable macro for the batch.
+    {
+        const bool firstArmed = targets.first() && targets.first()->isArmed();
+        const bool newArmed = !firstArmed;
+        auto *armAct = menu.addAction(newArmed ? tr("Arm") : tr("Disarm"));
+        connect(armAct, &QAction::triggered, this, [this, targets, newArmed] {
+            if (!m_workspace) return;
+            auto *stack = m_workspace->undoStack();
+            stack->beginMacro(newArmed ? tr("Arm cues") : tr("Disarm cues"));
+            for (auto *c : targets) {
+                if (!c || c->isArmed() == newArmed) continue;
+                stack->push(new core::EditCueFieldCommand(
+                    c, QStringLiteral("armed"),
+                    QVariant::fromValue(c->isArmed()),
+                    QVariant::fromValue(newArmed)));
+            }
+            stack->endMacro();
+        });
+    }
 
     menu.addSeparator();
 

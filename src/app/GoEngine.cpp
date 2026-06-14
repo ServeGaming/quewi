@@ -90,8 +90,17 @@ cues::Cue *GoEngine::nextCueAfter(cues::Cue *cue) const
     if (!m_workspace || !cue) return nullptr;
     auto *list = m_workspace->activeCueList();
     if (!list) return nullptr;
-    for (int row = 0; row < list->cueCount() - 1; ++row) {
-        if (list->cueAt(row) == cue) return list->cueAt(row + 1);
+    const int n = list->cueCount();
+    for (int row = 0; row < n; ++row) {
+        if (list->cueAt(row) != cue) continue;
+        // Skip past any disarmed cues so an auto-continue / auto-follow
+        // chain lands on the next ARMED cue instead of dead-ending on a
+        // disarmed one (fire() would otherwise no-op and break the chain).
+        for (int next = row + 1; next < n; ++next) {
+            auto *c = list->cueAt(next);
+            if (c && c->isArmed()) return c;
+        }
+        return nullptr;
     }
     return nullptr;
 }

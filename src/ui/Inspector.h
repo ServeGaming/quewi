@@ -56,6 +56,7 @@ private slots:
     void commitPostWait();
     void commitNotes();
     void commitContinueMode();
+    void commitArmed();
     void pickCueColor();
     void clearCueColor();
 
@@ -164,6 +165,7 @@ private:
     QDoubleSpinBox *m_preWait   = nullptr;
     QDoubleSpinBox *m_postWait  = nullptr;
     QComboBox      *m_continueMode = nullptr;
+    QCheckBox      *m_armedCheck = nullptr;
     QPlainTextEdit *m_notes     = nullptr;
 
     // Wait
