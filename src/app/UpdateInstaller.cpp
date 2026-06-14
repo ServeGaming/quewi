@@ -351,9 +351,70 @@ bool UpdateInstaller::launchInstaller(const QString &msiPath)
         }
     }
 
-    // Fallback: not a portable zip OR install dir isn't writable
-    // (MSI install in Program Files without elevation). Use the
-    // existing ShellExecuteEx flow that runs the installer.
+    // Reliable MSI path: a quit-first elevated helper. The old flow left
+    // quewi running and "trusted Restart Manager" to close it — but the
+    // CPack/WiX MSI doesn't author Restart Manager, so the running quewi.exe
+    // blocked the upgrade and the install silently did nothing (the reported
+    // "it just wouldn't install"). Instead we write a batch that waits for
+    // our PID to exit, runs `msiexec /passive` (unattended, with a progress
+    // bar — and no in-use conflict because we've quit), relaunches the
+    // upgraded quewi, and self-deletes. Launched once via "runas" so the
+    // single UAC consent elevates the whole chain; msiexec then needs no
+    // second prompt. MainWindow quits quewi as soon as this returns true.
+    if (!started && msiPath.endsWith(QStringLiteral(".msi"), Qt::CaseInsensitive)) {
+        const QString installDir = QCoreApplication::applicationDirPath();
+        const QString folder     = QFileInfo(msiPath).absolutePath();
+        const QString helperPath = folder + QStringLiteral("/quewi-msi-update.bat");
+        QFile h(helperPath);
+        if (h.open(QIODevice::WriteOnly | QIODevice::Truncate)) {
+            QTextStream ts(&h);
+            ts << "@echo off\r\n"
+               << "set PID=" << QCoreApplication::applicationPid() << "\r\n"
+               << "set TRIES=0\r\n"
+               << ":wait\r\n"
+               << "tasklist /FI \"PID eq %PID%\" 2>nul | find \"%PID%\" >nul\r\n"
+               << "if errorlevel 1 goto run\r\n"
+               << "set /a TRIES+=1\r\n"
+               << "if %TRIES% GEQ 150 goto cleanup\r\n"
+               << "ping -n 2 127.0.0.1 >nul\r\n"
+               << "goto wait\r\n"
+               << ":run\r\n"
+               << "msiexec /i \"" << QDir::toNativeSeparators(native)
+               <<   "\" /passive /norestart\r\n"
+               << "start \"\" \"" << QDir::toNativeSeparators(
+                      installDir + QStringLiteral("/quewi.exe")) << "\"\r\n"
+               << ":cleanup\r\n"
+               << "del \"" << QDir::toNativeSeparators(native) << "\" 2>nul\r\n"
+               << "(goto) 2>nul & del \"%~f0\"\r\n";
+            h.close();
+
+            std::wstring wfile   = L"cmd.exe";
+            std::wstring wparams = L"/c \"" +
+                QDir::toNativeSeparators(helperPath).toStdWString() + L"\"";
+            std::wstring wverb   = L"runas"; // one UAC consent → elevated chain
+            SHELLEXECUTEINFOW sei{};
+            sei.cbSize       = sizeof(sei);
+            sei.fMask        = SEE_MASK_NOCLOSEPROCESS;
+            sei.lpVerb       = wverb.c_str();
+            sei.lpFile       = wfile.c_str();
+            sei.lpParameters = wparams.c_str();
+            sei.nShow        = SW_HIDE; // hidden console; msiexec shows its own UI
+            if (ShellExecuteExW(&sei)) {
+                if (sei.hProcess) CloseHandle(sei.hProcess);
+                started = true;
+            } else {
+                const DWORD e = GetLastError();
+                qWarning("UpdateInstaller: elevated MSI helper launch failed, "
+                         "GetLastError=%lu", e);
+                QFile::remove(helperPath);
+                // e == ERROR_CANCELLED (1223) means the user declined UAC;
+                // fall through to the manual fallbacks below.
+            }
+        }
+    }
+
+    // Fallback: helper couldn't launch (or non-MSI artifact). Use the
+    // existing ShellExecuteEx flow that runs the installer interactively.
     if (!started) {
     // ShellExecuteW returning >32 only means Windows found a handler —
     // it does NOT mean the handler actually ran. SmartScreen, Defender,
