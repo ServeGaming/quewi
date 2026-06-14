@@ -27,6 +27,14 @@ public:
     QString name() const { return m_name; }
     void setName(QString name);
 
+    // A list is either a normal cue list or the soundboard (its tab shows
+    // the pad grid instead of the cue table, and its cues stay out of the
+    // set list). Runtime flag; persisted via the show file's
+    // soundboard_list_id meta key, not as a cue-list column.
+    enum class Kind { Normal, Soundboard };
+    Kind kind() const { return m_kind; }
+    void setKind(Kind k) { m_kind = k; }
+
     int cueCount() const { return static_cast<int>(m_cues.size()); }
     cues::Cue *cueAt(int row) const;
     int rowOf(const cues::Cue *cue) const;
@@ -46,6 +54,7 @@ signals:
 private:
     CueListId m_id;
     QString m_name;
+    Kind m_kind = Kind::Normal;
     std::vector<std::unique_ptr<cues::Cue>> m_cues;
 };
 

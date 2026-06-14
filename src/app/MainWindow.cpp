@@ -76,6 +76,7 @@
 #include <QSettings>
 #include <QKeySequence>
 #include <QMenu>
+#include <QToolButton>
 #include <QMenuBar>
 #include <QMessageBox>
 #include <QMimeData>
@@ -400,6 +401,13 @@ void MainWindow::buildLayout()
             this, &MainWindow::onCartFileDropped);
     connect(m_cartView, &ui::CartView::stopAllRequested, this,
         [this] { if (m_goEngine) m_goEngine->cancelAll(); });
+    connect(m_cartView, &ui::CartView::editCueRequested, this,
+        [this](cues::Cue *cue) {
+            if (auto *ac = qobject_cast<audio::AudioCue *>(cue)) {
+                ac->prepare();
+                (new ui::AudioEditorWindow(ac, this))->show();
+            }
+        });
 
     m_centerStack = new QStackedWidget(central);
     m_centerStack->addWidget(cuePane);     // index 0 = list view
@@ -438,7 +446,25 @@ void MainWindow::buildLayout()
 
     m_transport = new ui::TransportBar(central);
 
-    outer->addWidget(m_listTabs, 0);
+    // Tab strip + a "+" button to add another cue list or a soundboard.
+    {
+        auto *tabRow = new QHBoxLayout();
+        tabRow->setContentsMargins(0, 0, 0, 0);
+        tabRow->setSpacing(2);
+        tabRow->addWidget(m_listTabs, 1);
+        auto *addTabBtn = new QToolButton(central);
+        addTabBtn->setText(QStringLiteral("+"));
+        addTabBtn->setToolTip(tr("Add a cue list or soundboard"));
+        addTabBtn->setCursor(Qt::PointingHandCursor);
+        addTabBtn->setAutoRaise(true);
+        auto *addMenu = new QMenu(addTabBtn);
+        addMenu->addAction(tr("New cue list"),  this, &MainWindow::addCueListTab);
+        addMenu->addAction(tr("New soundboard"), this, &MainWindow::addSoundboardTab);
+        addTabBtn->setMenu(addMenu);
+        addTabBtn->setPopupMode(QToolButton::InstantPopup);
+        tabRow->addWidget(addTabBtn, 0);
+        outer->addLayout(tabRow, 0);
+    }
     outer->addWidget(m_centerStack, 1);
     outer->addWidget(m_activePanel, 0);
     outer->addWidget(m_transport, 0);
@@ -586,18 +612,11 @@ void MainWindow::buildMenus()
     viewMenu->addAction(tr("&Reset panel layout"), this,
                        &MainWindow::resetLayout);
     viewMenu->addSeparator();
-    auto *cartToggle = viewMenu->addAction(tr("&Cart view"));
-    cartToggle->setCheckable(true);
-    cartToggle->setShortcut(QKeySequence(QStringLiteral("Ctrl+Shift+C")));
-    connect(cartToggle, &QAction::toggled, this, [this](bool on) {
-        if (m_centerStack) m_centerStack->setCurrentIndex(on ? 1 : 0);
-        QSettings s(QStringLiteral("ServeGaming"), QStringLiteral("quewi"));
-        s.setValue(QStringLiteral("ui/cartView"), on);
-    });
-    {
-        QSettings s(QStringLiteral("ServeGaming"), QStringLiteral("quewi"));
-        cartToggle->setChecked(s.value(QStringLiteral("ui/cartView"), false).toBool());
-    }
+    // The soundboard is its own tab now (not a center-stack mode toggle).
+    // This jumps to it, creating it if the show doesn't have one yet.
+    viewMenu->addAction(tr("&Soundboard"),
+                        QKeySequence(QStringLiteral("Ctrl+Shift+C")),
+                        this, &MainWindow::addSoundboardTab);
 
     auto *listMenu = menuBar()->addMenu(tr("&List"));
     listMenu->addAction(tr("&New cue list…"),    this, &MainWindow::addCueListTab);
@@ -1728,7 +1747,9 @@ void MainWindow::rebuildListTabs()
     int currentIdx = 0;
     int idx = 0;
     for (const auto &list : m_workspace->cueLists()) {
-        m_listTabs->addTab(list->name());
+        const bool sb = list->kind() == core::CueList::Kind::Soundboard;
+        m_listTabs->addTab(sb ? QStringLiteral("♪ %1").arg(list->name())
+                              : list->name());
         m_listTabs->setTabData(idx, QVariant::fromValue(list->id()));
         if (list.get() == m_workspace->activeCueList()) currentIdx = idx;
         ++idx;
@@ -1741,14 +1762,50 @@ void MainWindow::onTabSelected(int index)
     if (!m_workspace || index < 0) return;
     const auto id = m_listTabs->tabData(index).toUuid();
     for (const auto &list : m_workspace->cueLists()) {
-        if (list->id() == id) {
+        if (list->id() != id) continue;
+        if (list->kind() == core::CueList::Kind::Soundboard) {
+            // Show the board but DON'T change the active cue list or model —
+            // the set list stays the GO context so opening the soundboard
+            // never disturbs the running show.
+            if (m_centerStack && m_cartView)
+                m_centerStack->setCurrentWidget(m_cartView);
+        } else {
+            if (m_centerStack) m_centerStack->setCurrentIndex(0);
             m_workspace->setActiveCueList(list.get());
             m_model->setCueList(list.get());
             if (m_model->rowCount() > 0)
                 m_cueListView->setCurrentIndex(m_model->index(0, 0));
-            return;
         }
+        return;
     }
+}
+
+core::CueList *MainWindow::getOrCreateSoundboardList()
+{
+    if (!m_workspace) return nullptr;
+    for (const auto &list : m_workspace->cueLists())
+        if (list->kind() == core::CueList::Kind::Soundboard)
+            return list.get();
+    auto list = std::make_unique<core::CueList>(tr("Soundboard"));
+    list->setKind(core::CueList::Kind::Soundboard);
+    return m_workspace->addCueList(std::move(list));
+}
+
+void MainWindow::addSoundboardTab()
+{
+    if (!m_workspace) return;
+    auto *sb = getOrCreateSoundboardList();
+    if (!sb) return;
+    rebuildListTabs();
+    for (int i = 0; i < m_listTabs->count(); ++i)
+        if (m_listTabs->tabData(i).toUuid() == sb->id()) {
+            m_listTabs->setCurrentIndex(i);
+            // setCurrentIndex only emits currentChanged on an actual change;
+            // force the page switch in case the soundboard tab was already
+            // current (e.g. just created at index 0).
+            onTabSelected(i);
+            break;
+        }
 }
 
 void MainWindow::addCueListTab()
@@ -1972,13 +2029,15 @@ void MainWindow::runInAppInstall(const QString &msiUrl)
 void MainWindow::onCartFileDropped(int row, int col, const QString &path)
 {
     if (!m_workspace) return;
-    auto *list = m_workspace->activeCueList();
+    // Soundboard cues live in the dedicated soundboard list so they stay out
+    // of the set list (created on first drop if the show has no board yet).
+    auto *list = getOrCreateSoundboardList();
     if (!list) return;
 
     // Re-use the existing drag-import path that knows how to make a
     // cue from any supported file type, then bind whichever cue id
     // came back to the dropped cart cell.
-    const auto added = insertCuesFromUrls({ QUrl::fromLocalFile(path) }, -1);
+    const auto added = insertCuesFromUrls({ QUrl::fromLocalFile(path) }, -1, list);
     if (added <= 0) return;
     auto *newCue = list->cueAt(list->cueCount() - 1);
     if (!newCue) return;
@@ -2362,9 +2421,11 @@ void MainWindow::dropEvent(QDropEvent *event)
     event->acceptProposedAction();
 }
 
-int MainWindow::insertCuesFromUrls(const QList<QUrl> &urls, int startRow)
+int MainWindow::insertCuesFromUrls(const QList<QUrl> &urls, int startRow,
+                                   core::CueList *targetList)
 {
-    auto *list = m_workspace ? m_workspace->activeCueList() : nullptr;
+    auto *list = targetList ? targetList
+                            : (m_workspace ? m_workspace->activeCueList() : nullptr);
     if (!list) return 0;
 
     int insertRow;
@@ -2400,7 +2461,11 @@ int MainWindow::insertCuesFromUrls(const QList<QUrl> &urls, int startRow)
         ++created;
     }
 
-    if (firstNewRow >= 0 && firstNewRow < m_model->rowCount()) {
+    // Only move the cue-list selection when inserting into the list the
+    // view is actually showing (a soundboard-targeted drop must not yank
+    // the visible set-list selection).
+    if (firstNewRow >= 0 && firstNewRow < m_model->rowCount()
+        && list == (m_workspace ? m_workspace->activeCueList() : nullptr)) {
         m_cueListView->setCurrentIndex(m_model->index(firstNewRow, 0));
     }
     return created;
@@ -2580,12 +2645,11 @@ void MainWindow::registerOscRemoteHandlers()
             if (m_goEngine) m_goEngine->cancelAll();
         }, Qt::QueuedConnection);
     });
-    // Bring the soundboard to the front.
+    // Bring the soundboard to the front (selects its tab, creating one if
+    // the show has no board yet).
     sub("/quewi/cart/show", [this](const osc::Message &) {
-        QMetaObject::invokeMethod(this, [this]{
-            if (m_centerStack && m_cartView)
-                m_centerStack->setCurrentWidget(m_cartView);
-        }, Qt::QueuedConnection);
+        QMetaObject::invokeMethod(this, [this]{ addSoundboardTab(); },
+                                  Qt::QueuedConnection);
     });
 
     sub("/quewi/cue/select", [this](const osc::Message &m) {

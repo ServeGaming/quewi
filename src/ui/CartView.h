@@ -58,6 +58,7 @@ public:
 
 signals:
     void fireRequested(quewi::cues::Cue *cue);
+    void editCueRequested(quewi::cues::Cue *cue);
     void fileDropped(int row, int col, const QString &filePath);
     void stopAllRequested();
 

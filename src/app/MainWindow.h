@@ -86,6 +86,7 @@ private slots:
     void showCommandPalette();
     void toggleShowMode();
     void addCueListTab();
+    void addSoundboardTab();
     void renameCueListTab();
     void removeCueListTab();
     void onTabSelected(int index);
@@ -123,7 +124,11 @@ private:
     bool maybeSaveChanges();
     bool saveTo(const QString &path);
     std::unique_ptr<cues::Cue> cueFromFile(const QString &path);
-    int  insertCuesFromUrls(const QList<QUrl> &urls, int startRow = -1);
+    int  insertCuesFromUrls(const QList<QUrl> &urls, int startRow = -1,
+                            core::CueList *targetList = nullptr);
+    // The one soundboard cue list (its tab shows the pad grid). Created on
+    // first use. Pad cues are inserted here so they stay out of the set list.
+    core::CueList *getOrCreateSoundboardList();
     // Shared body for every New-<type> menu action: inserts `cue`
     // after the current selection, names + numbers it, pushes the
     // undo command, and selects the new row. Each insertXCue() slot

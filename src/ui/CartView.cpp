@@ -11,6 +11,7 @@
 #include <QAudioDevice>
 #include <QColorDialog>
 #include <QComboBox>
+#include <QContextMenuEvent>
 #include <QDialog>
 #include <QDialogButtonBox>
 #include <QDragEnterEvent>
@@ -91,6 +92,7 @@ public:
 signals:
     void clicked(int row, int col);
     void editRequested(int row, int col);
+    void editCueRequested(int row, int col);
     void fileDropped(int row, int col, const QString &path);
 
 protected:
@@ -134,6 +136,15 @@ protected:
     }
     void dragMoveEvent(QDragMoveEvent *e) override {
         if (e->mimeData()->hasUrls()) e->acceptProposedAction();
+    }
+    void contextMenuEvent(QContextMenuEvent *e) override {
+        // Right-click an audio pad to open its cue in the audio editor
+        // (EQ / trim / compress) without leaving the soundboard.
+        if (!qobject_cast<audio::AudioCue *>(m_cue.data())) return;
+        QMenu menu(this);
+        menu.addAction(tr("Open in audio editor…"), this,
+                       [this]{ emit editCueRequested(m_row, m_col); });
+        menu.exec(e->globalPos());
     }
     void dragLeaveEvent(QDragLeaveEvent *) override { m_dragHover = false; update(); }
     void dropEvent(QDropEvent *e) override {
@@ -554,6 +565,11 @@ void CartView::rebuildGrid()
             connect(pad, &CartPad::clicked,      this, &CartView::onPadClicked);
             connect(pad, &CartPad::editRequested, this, &CartView::onPadEdit);
             connect(pad, &CartPad::fileDropped,  this, &CartView::fileDropped);
+            connect(pad, &CartPad::editCueRequested, this, [this](int rr, int cc) {
+                if (!m_workspace || !m_workspace->cart()) return;
+                if (auto *cue = cueForCellId(m_workspace->cart()->cueAt(rr, cc)))
+                    emit editCueRequested(cue);
+            });
             if (auto *cue = pad->cue())
                 connect(cue, &cues::Cue::changed, this, &CartView::onCueChanged);
 

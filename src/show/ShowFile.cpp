@@ -261,6 +261,19 @@ bool ShowFile::load(const QString &path, core::Workspace &workspace)
             if (doc.isObject()) workspace.cart()->fromJson(doc.object());
         }
 
+        // Which cue list is the soundboard (meta key; absent in older shows,
+        // in which case every list stays Normal).
+        QSqlQuery sbq(db);
+        if (sbq.exec(QStringLiteral("SELECT value FROM meta WHERE key='soundboard_list_id'"))
+            && sbq.next()) {
+            const QUuid sbId(sbq.value(0).toString());
+            for (const auto &list : workspace.cueLists())
+                if (list->id() == sbId) {
+                    list->setKind(core::CueList::Kind::Soundboard);
+                    break;
+                }
+        }
+
         db.close();
     }
     QSqlDatabase::removeDatabase(conn);
@@ -337,6 +350,16 @@ bool ShowFile::save(const QString &path, const core::Workspace &workspace)
             mq.bindValue(0, QStringLiteral("cart_json"));
             mq.bindValue(1, QString::fromUtf8(json));
             mq.exec();
+        }
+        // Which cue list is the soundboard. Stored as a meta key (not a
+        // cue_lists column) so older builds still open the file.
+        for (const auto &list : workspace.cueLists()) {
+            if (list->kind() == core::CueList::Kind::Soundboard) {
+                mq.bindValue(0, QStringLiteral("soundboard_list_id"));
+                mq.bindValue(1, list->id().toString());
+                mq.exec();
+                break;
+            }
         }
 
         // Cue lists & cues
