@@ -67,7 +67,11 @@ QByteArray SacnSender::buildPacket(const QUuid &sourceCid,
     // ---- Root Layer (38 bytes) ----
     writeU16(pkt, 0x0010);              // Preamble Size
     writeU16(pkt, 0x0000);              // Postamble Size
-    pkt.append("ASC-E1.17", 12);        // ACN Packet Identifier (12 bytes, NUL-padded)
+    // ACN Packet Identifier: the 9 ASCII chars then NUL-padded to 12 bytes by
+    // the loop below. (Appending 12 from the 9-char literal over-read 2 bytes
+    // past it, putting garbage in bytes 10-11 — strict E1.31 receivers validate
+    // this field and would reject the packet.)
+    pkt.append("ASC-E1.17", 9);
     while (pkt.size() < 16) pkt.append('\0');
     // Flags + length: top nibble = 0x7, low 12 bits = total PDU length
     const quint16 rootFlagsLen = 0x7000 | (638 - 16);

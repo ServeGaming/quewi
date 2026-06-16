@@ -21,21 +21,19 @@ void CompressorEffect::recomputeCoeffs() {
 }
 
 float CompressorEffect::computeGainDb(float levelDb) const {
-    // Gain computer with soft knee
-    float halfKnee = m_kneeDb * 0.5f;
-    float over = levelDb - m_threshDb;
-    float gr;
-    if (over < -halfKnee) {
-        gr = 0.f; // below knee: no compression
-    } else if (over > halfKnee) {
-        gr = over * (1.f / m_ratio - 1.f); // above knee
-    } else {
-        // inside knee: smooth blend
-        float x = (over + halfKnee) / m_kneeDb;
-        float slope = (1.f / m_ratio - 1.f);
-        gr = slope * x * x * m_kneeDb * 0.5f;
-    }
-    return gr; // ≤ 0 dB
+    // Gain computer with soft knee. Clamp ratio/knee at the point of use so a
+    // malformed show file (e.g. ratio=0 -> 1/ratio=inf, or knee=0 -> /0) can
+    // never poison the signal with inf/NaN, regardless of how they were set.
+    const float ratio = std::max(1.f, m_ratio);   // >=1 => 1/ratio in (0,1]
+    const float knee  = std::max(0.f, m_kneeDb);
+    const float halfKnee = knee * 0.5f;
+    const float over  = levelDb - m_threshDb;
+    const float slope = (1.f / ratio - 1.f);
+    if (over <= -halfKnee) return 0.f;                       // below knee
+    if (over >= halfKnee || knee <= 0.f) return over * slope; // above / hard knee
+    // inside knee: smooth blend (knee > 0 guaranteed here)
+    const float x = (over + halfKnee) / knee;
+    return slope * x * x * knee * 0.5f; // ≤ 0 dB
 }
 
 void CompressorEffect::process(float *data, int numFrames) {
@@ -102,10 +100,10 @@ float CompressorEffect::parameterValue(const QString &id) const {
 
 void CompressorEffect::setParameterValue(const QString &id, float v) {
     if (id == QLatin1String("threshold")) m_threshDb  = v;
-    else if (id == QLatin1String("ratio"))     m_ratio     = v;
-    else if (id == QLatin1String("attack"))    m_attackMs  = v;
-    else if (id == QLatin1String("release"))   m_releaseMs = v;
-    else if (id == QLatin1String("knee"))      m_kneeDb    = v;
+    else if (id == QLatin1String("ratio"))     m_ratio     = std::max(1.f, v);
+    else if (id == QLatin1String("attack"))    m_attackMs  = std::max(0.01f, v);
+    else if (id == QLatin1String("release"))   m_releaseMs = std::max(0.01f, v);
+    else if (id == QLatin1String("knee"))      m_kneeDb    = std::max(0.f, v);
     else if (id == QLatin1String("makeup"))    m_makeupDb  = v;
     else return;
     recomputeCoeffs();
