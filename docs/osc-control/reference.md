@@ -102,6 +102,55 @@ Use `set/*` to author the show; use `level`/`pan`/`seek` to ride a live mix.
 /quewi/cue/3/pan   -0.3
 ```
 
+### Per-cue effects — EQ / compressor / reverb / delay
+
+Set a parameter on a cue's effect, addressed by **effect type** and **parameter
+id**. The change is written to the cue (so it persists and the next GO uses it)
+**and**, if the cue is currently playing, ridden on the live voice immediately —
+so you can dial in a compressor from a remote while the cue plays. The effect is
+created with sensible defaults if the cue didn't have one yet.
+
+| Address | Args | Effect |
+|---|---|---|
+| `/quewi/cue/<num>/fx/<type>/<param>` | `f` value (or `T`/`F` for `enabled`) | Set one effect parameter on the cue. |
+| `/quewi/cue/<num>/fx/list` | — | Reply on `/quewi/reply/cue/fx` with the cue's chain as JSON (see below). |
+
+`<type>` is `eq`, `compressor`, `reverb`, or `delay`. `<param>` is one of that
+effect's parameter ids, or the special `enabled` (`0`/`F` = bypass, `1`/`T` =
+on). Unknown type or param are **rejected** (no silent no-op).
+
+| Effect (`<type>`) | Parameter ids (`<param>`) |
+|---|---|
+| `eq` | `eqN_freq`, `eqN_gain`, `eqN_q`, `eqN_type`, `eqN_enabled` for band N = 1…6 |
+| `compressor` | `threshold`, `ratio`, `attack`, `release`, `knee`, `makeup` |
+| `reverb` | `roomSize`, `damping`, `width`, `wet` |
+| `delay` | `timeL`, `timeR`, `feedback`, `wet` |
+
+```
+# Compress cue 3 at 4:1 with a -18 dB threshold, then notch band 3 of its EQ:
+/quewi/cue/3/fx/compressor/threshold -18.0
+/quewi/cue/3/fx/compressor/ratio       4.0
+/quewi/cue/3/fx/eq/eq3_freq          900.0
+/quewi/cue/3/fx/eq/eq3_gain           -6.0
+/quewi/cue/3/fx/eq/eq3_q               2.0
+# Bypass the reverb:
+/quewi/cue/3/fx/reverb/enabled         0
+```
+
+The `fx/list` reply is JSON so a remote can build a live UI — each effect's
+type, name, enabled flag, and every parameter with its current value + range:
+
+```json
+{ "cue": 3.0, "effects": [
+  { "type": "compressor", "name": "Compressor", "enabled": true,
+    "params": [ { "id": "ratio", "label": "Ratio", "value": 4.0, "min": 1.0, "max": 20.0 }, … ] } ] }
+```
+
+There is intentionally **no way to remote-drive the audio editor window** — the
+editor is a local GUI, but its effect *parameters* are exactly what these verbs
+reach, with no need for the editor to be open. (One effect of each type per cue
+for now — the rack is track-0 of the cue's editor session.)
+
 ### Soundboard (cart)
 
 The cart view is a tap-to-fire **soundboard** — a grid of colour-coded pads, each
@@ -479,7 +528,7 @@ So your controller doesn't try and fail silently:
 - **Soundboard pad *editing*** — pads fire and layers switch over OSC, but binding a cue to a pad / restyling a pad is GUI-only.
 - **Video / group "finished" push** — `/quewi/notify/cue/state finished` covers audio, light-fade, fade, wait, and all instant cue types. Video and group completion needs cue↔voice tracking on VisualCue and child completion bookkeeping on GroupCue respectively; those land in v1.1+.
 
-Everything else — fire, navigate (next/previous/reset), add/remove/**move**/edit-any-field, switch lists, switch soundboard layers, ride a live mix (level/pan/seek), open/save, undo/redo, and full query/subscribe — **is** on the wire. If you need one of the gaps above, file an issue on the repo.
+Everything else — fire, navigate (next/previous/reset), add/remove/**move**/edit-any-field, switch lists, switch soundboard layers, ride a live mix (level/pan/seek), **set EQ/compressor/reverb/delay params (stored + live)**, open/save, undo/redo, and full query/subscribe — **is** on the wire. If you need one of the gaps above, file an issue on the repo.
 
 ---
 

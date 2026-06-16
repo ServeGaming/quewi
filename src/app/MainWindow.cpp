@@ -3529,6 +3529,72 @@ void MainWindow::registerOscRemoteHandlers()
     sub("/quewi/select/next",     [moveSelection](const osc::Message &){ moveSelection(+1, false); });
     sub("/quewi/select/previous", [moveSelection](const osc::Message &){ moveSelection(-1, false); });
     sub("/quewi/reset",           [moveSelection](const osc::Message &){ moveSelection(0, true); });
+
+    // ── Per-cue effect control: EQ / compressor / reverb / delay ────────
+    // /quewi/cue/<num>/fx/<type>/<param> <value>
+    //   type  ∈ eq | compressor | reverb | delay
+    //   param ∈ the effect's parameter ids — eq: eqN_freq/eqN_gain/eqN_q/
+    //           eqN_type/eqN_enabled (N=1..6); compressor: threshold/ratio/
+    //           attack/release/knee/makeup; reverb: roomSize/damping/width/wet;
+    //           delay: timeL/timeR/feedback/wet — or the special "enabled"
+    //           (value != 0 => on) to bypass the whole effect.
+    // Edits the STORED cue (so it persists and the next GO uses it) AND, when
+    // the cue is currently playing, rides the live voice immediately. The
+    // effect is created with default params if the cue didn't have one yet.
+    // Unknown type/param are rejected (no silent no-op).
+    sub("/quewi/cue/*/fx/*/*", [this](const osc::Message &m) {
+        const auto parts = m.address.split(QChar('/'), Qt::SkipEmptyParts);
+        if (parts.size() < 6) return;          // quewi cue <num> fx <type> <param>
+        bool ok = false;
+        const double num = parts.value(2).toDouble(&ok);
+        if (!ok || m.args.empty()) return;
+        const QString type  = parts.value(4);
+        const QString param = parts.value(5);
+        // Accept T/F (for "enabled") as well as any numeric tag.
+        float val = 0.f;
+        bool haveVal = false;
+        const auto &a = m.args.front();
+        if      (a.tag == osc::Argument::Tag::True)  { val = 1.f; haveVal = true; }
+        else if (a.tag == osc::Argument::Tag::False) { val = 0.f; haveVal = true; }
+        else if (const auto n = osc::toNumber(a))    { val = float(*n); haveVal = true; }
+        if (!haveVal) return;
+        QMetaObject::invokeMethod(this, [this, num, type, param, val]{
+            auto *list = activeOscList();
+            if (!list) return;
+            for (int r = 0; r < list->cueCount(); ++r) {
+                auto *ac = qobject_cast<audio::AudioCue *>(list->cueAt(r));
+                if (!ac || !qFuzzyCompare(ac->number(), num)) continue;
+                ac->setEffectParam(type, param, val);          // stored (next GO)
+                if (m_audioEngine)
+                    if (const auto vid = ac->currentVoiceId())
+                        m_audioEngine->setVoiceEffectParam(vid, type, param, val); // live
+                return;
+            }
+        }, Qt::QueuedConnection);
+    });
+
+    // /quewi/cue/<num>/fx/list → reply /quewi/reply/cue/fx <json>
+    //   JSON: { cue, effects:[ { type, name, enabled,
+    //           params:[ { id, label, value, min, max } ] } ] }
+    // Lets a remote discover each cue's effect chain + current values/ranges.
+    sub("/quewi/cue/*/fx/list", [this, replyToSender](const osc::Message &m) {
+        const auto parts = m.address.split(QChar('/'), Qt::SkipEmptyParts);
+        if (parts.size() < 5) return;
+        bool ok = false;
+        const double num = parts.value(2).toDouble(&ok);
+        if (!ok) return;
+        auto *list = activeOscList();
+        if (!list) return;
+        for (int r = 0; r < list->cueCount(); ++r) {
+            auto *ac = qobject_cast<audio::AudioCue *>(list->cueAt(r));
+            if (!ac || !qFuzzyCompare(ac->number(), num)) continue;
+            replyToSender(QStringLiteral("/quewi/reply/cue/fx"),
+                { osc::Argument::s(QString::fromUtf8(
+                    QJsonDocument(ac->effectChainSummary())
+                        .toJson(QJsonDocument::Compact))) });
+            return;
+        }
+    });
 }
 
 core::CueList *MainWindow::activeOscList() const

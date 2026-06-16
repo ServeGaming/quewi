@@ -263,6 +263,28 @@ public:
         return false;
     }
 
+    // Live-tweak one effect param on a playing voice's chain. m_voiceFx is
+    // GUI-thread-only (insert at fire, remove at reap — never touched by the
+    // audio callback, which uses the cached raw pointers in v.effects), and
+    // both this and reapEffects run on the GUI thread, so no lock is needed
+    // here; the effect's setParameterValue coefficient handoff is the same
+    // documented lock-free benign race the EQ editor uses for live edits.
+    bool setVoiceEffectParam(VoiceId id, const QString &typeKey,
+                             const QString &paramId, float value)
+    {
+        const auto typeOpt = AudioEffect::typeFromKey(typeKey);
+        if (!typeOpt) return false;
+        auto it = m_voiceFx.find(id);
+        if (it == m_voiceFx.end()) return false;
+        for (const auto &fx : it.value()) {
+            if (!fx || fx->type() != *typeOpt) continue;
+            if (paramId == QLatin1String("enabled")) fx->setEnabled(value != 0.f);
+            else                                     fx->setParameterValue(paramId, value);
+            return true;
+        }
+        return false;
+    }
+
     bool setVoicePan(VoiceId id, double pan)
     {
         std::lock_guard<std::mutex> lock(m_mutex);
@@ -1219,6 +1241,16 @@ void AudioEngine::setVoiceChannelGains(VoiceId id, const QList<float> &gains)
     for (auto &ctx : m_contexts) {
         if (ctx->mixer && ctx->mixer->setVoiceChannelGains(id, gains)) return;
     }
+}
+
+bool AudioEngine::setVoiceEffectParam(VoiceId id, const QString &typeKey,
+                                      const QString &paramId, float value)
+{
+    for (auto &ctx : m_contexts) {
+        if (ctx->mixer && ctx->mixer->setVoiceEffectParam(id, typeKey, paramId, value))
+            return true;
+    }
+    return false;
 }
 
 QList<ActiveVoice> AudioEngine::activeVoices() const

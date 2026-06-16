@@ -141,6 +141,16 @@ public:
     // count.
     void setVoiceChannelGains(VoiceId id, const QList<float> &gains);
 
+    // Live-tweak one effect parameter on a playing voice's chain (the cue's
+    // EQ/compressor/reverb/delay), by effect type. paramId is one of the
+    // effect's parameterIds(), or "enabled" to bypass it. Returns true if the
+    // voice and a matching effect were found. Safe to call from the GUI thread
+    // while audio plays: the owning chain (m_voiceFx) is GUI-thread-only and
+    // setParameterValue's coefficient handoff is the same lock-free benign
+    // race the EQ editor already relies on. Used by the OSC fx verbs.
+    bool setVoiceEffectParam(VoiceId id, const QString &typeKey,
+                             const QString &paramId, float value);
+
     // For the active-cues panel. Cheap snapshot, safe to call at 4 Hz.
     QList<ActiveVoice> activeVoices() const;
 

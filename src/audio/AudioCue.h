@@ -93,6 +93,20 @@ public:
     // editor session or no effects. See docs/dev/realtime-fx-plan.md.
     std::vector<std::shared_ptr<AudioEffect>> buildEffectChain() const;
 
+    // Set one parameter on the cue's STORED effect of the given type key
+    // (eq / compressor / reverb / delay), creating that effect with default
+    // params if the cue doesn't have one yet. Takes effect on the next fire.
+    // paramId is one of the effect's parameterIds() (e.g. compressor "ratio",
+    // eq "eq3_gain"), or the special "enabled" (value != 0 => on). Returns
+    // false on an unknown type or unknown paramId — so a remote setter can't
+    // silently no-op. Used by the OSC /quewi/cue/<n>/fx/<type>/<param> verb.
+    bool setEffectParam(const QString &typeKey, const QString &paramId, float value);
+
+    // JSON summary of the cue's effect chain for remote discovery: each
+    // effect's type, name, enabled flag, and params (id, label, current value,
+    // min, max). Built from the stored chain. Used by /quewi/cue/<n>/fx/list.
+    QJsonObject effectChainSummary() const;
+
     std::shared_ptr<AudioFile> audioFile() const { return m_file; }
 
     quint64 currentVoiceId() const { return m_currentVoiceId; }

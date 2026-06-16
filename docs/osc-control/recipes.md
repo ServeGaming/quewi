@@ -264,6 +264,26 @@ client.send_message("/quewi/cart/layer", 1)   # switch to layer 2
 client.send_message("/quewi/cart/fire", 0)     # fire its top-left pad
 ```
 
+Dial in a cue's compressor / EQ from knobs — persists to the cue, and rides
+the live voice if it's playing:
+
+```python
+# Knob → cue 3 compressor ratio (1:1 .. 8:1)
+def comp_ratio(addr, value):
+    client.send_message("/quewi/cue/3/fx/compressor/ratio", 1.0 + value * 7.0)
+
+# Knob → cue 3 EQ band-3 gain (-12 .. +12 dB)
+def eq3(addr, value):
+    client.send_message("/quewi/cue/3/fx/eq/eq3_gain", value * 24.0 - 12.0)
+
+# Button → bypass the reverb
+def reverb_off(addr, _):
+    client.send_message("/quewi/cue/3/fx/reverb/enabled", 0)
+
+# Discover what's on a cue first (reply on /quewi/reply/cue/fx):
+client.send_message("/quewi/cue/3/fx/list", [])
+```
+
 ---
 
 ## Heartbeat / reconnect loop

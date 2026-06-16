@@ -5,6 +5,7 @@
 #include <QStringList>
 #include <QPair>
 #include <memory>
+#include <optional>
 
 namespace quewi::audio {
 
@@ -22,6 +23,12 @@ public:
     ~AudioEffect() override = default;
 
     static std::unique_ptr<AudioEffect> create(Type t, QObject *parent = nullptr);
+
+    // Canonical stable type keys used in the show file, the editor model JSON,
+    // and the OSC API: "eq" / "compressor" / "reverb" / "delay". One source of
+    // truth so AudioCue, AudioEngine, and the OSC handlers can't drift.
+    static std::optional<Type> typeFromKey(const QString &key);
+    static QString             typeKey(Type t);
 
     virtual Type    type()    const = 0;
     virtual QString name()    const = 0;

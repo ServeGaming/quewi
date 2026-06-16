@@ -166,15 +166,6 @@ std::vector<std::shared_ptr<AudioEffect>> AudioCue::buildEffectChain() const
 {
     std::vector<std::shared_ptr<AudioEffect>> chain;
 
-    // Stable JSON type keys, matching AudioEditorModel's effectTypeKey().
-    auto typeFromKey = [](const QString &k) -> std::optional<AudioEffect::Type> {
-        if (k == QLatin1String("eq"))         return AudioEffect::Type::Eq;
-        if (k == QLatin1String("compressor")) return AudioEffect::Type::Compressor;
-        if (k == QLatin1String("reverb"))     return AudioEffect::Type::Reverb;
-        if (k == QLatin1String("delay"))      return AudioEffect::Type::Delay;
-        return std::nullopt;
-    };
-
     // The cue's rack == track 0's effects in the saved editor session.
     // Mirrors AudioEditorTrack::fromJson's effects loop so live playback
     // and the editor stay in lockstep.
@@ -184,7 +175,7 @@ std::vector<std::shared_ptr<AudioEffect>> AudioCue::buildEffectChain() const
                            .value(QStringLiteral("effects")).toArray();
     for (const auto &v : fxArr) {
         const QJsonObject fxo = v.toObject();
-        const auto typeOpt = typeFromKey(fxo.value(QStringLiteral("type")).toString());
+        const auto typeOpt = AudioEffect::typeFromKey(fxo.value(QStringLiteral("type")).toString());
         if (!typeOpt) continue;
         auto fx = AudioEffect::create(*typeOpt, nullptr);
         if (!fx) continue;
@@ -195,6 +186,91 @@ std::vector<std::shared_ptr<AudioEffect>> AudioCue::buildEffectChain() const
         chain.push_back(std::shared_ptr<AudioEffect>(std::move(fx)));
     }
     return chain;
+}
+
+bool AudioCue::setEffectParam(const QString &typeKey, const QString &paramId,
+                              float value)
+{
+    const auto typeOpt = AudioEffect::typeFromKey(typeKey);
+    if (!typeOpt) return false;
+
+    // Validate the param against the effect's real parameter list (and allow
+    // the special "enabled" bypass flag) so a remote can't silently no-op.
+    const bool isEnabled = (paramId == QLatin1String("enabled"));
+    if (!isEnabled) {
+        auto probe = AudioEffect::create(*typeOpt, nullptr);
+        if (!probe || !probe->parameterIds().contains(paramId)) return false;
+    }
+
+    // Mutate a copy of the editor model, synthesising tracks[0] for a cue that
+    // was never opened in the editor (so the structure buildEffectChain reads
+    // is created from scratch on first remote edit).
+    QJsonObject model = m_editorModelJson;
+    QJsonArray tracks = model.value(QStringLiteral("tracks")).toArray();
+    if (tracks.isEmpty()) tracks.append(QJsonObject{});
+    QJsonObject track0 = tracks.at(0).toObject();
+    QJsonArray fxArr = track0.value(QStringLiteral("effects")).toArray();
+
+    int idx = -1;
+    for (int i = 0; i < fxArr.size(); ++i)
+        if (fxArr.at(i).toObject().value(QStringLiteral("type")).toString() == typeKey)
+            { idx = i; break; }
+
+    QJsonObject fxo = (idx >= 0) ? fxArr.at(idx).toObject() : QJsonObject{};
+    if (idx < 0) {
+        // Create the effect with its default params so the rack is complete.
+        fxo.insert(QStringLiteral("type"), typeKey);
+        fxo.insert(QStringLiteral("enabled"), true);
+        QJsonObject params;
+        if (auto fx = AudioEffect::create(*typeOpt, nullptr))
+            for (const QString &pid : fx->parameterIds())
+                params.insert(pid, double(fx->parameterDefault(pid)));
+        fxo.insert(QStringLiteral("params"), params);
+    }
+
+    if (isEnabled) {
+        fxo.insert(QStringLiteral("enabled"), value != 0.f);
+    } else {
+        QJsonObject params = fxo.value(QStringLiteral("params")).toObject();
+        params.insert(paramId, double(value));
+        fxo.insert(QStringLiteral("params"), params);
+    }
+
+    if (idx >= 0) fxArr.replace(idx, fxo); else fxArr.append(fxo);
+    track0.insert(QStringLiteral("effects"), fxArr);
+    tracks.replace(0, track0);
+    model.insert(QStringLiteral("tracks"), tracks);
+    setEditorModelJson(model);   // emits changed()
+    return true;
+}
+
+QJsonObject AudioCue::effectChainSummary() const
+{
+    QJsonArray effects;
+    for (const auto &fx : buildEffectChain()) {
+        if (!fx) continue;
+        QJsonObject e;
+        e.insert(QStringLiteral("type"),    AudioEffect::typeKey(fx->type()));
+        e.insert(QStringLiteral("name"),    fx->name());
+        e.insert(QStringLiteral("enabled"), fx->isEnabled());
+        QJsonArray params;
+        for (const QString &pid : fx->parameterIds()) {
+            const auto range = fx->parameterRange(pid);
+            QJsonObject p;
+            p.insert(QStringLiteral("id"),    pid);
+            p.insert(QStringLiteral("label"), fx->parameterLabel(pid));
+            p.insert(QStringLiteral("value"), double(fx->parameterValue(pid)));
+            p.insert(QStringLiteral("min"),   double(range.first));
+            p.insert(QStringLiteral("max"),   double(range.second));
+            params.append(p);
+        }
+        e.insert(QStringLiteral("params"), params);
+        effects.append(e);
+    }
+    QJsonObject o;
+    o.insert(QStringLiteral("cue"),     number());
+    o.insert(QStringLiteral("effects"), effects);
+    return o;
 }
 
 void AudioCue::prepare()
