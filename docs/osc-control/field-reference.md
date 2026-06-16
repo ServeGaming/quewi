@@ -22,7 +22,7 @@ source via the `Cue::setField` audit), see the
 | `number` | `f` / `i` | ≥ 0 | Cue number used for display and the `/cue/<n>/...` routing key |
 | `preWait` | `f` | seconds, ≥ 0 | Delay before the cue fires |
 | `postWait` | `f` | seconds, ≥ 0 | Delay after firing before the continue logic runs |
-| `continueMode` | `i` | 0 = DoNotContinue, 1 = AutoContinue, 2 = AutoFollow | How the next cue is triggered |
+| `continueMode` | `i` | 0 = Don't continue, 1 = Auto-continue, 2 = Auto-follow | `1` fires the next cue immediately on GO (after pre-wait); `2` fires the next cue only after this cue's action finishes (audio/video reaches its end, or the duration elapses), then post-wait |
 | `notes` | `s` | — | Free-form notes |
 | `armed` | `T` / `F` | — | When false the cue is skipped on GO |
 | `color` | `s` | `#AARRGGBB` hex | Row tint colour |

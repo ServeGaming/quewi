@@ -235,6 +235,37 @@ client.send_message("/quewi/workspace/save", [])
 
 ---
 
+## Ride a live mix from a fader bank
+
+Map physical faders / knobs (HeliOSC, TouchOSC, a MIDI-to-OSC bridge)
+to live control of whatever's playing. `level` / `pan` / `seek` act on
+the cue's *live voice* and no-op safely if it isn't playing, so you can
+wire them blind.
+
+```python
+# Fader 1 → cue 3 level (0..1 fader mapped to -60..0 dB)
+def fader1(addr, value):
+    db = -60.0 + value * 60.0
+    client.send_message("/quewi/cue/3/level", db)
+
+# Knob 1 → cue 3 pan (-1..+1)
+def knob1(addr, value):
+    client.send_message("/quewi/cue/3/pan", value * 2.0 - 1.0)
+
+# Jog wheel → scrub cue 3 to an absolute position in seconds
+def jog(addr, seconds):
+    client.send_message("/quewi/cue/3/seek", seconds)
+```
+
+Flip soundboard pages and fire pads the same way:
+
+```python
+client.send_message("/quewi/cart/layer", 1)   # switch to layer 2
+client.send_message("/quewi/cart/fire", 0)     # fire its top-left pad
+```
+
+---
+
 ## Heartbeat / reconnect loop
 
 For long-running controllers, the right pattern is a heartbeat

@@ -124,7 +124,7 @@ MainWindow::MainWindow(QWidget *parent)
             ui::Notifications::Level::Warn, QStringLiteral("OSC"), reason);
     });
     registerOscRemoteHandlers();
-    // Default remote-control port. Documented in docs/osc-remote-api.md.
+    // Default remote-control port. Documented in docs/osc-control/reference.md.
     constexpr quint16 kDefaultRemotePort = 53535;
     if (m_oscEngine->listenUdp(kDefaultRemotePort)) {
         statusBar()->showMessage(tr("OSC remote listening on UDP %1")
@@ -2677,7 +2677,7 @@ std::unique_ptr<cues::Cue> MainWindow::cueFromFile(const QString &path, bool aud
 
 // ---------- OSC remote API -----------------------------------------------
 //
-// Public addresses (full spec in docs/osc-remote-api.md):
+// Public addresses (full spec in docs/osc-control/reference.md):
 //
 //   /quewi/go               (no args)            — fire next cue (= space)
 //   /quewi/panic            (no args)            — stop everything
@@ -2846,7 +2846,7 @@ void MainWindow::registerOscRemoteHandlers()
     // Remote API v2 — query / subscribe / push
     // ============================================================
     //
-    // Address scheme (full spec in docs/osc-remote-api.md):
+    // Address scheme (full spec in docs/osc-control/reference.md):
     //
     //   Queries (peer sends, server replies on /quewi/reply/...):
     //     /quewi/query/version          → reply (s)
@@ -3187,7 +3187,7 @@ void MainWindow::registerOscRemoteHandlers()
         }, Qt::QueuedConnection);
     });
 
-    // Cue add. Arg 0 = type key string (see docs/osc-remote-api.md for
+    // Cue add. Arg 0 = type key string (see docs/osc-control/reference.md for
     // the full list: audio, memo, osc, fade, group, wait, light,
     // light-fade, video, image, text, midi, msc, start, stop, goto,
     // pause, load, reset, devamp).
@@ -3435,6 +3435,75 @@ void MainWindow::registerOscRemoteHandlers()
             }
         }, Qt::QueuedConnection);
     });
+
+    // ============================================================
+    // Remote API v4 — live mix, navigation, soundboard layers
+    // ============================================================
+
+    // Live control of a PLAYING audio cue's voice, addressed by cue number.
+    // All three no-op safely when the cue isn't currently playing (no voice).
+    //   /quewi/cue/<num>/level <dB  f>    — live output gain (e.g. -6.0)
+    //   /quewi/cue/<num>/pan   <-1..1 f>  — live stereo pan (L -1 … +1 R)
+    //   /quewi/cue/<num>/seek  <sec f>    — jump the playhead, in seconds
+    // Implemented as one handler over the shared "/quewi/cue/*/<verb>" shape;
+    // the trailing path segment selects the action.
+    auto liveVoiceVerb = [this](const osc::Message &m) {
+        const auto parts = m.address.split(QChar('/'), Qt::SkipEmptyParts);
+        if (parts.size() < 4) return;                 // quewi cue <num> <verb>
+        bool ok = false;
+        const double num  = parts.value(2).toDouble(&ok);
+        if (!ok) return;
+        const QString verb = parts.value(3);
+        const auto valOpt = osc::firstNumber(m);
+        if (!valOpt) return;
+        const double val = *valOpt;
+        QMetaObject::invokeMethod(this, [this, num, verb, val]{
+            if (!m_audioEngine) return;
+            auto *list = activeOscList();
+            if (!list) return;
+            for (int r = 0; r < list->cueCount(); ++r) {
+                auto *ac = qobject_cast<audio::AudioCue *>(list->cueAt(r));
+                if (!ac || !qFuzzyCompare(ac->number(), num)) continue;
+                const auto vid = ac->currentVoiceId();
+                if (!vid) return;                     // not playing → no-op
+                if      (verb == QLatin1String("level")) m_audioEngine->setVoiceGain(vid, val);
+                else if (verb == QLatin1String("pan"))   m_audioEngine->setVoicePan(vid, std::clamp(val, -1.0, 1.0));
+                else if (verb == QLatin1String("seek"))  m_audioEngine->seek(vid, val);
+                return;
+            }
+        }, Qt::QueuedConnection);
+    };
+    sub("/quewi/cue/*/level", liveVoiceVerb);
+    sub("/quewi/cue/*/pan",   liveVoiceVerb);
+    sub("/quewi/cue/*/seek",  liveVoiceVerb);
+
+    // Soundboard layer switch — /quewi/cart/layer <index i> (0-based).
+    sub("/quewi/cart/layer", [this](const osc::Message &m) {
+        const auto idx = osc::firstNumber(m);
+        if (!idx) return;
+        const int i = static_cast<int>(*idx);
+        QMetaObject::invokeMethod(this, [this, i]{
+            if (m_workspace && m_workspace->cart())
+                m_workspace->cart()->setActiveLayer(i);
+        }, Qt::QueuedConnection);
+    });
+
+    // Playhead navigation WITHOUT firing — move the cue-list selection so the
+    // next /quewi/go targets a different cue. /quewi/reset returns to the top.
+    auto moveSelection = [this](int delta, bool toTop) {
+        QMetaObject::invokeMethod(this, [this, delta, toTop]{
+            if (!m_model || !m_cueListView) return;
+            const int rows = m_model->rowCount();
+            if (rows <= 0) return;
+            const int cur = m_cueListView->currentIndex().row();
+            const int row = toTop ? 0
+                          : std::clamp((cur < 0 ? 0 : cur) + delta, 0, rows - 1);
+            m_cueListView->setCurrentIndex(m_model->index(row, 0));
+        }, Qt::QueuedConnection);
+    };
+    sub("/quewi/select/next",     [moveSelection](const osc::Message &){ moveSelection(+1, false); });
+    sub("/quewi/select/previous", [moveSelection](const osc::Message &){ moveSelection(-1, false); });
+    sub("/quewi/reset",           [moveSelection](const osc::Message &){ moveSelection(0, true); });
 }
 
 core::CueList *MainWindow::activeOscList() const

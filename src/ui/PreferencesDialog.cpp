@@ -545,7 +545,7 @@ QWidget *makeOscPage(QWidget *parent)
         "Quewi listens for OSC remote control on UDP. Any external "
         "app — a lighting console, an iPad remote, your own script "
         "— can send commands, query the cue list, and subscribe to "
-        "live updates. See docs/osc-remote-api.md for the full "
+        "live updates. See docs/osc-control/reference.md for the full "
         "message vocabulary."), page);
     header->setWordWrap(true);
     outer->addWidget(header);

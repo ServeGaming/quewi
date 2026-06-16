@@ -1,8 +1,11 @@
 # OSC remote control — overview
 
-Every important action in quewi is reachable over OSC. Fire cues,
-edit fields, mirror state, swap cue lists, undo, save the workspace.
-The four pages in this section cover:
+Almost every action in quewi is reachable over OSC. Fire cues and
+navigate (next / previous / reset), add / remove / move / edit any
+field, ride a live mix (level / pan / seek on a playing cue), switch
+cue lists and soundboard layers, mirror state with queries +
+subscriptions, undo, and save the workspace — enough for a controller
+like HeliOSC to drive a whole show. The four pages in this section cover:
 
 - **Overview** (you're here) — what it's for, who uses it
 - [**Address reference**](reference.md) — every `/quewi/...`

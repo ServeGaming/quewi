@@ -73,8 +73,34 @@ These let a controller stop one engine without affecting the others. Use `/quewi
 | `/quewi/cue/select` | `f` cue number | Move the selection to that cue |
 | `/quewi/cue/start` | `f` cue number | Fire that cue directly |
 | `/quewi/cue/stop` | `f` cue number | Stop the audio voice for that cue (audio only) |
+| `/quewi/select/next` | — | Move the selection **down** one cue — does NOT fire. The next `/quewi/go` targets it. |
+| `/quewi/select/previous` | — | Move the selection **up** one cue — does NOT fire. |
+| `/quewi/reset` | — | Return the playhead to the **top** of the active list (selects the first cue). The QLab-style "reset to top" before a run. |
 
 Cue numbers accept any numeric type (`i / f / h / d`). Use whatever your client emits.
+
+### Live mix control (on a *playing* cue)
+
+Adjust a currently-playing audio cue's voice in real time, addressed by cue
+number. Each is a no-op if the cue isn't playing (no live voice), so they're
+safe to fire blind from a fader bank. Changes are applied immediately with no
+fade — perfect for a remote fader, trackpad, or rotary.
+
+| Address | Args | Effect |
+|---|---|---|
+| `/quewi/cue/<num>/level` | `f` dB | Set the live output gain of the cue's voice (e.g. `-6.0`). |
+| `/quewi/cue/<num>/pan` | `f` -1.0 … +1.0 | Set the live stereo pan (L `-1` … `+1` R; clamped). |
+| `/quewi/cue/<num>/seek` | `f` seconds | Jump the playhead to that absolute position in the source file. |
+
+These differ from `/quewi/cue/<num>/set/gainDb` and `/set/pan`, which edit the
+cue's *stored* value (persisted, undoable) rather than nudging the live voice.
+Use `set/*` to author the show; use `level`/`pan`/`seek` to ride a live mix.
+
+```
+# Ride cue 3's level down to -10 dB and pan it slightly left, live:
+/quewi/cue/3/level -10.0
+/quewi/cue/3/pan   -0.3
+```
 
 ### Soundboard (cart)
 
@@ -90,12 +116,19 @@ index** (0 = top-left, counting left-to-right then top-to-bottom) or by explicit
 | `/quewi/cart/fire` | `i` row, `i` col | Fire the pad at that row + column (both 0-based) |
 | `/quewi/cart/stop` | — | Stop everything the board started (audio fade + lighting blackout + video stop) |
 | `/quewi/cart/show` | — | Bring the soundboard to the front |
+| `/quewi/cart/layer` | `i` index | Switch the soundboard to that **layer** (0-based). |
 
-Index / row / col accept any numeric type (`i / f / h / d`). A pad with no cue
-bound is a no-op. Locally, pads also fire from a keyboard **hotkey** or an assigned
-**MIDI note** (set per pad in Edit Layout → click a pad). The OSC paths above are
-the network equivalent — handy for a tablet remote, a Stream Deck, or a lighting
-console macro.
+Index / row / col / layer accept any numeric type (`i / f / h / d`). A pad with no
+cue bound is a no-op. Locally, pads also fire from a keyboard **hotkey** or an
+assigned **MIDI note** (set per pad in Edit Layout → click a pad). The OSC paths
+above are the network equivalent — handy for a tablet remote, a Stream Deck, or a
+lighting console macro.
+
+**Layers:** the soundboard holds multiple switchable pages of pads ("layers" —
+e.g. Act 1 / Act 2 / spot FX). Only the active layer fires (locally or over OSC),
+so `/quewi/cart/fire` always targets the layer currently shown. Use
+`/quewi/cart/layer <i>` to flip pages remotely before firing. `firePadAt` /
+`firePadIndex` address pads within the active layer.
 
 ```
 # Fire the third pad (flat index 2), then the pad at row 1, column 0:
@@ -221,7 +254,7 @@ coerces numeric types (`i/h/f/d`) to whatever the field expects.
 | `number` | `f` / `i` | ≥ 0 | Cue number used for display and the `/cue/<n>/...` routing key |
 | `preWait` | `f` | seconds, ≥ 0 | Delay before the cue fires |
 | `postWait` | `f` | seconds, ≥ 0 | Delay after firing before the continue logic runs |
-| `continueMode` | `i` | 0 = DoNotContinue, 1 = AutoContinue, 2 = AutoFollow | How the next cue is triggered |
+| `continueMode` | `i` | 0 = Don't continue, 1 = Auto-continue, 2 = Auto-follow | `1` fires the next cue **immediately** on GO (after pre-wait); `2` fires the next cue only **after this cue's action finishes** (audio/video reaches its end, or the duration elapses), then post-wait |
 | `notes` | `s` | — | Free-form notes |
 | `armed` | `T` / `F` (or `i` 0/1) | — | When false the cue is skipped on GO |
 | `color` | `s` | `#AARRGGBB` hex | Row tint colour |
@@ -439,14 +472,14 @@ Every step is undoable through `/quewi/undo`.
 
 So your controller doesn't try and fail silently:
 
-- **Move / reorder cues** — only add and remove. Moving requires removing and re-adding.
 - **Patch editing** — speaker patches, DMX universe patches, projection mapping are all GUI-only.
-- **Preferences** — port, theme, shortcuts must be set on the quewi machine itself.
-- **Cart grid and script viewer** — not on the wire yet.
-- **Command palette** — the UI dispatch surface isn't directly callable.
+- **Preferences** — listen port/interface, theme, and keyboard shortcuts must be set on the quewi machine (the OSC port/interface are also overridable via the `osc/udpPort` / `osc/listenAddress` QSettings keys — see *Notes on the network*).
+- **Script viewer & command palette** — the script window and the command-palette dispatch surface aren't on the wire.
+- **Live lighting / video ride** — DMX is controllable per-cue (`light` / `light-fade` cues, `/set/channels`) and via `/quewi/lighting/blackout|fadeOut`, but there's no direct "set universe N channel C to value V" live verb yet; video supports `/set/opacity`, `/set/pos*` (stored) and `/quewi/video/fadeOut|stop`, but no live opacity-ride verb. Most operators automate these as cues instead.
+- **Soundboard pad *editing*** — pads fire and layers switch over OSC, but binding a cue to a pad / restyling a pad is GUI-only.
 - **Video / group "finished" push** — `/quewi/notify/cue/state finished` covers audio, light-fade, fade, wait, and all instant cue types. Video and group completion needs cue↔voice tracking on VisualCue and child completion bookkeeping on GroupCue respectively; those land in v1.1+.
 
-If you need any of these, file an issue on the repo.
+Everything else — fire, navigate (next/previous/reset), add/remove/**move**/edit-any-field, switch lists, switch soundboard layers, ride a live mix (level/pan/seek), open/save, undo/redo, and full query/subscribe — **is** on the wire. If you need one of the gaps above, file an issue on the repo.
 
 ---
 
