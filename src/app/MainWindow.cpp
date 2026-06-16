@@ -125,47 +125,7 @@ MainWindow::MainWindow(QWidget *parent)
             ui::Notifications::Level::Warn, QStringLiteral("OSC"), reason);
     });
     registerOscRemoteHandlers();
-    // Bind the OSC remote listener. The default port (53535, documented in
-    // docs/osc-control/reference.md) can fail to bind: another app holds it, or
-    // — common on Windows — it's inside a reserved/excluded port range that
-    // Hyper-V / WSL / Docker grabbed. The old code flashed a 3 s status message
-    // and otherwise ran silently with NO OSC, leaving the operator to wonder
-    // why their controller does nothing. Instead: try the configured/default
-    // port, then a few stable fallbacks; surface the actual port (or a clear
-    // failure) loudly.
-    {
-        QSettings oscSettings(QStringLiteral("ServeGaming"), QStringLiteral("quewi"));
-        const quint16 wantPort = quint16(
-            oscSettings.value(QStringLiteral("osc/udpPort"), 53535).toUInt());
-        // Stable fallbacks (none in the typical Windows dynamic-exclusion bands)
-        // so a controller can be pointed at a predictable port if the default is
-        // unavailable.
-        const QList<quint16> candidates{ wantPort, 53000, 9000, 8010 };
-        bool bound = false;
-        for (quint16 p : candidates)
-            if (m_oscEngine->listenUdp(p)) { bound = true; break; }
-
-        if (bound) {
-            const quint16 actual = m_oscEngine->udpPort();
-            statusBar()->showMessage(
-                tr("OSC remote listening on UDP %1").arg(actual), 4000);
-            if (actual != wantPort) {
-                ui::Notifications::instance().post(
-                    ui::Notifications::Level::Warn, QStringLiteral("OSC"),
-                    tr("Port %1 wasn't available (in use, or in a Windows-"
-                       "reserved range) — OSC is listening on %2 instead. "
-                       "Point your controller at port %2.")
-                        .arg(wantPort).arg(actual));
-            }
-        } else {
-            ui::Notifications::instance().post(
-                ui::Notifications::Level::Error, QStringLiteral("OSC"),
-                tr("Couldn't start the OSC remote listener — every port tried "
-                   "(%1, 53000, 9000, 8010) was unavailable. Remote control is "
-                   "off this session; free a port or set osc/udpPort.")
-                    .arg(wantPort));
-        }
-    }
+    bindOscListener();
     m_audioEngine = std::make_unique<audio::AudioEngine>(this);
     connect(m_audioEngine.get(), &audio::AudioEngine::engineError, this,
             [this](const QString &reason) {
@@ -1158,7 +1118,15 @@ void MainWindow::showPreferences()
             });
     connect(&dlg, &ui::PreferencesDialog::cueListColumnsChanged,
             this, [this] { if (m_cueListView) m_cueListView->applyColumnVisibility(); });
+
+    // Re-bind the OSC listener if the port changed, so a port edit applies
+    // without a restart (and the operator sees which port it landed on).
+    const auto oscPortBefore = QSettings(QStringLiteral("ServeGaming"),
+        QStringLiteral("quewi")).value(QStringLiteral("osc/udpPort"), 53535).toUInt();
     dlg.exec();
+    const auto oscPortAfter = QSettings(QStringLiteral("ServeGaming"),
+        QStringLiteral("quewi")).value(QStringLiteral("osc/udpPort"), 53535).toUInt();
+    if (oscPortAfter != oscPortBefore) bindOscListener();
 }
 
 void MainWindow::showPatchEditor()
@@ -3636,6 +3604,46 @@ core::CueList *MainWindow::activeOscList() const
 {
     if (m_model && m_model->cueList()) return m_model->cueList();
     return m_workspace ? m_workspace->activeCueList() : nullptr;
+}
+
+void MainWindow::bindOscListener()
+{
+    if (!m_oscEngine) return;
+    // The configured port (osc/udpPort, default 53535, documented in
+    // docs/osc-control/reference.md) can fail to bind: another app holds it,
+    // or — common on Windows — it's inside a reserved/excluded port range that
+    // Hyper-V / WSL / Docker grabbed. Rather than run silently with NO OSC
+    // (the old behaviour: a 3 s status flash and nothing else), try the
+    // configured port, then a few stable fallbacks, and surface the actual
+    // port — or a clear failure — loudly. listenUdp() closes any prior socket
+    // first, so this is safe to call again to re-bind after a port change.
+    QSettings oscSettings(QStringLiteral("ServeGaming"), QStringLiteral("quewi"));
+    const quint16 wantPort = quint16(
+        oscSettings.value(QStringLiteral("osc/udpPort"), 53535).toUInt());
+    const QList<quint16> candidates{ wantPort, 53000, 9000, 8010 };
+    bool bound = false;
+    for (quint16 p : candidates)
+        if (m_oscEngine->listenUdp(p)) { bound = true; break; }
+
+    if (bound) {
+        const quint16 actual = m_oscEngine->udpPort();
+        statusBar()->showMessage(
+            tr("OSC remote listening on UDP %1").arg(actual), 4000);
+        if (actual != wantPort) {
+            ui::Notifications::instance().post(
+                ui::Notifications::Level::Warn, QStringLiteral("OSC"),
+                tr("Port %1 wasn't available (in use, or in a Windows-reserved "
+                   "range) — OSC is listening on %2 instead. Point your "
+                   "controller at port %2.").arg(wantPort).arg(actual));
+        }
+    } else {
+        ui::Notifications::instance().post(
+            ui::Notifications::Level::Error, QStringLiteral("OSC"),
+            tr("Couldn't start the OSC remote listener — every port tried "
+               "(%1, 53000, 9000, 8010) was unavailable. Remote control is off "
+               "this session; free a port or change it in Preferences → OSC.")
+                .arg(wantPort));
+    }
 }
 
 void MainWindow::pushOscNotify(const QString &address,

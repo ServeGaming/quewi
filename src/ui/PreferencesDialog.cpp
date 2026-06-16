@@ -563,7 +563,9 @@ QWidget *makeOscPage(QWidget *parent)
     mainForm->addRow(QString(), makeHint(QObject::tr(
         "Default 53535. Tell your remote app this port + the IP "
         "address of this machine. Bound to all network interfaces "
-        "(0.0.0.0). Takes effect on next launch."), mainGroup));
+        "(0.0.0.0). Applied when you close Preferences — if the port "
+        "is unavailable, quewi falls back to another and tells you which."),
+        mainGroup));
     outer->addWidget(mainGroup);
 
     // Advanced group — extra transports + diagnostics.

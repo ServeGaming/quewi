@@ -183,6 +183,12 @@ private:
                                              quint64 voiceId);
 
     void registerOscRemoteHandlers();
+    // (Re)bind the OSC UDP listener to the configured port (osc/udpPort,
+    // default 53535), falling back to a few stable ports if it's taken or in a
+    // Windows-reserved range, and surfacing the actual port (or a clear
+    // failure). Called at startup and again when the port changes in
+    // Preferences, so a port change applies without a restart.
+    void bindOscListener();
     // Wire workspace + cue-list + cue signals into OSC push
     // notifications. Reattaches after every resetWorkspace.
     void wireOscNotifications();
