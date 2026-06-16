@@ -710,6 +710,11 @@ void MainWindow::buildMenus()
 
 void MainWindow::resetWorkspace()
 {
+    // Cancel any pending GO follows / object-audio trajectories / live voices
+    // that reference cues in the OUTGOING workspace before it (and all its
+    // cues) are destroyed below — otherwise the GoEngine is left holding raw
+    // Cue* pointers into freed memory until its next workspace is set.
+    if (m_goEngine) m_goEngine->cancelAll(0.0);
     m_workspace = std::make_unique<core::Workspace>();
     m_workspace->setName(tr("Untitled Show"));
     auto list = std::make_unique<core::CueList>(tr("Main"));
@@ -801,6 +806,9 @@ bool MainWindow::loadShowFromPath(const QString &path)
             ui::Notifications::Level::Warn,
             QStringLiteral("Show file"), warn);
     }
+    // Stop pending follows / trajectories / voices that point at the outgoing
+    // workspace's cues before it's replaced (and freed) — see resetWorkspace().
+    if (m_goEngine) m_goEngine->cancelAll(0.0);
     m_workspace = std::move(fresh);
     m_model = std::make_unique<core::CueListModel>();
     rebindModel();
@@ -1970,6 +1978,11 @@ void MainWindow::removeCueListAt(int idx)
             tr("Remove \"%1\" and all its cues?").arg(list->name()))
         != QMessageBox::Yes) return;
     m_workspace->takeCueList(list->id());
+    // The destroyed list and its cues may still be referenced by raw Cue*/
+    // CueList* pointers in commands sitting on the shared undo stack; a later
+    // undo/redo would dereference freed memory. The removal isn't undoable, so
+    // drop the history. (Mirrors AudioEditorModel's m_undoStack.clear().)
+    if (auto *stack = m_workspace->undoStack()) stack->clear();
     auto *active = m_workspace->activeCueList();
     rebuildListTabs();
     if (active) m_model->setCueList(active);
