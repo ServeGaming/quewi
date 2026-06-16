@@ -125,11 +125,46 @@ MainWindow::MainWindow(QWidget *parent)
             ui::Notifications::Level::Warn, QStringLiteral("OSC"), reason);
     });
     registerOscRemoteHandlers();
-    // Default remote-control port. Documented in docs/osc-control/reference.md.
-    constexpr quint16 kDefaultRemotePort = 53535;
-    if (m_oscEngine->listenUdp(kDefaultRemotePort)) {
-        statusBar()->showMessage(tr("OSC remote listening on UDP %1")
-            .arg(kDefaultRemotePort), 3000);
+    // Bind the OSC remote listener. The default port (53535, documented in
+    // docs/osc-control/reference.md) can fail to bind: another app holds it, or
+    // — common on Windows — it's inside a reserved/excluded port range that
+    // Hyper-V / WSL / Docker grabbed. The old code flashed a 3 s status message
+    // and otherwise ran silently with NO OSC, leaving the operator to wonder
+    // why their controller does nothing. Instead: try the configured/default
+    // port, then a few stable fallbacks; surface the actual port (or a clear
+    // failure) loudly.
+    {
+        QSettings oscSettings(QStringLiteral("ServeGaming"), QStringLiteral("quewi"));
+        const quint16 wantPort = quint16(
+            oscSettings.value(QStringLiteral("osc/udpPort"), 53535).toUInt());
+        // Stable fallbacks (none in the typical Windows dynamic-exclusion bands)
+        // so a controller can be pointed at a predictable port if the default is
+        // unavailable.
+        const QList<quint16> candidates{ wantPort, 53000, 9000, 8010 };
+        bool bound = false;
+        for (quint16 p : candidates)
+            if (m_oscEngine->listenUdp(p)) { bound = true; break; }
+
+        if (bound) {
+            const quint16 actual = m_oscEngine->udpPort();
+            statusBar()->showMessage(
+                tr("OSC remote listening on UDP %1").arg(actual), 4000);
+            if (actual != wantPort) {
+                ui::Notifications::instance().post(
+                    ui::Notifications::Level::Warn, QStringLiteral("OSC"),
+                    tr("Port %1 wasn't available (in use, or in a Windows-"
+                       "reserved range) — OSC is listening on %2 instead. "
+                       "Point your controller at port %2.")
+                        .arg(wantPort).arg(actual));
+            }
+        } else {
+            ui::Notifications::instance().post(
+                ui::Notifications::Level::Error, QStringLiteral("OSC"),
+                tr("Couldn't start the OSC remote listener — every port tried "
+                   "(%1, 53000, 9000, 8010) was unavailable. Remote control is "
+                   "off this session; free a port or set osc/udpPort.")
+                    .arg(wantPort));
+        }
     }
     m_audioEngine = std::make_unique<audio::AudioEngine>(this);
     connect(m_audioEngine.get(), &audio::AudioEngine::engineError, this,

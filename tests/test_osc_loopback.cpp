@@ -14,15 +14,13 @@ private slots:
     void udpRoundTripDispatchesByPattern()
     {
         OscEngine engine;
-        QVERIFY(engine.listenUdp(0)); // 0 = pick any free port
-        // QUdpSocket bound on AnyIPv4 with port 0 — we need to know the
-        // actual port. We can't get it from the engine API yet, so for
-        // this smoke test we'll use a fixed port and accept failure if
-        // the port is busy (extremely unlikely).
-        // Re-bind to a known port.
-        engine.stopAllListeners();
-        const quint16 kPort = 53891;
-        QVERIFY(engine.listenUdp(kPort));
+        // Bind ANY free port and ask the engine which one it got. A hardcoded
+        // port can land in a Windows-reserved/excluded range (Hyper-V/WSL/
+        // Docker grab dynamic ranges) and fail to bind — which has nothing to
+        // do with the dispatch path this test exercises.
+        QVERIFY(engine.listenUdp(0));
+        const quint16 port = engine.udpPort();
+        QVERIFY(port != 0);
 
         bool received = false;
         QString gotAddress;
@@ -33,7 +31,7 @@ private slots:
 
         Destination dest;
         dest.host = QStringLiteral("127.0.0.1");
-        dest.port = kPort;
+        dest.port = port;
         dest.transport = Destination::Udp;
 
         Message msg;
@@ -42,10 +40,8 @@ private slots:
 
         QVERIFY(engine.send(dest, msg));
 
-        // Pump the event loop until the datagram arrives.
-        QSignalSpy spy(&engine, &OscEngine::packetSeen);
-        QVERIFY(spy.wait(2000));
-
+        // Pump the event loop until the datagram arrives and the pattern
+        // "/cue/{go,stop}" matches "/cue/go", invoking the handler.
         QTRY_VERIFY_WITH_TIMEOUT(received, 2000);
         QCOMPARE(gotAddress, QStringLiteral("/cue/go"));
     }

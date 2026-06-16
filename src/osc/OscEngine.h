@@ -60,8 +60,14 @@ public:
     bool send(const Destination &dest, const QByteArray &rawPacket);
 
     // ---------------- Inbound ----------------
-    // Bind a UDP listener on `port`. Returns true on success.
+    // Bind a UDP listener on `port`. Returns true on success. Pass 0 to let the
+    // OS pick any free port (useful when a fixed port is in use or in a
+    // Windows-reserved/excluded range) — query the chosen one with udpPort().
     bool listenUdp(quint16 port);
+
+    // The actual bound UDP port, or 0 if the listener isn't up. Reports the
+    // OS-chosen port after a listenUdp(0), and lets callers show the real port.
+    quint16 udpPort() const;
 
     // Start a TCP server (SLIP-framed) on `port`.
     bool listenTcpSlip(quint16 port);

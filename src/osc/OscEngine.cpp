@@ -153,6 +153,12 @@ bool OscEngine::listenUdp(quint16 port)
     return m_udpIn->bind(QHostAddress::AnyIPv4, port);
 }
 
+quint16 OscEngine::udpPort() const
+{
+    return (m_udpIn && m_udpIn->state() == QAbstractSocket::BoundState)
+        ? m_udpIn->localPort() : 0;
+}
+
 bool OscEngine::listenTcpSlip(quint16 port)
 {
     if (!m_tcpServer) {
