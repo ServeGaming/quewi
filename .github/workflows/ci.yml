@@ -76,3 +76,79 @@ jobs:
         env:
           QT_QPA_PLATFORM: offscreen
         run: ctest --preset ${{ runner.os == 'Windows' && 'windows' || runner.os == 'macOS' && 'macos' || 'linux' }}-debug
+
+  # AddressSanitizer + UndefinedBehaviorSanitizer gate. This is the durable
+  # answer to "no crashes for 1.0": every use-after-free / out-of-bounds /
+  # divide-by-zero the 1.0 audit found by hand would have failed this job
+  # automatically. Runs the unit tests AND the app self-test instrumented.
+  sanitizers:
+    name: ASan + UBSan / Linux
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Qt 6
+        uses: jurplel/install-qt-action@v4
+        with:
+          version: "6.8.3"
+          modules: qtmultimedia qtwebsockets qtpdf
+
+      - name: Install Ninja
+        run: sudo apt-get update && sudo apt-get install -y ninja-build
+
+      - name: Configure (ASan + UBSan)
+        run: cmake --preset linux-asan
+
+      - name: Build
+        run: cmake --build --preset linux-asan
+
+      - name: Unit tests under sanitizers
+        env:
+          QT_QPA_PLATFORM: offscreen
+          ASAN_OPTIONS: "detect_leaks=0:abort_on_error=1:detect_stack_use_after_return=1"
+          UBSAN_OPTIONS: "print_stacktrace=1:halt_on_error=1"
+        run: ctest --preset linux-asan --output-on-failure
+
+      - name: App self-test under sanitizers
+        env:
+          QT_QPA_PLATFORM: offscreen
+          ASAN_OPTIONS: "detect_leaks=0:abort_on_error=1:detect_stack_use_after_return=1"
+          UBSAN_OPTIONS: "print_stacktrace=1:halt_on_error=1"
+        run: |
+          BIN=$(find build/linux-asan -maxdepth 3 -type f -name quewi -perm -u+x | head -1)
+          echo "self-test binary: $BIN"
+          "$BIN" --selftest
+
+  # ThreadSanitizer for the audio-callback vs GUI-thread races. Informational
+  # (continue-on-error) until the inevitable Qt-backend noise is suppressed —
+  # it reports without blocking the merge.
+  thread-sanitizer:
+    name: TSan / Linux (informational)
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Qt 6
+        uses: jurplel/install-qt-action@v4
+        with:
+          version: "6.8.3"
+          modules: qtmultimedia qtwebsockets qtpdf
+
+      - name: Install Ninja
+        run: sudo apt-get update && sudo apt-get install -y ninja-build
+
+      - name: Configure (TSan)
+        run: cmake --preset linux-tsan
+
+      - name: Build
+        run: cmake --build --preset linux-tsan
+
+      - name: App self-test under TSan
+        env:
+          QT_QPA_PLATFORM: offscreen
+          TSAN_OPTIONS: "halt_on_error=0:second_deadlock_stack=1"
+        run: |
+          BIN=$(find build/linux-tsan -maxdepth 3 -type f -name quewi -perm -u+x | head -1)
+          echo "self-test binary: $BIN"
+          "$BIN" --selftest

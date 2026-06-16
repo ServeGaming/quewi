@@ -48,6 +48,30 @@
             "inherits": "base",
             "cacheVariables": { "CMAKE_BUILD_TYPE": "Release" },
             "condition": { "type": "equals", "lhs": "${hostSystemName}", "rhs": "Linux" }
+        },
+        {
+            "name": "linux-asan",
+            "inherits": "base",
+            "cacheVariables": {
+                "CMAKE_BUILD_TYPE": "Debug",
+                "_comment": "AddressSanitizer + UndefinedBehaviorSanitizer. Catches the use-after-free / out-of-bounds / divide-by-zero class of bug the 1.0 audit found, automatically, on every push. vptr+alignment UBSan checks are off because they flag Qt-internal patterns (qobject_cast vtables, unaligned access) not our code. -fno-sanitize-recover makes UB a hard failure so CI goes red.",
+                "CMAKE_CXX_FLAGS": "-fsanitize=address,undefined -fno-sanitize=vptr,alignment -fno-sanitize-recover=all -fno-omit-frame-pointer -g",
+                "CMAKE_EXE_LINKER_FLAGS": "-fsanitize=address,undefined",
+                "CMAKE_SHARED_LINKER_FLAGS": "-fsanitize=address,undefined"
+            },
+            "condition": { "type": "equals", "lhs": "${hostSystemName}", "rhs": "Linux" }
+        },
+        {
+            "name": "linux-tsan",
+            "inherits": "base",
+            "cacheVariables": {
+                "CMAKE_BUILD_TYPE": "Debug",
+                "_comment": "ThreadSanitizer — targets audio-callback vs GUI-thread data races. Can't combine with ASan, so it's a separate preset/job. Informational while Qt-backend noise is tuned out.",
+                "CMAKE_CXX_FLAGS": "-fsanitize=thread -fno-omit-frame-pointer -g",
+                "CMAKE_EXE_LINKER_FLAGS": "-fsanitize=thread",
+                "CMAKE_SHARED_LINKER_FLAGS": "-fsanitize=thread"
+            },
+            "condition": { "type": "equals", "lhs": "${hostSystemName}", "rhs": "Linux" }
         }
     ],
     "buildPresets": [
@@ -56,11 +80,15 @@
         { "name": "macos-debug",     "configurePreset": "macos-debug" },
         { "name": "macos-release",   "configurePreset": "macos-release" },
         { "name": "linux-debug",     "configurePreset": "linux-debug" },
-        { "name": "linux-release",   "configurePreset": "linux-release" }
+        { "name": "linux-release",   "configurePreset": "linux-release" },
+        { "name": "linux-asan",      "configurePreset": "linux-asan" },
+        { "name": "linux-tsan",      "configurePreset": "linux-tsan" }
     ],
     "testPresets": [
         { "name": "windows-debug",   "configurePreset": "windows-debug",   "output": { "outputOnFailure": true } },
         { "name": "macos-debug",     "configurePreset": "macos-debug",     "output": { "outputOnFailure": true } },
-        { "name": "linux-debug",     "configurePreset": "linux-debug",     "output": { "outputOnFailure": true } }
+        { "name": "linux-debug",     "configurePreset": "linux-debug",     "output": { "outputOnFailure": true } },
+        { "name": "linux-asan",      "configurePreset": "linux-asan",      "output": { "outputOnFailure": true } },
+        { "name": "linux-tsan",      "configurePreset": "linux-tsan",      "output": { "outputOnFailure": true } }
     ]
 }
