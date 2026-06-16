@@ -91,6 +91,9 @@ AudioEditorTrack::~AudioEditorTrack() = default;
 AudioEffect *AudioEditorTrack::addEffect(AudioEffect::Type t) {
     auto fx = AudioEffect::create(t, nullptr);
     auto *ptr = fx.get();
+    // Stop any live preview BEFORE the vector is reallocated/mutated — the
+    // audio thread iterates m_effects by reference. Handler is synchronous.
+    emit effectsAboutToChange();
     m_effects.push_back(std::move(fx));
     emit changed();
     return ptr;
@@ -98,12 +101,14 @@ AudioEffect *AudioEditorTrack::addEffect(AudioEffect::Type t) {
 
 void AudioEditorTrack::removeEffect(int idx) {
     if (idx < 0 || idx >= int(m_effects.size())) return;
+    emit effectsAboutToChange();   // stop the preview before we free the effect
     m_effects.erase(m_effects.begin() + idx);
     emit changed();
 }
 
 void AudioEditorTrack::moveEffect(int from, int to) {
     if (from < 0 || to < 0 || from >= int(m_effects.size()) || to >= int(m_effects.size())) return;
+    emit effectsAboutToChange();   // stop the preview before reordering
     auto fx = std::move(m_effects[from]);
     m_effects.erase(m_effects.begin() + from);
     m_effects.insert(m_effects.begin() + to, std::move(fx));
@@ -332,6 +337,8 @@ AudioEditorTrack *AudioEditorModel::addTrack(const QString &name) {
     auto t = std::make_unique<AudioEditorTrack>(nullptr);
     if (!name.isEmpty()) t->setName(name);
     connect(t.get(), &AudioEditorTrack::changed, this, &AudioEditorModel::tracksChanged);
+    connect(t.get(), &AudioEditorTrack::effectsAboutToChange,
+            this, &AudioEditorModel::effectsAboutToChange);
     auto *ptr = t.get();
     m_tracks.push_back(std::move(t));
     emit tracksChanged();

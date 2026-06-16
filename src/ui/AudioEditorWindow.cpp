@@ -178,6 +178,13 @@ AudioEditorWindow::AudioEditorWindow(audio::AudioCue *cue, QWidget *parent)
     // synchronous, so the callback can't be mid-readData after this).
     connect(m_model.get(), &audio::AudioEditorModel::aboutToRemoveTrack,
             this, [this] { if (m_isPlaying) stopPlayback(); });
+    // Same guard for per-effect add/remove/reorder: the live preview iterates
+    // the track's effect vector on the audio thread, so adding/removing/moving
+    // an effect mid-playback would race it (cross-thread UAF / realloc). The
+    // signal fires BEFORE the mutation and stopPlayback()'s m_sink->stop() is
+    // synchronous, so the audio callback can't be in flight when it returns.
+    connect(m_model.get(), &audio::AudioEditorModel::effectsAboutToChange,
+            this, [this] { if (m_isPlaying) stopPlayback(); });
 
     // Restore the saved multitrack session if the cue carries one; otherwise
     // derive a fresh single-track session from the cue's file. This is what

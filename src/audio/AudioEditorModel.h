@@ -77,6 +77,10 @@ public:
 
 signals:
     void changed();
+    // Emitted at the TOP of addEffect/removeEffect/moveEffect, BEFORE m_effects
+    // is mutated, so the editor's live preview (LiveEffectDevice iterates this
+    // exact vector on the audio thread) can synchronously stop its sink first.
+    void effectsAboutToChange();
 
 private:
     QUuid   m_id;
@@ -129,6 +133,11 @@ signals:
     // holds a raw pointer to the track's effect chain and runs on the audio
     // thread) can stop its sink before the track is freed.
     void aboutToRemoveTrack();
+    // Re-emitted from any owned track's effectsAboutToChange() — wired in
+    // addTrack(). The live-preview window stops its sink on this, mirroring
+    // aboutToRemoveTrack, so a per-effect add/remove/reorder during playback
+    // can't race the audio callback.
+    void effectsAboutToChange();
 
 public slots:
     // Undoable mutations — push commands onto m_undoStack
