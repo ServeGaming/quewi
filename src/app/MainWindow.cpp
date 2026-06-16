@@ -34,6 +34,7 @@
 #include "video/VideoCue.h"
 #include "video/VideoEngine.h"
 #include "ui/AboutDialog.h"
+#include "ui/WhatsNewDialog.h"
 #include "ui/ActiveCuesPanel.h"
 #include "ui/CartView.h"
 #include "ui/AudioEditorWindow.h"
@@ -319,6 +320,13 @@ MainWindow::MainWindow(QWidget *parent)
         }
         QFile::remove(flag);
         QMessageBox::warning(this, tr("Update didn't install"), msg);
+    });
+
+    // After an update, show "what's new" once for the new version. Fires after
+    // the update-failed check so the two never overlap; no-op on a fresh
+    // install or when the version is unchanged.
+    QTimer::singleShot(1800, this, [this] {
+        ui::WhatsNewDialog::maybeShowForThisVersion(this);
     });
 }
 
@@ -690,6 +698,10 @@ void MainWindow::buildMenus()
     helpMenu->addAction(tr("&Notifications…"),
                         this, &MainWindow::showNotifications);
     helpMenu->addSeparator();
+    helpMenu->addAction(tr("What's &new…"), this, [this] {
+        ui::WhatsNewDialog dlg(this);
+        dlg.exec();
+    });
     helpMenu->addAction(tr("&Report a bug…"),
                         this, &MainWindow::reportBug);
     // One-click access to the update step-logs (update-client.log /

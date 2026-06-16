@@ -1,6 +1,8 @@
 add_library(quewi_ui STATIC
     Theme.h
     Theme.cpp
+    WhatsNewDialog.h
+    WhatsNewDialog.cpp
     SmoothScroll.h
     SmoothScroll.cpp
     AnimatedButton.h
