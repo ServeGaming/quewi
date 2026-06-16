@@ -882,7 +882,15 @@ AudioEngine::AudioEngine(QObject *parent)
             this, &AudioEngine::onSystemDefaultOutputChanged);
 }
 
-AudioEngine::~AudioEngine() = default;
+AudioEngine::~AudioEngine()
+{
+    // Stop every QAudioSink BEFORE its Mixer is freed. shutdown() exists and is
+    // correctly ordered (sink->stop() first, then mixer.reset()) but was never
+    // called anywhere — so on quit the defaulted destructor could free a Mixer
+    // while its sink's backend thread was still pulling Mixer::readData, a
+    // cross-thread use-after-free on every session that played audio.
+    shutdown();
+}
 
 void AudioEngine::setDefaultOutputDevice(const QAudioDevice &device)
 {

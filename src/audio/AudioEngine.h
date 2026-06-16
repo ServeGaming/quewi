@@ -172,8 +172,13 @@ private:
 
     struct DeviceContext {
         QAudioDevice                  device;
-        std::unique_ptr<QAudioSink>   sink;
+        // mixer BEFORE sink: members are destroyed in reverse declaration
+        // order, so the QAudioSink (whose backend thread pulls the Mixer via
+        // readData) is destroyed — and therefore stopped — before the Mixer is
+        // freed, even on a plain-destructor teardown path. ~AudioEngine() also
+        // calls shutdown() to stop sinks explicitly; this is belt-and-braces.
         std::unique_ptr<Mixer>        mixer;
+        std::unique_ptr<QAudioSink>   sink;
         int                           sampleRate = 48000;
         int                           channels   = 2;
     };

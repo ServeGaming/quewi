@@ -734,9 +734,16 @@ bool CartView::handleMidiNote(int note)
 {
     // MIDI learn in progress — capture this note for the pad being edited.
     if (m_learnRow >= 0 && m_learnCol >= 0) {
-        if (m_learnCallback) m_learnCallback(note);
+        // Move the callback into a local and clear the parked state BEFORE
+        // invoking it: the learn lambda unchecks the Learn button, which
+        // synchronously emits toggled() -> cancelMidiLearn(), which sets
+        // m_learnCallback = nullptr — i.e. it would free the std::function
+        // whose operator() is still on the stack (a self-referential free).
+        // Owning it locally keeps the live invocation alive until it returns.
+        auto cb = std::move(m_learnCallback);
         m_learnRow = m_learnCol = -1;
         m_learnCallback = nullptr;
+        if (cb) cb(note);
         return true;
     }
     if (!m_workspace || !m_workspace->cart()) return false;
