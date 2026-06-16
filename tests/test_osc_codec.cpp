@@ -98,6 +98,29 @@ private slots:
         QCOMPARE(std::get<QString>(back.args[1].value), QStringLiteral("after"));
     }
 
+    // Regression: a malformed packet whose type-tag string is one ',' followed
+    // by thousands of unmatched '[' recurses the array decoder one level per
+    // bracket with no data bytes consumed. Without a depth guard this blows the
+    // stack (an unauthenticated remote DoS). It must be rejected, not crash.
+    void rejectsDeeplyNestedArrays()
+    {
+        QByteArray pkt;
+        pkt.append("/x", 2);
+        pkt.append('\0'); pkt.append('\0');   // "/x\0\0" — 4-byte-aligned address
+
+        QByteArray tags;
+        tags.append(',');
+        tags.append(QByteArray(20000, '['));  // 20k open brackets, never closed
+        tags.append('\0');
+        while (tags.size() % 4 != 0) tags.append('\0');   // pad to 4 bytes
+        pkt.append(tags);
+
+        // The assertion is almost secondary — the real test is that this call
+        // returns at all instead of overflowing the stack.
+        const auto decoded = Codec::decode(pkt);
+        QVERIFY(!decoded.has_value());
+    }
+
     void roundTripsBundles()
     {
         Bundle b;

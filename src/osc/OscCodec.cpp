@@ -192,11 +192,21 @@ void writeArg(QByteArray &out, QString &tags, const Argument &a)
 
 // ---------- Argument decode --------------------------------------------
 
-bool readArg(const QByteArray &b, int &cur, QStringView tags, int &tagIdx, Argument &out);
+// Maximum nesting depth for bundles + arrays. OSC has no defined limit; 16 is
+// comfortably more than any real show generates and stops a malicious sender
+// from blowing the stack with a deeply-nested packet.
+constexpr int kMaxOscDepth = 16;
 
-bool readArg(const QByteArray &b, int &cur, QStringView tags, int &tagIdx, Argument &out)
+bool readArg(const QByteArray &b, int &cur, QStringView tags, int &tagIdx, Argument &out, int depth);
+
+bool readArg(const QByteArray &b, int &cur, QStringView tags, int &tagIdx, Argument &out, int depth)
 {
     using T = Argument::Tag;
+    // Bound array nesting: a tag string like ",[[[[…" recurses one level per
+    // '[' with no data bytes consumed, so without this a few KB packet could
+    // blow the stack (unauthenticated remote DoS). Same guard the bundle and
+    // element decoders already use.
+    if (depth > kMaxOscDepth) return false;
     if (tagIdx >= tags.size()) return false;
     const QChar tagCh = tags[tagIdx++];
     out.tag = static_cast<T>(tagCh.toLatin1());
@@ -259,7 +269,7 @@ bool readArg(const QByteArray &b, int &cur, QStringView tags, int &tagIdx, Argum
         Array arr;
         while (tagIdx < tags.size() && tags[tagIdx] != QChar(']')) {
             Argument child;
-            if (!readArg(b, cur, tags, tagIdx, child)) return false;
+            if (!readArg(b, cur, tags, tagIdx, child, depth + 1)) return false;
             arr.push_back(std::move(child));
         }
         if (tagIdx >= tags.size() || tags[tagIdx] != QChar(']')) return false;
@@ -328,19 +338,12 @@ bool decodeMessage(const QByteArray &b, int start, int end, Message &out)
     int tagIdx = 1; // skip leading ','
     while (tagIdx < tags.size()) {
         Argument a;
-        if (!readArg(b, cur, tags, tagIdx, a)) return false;
+        if (!readArg(b, cur, tags, tagIdx, a, 0)) return false;
         out.args.push_back(std::move(a));
     }
 
     return cur <= end;
 }
-
-// Maximum nesting depth for bundles + arrays. OSC has no defined limit;
-// 16 is comfortably more than any real show generates and stops a
-// malicious sender from blowing the stack with a deeply-nested packet.
-constexpr int kMaxOscDepth = 16;
-
-bool decodeElement(const QByteArray &b, int start, int end, Element &out, int depth);
 
 bool decodeBundle(const QByteArray &b, int start, int end, Bundle &out, int depth)
 {
