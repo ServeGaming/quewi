@@ -1,0 +1,21 @@
+# ThreadSanitizer suppressions for the quewi CI TSan job.
+#
+# These are NOT bugs in quewi. They are internal data races inside the audio
+# backend libraries Qt pulls in on the headless Linux runner — PulseAudio's
+# client library has long-standing internal races (pa_mutex_lock / pa_xmalloc
+# / pa_thread_new) that TSan flags whenever a QAudioSink/QAudioEngine is
+# constructed. Suppressing the backend lets the TSan job surface races in OUR
+# code (the audio-callback vs GUI-thread paths) instead of drowning in noise.
+#
+# Keep this list tight: only third-party backend internals. Never add a quewi
+# source file or function here — if TSan flags our code, fix the race.
+
+# PulseAudio client library internals reached via Qt's audio backend.
+called_from_lib:libpulsecommon
+called_from_lib:libpulse
+race:pa_mutex_lock
+race:pa_xmalloc
+race:pa_thread
+
+# Qt's PulseAudio engine bootstrap thread (QPulseAudioEngine / QPulseAudioSink).
+race:QPulseAudio
