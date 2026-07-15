@@ -121,6 +121,7 @@ QString PatchManager::categoryLabel(Category c) {
     case Category::DmxUniverse:    return tr("DMX Universes");
     case Category::VideoSurface:   return tr("Video Surfaces");
     case Category::SpeakerArray:   return tr("Speaker Arrays");
+    case Category::MixingConsole:  return tr("Mixing Consoles");
     }
     return {};
 }

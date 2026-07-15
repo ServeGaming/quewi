@@ -1,8 +1,30 @@
 # quewi Mix — design spec
 
-Status: **spec / not started.** Drafted 2026-07-15.
+Status: **phase 1 in progress.** Drafted 2026-07-15.
 Console protocol details live in a companion doc (`console-protocols.md`);
 this file is the *what* and *why*, not the *how consoles talk*.
+
+## Where it is
+
+Built and tested (no UI yet — nothing is user-reachable):
+
+| | |
+|---|---|
+| `mix/X32Value` | Value encodings. The pure layer where the protocol's traps live: DCA1 = bit 0, inverted EQ Q, `f=0` is −∞, 1024 vs 161 step grids, three zero-pad widths. |
+| `mix/ConsoleLink` | Protocol-agnostic base. Owns the assignment cache and hands subclasses `(previous, next)` so one call serves a bitmask and a per-pair boolean. `applyCue()` mutes everything the cue doesn't name. |
+| `mix/X32Link` | X32/M32 over UDP. Two-socket confirmation, `/xremote` keepalive + loss detection, Scene Safe bit 5, channel links, scene-recall resync. |
+| `mix/MixShow` | Channels, actors, backups, ensembles. Compiled into `quewi_core` (like `cues/`) so `Workspace` can own one. |
+| `mix/MixCue` | Per-cue DCA assignments, stored DCA-first, ensembles resolved at fire time. |
+| persistence | `mix_json` + `mix_list_ids` meta keys; `"mix"` in the cue registry. Round-tripped through real SQLite. |
+| `CueList::Kind::Mix` | Third variant beside `Normal` / `Soundboard`. |
+| `PatchManager::Category::MixingConsole` | Model only — deliberately not in the patch editor UI until it has a field editor. |
+
+Not started: the DCA cue grid, the fader surface, `Dm7Link`, everything from
+phase 3 on.
+
+**Tests are mutation-checked, not just green.** The DCA bit order, the
+two-socket arrangement, and the dual-suite test main were each verified to
+actually fail when broken — a passing test that cannot fail is worse than none.
 
 ## Thesis
 

@@ -30,6 +30,13 @@ public:
         //       label, channel (0-based), azimuthDeg, elevationDeg, distance.
         //   "templateKey" : optional ("stereo", "5.1", "7.1", "7.1.4", "custom")
         SpeakerArray,
+        // MixingConsole — a desk quewi Mix drives. Fields:
+        //   "protocol" : "x32" | "dm7"   (ConsoleLink::protocolName's key)
+        //   "host"     : IP address. No discovery on Yamaha, and X32 broadcast
+        //                doesn't cross routers, so this is always user-entered.
+        //   "port"     : optional; 0/absent means the protocol default
+        //                (X32 10023, DM7 49280).
+        MixingConsole,
     };
     Q_ENUM(Category)
 

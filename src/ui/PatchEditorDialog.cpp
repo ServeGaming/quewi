@@ -31,6 +31,9 @@ PatchEditorDialog::PatchEditorDialog(core::PatchManager *manager, QWidget *paren
 
     auto *root = new QVBoxLayout(this);
     m_tabs = new QTabWidget(this);
+    // Deliberately NOT every Category: MixingConsole is omitted because it has
+    // no field editor in the switch below yet, and listing it would open an
+    // empty tab. Add it here at the same time as its editor, not before.
     for (auto cat : {Category::AudioOutput, Category::OscDestination,
                      Category::MidiPort,    Category::DmxUniverse,
                      Category::VideoSurface, Category::SpeakerArray})
