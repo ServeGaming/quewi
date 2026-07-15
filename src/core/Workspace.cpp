@@ -4,6 +4,7 @@
 #include "core/CueList.h"
 #include "core/PatchManager.h"
 #include "core/ScriptModel.h"
+#include "mix/MixShow.h"
 
 #include <algorithm>
 
@@ -14,6 +15,7 @@ Workspace::Workspace(QObject *parent)
     , m_patches(std::make_unique<PatchManager>(this))
     , m_script(std::make_unique<ScriptModel>(this))
     , m_cart(std::make_unique<CartGrid>(this))
+    , m_mixShow(std::make_unique<mix::MixShow>(this))
 {
     connect(&m_undoStack, &QUndoStack::cleanChanged, this, &Workspace::dirtyChanged);
 }

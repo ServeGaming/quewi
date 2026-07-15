@@ -8,6 +8,7 @@
 #include <vector>
 
 namespace quewi::cues { class Cue; }
+namespace quewi::mix  { class MixShow; }
 
 namespace quewi::core {
 
@@ -58,6 +59,12 @@ public:
     // duplicates show data.
     CartGrid *cart() const { return m_cart.get(); }
 
+    // Live-mixing model: controlled channels, actors, ensembles. The
+    // per-cue DCA assignments live in MixCues inside a CueList of
+    // Kind::Mix, so this holds only what isn't per-cue. Empty until the
+    // user sets up a console.
+    mix::MixShow *mixShow() const { return m_mixShow.get(); }
+
     bool isDirty() const { return m_undoStack.isClean() == false; }
     void markClean() { m_undoStack.setClean(); }
 
@@ -72,9 +79,10 @@ private:
     std::vector<std::unique_ptr<CueList>> m_cueLists;
     CueList *m_activeCueList = nullptr;
     QUndoStack m_undoStack;
-    std::unique_ptr<PatchManager> m_patches;
-    std::unique_ptr<ScriptModel> m_script;
-    std::unique_ptr<CartGrid>    m_cart;
+    std::unique_ptr<PatchManager>  m_patches;
+    std::unique_ptr<ScriptModel>   m_script;
+    std::unique_ptr<CartGrid>      m_cart;
+    std::unique_ptr<mix::MixShow>  m_mixShow;
 };
 
 } // namespace quewi::core

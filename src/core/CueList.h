@@ -27,11 +27,19 @@ public:
     QString name() const { return m_name; }
     void setName(QString name);
 
-    // A list is either a normal cue list or the soundboard (its tab shows
-    // the pad grid instead of the cue table, and its cues stay out of the
-    // set list). Runtime flag; persisted via the show file's
-    // soundboard_list_id meta key, not as a cue-list column.
-    enum class Kind { Normal, Soundboard };
+    // What a list's tab shows and whether its cues join the set list:
+    //   Normal     — the cue table; cues are in the set list.
+    //   Soundboard — the pad grid; cues stay out of the set list.
+    //   Mix        — the DCA assignment grid; cues stay out of the set list.
+    //
+    // Mix cues live in their own list rather than interleaved with sound cues
+    // deliberately: a musical has 500+ mix cues and maybe 40 sound cues, so one
+    // combined list would bury the sound cues in a wall of DCA moves. The two
+    // lists mirror how the job is actually run.
+    //
+    // Runtime flag; persisted via the show file's meta keys, not as a cue-list
+    // column.
+    enum class Kind { Normal, Soundboard, Mix };
     Kind kind() const { return m_kind; }
     void setKind(Kind k) { m_kind = k; }
 

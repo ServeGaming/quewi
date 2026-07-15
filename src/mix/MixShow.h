@@ -1,11 +1,16 @@
 #pragma once
 
-#include "mix/ConsoleLink.h"
+// Deliberately depends on nothing but Qt. MixShow is compiled into quewi_core
+// (see src/core/CMakeLists.txt) so Workspace can own one — exactly as cues/ is,
+// and for the same reason: linking core against quewi_mix would be circular.
+// Keep it that way. No ConsoleLink, no protocol types in here.
 
 #include <QHash>
 #include <QJsonObject>
 #include <QObject>
+#include <QSet>
 #include <QString>
+#include <QStringList>
 #include <QVector>
 
 namespace quewi::mix {

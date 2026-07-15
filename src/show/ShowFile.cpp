@@ -14,6 +14,8 @@
 #include "cues/WaitCue.h"
 #include "lighting/LightCue.h"
 #include "midi/MidiCue.h"
+#include "mix/MixCue.h"
+#include "mix/MixShow.h"
 #include "osc/OscCue.h"
 #include "video/VideoCue.h"
 
@@ -89,6 +91,7 @@ std::unique_ptr<cues::Cue> makeCue(const QString &type)
     if (type == QLatin1String("group"))      return std::make_unique<cues::GroupCue>();
     if (type == QLatin1String("midi"))       return std::make_unique<midi::MidiCue>();
     if (type == QLatin1String("msc"))        return std::make_unique<midi::MscCue>();
+    if (type == QLatin1String("mix"))        return std::make_unique<mix::MixCue>();
     // Unknown type: load as a Memo so the user doesn't lose data, with a
     // note. Future cue types register here in Phase 6.
     auto memo = std::make_unique<cues::MemoCue>();
@@ -261,6 +264,28 @@ bool ShowFile::load(const QString &path, core::Workspace &workspace)
             if (doc.isObject()) workspace.cart()->fromJson(doc.object());
         }
 
+        // Live-mixing model (channels, ensembles) from meta.
+        QSqlQuery mxq(db);
+        if (mxq.exec(QStringLiteral("SELECT value FROM meta WHERE key='mix_json'"))
+            && mxq.next() && workspace.mixShow()) {
+            const auto doc = QJsonDocument::fromJson(mxq.value(0).toString().toUtf8());
+            if (doc.isObject()) workspace.mixShow()->fromJson(doc.object());
+        }
+
+        // Which cue lists are mix lists (meta key; a JSON array rather than a
+        // single id, so a show can hold more than one without a file format
+        // change — the soundboard's single-id key already taught us that).
+        QSqlQuery mlq(db);
+        if (mlq.exec(QStringLiteral("SELECT value FROM meta WHERE key='mix_list_ids'"))
+            && mlq.next()) {
+            QSet<QUuid> mixIds;
+            for (const auto v : QJsonDocument::fromJson(mlq.value(0).toString().toUtf8()).array())
+                mixIds.insert(QUuid(v.toString()));
+            for (const auto &list : workspace.cueLists())
+                if (mixIds.contains(list->id()))
+                    list->setKind(core::CueList::Kind::Mix);
+        }
+
         // Which cue list is the soundboard (meta key; absent in older shows,
         // in which case every list stays Normal).
         QSqlQuery sbq(db);
@@ -351,6 +376,26 @@ bool ShowFile::save(const QString &path, const core::Workspace &workspace)
             mq.bindValue(1, QString::fromUtf8(json));
             mq.exec();
         }
+        if (auto *mixShow = workspace.mixShow(); mixShow && !mixShow->isEmpty()) {
+            const auto json = QJsonDocument(mixShow->toJson()).toJson(QJsonDocument::Compact);
+            mq.bindValue(0, QStringLiteral("mix_json"));
+            mq.bindValue(1, QString::fromUtf8(json));
+            mq.exec();
+        }
+        // Which cue lists are mix lists. A JSON array, not a single id, so
+        // more than one is expressible without a file format change.
+        {
+            QJsonArray mixIds;
+            for (const auto &list : workspace.cueLists())
+                if (list->kind() == core::CueList::Kind::Mix)
+                    mixIds.append(list->id().toString());
+            if (!mixIds.isEmpty()) {
+                mq.bindValue(0, QStringLiteral("mix_list_ids"));
+                mq.bindValue(1, QString::fromUtf8(QJsonDocument(mixIds).toJson(QJsonDocument::Compact)));
+                mq.exec();
+            }
+        }
+
         // Which cue list is the soundboard. Stored as a meta key (not a
         // cue_lists column) so older builds still open the file.
         for (const auto &list : workspace.cueLists()) {
