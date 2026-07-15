@@ -2,6 +2,8 @@
 
 #include <QJsonArray>
 
+#include <algorithm>
+
 namespace quewi::core {
 
 CartGrid::CartGrid(QObject *parent) : QObject(parent)
@@ -268,8 +270,11 @@ QJsonObject CartGrid::toJson() const
 
 void CartGrid::fromJson(const QJsonObject &o)
 {
-    m_rows = o.value(QStringLiteral("rows")).toInt(4);
-    m_cols = o.value(QStringLiteral("cols")).toInt(6);
+    // Clamp to the same bounds setSize() enforces so a hand-edited or corrupt
+    // .quewi file with absurd dimensions can't drive an unbounded pad allocation
+    // (OOM) in CartView::rebuildGrid().
+    m_rows = std::max(1, std::min(o.value(QStringLiteral("rows")).toInt(4), 32));
+    m_cols = std::max(1, std::min(o.value(QStringLiteral("cols")).toInt(6), 999));
     m_outputDeviceId = o.value(QStringLiteral("outputDevice")).toString().toLatin1();
     m_layers.clear();
 
