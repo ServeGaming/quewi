@@ -28,6 +28,7 @@ quewi_add_test(console_link Qt6::Test quewi_mix)
 quewi_add_test(x32_link     Qt6::Test Qt6::Network quewi_mix)
 quewi_add_test(mix_show     Qt6::Test quewi_mix)
 quewi_add_test(mix_persistence Qt6::Test Qt6::Sql quewi_mix quewi_show)
+quewi_add_test(dm7_value    Qt6::Test quewi_mix)
 
 # On Windows, Qt's DLLs need to be reachable via PATH at test runtime.
 if(WIN32)

@@ -5,6 +5,8 @@ add_library(quewi_mix STATIC
     ConsoleLink.cpp
     X32Link.h
     X32Link.cpp
+    Dm7Value.h
+    Dm7Value.cpp
     MixCue.h
     MixCue.cpp
 )
