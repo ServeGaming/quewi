@@ -5,10 +5,15 @@ add_library(quewi_mix STATIC
     ConsoleLink.cpp
     X32Link.h
     X32Link.cpp
+    MixShow.h
+    MixShow.cpp
+    MixCue.h
+    MixCue.cpp
 )
 target_include_directories(quewi_mix PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/..)
 target_link_libraries(quewi_mix PUBLIC
     Qt6::Core
     Qt6::Network
     quewi_osc      # OscCodec/OscMessage only — NOT OscEngine, see the spec
+    quewi_core     # cues::Cue base for MixCue
 )

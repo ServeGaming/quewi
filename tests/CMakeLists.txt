@@ -26,6 +26,7 @@ quewi_add_test(artnet       Qt6::Test Qt6::Network quewi_lighting)
 quewi_add_test(x32_value    Qt6::Test quewi_mix)
 quewi_add_test(console_link Qt6::Test quewi_mix)
 quewi_add_test(x32_link     Qt6::Test Qt6::Network quewi_mix)
+quewi_add_test(mix_show     Qt6::Test quewi_mix)
 
 # On Windows, Qt's DLLs need to be reachable via PATH at test runtime.
 if(WIN32)
