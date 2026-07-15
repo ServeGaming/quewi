@@ -13,18 +13,30 @@ Built and tested (no UI yet — nothing is user-reachable):
 | `mix/X32Value` | Value encodings. The pure layer where the protocol's traps live: DCA1 = bit 0, inverted EQ Q, `f=0` is −∞, 1024 vs 161 step grids, three zero-pad widths. |
 | `mix/ConsoleLink` | Protocol-agnostic base. Owns the assignment cache and hands subclasses `(previous, next)` so one call serves a bitmask and a per-pair boolean. `applyCue()` mutes everything the cue doesn't name. |
 | `mix/X32Link` | X32/M32 over UDP. Two-socket confirmation, `/xremote` keepalive + loss detection, Scene Safe bit 5, channel links, scene-recall resync. |
+| `mix/Dm7Value` | DM7 line framing, dB ×100, the 27 legal pan values. |
+| `mix/Dm7Link` | DM7 over TCP/RCP. Diff-based pair writes, split mode, `OK` vs `NOTIFY`, keepalive, model-gated capabilities. |
 | `mix/MixShow` | Channels, actors, backups, ensembles. Compiled into `quewi_core` (like `cues/`) so `Workspace` can own one. |
 | `mix/MixCue` | Per-cue DCA assignments, stored DCA-first, ensembles resolved at fire time. |
 | persistence | `mix_json` + `mix_list_ids` meta keys; `"mix"` in the cue registry. Round-tripped through real SQLite. |
 | `CueList::Kind::Mix` | Third variant beside `Normal` / `Soundboard`. |
 | `PatchManager::Category::MixingConsole` | Model only — deliberately not in the patch editor UI until it has a field editor. |
 
-Not started: the DCA cue grid, the fader surface, `Dm7Link`, everything from
-phase 3 on.
+Not started: the DCA cue grid, the fader surface, everything from phase 3 on.
+**Nothing here is reachable from the UI yet** — the engine works, but a user
+can't get at it.
+
+**The abstraction is proven.** `Dm7Link` was built second, on purpose, and one
+`ConsoleLink` call now drives two opposite wire forms with no changes to the
+base class: X32 writes a whole bitmask and ignores `previous`; DM7 sends only
+the differing pairs. Both are asserted by test. Had DM7 waited until phase 7,
+we'd have been retrofitting an X32-shaped interface.
 
 **Tests are mutation-checked, not just green.** The DCA bit order, the
 two-socket arrangement, and the dual-suite test main were each verified to
 actually fail when broken — a passing test that cannot fail is worse than none.
+`test_dm7_link` was flaky on first write (fixed `qWait()` racing TCP delivery;
+the suite reported 0 failures while exiting non-zero) and was fixed with
+retry-until-observed assertions, not re-run until green.
 
 ## Thesis
 
