@@ -152,19 +152,64 @@ designs it in a hurry:
 
 | | X32 / M32 | Yamaha DM7 |
 |---|---|---|
-| Transport | **UDP** | **TCP** |
-| Encoding | binary OSC | **ASCII, LF-terminated** |
-| Port | 10023 (⚠️ verify) | **49280** |
-| DCA membership | bitmask on the channel (⚠️ verify) | **one boolean per (channel, DCA)** |
-| Change notify | `/xremote`, must be renewed | **unsolicited `NOTIFY`, always on** |
-| DCAs | 8 | **24** |
+| Transport | **UDP** 10023 | **TCP** 49280 |
+| Encoding | binary OSC 1.0 | **ASCII, LF-terminated** |
+| DCA membership | **8-bit bitmask on the channel**, replace-not-toggle | **one boolean per (channel, DCA)** |
+| Change notify | `/xremote`, **10 s timeout, renew** | **unsolicited `NOTIFY`, always on** |
+| Self-echo | ❌ **none** — needs a two-socket trick | ✅ `OK` vs `NOTIFY` distinguishes |
+| DCAs | **8** | **24** |
+| Input metering | ✅ `/meters/1` (96 floats) | ⚠️ unknown |
+| Discovery | ✅ `/xinfo` broadcast | ❌ none — type an IP |
+| Delivery guarantee | ❌ UDP, no acks | ✅ TCP |
 
-Two consequences fall out of that table. A per-(channel, DCA) boolean means a
-full DM7 sync is **120 × 24 = 2880 messages** — the interface cannot assume
-state sync is cheap, and needs rate-limiting and caching baked in rather than
-bolted on. And a bitmask vs. per-pair split means `setDcaAssignment` must be
-expressed in terms the *caller* thinks in ("channel 4 belongs to DCAs 1 and 3"),
-letting each link decide how to put that on the wire.
+Consequences that must shape the base class, not be bolted on later:
+
+- **State sync is not cheap.** DM7's per-pair boolean means a full sync is
+  **120 × 24 = 2880 messages**. Rate-limiting and caching are load-bearing.
+- **`setDcaAssignment` must speak the caller's language** — "channel 4 belongs
+  to DCAs 1 and 3" — and let each link decide the wire form. X32 needs
+  read-modify-write on a mask (`new = old | 1<<(dca-1)`, DCA1 = bit 0); DM7
+  sends one message per pair. Neither shape should leak upward.
+- **Confirmation is per-protocol.** DM7 gets it free (`OK` = my echo, `NOTIFY` =
+  someone else's — that distinction is also what makes loop-free live capture
+  possible). X32 gets it only via the two-socket trick: register `/xremote` on
+  socket A, send every set from socket B, and the console relays your own change
+  back to A because it thinks B is a different client. Over UDP with no acks,
+  **a silently-dropped mute is otherwise undetectable.** Never fire-and-forget.
+- **Mute is `on`, not `mute`, on both.** `1` = unmuted. At least the inversion
+  is consistent across the two.
+
+## Deployment landmines (X32)
+
+Found in research, and they change the *product*, not just the code. All three
+need an answer in the UI before we ship, not a discovery at someone's tech.
+
+### 1. Scene recall silently reverts our DCA assignments
+
+The X32 Scene Safe bitmap has **bit 5 = "Groups (DCA assign, Mute group
+assign)"**. If the operator — or our own scene-recall verb — recalls a scene
+without bit 5 safed, **every assignment quewi Mix made is silently undone.**
+Mid-show, no error.
+
+This is exactly the class of thing that makes a tool untrustworthy. Minimum: we
+check the safe bits on connect and refuse to run, loudly, until Groups is safed.
+Better: we offer to set it.
+
+### 2. Channel links cause moves the operator didn't ask for
+
+`/config/chlink/1-2`…`/31-32`. If a pair is linked, writing one channel's fader
+or mute **moves its partner**. Read `/config/chlink/*` at startup or produce
+mystery double-moves nobody can explain.
+
+### 3. Only FOUR `/xremote` clients exist, total
+
+X32-Edit, a tablet, any Companion instance, and quewi all compete for four
+slots. In a real rig those are scarce. **Failing to register must be visible** —
+silently not receiving console changes is the worst possible failure mode for a
+live-capture feature.
+
+Also read before assuming behaviour: `/-prefs/dcamute`, `/-prefs/hardmute`,
+`/-prefs/invertmutes`.
 
 Build X32 first (it's testable without hardware), but **review the DM7 protocol
 before freezing the base class.**
@@ -182,9 +227,13 @@ Reuse `OscCodec` for encode/decode. That part is genuinely shared.
 
 Each phase is shippable. Nothing here is worth building if phase 1 isn't good.
 
-0. **Hardware session + mock consoles.** The DM7 capture above, and a mock
-   console per protocol so the other phases have something to test against in
-   CI. Cheap, and everything downstream leans on it.
+0. **Dev harness.** The DM7 hardware capture above, plus something to build
+   against for each protocol. X32 is solved for free —
+   [pmaillot's emulator](https://github.com/pmaillot/X32-Behringer) speaks
+   FW 4.06, holds 4 `/xremote` clients like the real desk, and runs on
+   `127.0.0.1:10023`. DM7 needs a mock we write from the hardware capture.
+   ⚠️ The X32 emulator is a dev harness, **not a conformance oracle** — known to
+   store some values without relaying them. Validate on iron before shipping.
 1. **The spine.** MixShow model, `Kind::Mix` list, MixCue, console patch,
    `ConsoleLink` + `X32Link`. DCA assign / label / auto-mute. The cue grid with
    change colours. Connect, fire cues, see faders move. *This alone is what
@@ -208,9 +257,12 @@ old order deferred the riskiest unknown to the end, which is the wrong end.
 
 ## Open questions
 
-- **Metering on DM7.** Decides whether phase 6's silent/clip detection is
-  possible at all. CL/QL exposes no input meters; TF exposes full input
-  metering. DM7 is unknown. Settle it in the hardware session.
+- **Metering on DM7.** Decides whether phase 6's silent/clip detection works on
+  Yamaha. **Confirmed possible on X32** (`/meters/1` → 32 input + gate GR + dyn
+  GR in one blob, up to 20 Hz). CL/QL exposes no input meters; TF exposes full
+  input metering. DM7 unknown — settle it in the hardware session.
+  ⚠️ X32 meter values are linear with headroom **up to 8.0 (+18 dBFS)** — clip
+  detection must not assume ≤1.0.
 - **Mute polarity.** `Fader/On` and `MuteMaster/On` appear to have *opposite*
   polarity on Yamaha, and it's undocumented. Verify before shipping — getting
   this backwards mutes the cast mid-show.
@@ -219,8 +271,12 @@ old order deferred the riskiest unknown to the end, which is the wrong end.
 - **Channel count.** TheatreMix caps at 48. Is that a protocol limit, a
   workflow limit, or a licensing one? DM7 exposes 120 inputs. Don't inherit the
   cap without knowing why it exists.
-- **X32 DCA membership shape.** Believed to be a bitmask on the channel.
-  Unverified pending research — and the base class depends on it.
+- ~~**X32 DCA membership shape.**~~ **Resolved.** 8-bit bitmask on the channel,
+  `/ch/NN/grp/dca`, **DCA1 = bit 0 = value 1**. The protocol doc never states
+  which bit is DCA1; it was verified against real production scene files by
+  correlating 22 channels' names to their bitmaps (MSB-first reads perfectly,
+  LSB-first is nonsense), plus the emulator's renderer. Replace-not-toggle, so
+  read-modify-write.
 
 ## Non-goals
 
