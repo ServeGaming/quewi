@@ -9,51 +9,62 @@ missing ones — do not promote anything here to "known" without a test.
 
 ---
 
-# Yamaha (RCP / SCP)
+# Yamaha — DM7 (our target)
 
-## Headline: the public parameter dumps are stale — trust them for CL/QL, not for scope
+## Headline: the published dumps are wrong, and Yamaha publishes better ones
 
 Initial research concluded **TF cannot do DCA assignment over the network**,
-because the TF parameter table (118 entries, a literal `prminfo` dump from a
-console) contains zero `Assign` addresses, while CL/QL, Rivage and DM7 all have
-`InCh/DCA/Assign` in the identical dump format.
+because the published TF parameter table contains zero `Assign` addresses while
+CL/QL, Rivage and DM7 all have `InCh/DCA/Assign` in the identical format.
 
-**That conclusion is wrong, and the way it's wrong matters.**
+**That conclusion was wrong, and how it was wrong set the method for everything
+below.** TheatreMix ships TF support at firmware ≥4.00, and DCA assign is its
+entire product — so it demonstrably works. The capability exists; the dump
+doesn't show it. TheatreMix's firmware floors (TF ≥4.00, CL/QL ≥5.10, DM7 ≥1.52,
+X32 ≥2.12) are very likely the versions where those parameters appeared.
 
-TheatreMix ships support for **TF1/TF3/TF5**, and DCA assignment is its entire
-core feature. So DCA assignment over the network on TF demonstrably works. The
-capability exists; the public dump doesn't show it.
+Following that thread turned up three things that reframe the Yamaha half:
 
-**The likely explanation is firmware.** TheatreMix's console list specifies
-minimum firmware:
+### 1. The dumps are *curated*, not merely stale
 
-| Family | TheatreMix minimum | Tested |
-|---|---|---|
-| Yamaha TF1/TF3/TF5 | **4.00** | 4.56 |
-| Yamaha QL1/QL5, CL1/CL3/CL5 | **5.10** | 5.91 |
-| Yamaha DM7 | 1.52 | 1.75 |
-| Behringer X32 / Midas M32 | 2.12 | 4.13 |
-| Behringer WING | 2.0 | 3.1 |
+The DM7 file **skips index 101** (`Mtrx/PEQ/Band/Freq`, which the official spec
+confirms exists) and **omits indices 122–155 entirely** — 34 consecutive slots.
+A genuine full enumeration has no holes. File dates confirm the gradient: TF's
+table last changed **2024-01-16**, CL/QL's **2023-12-11**, DM7's **2026-04-26**.
 
-Those floors are not arbitrary. The most economical reading is that the
-parameters TheatreMix needs **appeared in those firmware versions**, and the
-Companion dumps were captured on older firmware.
+**Rule applied throughout: presence in a dump is evidence *for*; absence is *no
+information*.**
 
-### What this means for us
+### 2. Yamaha publishes an official, current, public parameter spec for DM7
 
-1. **Do not treat the Companion dumps as a capability ceiling.** They are a
-   *floor* — everything in them is real, but absence proves nothing.
-2. **Re-dump `prminfo` on current firmware** before scoping the Yamaha half.
-   This is the single highest-value hour of hardware time in the project.
-3. The same explanation probably resolves the EQ contradiction below.
-4. The lead in *Documentation status* (the console self-describes its parameter
-   table) stops being a nice-to-have and becomes **the** way to do this: query
-   the console for what it actually supports on the firmware in front of us,
-   rather than hardcoding a table that was already stale when we found it.
+**[DM7 Series OSC Specifications V1.1.0](https://data.yamaha.com/files/download/other_assets/5/2234295/DM7_osc_specs_V110_en.pdf)**
+(July 2025) documents **the same `MIXER:Current/…` parameter IDs** that RCP uses,
+with Yamaha's own min/max/scaling/units and value tables. No NDA.
 
-⚠️ Everything in the CL/QL section below is positively confirmed by the dump and
-is safe to build on. What is *not* safe is any conclusion of the form "X is
-impossible because it isn't in the dump."
+This is the primary reference now. It **proves the community dump wrong in at
+least eight places** (see the ledger below).
+
+### 3. The self-description query is officially documented
+
+**[DME7 Remote Control Protocol Spec V1.1.0](https://usa.yamaha.com/files/download/other_assets/4/2230684/DME7-remote-V110_en.pdf)**
+documents `prmnum` / `prminfo` / `mtrnum` / `mtrinfo` — **the console
+enumerating its own parameter table.** The MTX/MRX spec has zero occurrences of
+`prminfo`; this one has eleven, with a response format that matches the dump
+lines field-for-field. That's how those files were made.
+
+If a DM7 *console* accepts the query (documented for DME7, ⚠️ unproven on
+consoles), we can enumerate the live desk at connect time and **retire this
+entire class of error permanently.** That's what `tools/dm7_probe.py` Test B is
+for, and it's the highest-value command in the project.
+
+## ⚠️ DM7 OSC is a trap — use RCP
+
+DM7 has an OSC interface on **UDP 49900**. Do not use it: it is **write-only**.
+194 `set` rows, zero `get` rows, `yosc:req` with no `yosc:res`, no notification,
+no subscription. **It cannot read state or capture live edits.**
+
+**RCP over TCP 49280 is mandatory for our tool.** The OSC spec's value is purely
+as documentation of the parameter table.
 
 ## Transport (all Yamaha families)
 
@@ -88,94 +99,213 @@ Scenes are **1-based**.
 | Booleans | `0` / `1` |
 | Colours | **quoted string name**, not an index |
 
-## CL / QL
+## DM7 topology
 
-Topology (from a **CL5** dump — smaller models have fewer channels;
-**do not hardcode 72**): 72 InCh · 16 Mix · 8 Mtrx · **16 DCA** · 8 MuteMaster.
+**[CONFIRMED-OFFICIAL]**: **120 InCh** (DM7) / **72** (Compact) · 48 Mix ·
+12 Matrix · 2 Stereo (+Mono) · **24 DCA** · **12 Mute Groups**.
 
-**CL/QL have 16 DCAs, not 8.**
+**The only protocol-relevant DM7 vs DM7 Compact difference is input count
+(120 vs 72).** DCA count, mute groups and all bus counts are identical, so the
+core DCA logic is model-independent.
 
-### DCA assignment ✅
+⚠️ **Don't hardcode 120.** The Companion module has one DM7 profile hardcoded to
+120 and doesn't distinguish Compact (its changelog shows it was *previously* 72
+— they flip-flopped). On a Compact, channels 73–120 don't exist. Read the count
+from `prminfo`, or `devinfo productname`, or probe
+`get MIXER:Current/InCh/Fader/Level 72 0` and expect an error on a Compact.
 
-```
-set MIXER:Current/InCh/DCA/Assign <ch 0-71> <dca 0-15> <0|1>
-```
-
-Per-(channel, DCA) **boolean** — not a bitmask, not a membership list. One
-message per pair. A full 72×16 state sync is **1152 `get`s** — rate-limit
-(~5 ms spacing) and cache.
-
-⚠️ Use `StInCh/DCA/Assign`, not `StIn/DCA/Assign` (the latter is read-only and
-appears to be a legacy duplicate).
-
-### DCA control
+### ⚠️ Split mode — read this before touching a DCA index
 
 ```
-set MIXER:Current/DCA/Fader/Level <dca> 0 -1000    # -10.00 dB
-set MIXER:Current/DCA/Fader/On    <dca> 0 1
-set MIXER:Current/DCA/Label/Name  <dca> 0 "Cast"   # max 8 chars
-set MIXER:Current/DCA/Label/Color <dca> 0 "Yellow"
+MIXER:Setup/Unit/Split/On           r    0/1
+MIXER:Setup/Unit/Split/DCA/StartCh  r    0..24
+MIXER:Setup/Unit/Split/DCA/Num      r    0..24
+MIXER:Setup/Unit/Split/InCh/StartCh r    0..120
+MIXER:Setup/Unit/Split/Mute/StartCh r    0..12
 ```
 
-Colours: `Blue, Orange, Yellow, Purple, Cyan, Magenta, Red, Green, Off`.
+**DM7 can run as two independent mixers, partitioning channels, DCAs and mute
+groups between two units.** All read-only. **Read `Split/On` at startup and
+honour `DCA/StartCh` + `DCA/Num`**, or DCA indices are wrong on a split console.
+No equivalent exists on CL/QL or TF. ⚠️ [CONFIRMED-DUMP], not in the OSC spec —
+verify.
 
-### Mute polarity ⚠️
-
-```
-set MIXER:Current/InCh/Fader/On <ch> 0 0    # 0 MUTES the channel
-```
-
-`On` is **channel-on, not mute**. `1` = unmuted (default). Inverted from the
-obvious reading.
-
-⚠️ `MuteMaster/On` defaults to `0` while `Fader/On` defaults to `1`, implying
-`MuteMaster/On = 1` means "mute group **active**" — opposite polarity.
-**Undocumented. Verify on hardware.**
-
-### What CL/QL does NOT expose
-
-**No EQ. No HPF. No channel delay. No full dynamics** (threshold only).
-Available: `InCh/Port/HA/Gain`, `InCh/Dyna1/Threshold` (gate),
-`InCh/Dyna2/Threshold` (comp), name/colour/icon, pan, mix/matrix sends.
-
-⚠️ **This contradicts TheatreMix, which advertises channel profiles with EQ,
-dynamics, gain and HPF on Yamaha.** Given the firmware finding above, the most
-likely explanation is that **the dump is from firmware older than TheatreMix's
-5.10 floor** and current CL/QL firmware does expose EQ. Do not conclude phase 3
-is impossible on Yamaha — conclude that we need a fresh dump.
-
-Other possibilities, in rough order of likelihood: TheatreMix uses console
-snippet recall for profiles rather than direct parameter writes; or it has NDA
-protocol access we don't. **Unresolved until we dump a current console.**
-
-### Metering ⚠️ — inverted from expectation
-
-**CL/QL exposes only Mix and Matrix output meters (PostOn). No input
-metering.** TF, by contrast, has full input metering with three pickoffs.
+## DCA assignment ✅ — confirmed by official spec
 
 ```
-mtrstart MIXER:Current/Mix/PostOn 80      # interval ms, 40-1000
+set MIXER:Current/InCh/DCA/Assign <ch 0-119> <dca 0-23> <0|1>
+get MIXER:Current/InCh/DCA/Assign 0 0
 ```
-Subscription **expires — re-arm every ~10 s**. Data is hex-encoded, mapped via
-a lookup table. ⚠️ `mtrinfo` declares 0…127 but the table spans 0…255 with a
-+126 offset in one path — **scaling unresolved, verify on hardware.**
 
-**Consequence (⚠️ same caveat as EQ):** silent/clip mic detection (spec phase 5)
-needs *input* meters. If current CL/QL firmware really lacks them, that feature
-is TF-only and the UI must degrade honestly rather than show a dead meter.
-TheatreMix advertises channel monitoring across its console range, which is
-again evidence the dump is stale rather than the capability absent. Verify
-before scoping.
+Official row: *"Input Channel DCA Group Assign — X: 1-Input Channel Num —
+Y: 1-DCA Group Num — 0: OFF, 1: ON"*.
 
-### Scene recall
+**[CONFIRMED-OFFICIAL] 120 × 24, per-(channel, DCA) boolean.** Not a bitmask,
+not a membership list — the opposite shape from X32.
+
+**A full sync is 120 × 24 = 2880 messages.** At Companion's 5 ms spacing that's
+~14 seconds. Cache aggressively and live on `NOTIFY` thereafter.
+
+Also official: `Mix/DCA/Assign` (48×24), `Mtrx/DCA/Assign` (12×24),
+`St/DCA/Assign` — DM7 supports **Output DCA**.
+
+⚠️ Dump error: `St/DCA/Assign` shows X=12 but `St/Fader/Level` shows X=4.
+Official says X = Stereo channel count. The dump's 12 is copy-paste from Mtrx.
+
+## DCA control
+
+| Address | X | Range | Scale |
+|---|---|---|---|
+| `MIXER:Current/DCA/Fader/Level` | 24 | −32768…1000 | **100** |
+| `MIXER:Current/DCA/Fader/On` | 24 | 0/1, default **1** | 1 |
+| `MIXER:Current/DCA/Label/Name` | 24 | string | — |
+| `MIXER:Current/DCA/Label/Color` | 24 | string | — |
+
+**[CONFIRMED-OFFICIAL]** fader table: `-32768` = **−∞**, `-13800` = −138.0 dB
+(the real minimum discrete value), `1000` = **+10.00 dB**. Scale 100.
+
+## Mute polarity ⚠️
 
 ```
-ssrecall_ex MIXER:Lib/Scene 5        # 1-based, max 300
-sscurrent_ex MIXER:Lib/Scene         # reply carries modified|unmodified
+set MIXER:Current/InCh/Fader/On <ch> 0 0     # 0 MUTES
 ```
-TF instead uses banks: `ssrecall_ex scene_a 5` / `scene_b`, max 100.
-⚠️ TF quirk: no way to tell which bank is active except by querying the other
-and reading the error.
+
+**[CONFIRMED-OFFICIAL]** "0: OFF, 1: ON", default `1`. `On` is channel-on, not
+mute — same polarity as X32, CL/QL and TF.
+
+**DM7 uses `MuteGrpCtrl`, not CL/QL's and TF's `MuteMaster`.** 12 groups.
+
+⚠️ **[DISPUTED] mute-group polarity.** `MuteGrpCtrl/On` defaults to `0` while
+`Fader/On` defaults to `1`. Official says only "0: OFF, 1: ON" for both, which
+is ambiguous about whether "ON" means *the mute is engaged*. Most likely `1` =
+mute active, i.e. **opposite** to `Fader/On`. Companion's changelog ("Fix
+missing MuteGrpCtrl/On Action for DM7") suggests this was historically fiddly.
+**Test on hardware — getting it backwards mutes the cast mid-show.**
+
+## Colours — DM7 has its own, and it's a superset
+
+**[CONFIRMED-OFFICIAL]**, Table 3, **11 values**:
+
+```
+Blue  Green  Orange  Pink  Purple  Red  SkyBlue  Yellow  Cyan  Magenta  Off
+```
+
+DM7 has **both** CL/QL's `Cyan`/`Magenta` **and** TF's `SkyBlue`/`Pink`. Don't
+inherit either family's list — Companion has no DM7 colour list at all.
+Colours are **quoted strings** (the dump says `binary` — wrong) and there are
+**11**, not the dump's 9.
+
+## EQ ✅ — DM7 has it (unlike CL/QL and TF)
+
+**Input channels: 4 bands. Mix/Matrix: 8 bands.**
+
+| Address | X | Y | Range | Scale |
+|---|---|---|---|---|
+| `InCh/PEQ/On` | 120 | 1 | 0/1 | 1 |
+| `InCh/PEQ/Type` | 120 | 1 | **string**: `PRECISE`,`AGGRESSIVE`,`SMOOTH`,`LEGACY` | — |
+| `InCh/PEQ/Band/Bypass` | 120 | **4** | 0/1 | 1 |
+| `InCh/PEQ/Band/Freq` | 120 | **4** | 200…200000 | **10** → 20 Hz–20 kHz |
+| `InCh/PEQ/Band/Gain` | 120 | **4** | −1800…1800 | 🔴 **disputed** |
+| `InCh/PEQ/Band/Q` | 120 | **4** | 100…16000 | **1000** → Q 0.1–16.0 |
+| `InCh/HPF/{On,Freq,Slope}` | 120 | 1 | Freq 200…200000, Slope 6–24 dB/oct | Freq **10** |
+| `InCh/LPF/{On,Freq,Slope}` | 120 | 1 | Slope 6–12 dB/oct | Freq **10** |
+
+**This is why DM7 was the right target.** Channel profiles (spec phase 4) need
+EQ/HPF, and CL/QL and TF appear to expose none.
+
+> 🔴 **PEQ Band Gain scaling — three sources disagree. Must be tested.**
+> - Companion dump: `InCh` scale **1**, `Mix` scale **100**
+> - Official OSC V1.1.0: scale **10** for all
+> - Physics: range −1800…1800 with ±18.00 dB ⇒ scale **100**
+>
+> Yamaha's own V1.1.0 revision note says *"Corrected values for PEQ Band Gain"* —
+> they knew it was wrong and may have half-fixed it. **Scale 100 is most
+> plausible; verify before writing any EQ.** Wrong = gains off by 10×.
+
+## HA gain — the dump is provably wrong
+
+```
+Companion dump:  -6 … 66,    scale 1     <-- WRONG
+Official OSC:    -600 … 6600, scale 100  = -6.00 … +66.00 dB
+```
+CL/QL's dump agrees with the official DM7 values, corroborating.
+
+⚠️ Official warning: *"it is not always the case that Min < Max numerically… the
+Min direction may be numerically larger, like the case of HA Gain."*
+
+## Pan ⚠️ — not continuous
+
+```
+MIXER:Current/InCh/ToSt/Pan   ±63
+```
+
+Official **Table 2** enumerates only **27 legal values**:
+
+```
+-63 -60 -55 -50 -45 -40 -35 -30 -25 -20 -15 -10 -5  0  5 10 ... 55 60 63
+```
+
+Steps of 5, except ±63 at the ends. **Quantise before sending** — `-62` is
+likely rejected or snapped.
+
+## Dynamics and channel delay ⚠️ [UNPROVEN-ABSENCE]
+
+**Absent from both the dump and the official OSC list.** Grepping the official
+spec for `InCh/{Dyna,Gate,Comp,Delay,Insert}` gives zero hits.
+
+But DM7 obviously *has* dynamics, and the spec exposes
+`InputChLink/LinkParams/Dyna1`, `/Dyna2`, `/Delay`, `/Insert` (flags for whether
+those are *linked*). So the features exist; they appear not to be remotely
+addressable.
+
+**Two independent sources agreeing — one official and current — is much stronger
+than dump-alone. But per the rule above, still not proof.** CL/QL *does* expose
+`Dyna1/Threshold`, so it'd be odd for DM7 to lack it.
+
+**Hypothesis: dynamics live in the missing index block 122–155.** Probe
+directly (`tools/dm7_probe.py` Test F). This decides how complete phase 4 can be.
+
+## Metering ✅ — like TF, not CL/QL
+
+```
+mtrinfo 2000 "MIXER:Current/Meter/InCh" 120 3 ... "PreHPF|PreFader|PostOn"
+mtrinfo 2100 "MIXER:Current/Meter/Mix"   48 3 ... "PreEQ|PreFader|PostOn"
+```
+
+**Full 120-channel input metering with three pickoffs → silent-channel and clip
+detection will work.** (CL/QL only exposes Mix/Mtrx output meters.)
+
+```
+mtrstart MIXER:Current/InCh/PreFader 100     # interval ms, 40-1000
+```
+Note the `/Meter` segment is dropped and the pickoff appended.
+**Subscription expires — re-arm every ~10 s.** Values are hex, mapped via a
+lookup table (0 ≈ −190 dB … 254 ≈ +34 dB, 255 = sentinel).
+
+⚠️ **[DISPUTED] scaling:** `mtrinfo` declares 0–127 but the table spans 0–255
+and Companion applies a `+126` offset in one path. Its changelog — *"Fix
+incorrect Meter values for DM7"* — confirms this was buggy specifically on DM7.
+Verify empirically with a known tone.
+
+## Scene handling ✅
+
+```
+scpmode sstype "text"          # REQUIRED FIRST on DM7
+ssrecallt_ex scene_a "4.00"
+sscurrentt_ex scene_a          → OK sscurrentt_ex scene_a "4.00" <modified|unmodified>
+ssupdatet_ex scene_a "4.00"    # STORE — no confirmation, overwrites silently
+```
+
+- **`scpmode sstype "text"` must be sent first** or the `t`-variants misbehave.
+- Scene numbers are **quoted `"x.xx"` strings**, "1.00"–"499.99", max 500.
+  Sub-scene decimals (4.01, 4.02) are real.
+- **Two banks, `scene_a` / `scene_b`.** ⚠️ Same quirk as TF: no way to tell which
+  is active except by querying the other and reading the error.
+- The reply's trailing `ScnStatus` (`modified`/`unmodified`) tells you the scene
+  is **dirty** — useful for cue automation.
+- ⚠️ `ssupdatet_ex` **silently overwrites with no confirmation.**
+- **On scene-change `NOTIFY`, resync everything.** A recall changes vast state
+  and the console does **not** enumerate every changed parameter.
 
 ## Change notification ✅ — the live-edit enabler
 
@@ -207,50 +337,153 @@ ranges and types per model — enough for a faithful TCP simulator on 49280 that
 answers `get`/`set` and emits `NOTIFY`. This is the only hardware-free path and
 it's tractable.
 
-## Connection limits ⚠️
+## Connection, keepalive, limits
 
-TF: 3 editors/StageMix total. CL/QL: one StageMix + one Editor simultaneously.
-⚠️ **Whether an RCP client consumes a StageMix/Editor slot is undocumented.**
-Evidence suggests it coexists (Companion + TF Editor run together), but verify
-— it matters if a venue runs StageMix alongside quewi.
+**No authentication, no handshake.** Open the socket and send.
 
-## Other families
+Startup sequence:
+```
+devinfo productname     -> OK devinfo productname "DM7"
+devinfo devicename
+devstatus runmode
+scpmode sstype "text"                 # REQUIRED on DM7 before scene verbs
+sscurrentt_ex scene_a
+```
 
-Per the stale-dump finding, ❌ here means **"absent from the dump we have"**, not
-"impossible". Only the ✅ entries are load-bearing.
+**`devstatus error` is NOT sent to DM7** by Companion:
+```js
+if (!['TF','DM3','DM7'].includes(config.model)) instance.sendCmd('devstatus error')
+```
+Nothing replaces it — DM7 simply gets no error polling. ⚠️ Whether DM7 *supports*
+it is [UNPROVEN]; the exclusion is an inference from code, not documentation.
+Probe it — if it works we get free fault monitoring.
+
+### ★ Runtime firmware detection — the architectural fix
+
+The official DME7 spec reveals verbs Companion never sends:
+```
+devinfo version       -> OK devinfo version "1.60"      <-- FIRMWARE
+devinfo paramsetver   -> PARAMETER SET VERSION
+devinfo protocolver
+```
+**Gate a per-firmware capability profile on these at connect time.** This is the
+structural answer to "the published tables are a floor" — instead of trusting
+any table, ask the desk what it is, and (if `prminfo` works) what it has.
+
+### Keepalive — enable it for a show tool
+
+```
+scpmode keepalive 10000     # ms, must be > 1000; actual timeout +1 s
+```
+**[CONFIRMED-OFFICIAL]** After activation the client must send any command or a
+bare LF as a heartbeat within the timeout, or the device drops the connection.
+
+The official rationale is exactly our failure mode:
+
+> *"When unexpected disconnection happens… device has to keep status 'connected'
+> and remote controller can't establish new connection after that."*
+
+**A crashed or unplugged client can block reconnection until the console
+notices.** Companion defaults it off with a warning; for an unattended show tool
+we want it **on**.
+
+### Encoding
+
+⚠️ Default is **ASCII**. Send `scpmode encoding utf8` if channel names may
+contain non-ASCII, or names will mangle. Companion never sends this.
+Backslash is the escape character: `\\` yields a literal `\`, and `\"` yields a
+literal `"`. Strings are double-quoted.
+
+### Connection limits
+
+| Path | Limit | Source |
+|---|---|---|
+| DM7 Editor + StageMix | **3 devices total** (max 1 Editor, 2 StageMix) | Official |
+| OSC controllers | **4** | Official (DM7 OSC spec) |
+| **RCP / TCP 49280** | **UNDOCUMENTED** | — |
+
+⚠️ **[UNPROVEN] Does an RCP client consume an Editor/StageMix slot?** No official
+statement. Indirect evidence suggests **no**: on TF, Companion (an RCP client)
+and TF Editor ran simultaneously, and the separate OSC allowance implies control
+paths are counted separately. **Test it** — with only 3 slots this matters if the
+venue runs StageMix during the show.
+
+## Other Yamaha families (not targets)
+
+⚠️ Per the curated-dump finding, ❌ below means **"absent from the table we
+have"**, which after the TF lesson means **nothing**. Only ✅ is load-bearing.
 
 | | DCAs | DCA assign | EQ/HPF |
 |---|---|---|---|
 | Rivage PM | 24 | ✅ 288×24 | ✅ extensive |
-| DM7 | 24 | ✅ 120×24 | ✅ |
-| DM3 | — | ❌ none in dump ⚠️ | partial |
-| CL/QL | 16 | ✅ 72×16 | ❌ in dump ⚠️ |
-| TF | 8 | ❌ in dump ⚠️ (TheatreMix ships TF support — it exists) | ❌ in dump ⚠️ |
+| **DM7** (target) | **24** | ✅ **120×24** | ✅ |
+| DM3 | — | ❌ ⚠️ | partial |
+| CL/QL | 16 | ✅ 72×16 | ❌ ⚠️ |
+| TF | 8 | ❌ ⚠️ — TheatreMix ships TF support, so **it exists** | ❌ ⚠️ |
 
-DM3 and Rivage have **official public OSC specs** — documented, no NDA:
+**Revised view on TF:** given TheatreMix ships TF DCA assign at fw ≥4.00, and the
+TF table dates from 2024-01-16 and is demonstrably curated,
+`MIXER:Current/InCh/DCA/Assign` almost certainly **exists on current TF
+firmware** — the Companion author simply never added it. Running `prminfo`
+against a TF would settle it in one command. CL/QL's "missing" EQ deserves the
+same treatment.
+
+Rivage and DM3 have official public OSC specs:
 - [RIVAGE PM OSC v1.0.2](https://usa.yamaha.com/files/download/other_assets/5/1407565/RIVAGE_PM_osc_specs_v102_en.pdf)
 - [DM3 OSC v1.0.0](https://fr.yamaha.com/files/download/other_assets/2/2063222/DM3_osc_specs_v100_en.pdf)
 
+## ⚠️ The ledger: where the community dump is provably wrong
+
+Proven against the official DM7 OSC Spec V1.1.0. **Prefer the official spec.**
+
+| Parameter | Companion dump | Official V1.1.0 | Verdict |
+|---|---|---|---|
+| `InCh/Port/HA/Gain` | −6…66, scale **1** | −600…6600, scale **100** | 🔴 dump wrong |
+| `InCh/PEQ/Band/Q` | scale **100** | scale **1000** (Q 0.1–16.0) | 🔴 dump wrong |
+| `Label/Color` | `binary`, 9 values | `string`, **11 values** | 🔴 dump wrong |
+| `Label/Name` | `binary`, max 64 | `string`, **max 8 chars** | 🔴 likely wrong — test |
+| `PEQ/Type` | `integer` | `string` enum of 4 | 🔴 dump wrong |
+| `St/DCA/Assign` | X = **12** | X = Stereo ch count (4) | 🔴 dump wrong |
+| `InCh/HPF/Freq` max | 20000 (→2 kHz) | **200000** (→20 kHz) | 🔴 likely wrong |
+| `Mtrx/PEQ/Band/Freq` | **missing** (idx 101) | present | 🔴 dump incomplete |
+| **`PEQ/Band/Gain` scale** | InCh **1** / Mix **100** | **10** | 🔴 **all three disagree — TEST** |
+
 ## Documentation status
 
-**There is no public official spec for CL/QL/TF remote control.** The protocol
-is under NDA. Primary evidence for everything above is
-[bitfocus/companion-module-yamaha-rcp](https://github.com/bitfocus/companion-module-yamaha-rcp),
-whose parameter files are literal `prminfo` responses captured from real
-consoles.
+**For DM7 the situation is much better than for CL/QL or TF**, which have no
+public spec and sit under NDA.
 
-Only official public doc of the wire format:
-[MTX/MRX/XMV RCP Spec v3.1.0](https://data.yamaha.com/files/download/other_assets/1/1144121/mtx_mrx_xmv_ex_remote_control_protocol_spec_v310_en.pdf)
-— same transport and envelope, different addressing.
+Official, public, current:
+- **[DM7 OSC Specifications V1.1.0](https://data.yamaha.com/files/download/other_assets/5/2234295/DM7_osc_specs_V110_en.pdf)**
+  (Jul 2025) — the parameter table, Tables 1–4 (fader/pan/colour/icon).
+  ⚠️ Documents the *OSC* interface (write-only, UDP 49900), but the parameter
+  **IDs and scaling are shared with RCP**. Use it as the parameter reference,
+  not the transport.
+- **[DME7 Remote Control Protocol Spec V1.1.0](https://usa.yamaha.com/files/download/other_assets/4/2230684/DME7-remote-V110_en.pdf)**
+  — `prmnum`/`prminfo`/`mtrnum`/`mtrinfo`, the `devinfo` set, keepalive
+  rationale, port 49280.
+- [MTX/MRX/XMV RCP Spec v3.1.0](https://data.yamaha.com/files/download/other_assets/1/1144121/mtx_mrx_xmv_ex_remote_control_protocol_spec_v310_en.pdf)
+  — wire format, ERROR codes, §4.6 change notification. Contains **no**
+  `prminfo`.
 
-**Lead worth an hour on hardware:** the dumps are console `prminfo` responses,
-so **the console can self-describe its parameter table**. The query syntax isn't
-documented anywhere. Finding it would let us enumerate per-model capability at
-runtime instead of hardcoding channel counts — the clean solution to the
-"don't hardcode 72" problem.
+Unofficial but load-bearing:
+- [bitfocus/companion-module-yamaha-rcp](https://github.com/bitfocus/companion-module-yamaha-rcp)
+  — parameter tables (curated console `prminfo` responses), `paramFuncs.js`.
+  **See the ledger above before trusting any value.**
 
 **Trap:** the BrenekH docs' example `MIXER:Current/InCh/Fader/Name` is wrong and
 contradicts its own command list. The real address is `InCh/Label/Name`.
+
+## Hardware session
+
+`tools/dm7_probe.py <DM7_IP>` runs the whole capture. Priority if time is short:
+
+1. **Test B** (`prmnum`/`prminfo`) — one command decides whether we ever trust a
+   third-party table again.
+2. **Test E** (PEQ gain scaling) — three sources disagree; 10× errors otherwise.
+3. **Test F** (dynamics/delay absence) — the exact mistake class from the TF
+   correction; decides phase 4's scope.
+4. **Test I** (`NOTIFY` on DCA assign) — proves the product's core capture loop.
 
 ---
 

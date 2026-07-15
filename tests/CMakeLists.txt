@@ -23,6 +23,7 @@ quewi_add_test(audio_smoke  Qt6::Test Qt6::Multimedia quewi_audio)
 quewi_add_test(vbap         Qt6::Test quewi_audio)
 quewi_add_test(trajectory   Qt6::Test quewi_audio)
 quewi_add_test(artnet       Qt6::Test Qt6::Network quewi_lighting)
+quewi_add_test(x32_value    Qt6::Test quewi_mix)
 
 # On Windows, Qt's DLLs need to be reachable via PATH at test runtime.
 if(WIN32)

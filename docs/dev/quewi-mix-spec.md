@@ -69,16 +69,21 @@ X32 ≥2.12) are very likely the versions where the needed parameters landed.
 So: **get ground truth from the actual desk on its actual firmware** rather than
 building against a table that was already out of date when we found it.
 
-Targets for the session:
-1. Dump the DM7's live parameter table (the console can self-describe — the
-   published dumps *are* console responses; we need the query syntax).
-2. Round-trip a DCA assignment.
-3. Settle mute polarity (`Fader/On` vs `MuteMaster/On` appear to be opposite —
-   undocumented).
-4. Probe EQ / HPF / dynamics for real coverage.
-5. Probe metering — decides whether silent/clip detection (phase 5) is possible.
-6. Capture `NOTIFY` traffic from surface moves — the basis of live-edit capture.
-7. Check whether an RCP client evicts DM7 Editor / StageMix.
+**`tools/dm7_probe.py <DM7_IP>` runs the whole capture** and writes
+`dm7_session.log`. All writes target Ch 1 / DCA 1 and are restored; nothing
+stores a scene. Run it on a rehearsal or blank scene, not a show file.
+
+Priority if time is short:
+1. **Test B — `prmnum` / `prminfo`.** The self-description query is officially
+   documented (for DME7; ⚠️ unproven on consoles). If a DM7 accepts it, we
+   enumerate the live desk at connect time and **retire this entire class of
+   error permanently.** One command. Do this first.
+2. **Test E — PEQ gain scaling.** Three sources disagree. 10× errors otherwise.
+3. **Test F — do the "absent" params exist?** Dynamics and delay are missing
+   from both the dump and the official spec, yet the console has them. This is
+   the exact mistake class the TF correction exposed. Decides phase 4's scope.
+4. **Test I — `NOTIFY` on a DCA assign.** Proves the product's core capture
+   loop, and reveals whether connecting DM7 Editor kills our socket.
 
 ## Architecture
 
@@ -158,9 +163,11 @@ designs it in a hurry:
 | Change notify | `/xremote`, **10 s timeout, renew** | **unsolicited `NOTIFY`, always on** |
 | Self-echo | ❌ **none** — needs a two-socket trick | ✅ `OK` vs `NOTIFY` distinguishes |
 | DCAs | **8** | **24** |
-| Input metering | ✅ `/meters/1` (96 floats) | ⚠️ unknown |
+| Input metering | ✅ `/meters/1` (96 floats) | ✅ 120 ch, 3 pickoffs |
 | Discovery | ✅ `/xinfo` broadcast | ❌ none — type an IP |
 | Delivery guarantee | ❌ UDP, no acks | ✅ TCP |
+| Channels | 32 (every variant) | **120** / 72 on Compact |
+| EQ per input | 4 bands | 4 bands (+HPF **and** LPF) |
 
 Consequences that must shape the base class, not be bolted on later:
 
@@ -257,20 +264,54 @@ old order deferred the riskiest unknown to the end, which is the wrong end.
 
 ## Open questions
 
-- **Metering on DM7.** Decides whether phase 6's silent/clip detection works on
-  Yamaha. **Confirmed possible on X32** (`/meters/1` → 32 input + gate GR + dyn
-  GR in one blob, up to 20 Hz). CL/QL exposes no input meters; TF exposes full
-  input metering. DM7 unknown — settle it in the hardware session.
+- ~~**Metering on DM7.**~~ **Resolved: it works.** DM7 has full 120-channel input
+  metering with three pickoffs, like TF and unlike CL/QL. Silent/clip detection
+  (phase 6) is possible on **both** targets.
   ⚠️ X32 meter values are linear with headroom **up to 8.0 (+18 dBFS)** — clip
-  detection must not assume ≤1.0.
-- **Mute polarity.** `Fader/On` and `MuteMaster/On` appear to have *opposite*
-  polarity on Yamaha, and it's undocumented. Verify before shipping — getting
-  this backwards mutes the cast mid-show.
-- **Console client limits.** If connecting evicts DM7 Editor / StageMix, the UI
-  must say so. Evidence suggests RCP coexists; unverified.
+  detection must not assume ≤1.0. ⚠️ DM7's meter→dB scaling is disputed
+  (`mtrinfo` declares 0–127, the table spans 0–255); calibrate with a known tone.
+- 🔴 **DM7 PEQ Band Gain scaling — three sources disagree.** The community dump
+  says scale 1, Yamaha's official spec says 10, and the −1800…1800 range against
+  ±18.00 dB implies 100. Yamaha's own revision note says *"Corrected values for
+  PEQ Band Gain"*, so they knew it was wrong and may have half-fixed it.
+  **Blocks phase 4 EQ writes.** Wrong = gains off by 10×. Test E in the probe.
+- **Mute polarity.** `Fader/On` (1 = unmuted) is confirmed on both. But DM7's
+  `MuteGrpCtrl/On` defaults to 0 while `Fader/On` defaults to 1, implying
+  *opposite* polarity, and the official spec's "0: OFF, 1: ON" is ambiguous
+  about whether ON means the mute is engaged. **Undocumented. Verify — getting
+  it backwards mutes the cast mid-show.**
+- **Dynamics / channel delay on DM7.** Absent from both the dump *and* the
+  official spec, yet the console plainly has them and the spec exposes
+  `LinkParams/Dyna1|Dyna2|Delay`. Hypothesis: they live in the table's missing
+  index block 122–155. **Decides how complete phase 4 can be.** Test F.
+- **Console client limits.** DM7 allows only **3** Editor/StageMix devices. If
+  an RCP client consumes one of those slots, the UI must say so. Evidence
+  suggests it doesn't; unverified.
 - **Channel count.** TheatreMix caps at 48. Is that a protocol limit, a
-  workflow limit, or a licensing one? DM7 exposes 120 inputs. Don't inherit the
-  cap without knowing why it exists.
+  workflow limit, or a licensing one? DM7 exposes **120**. Don't inherit the cap
+  without knowing why it exists.
+
+## DM7 traps that are already decided
+
+Not open questions — findings to build against:
+
+- **Split mode.** DM7 can run as two independent mixers, partitioning channels,
+  DCAs and mute groups. **Read `MIXER:Setup/Unit/Split/On` + `DCA/StartCh` +
+  `DCA/Num` before touching any DCA index**, or we corrupt a split console.
+- **Don't hardcode 120.** DM7 vs DM7 Compact differ *only* in input count
+  (120 vs 72). Everything else — 24 DCAs, 12 mute groups, all buses — is
+  identical, so the core logic is model-independent. Probe the count.
+- **Pan is not continuous.** Only **27 legal values** (steps of 5, plus ±63 at
+  the ends). Quantise before sending.
+- **`scpmode sstype "text"` before any scene verb**, and scene numbers are
+  quoted strings (`"4.00"`), not integers.
+- **Enable `scpmode keepalive`.** Yamaha's own rationale is our exact failure
+  mode: a crashed client leaves the console believing it's still connected and
+  **blocks reconnection**. Companion defaults it off; a show tool wants it on.
+- **`scpmode encoding utf8`** if names may be non-ASCII, or they mangle.
+- **Gate capability on `devinfo version` + `devinfo paramsetver`.** This is the
+  structural answer to stale tables: ask the desk what it is rather than trust
+  any table. If `prminfo` also works, ask it what it *has*.
 - ~~**X32 DCA membership shape.**~~ **Resolved.** 8-bit bitmask on the channel,
   `/ch/NN/grp/dca`, **DCA1 = bit 0 = value 1**. The protocol doc never states
   which bit is DCA1; it was verified against real production scene files by
