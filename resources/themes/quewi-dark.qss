@@ -91,6 +91,22 @@ QMenu::separator {
     background: @divider;
     margin: 4px 8px;
 }
+/* Checkable menu items (View → Inspector, theme picker, …). The
+   indicator is drawn by the base style unless named here, so checked
+   items were getting Fusion's stock glyph. Mini version of the
+   checkbox: outline box, solid accent fill when on. */
+QMenu::indicator {
+    width: 12px;
+    height: 12px;
+    border-radius: 2px;   /* tiny indicator radius */
+    border: 1px solid @outline;
+    background: @bgInteractive;
+    margin-left: 6px;
+}
+QMenu::indicator:checked {
+    background: @accent;
+    border-color: @accent;
+}
 
 /* ============================ Checkbox ============================ */
 /* Explicit indicator styling — Qt's default checkbox indicator on a
@@ -119,6 +135,36 @@ QCheckBox::indicator:checked {
        the solid fill on amber against the dark bg is unambiguous. */
 }
 QCheckBox::indicator:disabled {
+    border-color: @divider;
+    background: @bgPanel;
+}
+
+/* ============================ Radio button ============================ */
+/* Same treatment as the checkbox — without this, QRadioButton (media
+   import's Audio/Video choice) is the one control on the form still
+   drawing Fusion's stock indicator, blue dot and all. Round variant of
+   the checkbox vocabulary: 1px outline at rest, solid accent when
+   checked. */
+QRadioButton {
+    color: @ink100;
+    spacing: 8px;
+    padding: 2px 0;
+}
+QRadioButton::indicator {
+    width: 16px;
+    height: 16px;
+    border-radius: 8px;   /* fully round — radio, not checkbox */
+    border: 1px solid @outline;
+    background: @bgInteractive;
+}
+QRadioButton::indicator:hover {
+    border-color: @ink60;
+}
+QRadioButton::indicator:checked {
+    background: @accent;
+    border-color: @accent;
+}
+QRadioButton::indicator:disabled {
     border-color: @divider;
     background: @bgPanel;
 }
@@ -595,6 +641,20 @@ QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal {
 }
 QScrollBar::add-page:horizontal, QScrollBar::sub-page:horizontal { background: transparent; }
 
+/* The square where a vertical and horizontal scrollbar meet. A separate
+   sub-control the scrollbar rules never reach — it was rendering as
+   Fusion's raised grey chip in the corner of every scrollable table.
+   Flatten it into the scrollbar track colour. */
+QAbstractScrollArea::corner {
+    background: @bgDeep;
+    border: none;
+}
+
+/* QScrollArea's default frameShape is StyledPanel, drawn by the base
+   style — a faint Fusion bevel around the Inspector and every other
+   wrapped pane. The panes carry their own surfaces; the frame is noise. */
+QScrollArea { border: none; }
+
 /* ============================ List widget ============================ */
 QListWidget {
     background: @bgPanel;
@@ -636,6 +696,37 @@ QTabWidget::pane {
     border: none;
     border-top: 1px solid @divider;
     top: -1px;
+}
+
+/* ============================ Dock widgets ============================ */
+/* The Inspector dock. QDockWidget's title bar is painted by the base
+   style unless named — Fusion's raised grey strip with etched text was
+   the last visibly foreign band in the main window. Calm panel band,
+   hairline underneath, same header vocabulary as QHeaderView. The
+   float/close buttons keep the base-style glyphs (they inherit the
+   palette) but lose their bevel. */
+QDockWidget {
+    color: @ink60;
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.06em;
+}
+QDockWidget::title {
+    background: @bgPanel;
+    padding: 6px 10px;
+    border-bottom: 1px solid @divider;
+    text-align: left;
+}
+QDockWidget::close-button,
+QDockWidget::float-button {
+    background: transparent;
+    border: 1px solid transparent;
+    border-radius: 3px;
+}
+QDockWidget::close-button:hover,
+QDockWidget::float-button:hover {
+    background: @bgRowHover;
+    border-color: @outline;
 }
 
 /* ============================ Active cues panel ============================ */

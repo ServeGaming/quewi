@@ -249,6 +249,36 @@ QScrollBar::handle:horizontal { min-width: 28px; }
 QScrollBar::handle:vertical:hover, QScrollBar::handle:horizontal:hover { background: #9CA3AF; }
 QScrollBar::add-line, QScrollBar::sub-line { background: transparent; width: 0; height: 0; }
 
+/* Scrollbar-corner square and QScrollArea's default StyledPanel frame —
+   both drawn by the base style unless named (see the dark theme). */
+QAbstractScrollArea::corner { background: #ECEEF3; border: none; }
+QScrollArea { border: none; }
+
+/* Dock title bar (Inspector) — flatten Fusion's raised strip; same
+   header band vocabulary as QHeaderView above. */
+QDockWidget {
+    color: #4A4F5A;
+    font-size: 11px;
+    font-weight: 600;
+}
+QDockWidget::title {
+    background: #ECEEF3;
+    padding: 6px 10px;
+    border-bottom: 1px solid #D7D9DF;
+    text-align: left;
+}
+QDockWidget::close-button,
+QDockWidget::float-button {
+    background: transparent;
+    border: 1px solid transparent;
+    border-radius: 3px;
+}
+QDockWidget::close-button:hover,
+QDockWidget::float-button:hover {
+    background: #E5E8EE;
+    border-color: #C7CAD2;
+}
+
 QListWidget {
     background: #FFFFFF;
     color: #1A1D24;

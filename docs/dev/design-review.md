@@ -299,3 +299,91 @@ cue list.
 5. **Decide the light theme's fate (finding 5).** Not because light mode matters in
    a dark booth — it mostly doesn't — but because a shipped theme that visibly
    half-works undermines trust in everything else.
+
+---
+
+## Fusion fall-through pass (2026-07-17)
+
+Follow-up acting on the findings above. Premise confirmed: every "beveled /
+foreign / flaky" artifact traced to one root cause — a control or painted widget
+the QSS never named, falling through to Fusion's stock rendering. Two sub-species,
+two fixes.
+
+### The root-cause fix: a global QPalette (`Theme::palette()`)
+
+`main()` set Fusion and a QSS but never a palette, so every
+`palette().color(QPalette::…)` read in a QPainter widget resolved to Fusion's
+defaults — stock blue Highlight, cool greys. `Theme::load()` now derives a
+QPalette from the active token set and applies it application-wide
+(`QApplication::setPalette`) every time a theme loads, so runtime theme switches
+re-theme painted widgets with zero per-widget plumbing. Role mapping:
+Highlight→accent, Base→bgPanel, AlternateBase→bgRow, Text/WindowText→ink100,
+PlaceholderText→ink40, Mid→outline, Midlight→divider, Button→bgInteractive,
+plus a full Disabled group.
+
+Painted-widget sites this resolves in one stroke, none of which needed editing:
+
+- `CueListView` drag-drop indicator (was Fusion blue mid-drag) and empty-state hint
+- `CornerPinEditor` — stage fill, edges, handles, snap halo (five roles)
+- `StageView` — disc, rings, crosshair, elevated-speaker boxes
+- `ScriptViewer` gutter accent
+- Fusion's own drawing of anything the QSS skips (combo arrows, frame shading)
+  now shades from theme colours instead of stock grey/blue
+
+A light token set (`lightTokens()`, mirroring quewi-light.qss's hexes) was added
+so the palette is correct under the light theme too — previously
+`Theme::tokens()` silently returned *dark* tokens under light, which would have
+made a global palette a regression there. All hexes already existed in the light
+QSS or dark tokens; the two accent variants are `darker()`/`lighter()` derived.
+
+### QSS coverage audit (sub-species A)
+
+Swept every widget type in use against what the two stylesheets name. Fixed:
+
+- **QRadioButton** (media import's Audio/Video choice) — completely unstyled;
+  Fusion indicator, blue dot. Now the round variant of the checkbox vocabulary.
+- **QAbstractScrollArea::corner** — the raised grey chip where two scrollbars
+  meet. Flattened to the track colour (dark + light).
+- **QDockWidget::title** (Inspector dock) — Fusion's raised strip was the last
+  visibly foreign band in the main window. Now a calm panel band with a hairline,
+  same vocabulary as QHeaderView (dark + light).
+- **QScrollArea** — default StyledPanel frame drawn by the base style; killed
+  app-wide (Inspector already opted out locally; others inline-styled around it).
+- **QMenu::indicator** — checkable menu items (View → Inspector, theme picker)
+  drew Fusion's stock glyph. Now a mini checkbox: outline box, accent fill.
+
+Audited and found already covered or not showing: QTabBar/pane, QCheckBox
+indicators + disabled states, QProgressBar, QSlider grooves/handles, QToolTip,
+QMenu separators, QSplitter handles, QToolButton, QKeySequenceEdit (styled via
+its inner QLineEdit), QTableWidget (matches the QTableView rules by inheritance),
+QToolBar (audio-editor-local, inline-styled).
+
+### Token reads where the palette can't express it
+
+- **ScriptViewer** — running/next gutter colours and line highlights were the
+  warm-dark hexes baked in; the other four palettes never reached them. Now
+  `Theme::tokens().running/.warn/.accent` with per-use alpha.
+- **WaveformWidget** — the audio editor's cool-blue palette, but this widget
+  lives in the *Inspector*, so it was a patch of a different product embedded in
+  the warm pane. Its file-static constants are now theme-token reads resolved at
+  paint time (bg→bgDeep, wave→info — the old 0x62B4FF literal *was* the info
+  token verbatim — trim→warnBright, error→errBright verbatim, playhead→ink100).
+  The fade overlay moved from off-direction purple onto the accent.
+
+### Left for a real design pass
+
+- **TimelineCanvas / AudioEditorWindow** (the multitrack editor proper) — ~25
+  hardcoded cool-blue colours including gradients, region tints, mute/solo
+  states, and an inline-styled toolbar. That is finding 3's full retheme, a
+  design job, not a mechanical substitution; doing half of it (canvas but not
+  chrome) would leave the editor internally inconsistent. The editor is a
+  separate window, so the private palette reads as "different room" rather than
+  a defect patch in the meantime.
+- **Light theme's Fusion indicators** (checkbox/radio) — deliberately kept;
+  Fusion's light rendering is native-looking there, and light "relies on Fusion
+  for widgets we don't override" by declared design. With the new light palette
+  those indicators now at least pick up the light accent for their checked state.
+
+Verified: clean build, 18/18 test suites, `--selftest` exit 0. Not visually
+verified in a running session (window-management not available in this pass):
+dock title bar under all five palettes, menu indicator spacing.

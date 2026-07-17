@@ -155,6 +155,14 @@ int main(int argc, char *argv[])
     QSettings s(QStringLiteral("ServeGaming"), QStringLiteral("quewi"));
     const auto themeName = s.value(QStringLiteral("ui/theme"),
                                     QStringLiteral("quewi-dark")).toString();
+    // Theme::load() does two things: it returns the token-substituted
+    // QSS, and it applies a QPalette derived from the same tokens
+    // application-wide. The palette half matters — without it, every
+    // QPainter widget that reads palette().color(...) and every
+    // sub-control the QSS doesn't name falls through to Fusion's stock
+    // colours (the blue-selection / raised-bevel class of bug). It must
+    // run after setStyle("Fusion") above, since setStyle resets the
+    // application palette to the style's default.
     const auto qss = quewi::ui::Theme::load(themeName);
     if (!qss.isEmpty()) app.setStyleSheet(qss);
 

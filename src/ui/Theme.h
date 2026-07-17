@@ -1,6 +1,7 @@
 #pragma once
 
 #include <QColor>
+#include <QPalette>
 #include <QString>
 
 namespace quewi::ui {
@@ -67,6 +68,14 @@ public:
     // The active token set. Multiple themes will branch off this in a
     // follow-up; for now there's only one — the warm dark default.
     static const Tokens &tokens();
+
+    // The active tokens expressed as a QPalette. QSS only reaches the
+    // widgets it names; every QPainter-based widget that reads
+    // palette().color(QPalette::Highlight) etc. otherwise falls through
+    // to Fusion's stock colours (blue selection, cool greys). load()
+    // applies this palette application-wide so those reads resolve to
+    // the theme in one place — no per-widget token plumbing.
+    static QPalette palette();
 };
 
 } // namespace quewi::ui

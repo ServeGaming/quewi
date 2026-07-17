@@ -1,5 +1,7 @@
 #include "ui/ScriptViewer.h"
 
+#include "ui/Theme.h"
+
 #include "core/CueList.h"
 #include "core/ScriptModel.h"
 #include "core/Workspace.h"
@@ -224,9 +226,12 @@ void ScriptViewer::paintGutter(QPaintEvent *event)
 
     if (!m_workspace || !m_workspace->scriptModel()) return;
 
+    // State colours from the tokens, not hardcoded hex — the previous
+    // literals were the warm-dark values baked in, so the other four
+    // palettes (and light) never reached this gutter.
     const QColor accent  = palette().color(QPalette::Highlight);
-    const QColor running = QColor(0x6F, 0xAE, 0x63);
-    const QColor next    = QColor(0xD7, 0xA2, 0x4E);
+    const QColor running = Theme::tokens().running;
+    const QColor next    = Theme::tokens().warn;
 
     QTextBlock block = firstVisibleBlock();
     int top = blockBoundingGeometry(block).translated(contentOffset()).top();
@@ -275,21 +280,23 @@ void ScriptViewer::refreshHighlights()
             sels.append(sel);
         };
 
-        // Faint highlight for every annotated line.
-        const QColor faint = QColor(0xC5, 0x8B, 0x4A, 40);
+        // Faint highlight for every annotated line. Token-derived (with
+        // per-use alpha) so the highlights track the active palette.
+        const auto &tk = Theme::tokens();
+        QColor faint = tk.accent;   faint.setAlpha(40);
         for (const auto &a : m->annotations()) {
             highlightLine(a.line, faint);
         }
         // Stronger for next + running.
         if (!m_nextCue.isNull()) {
             const int idx = m->annotationIndexForCue(m_nextCue);
-            if (idx >= 0) highlightLine(m->annotations()[idx].line,
-                                        QColor(0xD7, 0xA2, 0x4E, 90));
+            QColor c = tk.warn; c.setAlpha(90);
+            if (idx >= 0) highlightLine(m->annotations()[idx].line, c);
         }
         if (!m_runningCue.isNull()) {
             const int idx = m->annotationIndexForCue(m_runningCue);
-            if (idx >= 0) highlightLine(m->annotations()[idx].line,
-                                        QColor(0x6F, 0xAE, 0x63, 110));
+            QColor c = tk.running; c.setAlpha(110);
+            if (idx >= 0) highlightLine(m->annotations()[idx].line, c);
         }
     }
     setExtraSelections(sels);

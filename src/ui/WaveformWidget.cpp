@@ -1,5 +1,7 @@
 #include "ui/WaveformWidget.h"
 
+#include "ui/Theme.h"
+
 #include "audio/AudioFile.h"
 
 #include <QMouseEvent>
@@ -18,14 +20,36 @@ namespace {
 constexpr int kHitZonePx = 8;
 constexpr int kHandleWidth = 3;
 
-const QColor kBg(0x16, 0x18, 0x1D);
-const QColor kMid(0x33, 0x37, 0x3F);
-const QColor kWave(0x62, 0xB4, 0xFF);
-const QColor kWaveDim(0x33, 0x66, 0x99);
-const QColor kTrimBar(0xF2, 0xC9, 0x4C);
-const QColor kFadeFill(0xA8, 0x8B, 0xFF, 96);
-const QColor kFadeEdge(0xA8, 0x8B, 0xFF);
-const QColor kTextCol(0xA8, 0xAE, 0xBA);
+// Colours resolved from the active theme tokens at paint time. This
+// widget sits inside the Inspector, and its previous palette was a
+// block of file-static cool-blue constants — a hardcoded patch of a
+// different product embedded in the warm-grey pane, and file-statics
+// besides, so even a correct hex would have been frozen before
+// Theme::load() ran. The mapping is faithful to the old look in the
+// default dark theme (kWave 0x62B4FF *was* the info token verbatim;
+// the old error red was errBright verbatim); the fade overlay moves
+// from an off-direction purple onto the accent.
+struct WaveColors {
+    QColor bg, mid, wave, waveDim, trimBar,
+           fadeFill, fadeEdge, text, error, playhead, scrim;
+};
+WaveColors waveColors()
+{
+    const auto &t = Theme::tokens();
+    WaveColors c;
+    c.bg       = t.bgDeep;                       // recessed vs the panel
+    c.mid      = t.divider;                      // centre line
+    c.wave     = t.info;                         // envelope inside trim
+    c.waveDim  = t.info;  c.waveDim.setAlpha(110);  // ghosted outside trim
+    c.trimBar  = t.warnBright;                   // trim handles
+    c.fadeEdge = t.accent;                       // fade wedge edge
+    c.fadeFill = t.accent; c.fadeFill.setAlpha(96);
+    c.text     = t.ink60;                        // hints / empty states
+    c.error    = t.errBright;                    // decode-failure message
+    c.playhead = t.ink100;                       // live position line
+    c.scrim    = t.bgInverse; c.scrim.setAlpha(160);  // trimmed-away veil
+    return c;
+}
 } // namespace
 
 WaveformWidget::WaveformWidget(QWidget *parent)
@@ -171,20 +195,21 @@ WaveformWidget::Handle WaveformWidget::hitTest(int x) const
 void WaveformWidget::paintEvent(QPaintEvent *)
 {
     QPainter p(this);
-    p.fillRect(rect(), kBg);
+    const WaveColors kc = waveColors();
+    p.fillRect(rect(), kc.bg);
 
     if (!m_file || m_file->state() == audio::AudioFile::State::Empty) {
-        p.setPen(kTextCol);
+        p.setPen(kc.text);
         p.drawText(rect(), Qt::AlignCenter, tr("No file loaded"));
         return;
     }
     if (m_file->state() == audio::AudioFile::State::Loading) {
-        p.setPen(kTextCol);
+        p.setPen(kc.text);
         p.drawText(rect(), Qt::AlignCenter, tr("Loading…"));
         return;
     }
     if (m_file->state() == audio::AudioFile::State::Failed) {
-        p.setPen(QColor(0xFF, 0x5A, 0x5A));
+        p.setPen(kc.error);
         p.drawText(rect(), Qt::AlignCenter,
                    tr("Failed: %1").arg(m_file->errorString()));
         return;
@@ -199,7 +224,7 @@ void WaveformWidget::paintEvent(QPaintEvent *)
     const int h = height();
     const double dur = effectiveDuration();
 
-    p.setPen(kMid);
+    p.setPen(kc.mid);
     p.drawLine(0, h / 2, w, h / 2);
 
     // Compute trim window in pixels (defaults to full width).
@@ -229,7 +254,7 @@ void WaveformWidget::paintEvent(QPaintEvent *)
         }
         const int half = static_cast<int>(peak * (h / 2 - 2));
         const bool insideTrim = (x >= trimXIn && x <= trimXOut);
-        p.setPen(insideTrim ? kWave : kWaveDim);
+        p.setPen(insideTrim ? kc.wave : kc.waveDim);
         p.drawLine(x, h / 2 - half, x, h / 2 + half);
     }
 
@@ -239,7 +264,7 @@ void WaveformWidget::paintEvent(QPaintEvent *)
     if (viewE - viewS < dur - 0.001) {
         const QString hint = tr("zoom %1× (dbl-click to reset)")
             .arg(QString::number(dur / std::max(0.001, viewE - viewS), 'f', 1));
-        p.setPen(kTextCol);
+        p.setPen(kc.text);
         p.drawText(rect().adjusted(0, 0, -6, -4), Qt::AlignBottom | Qt::AlignRight,
                    hint);
     }
@@ -248,13 +273,12 @@ void WaveformWidget::paintEvent(QPaintEvent *)
     {
         const bool active = (m_mode == EditMode::Trim);
         const int alpha   = active ? 255 : 90;
-        QColor bar = kTrimBar;     bar.setAlpha(alpha);
-        QColor grip = kTrimBar;    grip.setAlpha(active ? 255 : 70);
+        QColor bar = kc.trimBar;   bar.setAlpha(alpha);
+        QColor grip = kc.trimBar;  grip.setAlpha(active ? 255 : 70);
 
         if (active) {
-            QColor scrim(0x0E, 0x0F, 0x12, 160);
-            p.fillRect(QRect(0, 0, trimXIn, h), scrim);
-            p.fillRect(QRect(trimXOut, 0, w - trimXOut, h), scrim);
+            p.fillRect(QRect(0, 0, trimXIn, h), kc.scrim);
+            p.fillRect(QRect(trimXOut, 0, w - trimXOut, h), kc.scrim);
         }
         p.setPen(QPen(bar, kHandleWidth));
         p.drawLine(trimXIn,  0, trimXIn,  h);
@@ -271,8 +295,8 @@ void WaveformWidget::paintEvent(QPaintEvent *)
         const int xFadeIn  = secondsToPixel(m_fadeIn);
         const int xFadeOut = secondsToPixel(dur - m_fadeOut);
 
-        QColor fill = kFadeFill;
-        QColor edge = kFadeEdge;
+        QColor fill = kc.fadeFill;
+        QColor edge = kc.fadeEdge;
         if (!active) {
             fill.setAlpha(40);
             edge.setAlpha(110);
@@ -297,7 +321,7 @@ void WaveformWidget::paintEvent(QPaintEvent *)
         p.drawLine(xFadeOut, 0, w, h);
         p.drawLine(xFadeOut, 0, xFadeOut, h);
 
-        QColor grip = kFadeEdge;
+        QColor grip = kc.fadeEdge;
         grip.setAlpha(active ? 255 : 80);
         p.setBrush(grip);
         p.setPen(Qt::NoPen);
@@ -311,9 +335,9 @@ void WaveformWidget::paintEvent(QPaintEvent *)
     if (m_playhead >= 0.0) {
         const int px = secondsToPixel(m_playhead);
         if (px >= 0 && px <= w) {
-            p.setPen(QPen(QColor(0xF2, 0xF5, 0xF8), 1.5));
+            p.setPen(QPen(kc.playhead, 1.5));
             p.drawLine(px, 0, px, h);
-            p.setBrush(QColor(0xF2, 0xF5, 0xF8));
+            p.setBrush(kc.playhead);
             p.setPen(Qt::NoPen);
             p.drawRect(px - 3, 0, 6, 4);
         }

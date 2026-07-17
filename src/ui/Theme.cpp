@@ -1,5 +1,6 @@
 #include "ui/Theme.h"
 
+#include <QApplication>
 #include <QFile>
 #include <QHash>
 
@@ -111,6 +112,42 @@ Theme::Tokens synthwaveTokens()
     return t;
 }
 
+// Light — mirrors the hardcoded values in quewi-light.qss so that
+// C++-painted widgets and the derived QPalette agree with the light
+// stylesheet. quewi-light.qss has no @placeholders (the substitution
+// pass is a no-op there); this token set exists purely for the painted
+// widgets and QPalette roles. Every hex here already appears in
+// quewi-light.qss or the dark token set — no new colours; the two
+// accent variants are derived (darker/lighter) rather than invented.
+Theme::Tokens lightTokens()
+{
+    Theme::Tokens t;
+    t.bgDeep         = QColor(0xF4, 0xF5, 0xF8);     // window
+    t.bgPanel        = QColor(0xFF, 0xFF, 0xFF);     // cards / lists
+    t.bgRow          = QColor(0xFF, 0xFF, 0xFF);
+    t.bgRowAlt       = QColor(0xF4, 0xF5, 0xF8);
+    t.bgRowHover     = QColor(0xEE, 0xF2, 0xF8);
+    t.bgRowSelected  = QColor(0xCF, 0xE2, 0xFF);
+    t.bgInteractive  = QColor(0xFF, 0xFF, 0xFF);
+    t.bgInverse      = QColor(0x00, 0x00, 0x00);     // letterbox stays black
+    t.ink100         = QColor(0x1A, 0x1D, 0x24);
+    t.ink60          = QColor(0x4A, 0x4F, 0x5A);
+    t.ink40          = QColor(0x9C, 0xA3, 0xAF);
+    t.inkOnAccent    = QColor(0xFF, 0xFF, 0xFF);
+    t.divider        = QColor(0xD7, 0xD9, 0xDF);
+    t.outline        = QColor(0xC7, 0xCA, 0xD2);
+    t.outlineFocus   = QColor(0x25, 0x63, 0xEB);
+    t.accent         = QColor(0x25, 0x63, 0xEB);     // light's blue accent
+    t.accentSoft     = QColor(0x25, 0x63, 0xEB).darker(125);
+    t.accentHover    = QColor(0x25, 0x63, 0xEB).lighter(115);
+    // State colours carry over from dark — they are legible on white and
+    // keeping them avoids inventing a parallel light-state palette.
+    // errBright switches to the light QSS's own bright red.
+    t.errBright      = QColor(0xE8, 0x4A, 0x2F);
+    t.info           = QColor(0x4F, 0x8E, 0xAF);     // dusty blue (progress chunk)
+    return t;
+}
+
 // Maps a theme name to its palette. Default = the warm dark tokens.
 Theme::Tokens tokensForName(const QString &name)
 {
@@ -118,7 +155,51 @@ Theme::Tokens tokensForName(const QString &name)
     if (name == QLatin1String("quewi-midnight"))     return midnightTokens();
     if (name == QLatin1String("quewi-forest"))       return forestTokens();
     if (name == QLatin1String("quewi-synthwave"))    return synthwaveTokens();
+    if (name == QLatin1String("quewi-light"))        return lightTokens();
     return Theme::Tokens{};   // warm-dark default
+}
+
+// Tokens → QPalette. Role mapping is semantic, not mechanical: painted
+// widgets read Highlight for "the accent", Mid/Midlight for "a quiet
+// outline / an even quieter one", Base/AlternateBase for "a recessed
+// surface / a slightly raised one". Without this, main() sets Fusion +
+// a QSS but never a palette, so every one of those reads resolved to
+// Fusion's stock colours — the root cause of the "foreign blue"
+// artifacts (drag indicator, corner-pin handles, stage view rings).
+QPalette paletteFromTokens(const Theme::Tokens &t)
+{
+    QPalette pal;
+    pal.setColor(QPalette::Window,          t.bgDeep);
+    pal.setColor(QPalette::WindowText,      t.ink100);
+    pal.setColor(QPalette::Base,            t.bgPanel);
+    pal.setColor(QPalette::AlternateBase,   t.bgRow);
+    pal.setColor(QPalette::Text,            t.ink100);
+    pal.setColor(QPalette::PlaceholderText, t.ink40);
+    pal.setColor(QPalette::Button,          t.bgInteractive);
+    pal.setColor(QPalette::ButtonText,      t.ink100);
+    pal.setColor(QPalette::BrightText,      t.errBright);
+    pal.setColor(QPalette::Highlight,       t.accent);
+    pal.setColor(QPalette::HighlightedText, t.inkOnAccent);
+    // The 3D-bevel roles, flattened onto the outline scale. Fusion uses
+    // these for frame shading; our painted widgets use them as "quiet
+    // line" (Mid) and "quieter line" (Midlight).
+    pal.setColor(QPalette::Light,           t.bgRowHover);
+    pal.setColor(QPalette::Midlight,        t.divider);
+    pal.setColor(QPalette::Mid,             t.outline);
+    pal.setColor(QPalette::Dark,            t.bgDeep);
+    pal.setColor(QPalette::Shadow,          t.bgInverse);
+    pal.setColor(QPalette::Link,            t.accent);
+    pal.setColor(QPalette::LinkVisited,     t.accentSoft);
+    pal.setColor(QPalette::ToolTipBase,     t.bgInteractive);
+    pal.setColor(QPalette::ToolTipText,     t.ink100);
+    // Disabled group — dim ink, no accent.
+    pal.setColor(QPalette::Disabled, QPalette::WindowText,      t.ink40);
+    pal.setColor(QPalette::Disabled, QPalette::Text,            t.ink40);
+    pal.setColor(QPalette::Disabled, QPalette::ButtonText,      t.ink40);
+    pal.setColor(QPalette::Disabled, QPalette::Base,            t.bgPanel);
+    pal.setColor(QPalette::Disabled, QPalette::Highlight,       t.bgRowSelected);
+    pal.setColor(QPalette::Disabled, QPalette::HighlightedText, t.ink40);
+    return pal;
 }
 
 // The palette the C++-painted widgets read. load() updates it so the fun
@@ -150,6 +231,17 @@ QString Theme::load(const QString &name)
     // @placeholders, so this is a no-op there.)
     const Tokens t = tokensForName(name);
     activeTokensRef() = t;   // so C++-painted widgets pick up the theme too
+
+    // Re-derive the application palette from the new tokens. This is
+    // the other half of theming: QSS only reaches the widgets it names,
+    // while every palette().color(...) read in a QPainter widget — and
+    // Fusion's own drawing of anything the QSS skips (combo arrows,
+    // frame shading) — resolves through the app palette. Applying it
+    // here (rather than at each call site) means a theme switch at
+    // runtime re-themes the painted widgets too. Guarded so headless
+    // unit tests can call load() without a QApplication.
+    if (auto *app = qobject_cast<QApplication *>(QCoreApplication::instance()))
+        app->setPalette(paletteFromTokens(t));
     const QHash<QString, QColor> map {
         {"bgDeep",        t.bgDeep},
         {"bgPanel",       t.bgPanel},
@@ -187,6 +279,11 @@ QString Theme::load(const QString &name)
 const Theme::Tokens &Theme::tokens()
 {
     return activeTokensRef();
+}
+
+QPalette Theme::palette()
+{
+    return paletteFromTokens(activeTokensRef());
 }
 
 } // namespace quewi::ui
