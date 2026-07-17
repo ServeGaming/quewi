@@ -95,10 +95,17 @@ at 64–72px tall, 3px reads as a sharp corner. Documented in both themes and in
    disagree 1 vs 10 vs 100 — blocks phase 4 EQ), mute-group polarity
    (**undocumented; wrong guess mutes the cast mid-show**), and whether dynamics
    exist on current firmware.
-5. **Channel/ensemble editor.** `MixShow` has channels, actors, backups and
-   ensembles, all persisted — with no UI. Right now the only way to name a mic
-   is to hand-edit the show file. The grid is unusable without this, so it's
-   really part of phase 1 rather than a nice-to-have.
+5. ~~**Channel/ensemble editor.**~~ **Done** (`e69acd6`). `ChannelEditorDialog`,
+   reached from the mix view's "Channels & ensembles…" button. Channels table
+   (strip/name/actor/backup, collision-checked renumber) + ensembles with
+   checkable membership. Driven in the real app: added Elphaba/Glinda, made a
+   "Leads" ensemble, ticked a member — all correct. Edits the MixShow directly
+   so the grid updates live.
+
+   **Still to verify:** that a channel-name assignment now *lights up* the
+   grid's change-highlighting (the whole point — the earlier finding was that
+   it stayed inert without channels). Do this after the Fable theme pass lands
+   so the rebuild isn't against a half-edited theme.
 6. **Console patch editor.** `PatchManager::Category::MixingConsole` exists in
    the model and is deliberately **not** in `PatchEditorDialog`'s tab list,
    because that dialog switches on category without a default and would open an
