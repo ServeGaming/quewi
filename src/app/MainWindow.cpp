@@ -37,6 +37,7 @@
 #include "ui/WhatsNewDialog.h"
 #include "ui/ActiveCuesPanel.h"
 #include "ui/CartView.h"
+#include "ui/MixView.h"
 #include "ui/AudioEditorWindow.h"
 #include "ui/CommandPalette.h"
 #include "ui/MediaImportDialog.h"
@@ -431,9 +432,17 @@ void MainWindow::buildLayout()
             }
         });
 
+    // The live-mixing page: a DCA cue grid plus a console connection. Same
+    // arrangement as the soundboard — its own page, its own tab kind, and it
+    // never disturbs the set list that's running the show.
+    m_mixView = new ui::MixView(central);
+    connect(m_mixView, &ui::MixView::statusMessage, this,
+            [this](const QString &t) { statusBar()->showMessage(t, 6000); });
+
     m_centerStack = new QStackedWidget(central);
     m_centerStack->addWidget(cuePane);     // index 0 = list view
     m_centerStack->addWidget(m_cartView);  // index 1 = cart view
+    m_centerStack->addWidget(m_mixView);   // index 2 = mix view
 
     // Inspector lives inside a QDockWidget so users can tear it off
     // onto a second monitor (the "I want my edit surface big" case)
@@ -486,6 +495,7 @@ void MainWindow::buildLayout()
         // One soundboard per show — it holds multiple switchable layers instead
         // of multiple boards. This opens it (creating it on first use).
         addMenu->addAction(tr("Soundboard"), this, &MainWindow::addSoundboardTab);
+        addMenu->addAction(tr("Mix (DCA) list"), this, &MainWindow::addMixListTab);
         addTabBtn->setMenu(addMenu);
         addTabBtn->setPopupMode(QToolButton::InstantPopup);
         tabRow->addWidget(addTabBtn, 0);
@@ -650,6 +660,9 @@ void MainWindow::buildMenus()
     viewMenu->addAction(tr("&Soundboard"),
                         QKeySequence(QStringLiteral("Ctrl+Shift+C")),
                         this, &MainWindow::addSoundboardTab);
+    viewMenu->addAction(tr("&Mix (DCA) grid"),
+                        QKeySequence(QStringLiteral("Ctrl+Shift+M")),
+                        this, &MainWindow::addMixListTab);
 
     auto *listMenu = menuBar()->addMenu(tr("&List"));
     listMenu->addAction(tr("&New cue list…"),    this, &MainWindow::addCueListTab);
@@ -771,6 +784,7 @@ void MainWindow::rebindModel()
         m_cartView->setWorkspace(m_workspace.get());
         m_cartView->setGoEngine(m_goEngine.get());
     }
+    if (m_mixView) m_mixView->setWorkspace(m_workspace.get());
     if (m_model->rowCount() > 0)
         m_cueListView->setCurrentIndex(m_model->index(0, 0));
 }
@@ -1818,9 +1832,12 @@ void MainWindow::rebuildListTabs()
     int currentIdx = 0;
     int idx = 0;
     for (const auto &list : m_workspace->cueLists()) {
-        const bool sb = list->kind() == core::CueList::Kind::Soundboard;
-        m_listTabs->addTab(sb ? QStringLiteral("♪ %1").arg(list->name())
-                              : list->name());
+        QString label = list->name();
+        if (list->kind() == core::CueList::Kind::Soundboard)
+            label = QStringLiteral("♪ %1").arg(label);
+        else if (list->kind() == core::CueList::Kind::Mix)
+            label = QStringLiteral("▤ %1").arg(label);
+        m_listTabs->addTab(label);
         m_listTabs->setTabData(idx, QVariant::fromValue(list->id()));
         if (list.get() == m_workspace->activeCueList()) currentIdx = idx;
         ++idx;
@@ -1832,13 +1849,16 @@ void MainWindow::rebuildListTabs()
     // so the loop above would otherwise snap the highlight onto the set-list
     // tab while the center area still shows the board). Under the signal
     // blocker, so this only fixes the highlight — the visible page is intact.
-    if (m_centerStack && m_cartView
-        && m_centerStack->currentWidget() == m_cartView) {
+    const auto pageKind = (m_centerStack && m_cartView && m_centerStack->currentWidget() == m_cartView)
+                        ? core::CueList::Kind::Soundboard
+                        : (m_centerStack && m_mixView && m_centerStack->currentWidget() == m_mixView)
+                        ? core::CueList::Kind::Mix
+                        : core::CueList::Kind::Normal;
+    if (pageKind != core::CueList::Kind::Normal) {
         for (int i = 0; i < m_listTabs->count(); ++i) {
             const auto id = m_listTabs->tabData(i).toUuid();
             for (const auto &list : m_workspace->cueLists())
-                if (list->id() == id
-                    && list->kind() == core::CueList::Kind::Soundboard) {
+                if (list->id() == id && list->kind() == pageKind) {
                     m_listTabs->setCurrentIndex(i);
                     break;
                 }
@@ -1858,6 +1878,13 @@ void MainWindow::onTabSelected(int index)
             // never disturbs the running show.
             if (m_centerStack && m_cartView)
                 m_centerStack->setCurrentWidget(m_cartView);
+        } else if (list->kind() == core::CueList::Kind::Mix) {
+            // Same rule as the soundboard: show the grid, leave the set list
+            // as the GO context. A mix list has its own GO (see MixView).
+            if (m_centerStack && m_mixView) {
+                m_mixView->setCueList(list.get());
+                m_centerStack->setCurrentWidget(m_mixView);
+            }
         } else {
             if (m_centerStack) m_centerStack->setCurrentIndex(0);
             m_workspace->setActiveCueList(list.get());
@@ -1878,6 +1905,35 @@ core::CueList *MainWindow::getOrCreateSoundboardList()
     auto list = std::make_unique<core::CueList>(tr("Soundboard"));
     list->setKind(core::CueList::Kind::Soundboard);
     return m_workspace->addCueList(std::move(list));
+}
+
+void MainWindow::addMixListTab()
+{
+    if (!m_workspace) return;
+
+    // Unlike the soundboard, a show may want more than one mix list (a revival
+    // with two casts, say), so this doesn't get-or-create a singleton — but
+    // jumping to the existing one is the overwhelmingly common case, so do
+    // that rather than pile up empty lists on repeat presses.
+    core::CueList *list = nullptr;
+    for (const auto &l : m_workspace->cueLists())
+        if (l->kind() == core::CueList::Kind::Mix) { list = l.get(); break; }
+
+    if (!list) {
+        auto created = std::make_unique<core::CueList>(tr("Mix"));
+        created->setKind(core::CueList::Kind::Mix);
+        list = m_workspace->addCueList(std::move(created));
+    }
+    if (!list) return;
+
+    rebuildListTabs();
+    for (int i = 0; i < m_listTabs->count(); ++i)
+        if (m_listTabs->tabData(i).toUuid() == list->id()) {
+            m_listTabs->setCurrentIndex(i);
+            onTabSelected(i);   // force the page switch even if already current
+            break;
+        }
+    statusBar()->showMessage(tr("Mix grid ready"), 2500);
 }
 
 void MainWindow::addSoundboardTab()
@@ -1912,23 +1968,61 @@ void MainWindow::detachCueListTab(int idx)
         if (cl->id() == id) { list = cl.get(); break; }
     if (!list) return;
 
-    // Floating top-level window mirroring this cue list. It shares the
-    // CueList, so edits in either window stay in sync; its model is fed the
-    // same running/peak state as the main view. Useful on a second monitor.
+    // Floating top-level window mirroring this list. It shares the CueList, so
+    // edits in either window stay in sync. Useful on a second monitor.
     auto *win = new QMainWindow(this);
     win->setAttribute(Qt::WA_DeleteOnClose);
     win->setWindowFlag(Qt::Window);
     win->setWindowTitle(tr("%1 — quewi").arg(list->name()));
 
-    auto *model = new core::CueListModel(win);
-    model->setCueList(list);
-    auto *view = new ui::CueListView(win);
-    view->setWorkspace(m_workspace.get());
-    view->setModel(model);
-    win->setCentralWidget(view);
-    win->resize(540, 640);
+    // Detach the view that matches the list's KIND. This used to build a
+    // CueListView unconditionally, so detaching a soundboard or a mix list
+    // handed you a cue table of something that isn't a cue table — the tab
+    // showed a pad grid, the detached window showed rows.
+    switch (list->kind()) {
+    case core::CueList::Kind::Mix: {
+        auto *view = new ui::MixView(win);
+        view->setWorkspace(m_workspace.get());
+        view->setCueList(list);
+        connect(view, &ui::MixView::statusMessage, this,
+                [this](const QString &t) { statusBar()->showMessage(t, 6000); });
+        win->setCentralWidget(view);
+        win->resize(900, 640);   // the grid is wide: cues x DCAs
+        break;
+    }
+    case core::CueList::Kind::Soundboard: {
+        // The board is one-per-show and the main tab still shows it, so this
+        // is a genuine second view of the same CartGrid — which is the point
+        // on a second monitor.
+        auto *view = new ui::CartView(win);
+        view->setWorkspace(m_workspace.get());
+        view->setGoEngine(m_goEngine.get());
+        connect(view, &ui::CartView::fireRequested, this,
+            [this](cues::Cue *c) {
+                if (!m_goEngine || !c) return;
+                const QByteArray dev = (m_workspace && m_workspace->cart())
+                    ? m_workspace->cart()->outputDeviceId() : QByteArray();
+                m_goEngine->fire(c, dev);
+            });
+        connect(view, &ui::CartView::stopAllRequested, this,
+            [this] { if (m_goEngine) m_goEngine->cancelAll(); });
+        win->setCentralWidget(view);
+        win->resize(720, 560);
+        break;
+    }
+    case core::CueList::Kind::Normal: {
+        auto *model = new core::CueListModel(win);
+        model->setCueList(list);
+        auto *view = new ui::CueListView(win);
+        view->setWorkspace(m_workspace.get());
+        view->setModel(model);
+        win->setCentralWidget(view);
+        win->resize(540, 640);
+        m_detachedModels.append(model);  // QPointer auto-nulls when the window closes
+        break;
+    }
+    }
 
-    m_detachedModels.append(model);  // QPointer auto-nulls when the window closes
     win->show();
     win->raise();
     statusBar()->showMessage(tr("Detached \"%1\"").arg(list->name()), 2500);
