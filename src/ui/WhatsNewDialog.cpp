@@ -19,26 +19,37 @@ struct Highlight { const char *title; const char *body; };
 
 // Curated highlights for this release. Written to read like a person wrote
 // them — specific, second-person, no filler. Update this list each release.
+//
+// 1.0 note: many users are arriving from 0.9.103 or earlier (the updater bug
+// kept them there), so this list keeps the best of the late-0.9 work alongside
+// the 1.0 headline — for them it's all new.
 const Highlight kHighlights[] = {
+    { "quewi Mix — your console, on cues",
+      "TheatreMix-style DCA mixing, built in. Every cue puts the right mics on "
+      "the right faders and mutes the rest, and the grid highlights exactly what "
+      "each GO will change. Speaks Behringer X32/M32 and Yamaha DM7 — and it "
+      "never touches your fader levels. The mix stays yours." },
+    { "Channels & ensembles",
+      "Name each mic once — strip, name, actor, backup — then group them "
+      "(“Ensemble Women”, “Orchestra”) to assign twenty mics in one cell. Edit "
+      "the group and every cue that uses it follows." },
+    { "Sharper, everywhere",
+      "A front-to-back design pass: the beveled boxes, stock-blue selections and "
+      "off-palette corners are gone. Every control and hand-drawn view now takes "
+      "its colours from one warm palette — in all five themes." },
     { "Soundboard layers",
       "Stack pages of pads behind one board and flip between them mid-show — "
       "Act 1, Act 2, spot FX. Switchable from the board or over OSC." },
-    { "Scrub the waveform",
-      "Click or drag anywhere on a cue's waveform to move the playhead, with a "
-      "live marker that follows playback." },
-    { "Preview media in-app",
-      "Audition and scrub video and audio right inside the import dialog, with a "
-      "real playbar — no more bouncing out to a browser." },
-    { "A compressor worth using",
-      "Rebuilt from scratch: a smooth gain-reduction curve, live in / out / GR "
-      "meters, and a readout that tells you exactly what it's doing." },
     { "Auto-follow, the way it should be",
       "Auto-continue fires the next cue the instant you hit GO; auto-follow waits "
       "for the track to actually finish, then continues." },
+    { "Scrub the waveform",
+      "Click or drag anywhere on a cue's waveform to move the playhead, with a "
+      "live marker that follows playback." },
     { "Run the whole show from OSC",
       "Controllers like HeliOSC can fire and navigate cues, ride a live mix "
-      "(level / pan / seek), switch lists and soundboard layers, and edit any "
-      "cue — remotely." },
+      "(level / pan / seek), switch lists and soundboard layers, dial in a cue's "
+      "EQ and compressor, and edit any cue — remotely." },
     { "Steadier on its feet",
       "A top-to-bottom crash audit closed a class of rare-but-real crashes across "
       "effects, undo, shutdown, and malformed network input. It should just keep "
