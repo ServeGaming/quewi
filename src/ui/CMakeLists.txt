@@ -3,6 +3,10 @@ add_library(quewi_ui STATIC
     Theme.cpp
     WhatsNewDialog.h
     WhatsNewDialog.cpp
+    MixGridModel.h
+    MixGridModel.cpp
+    MixView.h
+    MixView.cpp
     SmoothScroll.h
     SmoothScroll.cpp
     AnimatedButton.h
@@ -82,4 +86,4 @@ add_library(quewi_ui STATIC
     MediaImportDialog.cpp
 )
 target_include_directories(quewi_ui PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/..)
-target_link_libraries(quewi_ui PUBLIC Qt6::Widgets Qt6::Pdf Qt6::PdfWidgets Qt6::Network Qt6::Multimedia Qt6::MultimediaWidgets Qt6::Concurrent quewi_core quewi_osc quewi_audio quewi_lighting quewi_video quewi_midi quewi_show)
+target_link_libraries(quewi_ui PUBLIC Qt6::Widgets Qt6::Pdf Qt6::PdfWidgets Qt6::Network Qt6::Multimedia Qt6::MultimediaWidgets Qt6::Concurrent quewi_core quewi_osc quewi_audio quewi_lighting quewi_video quewi_midi quewi_show quewi_mix)

@@ -24,7 +24,7 @@ class QUrl;
 
 namespace quewi::core { class Workspace; class CueList; class CueListModel; }
 namespace quewi::cues { class Cue; }
-namespace quewi::ui   { class ActiveCuesPanel; class CartView; class CueListView; class Inspector; class ShortcutManager; class TransportBar; class OscMonitor; class ScriptWindow; }
+namespace quewi::ui   { class ActiveCuesPanel; class CartView; class MixView; class CueListView; class Inspector; class ShortcutManager; class TransportBar; class OscMonitor; class ScriptWindow; }
 namespace quewi::osc  { class OscEngine; }
 namespace quewi::audio { class AudioEngine; class AudioCue; }
 namespace quewi::lighting { class LightingEngine; }
@@ -87,6 +87,7 @@ private slots:
     void toggleShowMode();
     void addCueListTab();
     void addSoundboardTab();
+    void addMixListTab();
     void renameCueListTab();
     void removeCueListTab();
     void onTabSelected(int index);
@@ -245,6 +246,7 @@ private:
 
     ui::CueListView *m_cueListView = nullptr;
     ui::CartView    *m_cartView    = nullptr;
+    ui::MixView     *m_mixView     = nullptr;
     QStackedWidget  *m_centerStack = nullptr;
     ui::Inspector   *m_inspector   = nullptr;
     ui::TransportBar *m_transport  = nullptr;

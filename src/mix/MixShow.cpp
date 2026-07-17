@@ -30,6 +30,21 @@ QSet<int> stripsFromJson(const QJsonArray &a)
 MixShow::MixShow(QObject *parent) : QObject(parent) {}
 MixShow::~MixShow() = default;
 
+// ── DCA count ────────────────────────────────────────────────────────
+
+void MixShow::setDcaCount(int count)
+{
+    const int clamped = std::clamp(count, kMinDcaCount, kMaxDcaCount);
+    if (clamped == m_dcaCount) return;
+    m_dcaCount = clamped;
+    // Deliberately does NOT prune assignments above the new count. Lowering
+    // the count on a mis-click would otherwise silently destroy programming
+    // that raising it back can't recover. Cues keep their data; the grid just
+    // stops showing those columns, and ConsoleLink::sanitize drops anything
+    // the connected desk can't address.
+    emit dcaCountChanged();
+}
+
 // ── Channels ─────────────────────────────────────────────────────────
 
 QVector<MixChannel> MixShow::channels() const
@@ -157,6 +172,7 @@ QJsonObject MixShow::toJson() const
         ens[name] = stripsToJson(m_ensembles.value(name));
 
     QJsonObject root;
+    root["dcaCount"]  = m_dcaCount;
     root["channels"]  = chans;
     root["ensembles"] = ens;
     return root;
@@ -166,6 +182,8 @@ void MixShow::fromJson(const QJsonObject &json)
 {
     m_channels.clear();
     m_ensembles.clear();
+    m_dcaCount = std::clamp(json.value(QStringLiteral("dcaCount")).toInt(kMinDcaCount),
+                            kMinDcaCount, kMaxDcaCount);
 
     for (const auto v : json.value(QStringLiteral("channels")).toArray()) {
         const auto o = v.toObject();
@@ -183,14 +201,17 @@ void MixShow::fromJson(const QJsonObject &json)
 
     emit channelsChanged();
     emit ensemblesChanged();
+    emit dcaCountChanged();
 }
 
 void MixShow::clear()
 {
     m_channels.clear();
     m_ensembles.clear();
+    m_dcaCount = kMinDcaCount;
     emit channelsChanged();
     emit ensemblesChanged();
+    emit dcaCountChanged();
 }
 
 } // namespace quewi::mix

@@ -40,6 +40,20 @@ public:
     explicit MixShow(QObject *parent = nullptr);
     ~MixShow() override;
 
+    // ── DCA count ────────────────────────────────────────────────────
+    //
+    // How many DCA columns the grid shows. Lives in the show, not in the
+    // console link, because the whole point of this workflow is programming a
+    // show on a laptop with no console in the room — the grid still needs to
+    // know how wide it is.
+    //
+    // Defaults to 8 (an X32's count, and the minimum the Broadway workflow
+    // needs). Connecting a console offers to raise it: a DM7 has 24.
+    static constexpr int kMinDcaCount = 8;
+    static constexpr int kMaxDcaCount = 24;
+    int  dcaCount() const { return m_dcaCount; }
+    void setDcaCount(int count);          // clamped to [8, 24]
+
     // ── Channels ─────────────────────────────────────────────────────
     QVector<MixChannel> channels() const;      // ordered by strip
     MixChannel channel(int strip) const;       // invalid if absent
@@ -77,8 +91,10 @@ public:
 signals:
     void channelsChanged();
     void ensemblesChanged();
+    void dcaCountChanged();
 
 private:
+    int                      m_dcaCount = kMinDcaCount;
     QHash<int, MixChannel>   m_channels;    // strip -> channel
     QHash<QString, Ensemble> m_ensembles;
 };

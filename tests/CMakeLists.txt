@@ -30,6 +30,16 @@ quewi_add_test(mix_show     Qt6::Test quewi_mix)
 quewi_add_test(mix_persistence Qt6::Test Qt6::Sql quewi_mix quewi_show)
 quewi_add_test(dm7_value    Qt6::Test quewi_mix)
 quewi_add_test(dm7_link     Qt6::Test Qt6::Network quewi_mix)
+# MixGridModel is a plain QAbstractTableModel over the mix show, so it's
+# compiled in directly rather than linked against quewi_ui. quewi_ui pulls in
+# GoEngine, which lives in the app target — the app links both so it resolves
+# there, but a test that only wants the grid model shouldn't have to drag a
+# cue engine along behind it.
+quewi_add_test(mix_grid     Qt6::Test Qt6::Widgets quewi_mix)
+target_sources(test_mix_grid PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/../src/ui/MixGridModel.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/../src/ui/Theme.cpp
+)
 
 # On Windows, Qt's DLLs need to be reachable via PATH at test runtime.
 if(WIN32)
