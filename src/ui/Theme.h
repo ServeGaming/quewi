@@ -12,7 +12,13 @@ namespace quewi::ui {
 //   • Creamy off-white ink (#E8E2D4) instead of cool white.
 //   • Restrained pastel state colours — mossy green, dusty blue,
 //     amber, terracotta. No purple, no neon, no glow.
-//   • Soft 3 px corner radii on controls, 4 px on panels.
+//   • Radius scale is exactly three values: 3 px on controls, 4 px on
+//     panels / popups / cards, 2 px on tiny indicators (progress
+//     chunks, hairline tracks). The GO button alone breaks scale
+//     (6 px) — at hero size, 3 px reads as a sharp corner.
+//   • Resting borders are 1 px everywhere; the only 2 px border is the
+//     focus ring. Rules that thicken a border on :focus shave 1 px of
+//     padding per side so controls don't shift when tabbed into.
 //   • One accent only: amber (#C58B4A) — used sparingly for selection
 //     and focus rings.
 class Theme {

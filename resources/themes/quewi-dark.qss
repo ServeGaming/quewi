@@ -4,7 +4,14 @@
  * using @tokenName. Never hardcode hex.
  *
  * Visual rules:
- *   • 3 px radii on controls, 4 px on panels, 0 px on tab underlines.
+ *   • Radius scale is exactly three values: 3 px on controls, 4 px on
+ *     panels / popups / cards, 2 px on tiny indicators (progress
+ *     chunks, hairline tracks). Sole exception: the GO button (6 px,
+ *     commented at the rule). Anything else is drift — fix it.
+ *   • Resting borders are 1 px. The ONLY 2 px border is the
+ *     @outlineFocus focus ring, and every rule that thickens a border
+ *     on :focus must shave 1 px off the padding on each side so the
+ *     control's outer box does not move when you tab into it.
  *   • Hover states are subtler — instant in QSS (Qt has no transition
  *     property) but the colour shift is small enough not to feel harsh.
  *   • One accent (amber). State colours are dusted-down pastels.
@@ -32,7 +39,7 @@ QToolTip {
     color: @ink100;
     border: 1px solid @outline;
     padding: 4px 8px;
-    border-radius: 3px;
+    border-radius: 4px;   /* popup — panel radius */
 }
 
 /* ============================ Status bar ============================ */
@@ -70,11 +77,11 @@ QMenu {
     color: @ink100;
     border: 1px solid @outline;
     padding: 6px;
-    border-radius: 8px;
+    border-radius: 4px;
 }
 QMenu::item {
     padding: 7px 28px 7px 14px;
-    border-radius: 5px;
+    border-radius: 3px;
 }
 QMenu::item:selected,
 QMenu::item:hover { background: @bgRowSelected; }
@@ -131,7 +138,7 @@ QTreeView {
     background: @bgPanel;
     color: @ink100;
     border: none;
-    border-radius: 8px;
+    border-radius: 4px;
     selection-background-color: @bgRowSelected;
     selection-color: @ink100;
     outline: 0;
@@ -188,9 +195,13 @@ QPlainTextEdit,
 QComboBox {
     background: @bgInteractive;
     color: @ink100;
-    border: 2px solid @outline;
-    border-radius: 5px;
-    padding: 5px 9px;
+    /* 1 px at rest. The old 2 px @outline stroke was lighter than both
+       the field fill and the surround, which read as a raised bezel and
+       aliased at fractional DPI. The 2 px weight is reserved for the
+       focus ring below. */
+    border: 1px solid @outline;
+    border-radius: 3px;
+    padding: 6px 10px;
     selection-background-color: @accent;
     selection-color: @bgDeep;
     /* Standardized at 26px so QLineEdit / QSpinBox / QDoubleSpinBox /
@@ -212,7 +223,7 @@ QComboBox QAbstractItemView {
     background: @bgPanel;
     color: @ink100;
     border: 1px solid @outline;
-    border-radius: 6px;
+    border-radius: 4px;
     padding: 4px;
     selection-background-color: @bgRowSelected;
     selection-color: @ink100;
@@ -230,6 +241,8 @@ QSpinBox:focus,
 QDoubleSpinBox:focus,
 QPlainTextEdit:focus,
 QComboBox:focus {
+    /* Padding drops 1 px per side to absorb the thicker border — the
+       outer box and text baseline must not move on focus. */
     border: 2px solid @outlineFocus;
     padding: 5px 9px;
 }
@@ -257,10 +270,11 @@ QDoubleSpinBox::up-button:hover, QDoubleSpinBox::down-button:hover {
 QGroupBox {
     background: transparent;
     color: @ink60;
-    border: 2px solid @outline;
+    border: 1px solid @outline;
     border-radius: 4px;
     margin-top: 18px;
-    padding: 14px 12px 12px 12px;
+    /* +1 px vs the old 2 px-border padding so the contents don't shift. */
+    padding: 15px 13px 13px 13px;
     font-size: 11px;
     font-weight: 600;
     letter-spacing: 0.06em;
@@ -278,9 +292,9 @@ QGroupBox::title {
 QPushButton {
     background: @bgInteractive;
     color: @ink100;
-    border: 2px solid @outline;
-    border-radius: 6px;
-    padding: 6px 15px;
+    border: 1px solid @outline;
+    border-radius: 3px;
+    padding: 7px 16px;
     /* Match form controls at 26 — see the QLineEdit block above. */
     min-height: 26px;
     font-weight: 500;
@@ -296,6 +310,8 @@ QPushButton:disabled {
     border-color: @divider;
 }
 QPushButton:focus {
+    /* Padding drops 1 px per side to absorb the thicker border — no
+       layout jump when tabbing in. */
     border: 2px solid @outlineFocus;
     padding: 6px 15px;
 }
@@ -308,7 +324,7 @@ QToolButton {
     background: transparent;
     color: @ink100;
     border: 1px solid transparent;
-    border-radius: 5px;
+    border-radius: 3px;
     padding: 4px 8px;
 }
 QToolButton:hover {
@@ -330,12 +346,16 @@ QToolButton::menu-indicator { image: none; }
 QPushButton#goButton {
     background: @loaded;
     color: @bgDeep;
-    border: none;
-    border-radius: 12px;
+    /* Constant 1 px border (transparent at rest) so the disabled state
+       can tint border-color without moving the contents. */
+    border: 1px solid transparent;
+    /* 6 px — the one deliberate break from the 3/4 px scale: at 64 px
+       tall the standard 3 px control radius reads as a sharp corner. */
+    border-radius: 6px;
     font-size: 22px;
     font-weight: 700;
     letter-spacing: 0.04em;
-    padding: 12px 28px;
+    padding: 11px 27px;
     min-height: 64px;
     min-width: 200px;
 }
@@ -353,7 +373,7 @@ QPushButton#goButton:pressed {
 QPushButton#goButton:disabled {
     background: @bgPanel;
     color: @ink40;
-    border: 1px solid @divider;
+    border-color: @divider;
 }
 
 /* Fade All / Panic are custom-painted AnimatedButtons (see TransportBar.cpp)
@@ -364,7 +384,7 @@ QPushButton#goButton:disabled {
 QWidget#transportBar {
     background: @bgPanel;
     border: none;
-    border-radius: 10px;
+    border-radius: 4px;
 }
 
 QLabel#nextHeader {
@@ -407,7 +427,7 @@ QLabel#typeLabel {
 
 QWidget#inspectorPane {
     background: @bgPanel;
-    border-radius: 8px;
+    border-radius: 4px;
 }
 
 QPushButton#colorChip {
@@ -526,13 +546,13 @@ QListWidget {
     background: @bgPanel;
     color: @ink100;
     border: none;
-    border-radius: 8px;
+    border-radius: 4px;
     outline: 0;
     padding: 6px;
 }
 QListWidget::item {
     padding: 9px 14px;
-    border-radius: 6px;
+    border-radius: 3px;
     margin: 1px 2px;
 }
 QListWidget::item:hover    { background: @bgRowHover; }
@@ -568,7 +588,7 @@ QTabWidget::pane {
 QWidget#activeCuesPanel {
     background: @bgPanel;
     border: none;
-    border-radius: 10px;
+    border-radius: 4px;
 }
 QLabel#activeCuesHeader {
     color: @ink60;
@@ -579,7 +599,7 @@ QLabel#activeCuesHeader {
 }
 QWidget#activeCueRow {
     background: @bgRow;
-    border-radius: 8px;
+    border-radius: 4px;
 }
 QPushButton#activeStopButton {
     background: transparent;
