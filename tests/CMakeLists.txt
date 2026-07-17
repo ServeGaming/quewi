@@ -30,6 +30,10 @@ quewi_add_test(mix_show     Qt6::Test quewi_mix)
 quewi_add_test(mix_persistence Qt6::Test Qt6::Sql quewi_mix quewi_show)
 quewi_add_test(dm7_value    Qt6::Test quewi_mix)
 quewi_add_test(dm7_link     Qt6::Test Qt6::Network quewi_mix)
+# Integration test against a real X32 emulator on 127.0.0.1:10023. Skips
+# cleanly when nothing is listening (i.e. always, in CI), so it's safe to keep
+# in the default set. See docs/dev/session-handoff.md for the emulator.
+quewi_add_test(x32_emulator Qt6::Test Qt6::Network quewi_mix)
 # MixGridModel is a plain QAbstractTableModel over the mix show, so it's
 # compiled in directly rather than linked against quewi_ui. quewi_ui pulls in
 # GoEngine, which lives in the app target — the app links both so it resolves
