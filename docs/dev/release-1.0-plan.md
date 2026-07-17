@@ -3,6 +3,13 @@
 Written 2026-07-17. The honest version — what's actually blocking, not a
 feature wishlist.
 
+> **Outcome, same day:** Matthew chose to ship as-is — "release it as is and
+> have patches as we go along." v1.0.0 was tagged with gates 3 and 4 knowingly
+> open; the reasoning and consequences are recorded in
+> `session-handoff.md` (§ "1.0 shipped"). This document stays as the record of
+> what the gates were and why they mattered — gates 3 and 4 are now the 1.0.1
+> work list.
+
 ## What 1.0 means here
 
 1.0 is a promise: *"this is stable enough to run a real show on."* Someone will

@@ -11,8 +11,8 @@ session on any computer can continue with no gaps.
 > enough that if the session ended right now, the next one would lose nothing.
 > The last section, *Update protocol*, tells you exactly how.
 
-Last updated: **2026-07-17**, after the channel/ensemble editor and the Fusion
-fall-through theme pass. Update the date whenever you touch this file.
+Last updated: **2026-07-17**, the day **1.0.0 shipped**. Update the date
+whenever you touch this file.
 
 ---
 
@@ -89,28 +89,54 @@ it's what proves the abstraction.
   DM7 EQ is **blocked** on a hardware test (PEQ gain scaling: 3 sources disagree
   1 vs 10 vs 100).
 
-## The road to 1.0
+## 1.0 shipped — and what that decision was
 
-Full version: `docs/dev/release-1.0-plan.md`. 1.0 = "stable enough to run a real
-show on." The pipeline can already produce installers from a `v1.0.0` tag; the
-question is whether we should, and the answer is gated on:
+**v1.0.0 was tagged 2026-07-17 on Matthew's explicit call: "release it as is
+and have patches as we go along."** Two of the four gates in
+`docs/dev/release-1.0-plan.md` were open at ship time, knowingly:
 
-1. **Drive the mix grid end to end** (partly done — see "NOT done" above).
-2. **Channel/ensemble editor** — ✅ done.
-3. **Windows updater actually installs.** Standing bug: "download bar, then
-   quewi closes, nothing installs" on 0.9.103. Client step-logging shipped;
-   **blocked on Matthew** running it once to produce
-   `%APPDATA%/quewi/update-client.log`.
-4. **One real end-to-end console run** — X32 emulator (no hardware, Claude can
-   do it) or DM7 (Matthew at the desk).
+- **The Windows updater is UNVERIFIED** since the 0.9.103 "download bar then
+  nothing installs" report. Consequence accepted: **the first patch release
+  (1.0.1) doubles as the updater's live test.** If it fails, users grab the MSI
+  manually and the updater fix becomes the next patch. When cutting 1.0.1,
+  watch `%APPDATA%/quewi/update-client.log` — the step-logging is already in.
+- **No full quewi-against-console run yet** — but the X32 emulator is now built
+  and verified locally (see the emulator section below), so this is hours away,
+  not blocked.
 
-Explicitly **not** 1.0 gates: code signing (ship unsigned, sign in 1.1 — it's a
-paid-cert money problem, see `docs/dev/release-signing.md`), DM7 EQ, the fader
-surface.
+Still explicitly deferred: code signing (paid certs; `release-signing.md`),
+DM7 EQ (blocked on the hardware probe), the fader surface.
+
+## X32 emulator — set up and verified on this machine
+
+pmaillot's emulator lives at `C:/Users/matth/Documents/Apps/X32-Behringer`
+(sibling of the repo; cloned from github.com/pmaillot/X32-Behringer with
+Matthew's approval). Build recipe that works — Qt's MinGW, **not MSVC** (the
+source guards on `__WIN32__`, which MSVC doesn't define):
+
+```
+C:/Qt/Tools/mingw1310_64/bin/gcc.exe -O2 -I X32lib -o X32.exe X32.c X32lib/Xsprint.c X32lib/Xdump.c -lws2_32
+```
+
+One local patch was needed (already applied in the clone): X32.c's manual
+`getaddrinfo` prototype (~line 864) conflicts with modern ws2tcpip.h and is
+commented out.
+
+Run: `X32.exe -i 127.0.0.1` → binds UDP 10023. **Verified working:** `/info`
+answers `X32 Emulator / X32 / 4.06`, and a `/ch/03/grp/dca ,i 5` set/get
+round-trips correctly — the first confirmation of quewi Mix's core operation
+against an independent implementation of the protocol (our DCA1=bit0 mask
+semantics held).
+
+**Next session's job #1: drive quewi's mix view against it.** Connect to
+127.0.0.1, fire a cue, verify the live-cue marker paints, watch the Scene Safe
+banner and live-edit capture. That closes gate 4 and the last of gate 1.
 
 ## Blocked on Matthew (things Claude cannot do)
 
-- Run the failing Windows updater once → send `%APPDATA%/quewi/update-client.log`.
+- Updater diagnosis (softened by the ship decision — 1.0.1 will test it live,
+  but a manual run of an old installed version's updater is still the fastest
+  diagnosis if that fails; the log lands at `%APPDATA%/quewi/update-client.log`).
 - Get on the DM7 → run `tools/dm7_probe.py <IP>`. Settles `prminfo`
   self-description (retires the stale-table error class), PEQ gain scaling,
   **mute-group polarity** (undocumented; a wrong guess mutes the cast mid-show),
