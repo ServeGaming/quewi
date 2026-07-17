@@ -3,13 +3,6 @@
 Living list. Written 2026-07-17. Ordered by "would this embarrass us in front of
 an operator", not by effort.
 
-## In flight
-
-| What | Who | State |
-|---|---|---|
-| Theme coherence pass (the "bezel / buggy look" report) | Fable 5, background | running |
-| Detach-to-window respects list kind | done, local commit | ✅ |
-
 ## Done this session
 
 - **Detach-to-window handed you a cue table whatever you detached.** It built a
@@ -18,28 +11,54 @@ an operator", not by effort.
   Normal → `CueListView`. **This was pre-existing** — detaching a soundboard has
   been broken the same way since soundboard tabs landed; the mix grid just made
   it visible.
+- **The theme "bezel / buggy look"** — fixed by Fable 5 in `fc3f64a`. See below.
 
-## The theme problem (handed to Fable 5)
+## The theme problem — fixed, and what it actually was
 
 Diagnosed, not guessed:
 
-1. **Eight different corner radii** — 1, 2, 3, 4, 5, 6, 8, 10, 12 px — where
-   `Theme.h`'s own comment says *"Soft 3 px corner radii on controls, 4 px on
-   panels."* The QSS drifted from its stated design and nothing lines up. Near
-   misses everywhere is what reads as "buggy" to the eye.
+1. **Nine different corner radii** — 1, 2, 3, 4, 5, 6, 8, 10, 12 px — where
+   `Theme.h`'s own comment said *"Soft 3 px corner radii on controls, 4 px on
+   panels."* The QSS had drifted from its stated design and nothing lined up.
+   Near-misses everywhere is what reads as "buggy" to the eye.
 2. **2px light borders around every control.** `QPushButton`, the
-   `QLineEdit`/`QSpinBox`/`QComboBox` group and `QGroupBox` all carry
+   `QLineEdit`/`QSpinBox`/`QComboBox` group and `QGroupBox` all carried
    `border: 2px solid @outline`. `@outline` (`#4A443D`) is **lighter than both**
    the fill (`#34302C`) and the panel behind it (`#262422`) — so every control
-   is outlined in a light rectangle. That's the "bezel": embossed Windows-95
-   chrome. At fractional DPI the 2px stroke around a 5–6px radius aliases at the
-   corners, which is very plausibly the literal artifact being seen.
+   was outlined in a light rectangle. That's the bezel: embossed Windows-95
+   chrome. At fractional DPI a 2px stroke around a 5–6px radius aliases at the
+   corners, which is plausibly the literal artifact that was being seen.
 
-Brief: normalise to a 3-value radius scale, drop resting borders to 1px, keep
-the 2px amber focus ring (it's an accessibility affordance and the one place a
-loud border belongs), watch for focus-time layout jumps, do the light theme too,
-and fix the lying comment in `Theme.h` — that comment being wrong is how this
-drifted in the first place.
+**Outcome:** radii 9 distinct values → 5; resting 2px borders 5 → 2, and both
+survivors are `:focus` rules. Every focus rule sheds exactly 1px of padding per
+side as its border grows, so the outer box and text baseline don't move — a
+control that shifts 1px when you tab into it is its own kind of "buggy look".
+
+**Verified independently, not taken on trust** (the safety classifier was down
+when the agent's work was reviewed): commit scope clean, braces balanced, no
+invented `@tokens`, padding maths checked by hand, 18 suites green,
+`--selftest` 0.
+
+**`@outline` was deliberately NOT darkened, and that was the right call.** It
+doubles as a *fill* — slider sub-page/add-page and scrollbar handles (4 sites) —
+so darkening it would dim legibility-critical elements to fix something the 1px
+weight already fixes. It's also shared by **five palettes** (dark,
+high-contrast, midnight, forest, synthwave all use `quewi-dark.qss` and only
+swap tokens), so a hue change would need re-tuning per palette while the 1px
+change benefits all five for free.
+
+**Known exception:** the GO button keeps a 6px radius (2× the control scale) —
+at 64–72px tall, 3px reads as a sharp corner. Documented in both themes and in
+`Theme.h`.
+
+### Theme debt not fixed
+
+- **The light theme is hardcoded hex, no `@tokens`.** Radii were normalised and
+  it was already 1px-bordered, but true dark/light parity means tokenising it.
+  Out of scope for a restraint pass; worth doing before anyone relies on light
+  mode.
+- **QSS radii don't scale with DPI**, so at 150% the 3px/4px distinction is
+  subtle. Inherent to Qt stylesheets, not fixable in the theme.
 
 ## Next, in order
 
