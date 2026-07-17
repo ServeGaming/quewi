@@ -7,6 +7,8 @@ add_library(quewi_ui STATIC
     MixGridModel.cpp
     MixView.h
     MixView.cpp
+    ChannelEditorDialog.h
+    ChannelEditorDialog.cpp
     SmoothScroll.h
     SmoothScroll.cpp
     AnimatedButton.h

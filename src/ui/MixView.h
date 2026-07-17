@@ -50,6 +50,7 @@ signals:
 private slots:
     void onAddCue()    { addCue(); }
     void onDeleteCue() { deleteSelectedCue(); }
+    void onEditChannels();
     void onConnectClicked();
     void onLinkState(quewi::mix::ConsoleLink::State state);
     void onResyncRequired(const QString &reason);

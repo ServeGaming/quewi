@@ -7,6 +7,7 @@
 #include "mix/MixCue.h"
 #include "mix/MixShow.h"
 #include "mix/X32Link.h"
+#include "ui/ChannelEditorDialog.h"
 #include "ui/MixGridModel.h"
 #include "ui/Theme.h"
 
@@ -102,6 +103,15 @@ void MixView::buildUi()
     actions->addWidget(delBtn);
 
     actions->addStretch(1);
+
+    // The channel/ensemble editor. Without it, the grid can only hold bare
+    // strip numbers and the change-highlighting stays inert (resolve() drops
+    // unregistered strips), so this is where a usable mix show actually begins.
+    // "&&" so Qt doesn't eat the ampersand as a mnemonic accelerator.
+    auto *channelsBtn = new QPushButton(tr("Channels && ensembles…"), this);
+    connect(channelsBtn, &QPushButton::clicked, this, &MixView::onEditChannels);
+    actions->addWidget(channelsBtn);
+
     root->addLayout(actions);
 
     // ── Warning banner ───────────────────────────────────────────────
@@ -236,6 +246,17 @@ void MixView::deleteSelectedCue()
     if (m_model->rowCount() > 0)
         m_table->setCurrentIndex(m_model->index(qMin(row, m_model->rowCount() - 1),
                                                 idx.column()));
+}
+
+void MixView::onEditChannels()
+{
+    if (!m_workspace || !m_workspace->mixShow()) return;
+    // Modeless would let you edit channels while watching the grid, but modal
+    // is simpler and the grid already updates live from MixShow's signals when
+    // the dialog closes — or even while it's open, since it mutates the show
+    // directly. Modal keeps the interaction obvious.
+    ChannelEditorDialog dlg(m_workspace->mixShow(), this);
+    dlg.exec();
 }
 
 // ── Connection ───────────────────────────────────────────────────────
