@@ -6,6 +6,7 @@
 #include "ui/Theme.h"
 
 #include <QColor>
+#include <QFont>
 #include <algorithm>
 
 using quewi::mix::MixCue;
@@ -59,6 +60,32 @@ MixCue *MixGridModel::cueAt(int row) const
 {
     if (!m_list || row < 0 || row >= m_list->cueCount()) return nullptr;
     return qobject_cast<MixCue *>(m_list->cueAt(row));
+}
+
+int MixGridModel::rowOfCue(const MixCue *cue) const
+{
+    if (!cue || !m_list) return -1;
+    for (int r = 0; r < m_list->cueCount(); ++r)
+        if (m_list->cueAt(r) == cue) return r;
+    return -1;
+}
+
+MixCue *MixGridModel::liveCue() const { return qobject_cast<MixCue *>(m_liveCue.data()); }
+
+void MixGridModel::setLiveCue(MixCue *cue)
+{
+    if (m_liveCue == cue) return;
+    const int oldRow = rowOfCue(qobject_cast<MixCue *>(m_liveCue.data()));
+    m_liveCue = cue;
+    const int newRow = rowOfCue(cue);
+
+    // Repaint only the two affected rows rather than resetting the model —
+    // the live marker moves on every GO, and a full reset would collapse the
+    // operator's selection and scroll position mid-show.
+    const int cols = columnCount();
+    for (int row : {oldRow, newRow})
+        if (row >= 0)
+            emit dataChanged(index(row, 0), index(row, cols - 1));
 }
 
 int MixGridModel::dcaForColumn(int column) const
@@ -138,13 +165,33 @@ QVariant MixGridModel::data(const QModelIndex &index, int role) const
     const int dca = dcaForColumn(index.column());
     const auto &t = Theme::tokens();
 
+    const bool isLive = (m_liveCue.data() == cue);
+
     switch (role) {
     case Qt::DisplayRole:
     case Qt::EditRole:
         if (index.column() == kColNumber)
-            return cue->number() > 0 ? QString::number(cue->number(), 'g', 6) : QString();
+            // 'f',2 to match the cue list and everywhere else a cue number is
+            // shown; 'g',6 made mix cues read differently from the set list.
+            return cue->number() > 0 ? QString::number(cue->number(), 'f', 2) : QString();
         if (index.column() == kColName) return cue->name();
-        return cellText(index.row(), dca);
+        if (dca > 0) {
+            const QString text = cellText(index.row(), dca);
+            // A DCA that just emptied shows a dim dash, not blank — a departing
+            // mic must be visible as a change, or the operator can't tell "this
+            // DCA cleared" from "this DCA was never used".
+            if (text.isEmpty() && changeFor(index.row(), dca) == CellChange::Removed)
+                return QStringLiteral("—");
+            return text;
+        }
+        return {};
+
+    case Qt::FontRole:
+        // The live row is bold — one more channel for "this is on the desk"
+        // beyond colour, so it survives a colour-blind operator and a bad
+        // booth monitor.
+        if (isLive) { QFont f; f.setBold(true); return f; }
+        return {};
 
     case Qt::ForegroundRole:
         if (index.column() < kFixedCols) return QColor(t.ink100);
@@ -159,9 +206,13 @@ QVariant MixGridModel::data(const QModelIndex &index, int role) const
         }
         return QColor(t.ink60);
 
-    case Qt::BackgroundRole:
-        // Tint only the cells that change. A grid where everything is
-        // coloured tells you nothing.
+    case Qt::BackgroundRole: {
+        // The live row gets a calm amber wash across its whole width — the
+        // standby answer to "what's on the desk right now?", which after a
+        // GO-advance is no longer the selected row.
+        if (isLive) { QColor c = t.accent; c.setAlpha(30); return c; }
+        // Otherwise tint only the cells that change. A grid where everything
+        // is coloured tells you nothing.
         if (dca > 0) {
             switch (changeFor(index.row(), dca)) {
             case CellChange::Assigned: { QColor c = t.running; c.setAlpha(46); return c; }
@@ -170,6 +221,7 @@ QVariant MixGridModel::data(const QModelIndex &index, int role) const
             }
         }
         return {};
+    }
 
     case Qt::TextAlignmentRole:
         return int(index.column() == kColNumber ? (Qt::AlignRight | Qt::AlignVCenter)
@@ -199,6 +251,7 @@ QVariant MixGridModel::data(const QModelIndex &index, int role) const
     case IsDcaColumnRole:    return dca > 0;
     case DcaNumberRole:      return dca;
     case CueRole:            return QVariant::fromValue(static_cast<void *>(cue));
+    case IsLiveCueRole:      return isLive;
     default: return {};
     }
 }

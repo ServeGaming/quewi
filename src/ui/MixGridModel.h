@@ -39,6 +39,7 @@ public:
         IsDcaColumnRole,
         DcaNumberRole,
         CueRole,
+        IsLiveCueRole,   // true for every cell of the row that's on the desk
     };
 
     explicit MixGridModel(QObject *parent = nullptr);
@@ -51,6 +52,13 @@ public:
     mix::MixShow  *mixShow() const { return m_show; }
 
     mix::MixCue *cueAt(int row) const;
+
+    // The cue currently applied to the console. Its row is marked so the
+    // operator can answer "what's on the desk right now?" at a glance —
+    // otherwise, since GO advances the selection, the live cue is an unmarked
+    // row. Pass nullptr when nothing is applied (no console, or a resync).
+    void setLiveCue(mix::MixCue *cue);
+    mix::MixCue *liveCue() const;   // out-of-line: MixCue is incomplete here
 
     // Columns: 0 = cue number, 1 = cue name, then one per DCA.
     static constexpr int kColNumber = 0;
@@ -85,9 +93,13 @@ private slots:
 private:
     void rebuild();
     CellChange changeFor(int row, int dca) const;
+    int rowOfCue(const mix::MixCue *cue) const;   // -1 if absent
 
     QPointer<core::CueList> m_list;
     QPointer<mix::MixShow>  m_show;
+    // QObject rather than MixCue* — MixCue is only forward-declared here, and
+    // QPointer needs the complete type for a raw MixCue*. Compared by identity.
+    QPointer<QObject>       m_liveCue;
 };
 
 } // namespace quewi::ui

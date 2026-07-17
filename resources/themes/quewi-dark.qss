@@ -171,6 +171,36 @@ QTreeView::branch:closed:has-children:has-siblings {
        state. The default arrow is recoloured by foreground. */
 }
 
+/* ============================ Mix grid (QTableView) ============================ */
+/* The DCA cue grid. Without an explicit rule, QTableView falls through to
+   Fusion's stock blue selection and blue-tinted alternating stripes — the one
+   colour that clashes with the warm-grey palette, and (because selection is
+   the standby indicator after a GO-advance) exactly where a wrong colour reads
+   as "flaky". Mirror the cue-list vocabulary: calm panel, hairline gridlines,
+   amber selection. Same reasoning as the QTreeView block above — no alternating
+   rows; they read as noise on a long show. */
+QTableView {
+    background: @bgPanel;
+    color: @ink100;
+    border: none;
+    border-radius: 4px;
+    gridline-color: @divider;
+    selection-background-color: @bgRowSelected;
+    selection-color: @ink100;
+    outline: 0;
+    padding: 2px;
+}
+QTableView::item {
+    padding: 3px 8px;
+    border: none;
+}
+QTableView::item:hover    { background: @bgRowHover; }
+QTableView::item:selected,
+QTableView::item:selected:active {
+    background: @bgRowSelected;
+    color: @ink100;
+}
+
 QHeaderView::section {
     background: @bgPanel;
     color: @ink60;

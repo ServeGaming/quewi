@@ -58,6 +58,9 @@ private slots:
 private:
     void buildUi();
     void refreshConnectionUi();
+    // Sets both our pointer and the grid's live-row marker, so the row painted
+    // "on the desk" is always the cue we're actually pushing.
+    void setLiveCue(mix::MixCue *cue);
     void checkSceneSafe();
     mix::MixCue *selectedCue() const;
 

@@ -75,6 +75,25 @@ QTreeView::item:selected:active {
     border-left: 2px solid #2563EB;
 }
 
+/* Mix grid — see the dark theme for the reasoning; keeps the grid off
+   Fusion's default blue selection in light mode too. */
+QTableView {
+    background: #FFFFFF;
+    color: #1A1D24;
+    border: none;
+    gridline-color: #E4E7EE;
+    selection-background-color: #CFE2FF;
+    selection-color: #1A1D24;
+    outline: 0;
+}
+QTableView::item { padding: 3px 8px; border: none; }
+QTableView::item:hover { background: #EEF2F8; }
+QTableView::item:selected,
+QTableView::item:selected:active {
+    background: #CFE2FF;
+    color: #1A1D24;
+}
+
 QHeaderView::section {
     background: #ECEEF3;
     color: #4A4F5A;

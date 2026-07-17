@@ -260,6 +260,95 @@ private slots:
         QCOMPARE(cue->number(), 12.5);
     }
 
+    // ── Live-cue marker ──────────────────────────────────────────────
+    //
+    // After GO advances the selection, the cue on the desk is no longer the
+    // selected row. Without a marker, "what's live right now?" — the one
+    // question a mix op must answer instantly — has no answer on screen.
+
+    void liveCueRowIsMarked()
+    {
+        auto *a = addCue(1.0);
+        auto *b = addCue(2.0);
+        model->setLiveCue(b);
+
+        QVERIFY(model->index(1, 0).data(MixGridModel::IsLiveCueRole).toBool());
+        QVERIFY(!model->index(0, 0).data(MixGridModel::IsLiveCueRole).toBool());
+        QCOMPARE(model->liveCue(), b);
+        Q_UNUSED(a);
+    }
+
+    void liveCueMarkerSpansTheWholeRow()
+    {
+        addCue(1.0);
+        auto *b = addCue(2.0);
+        model->setLiveCue(b);
+
+        // Every column of the live row reports live — the wash is row-wide,
+        // not just the number cell.
+        for (int col = 0; col < model->columnCount(); ++col)
+            QVERIFY2(model->index(1, col).data(MixGridModel::IsLiveCueRole).toBool(),
+                     qPrintable(QStringLiteral("col %1 not marked live").arg(col)));
+    }
+
+    void liveCueMarkerMovesAndRepaints()
+    {
+        auto *a = addCue(1.0);
+        auto *b = addCue(2.0);
+        model->setLiveCue(a);
+
+        QSignalSpy spy(model.get(), &MixGridModel::dataChanged);
+        model->setLiveCue(b);
+
+        QVERIFY(model->index(1, 0).data(MixGridModel::IsLiveCueRole).toBool());
+        QVERIFY(!model->index(0, 0).data(MixGridModel::IsLiveCueRole).toBool());
+        // Both the vacated row and the newly-live row must repaint, or a stale
+        // marker lingers on the old row.
+        QVERIFY(spy.count() >= 2);
+    }
+
+    void clearingLiveCueUnmarksEverything()
+    {
+        auto *a = addCue(1.0);
+        model->setLiveCue(a);
+        model->setLiveCue(nullptr);
+
+        QVERIFY(!model->index(0, 0).data(MixGridModel::IsLiveCueRole).toBool());
+        QVERIFY(!model->liveCue());
+    }
+
+    // ── Departing mics stay visible ──────────────────────────────────
+
+    // A DCA that just emptied shows a dash, not blank — otherwise "this DCA
+    // cleared" is indistinguishable from "this DCA was never used".
+    void emptiedDcaShowsADash()
+    {
+        auto *a = addCue(1.0); a->setDcaStrips(1, {1});
+        addCue(2.0);                                       // DCA1 now empty
+
+        const auto idx = model->index(1, MixGridModel::kFixedCols);
+        QCOMPARE(idx.data(Qt::DisplayRole).toString(), QStringLiteral("—"));
+    }
+
+    void neverUsedDcaStaysBlank()
+    {
+        addCue(1.0);                                       // DCA1 never touched
+        const auto idx = model->index(0, MixGridModel::kFixedCols);
+        QVERIFY(idx.data(Qt::DisplayRole).toString().isEmpty());
+    }
+
+    // ── Number format matches the rest of the app ────────────────────
+
+    void cueNumberUsesTwoDecimals()
+    {
+        auto *cue = addCue(12.5);
+        // 'f',2 like the cue list — not 'g',6, which made mix cues read
+        // differently from the set list.
+        QCOMPARE(model->index(0, MixGridModel::kColNumber).data().toString(),
+                 QStringLiteral("12.50"));
+        Q_UNUSED(cue);
+    }
+
     void headersNameTheDcas()
     {
         QCOMPARE(model->headerData(MixGridModel::kColNumber, Qt::Horizontal).toString(),

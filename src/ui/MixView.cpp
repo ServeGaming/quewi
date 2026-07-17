@@ -125,7 +125,10 @@ void MixView::buildUi()
 
     m_table = new QTableView(this);
     m_table->setModel(m_model);
-    m_table->setAlternatingRowColors(true);
+    // No alternating rows — the cue list makes the same call in a paragraph of
+    // comment: on a long show they read as noise, and a single calm surface
+    // with the change-tints doing the talking scans far better.
+    m_table->setAlternatingRowColors(false);
     m_table->setSelectionBehavior(QAbstractItemView::SelectItems);
     m_table->setSelectionMode(QAbstractItemView::SingleSelection);
     m_table->horizontalHeader()->setSectionResizeMode(QHeaderView::Interactive);
@@ -238,7 +241,7 @@ void MixView::onConnectClicked()
     if (m_link && m_link->state() != ConsoleLink::State::Disconnected) {
         m_link->disconnectFromConsole();
         m_link.reset();
-        m_liveCue = nullptr;
+        setLiveCue(nullptr);   // nothing is on the desk once we're unplugged
         refreshConnectionUi();
         return;
     }
@@ -340,7 +343,16 @@ void MixView::checkSceneSafe()
 void MixView::onResyncRequired(const QString &reason)
 {
     emit statusMessage(tr("%1 Re-reading console state.").arg(reason));
-    m_liveCue = nullptr;   // our view of the desk is gone; nothing is "applied"
+    setLiveCue(nullptr);   // our view of the desk is gone; nothing is "applied"
+}
+
+void MixView::setLiveCue(mix::MixCue *cue)
+{
+    m_liveCue = cue;
+    // Keep the grid's live marker and our own pointer as one fact. The model
+    // paints the row; we compare against it for live edits. If these two ever
+    // disagree, the operator sees a "live" row that isn't the one being pushed.
+    m_model->setLiveCue(cue);
 }
 
 void MixView::refreshConnectionUi()
@@ -386,7 +398,7 @@ bool MixView::fireSelected()
     }
 
     m_link->applyCue(cue->channelAssignments(*m_workspace->mixShow()));
-    m_liveCue = cue;
+    setLiveCue(cue);
 
     const QString label = cue->name().isEmpty()
                         ? tr("Cue %1").arg(cue->number())
