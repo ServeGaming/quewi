@@ -62,10 +62,26 @@ at 64–72px tall, 3px reads as a sharp corner. Documented in both themes and in
 
 ## Next, in order
 
-1. **Drive the mix grid in the real app.** Everything below the UI is tested,
-   but the grid itself has only been proven by unit tests and a compile. Not the
-   same thing. Create a list, add cues, type an assignment, watch the
-   highlighting. *Nothing else on this list matters if the grid doesn't work.*
+1. ~~**Drive the mix grid in the real app.**~~ **Done, partially.** Created a mix
+   list, added three cues, typed an assignment. Verified live: numbers format
+   `f,2` like the rest of the app, the grid renders coherently with the theme,
+   and selection is now warm-grey — **not** Fusion blue (the QTableView theme
+   rule works). **Could NOT verify the live-cue marker** — `setLiveCue` only
+   fires on GO, which needs a connected console; that path is still only
+   unit-tested. Clear it in the X32-emulator pass (gate 4).
+
+   **Found by driving it, not by tests:** `resolve()` drops any strip number
+   that isn't a registered channel (this is deliberate — see
+   `resolveDropsUnknownEnsemblesAndDeadStrips`), so with **no channels defined
+   the change-highlighting is inert**: a freshly-typed assignment shows its
+   strip numbers as text but the cell stays dim (Unchanged) instead of lighting
+   up green (Assigned), because the strips resolve to nothing. This is the
+   missing-channel-editor symptom made concrete — the grid genuinely does very
+   little until channels exist, which is the strongest argument yet that the
+   channel editor is part of phase 1, not phase 3. Decide separately whether a
+   raw strip number should be self-validating (valid without a MixChannel
+   record) — that's a `resolve()` semantics change and touches tested
+   behaviour, so not a snap decision.
 2. **The Windows updater.** Still outstanding from before the mix work: user
    reported "download bar, then quewi just closes, nothing installs" on 0.9.103.
    Client step-logging shipped; needs a user run to produce
