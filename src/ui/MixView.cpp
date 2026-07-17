@@ -133,6 +133,10 @@ void MixView::buildUi()
     m_table->setSelectionMode(QAbstractItemView::SingleSelection);
     m_table->horizontalHeader()->setSectionResizeMode(QHeaderView::Interactive);
     m_table->horizontalHeader()->setDefaultSectionSize(110);
+    // Hide the row-number gutter: the "Cue" column already IS the identifier
+    // (1.00, 2.00…), so the numbers only duplicated it — and their header was
+    // the beveled corner button. Gone, both problems with it.
+    m_table->verticalHeader()->setVisible(false);
     m_table->verticalHeader()->setDefaultSectionSize(24);
     m_table->setEditTriggers(QAbstractItemView::DoubleClicked
                              | QAbstractItemView::SelectedClicked

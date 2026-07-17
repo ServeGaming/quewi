@@ -104,6 +104,21 @@ QHeaderView::section {
     font-size: 11px;
     font-weight: 600;
 }
+QHeaderView::section:vertical {
+    background: #ECEEF3;
+    color: #8A8F9A;
+    border: none;
+    border-right: 1px solid #D7D9DF;
+    padding: 0 8px;
+    font-size: 10px;
+}
+/* The table corner button — see the dark theme; flatten Fusion's raised bevel. */
+QTableView QTableCornerButton::section {
+    background: #ECEEF3;
+    border: none;
+    border-right: 1px solid #D7D9DF;
+    border-bottom: 1px solid #D7D9DF;
+}
 
 QLineEdit, QSpinBox, QDoubleSpinBox, QPlainTextEdit, QComboBox {
     background: #FFFFFF;

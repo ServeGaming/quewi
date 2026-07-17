@@ -216,6 +216,30 @@ QHeaderView::section:hover {
     background: @bgRowHover;
     color: @ink100;
 }
+/* Vertical header (row numbers). Same surface as the column header — without
+   this the numbers render on Fusion's raised grey and clip against the corner
+   button. Right-aligned with a little breathing room so single and double
+   digits don't jump. */
+QHeaderView::section:vertical {
+    background: @bgPanel;
+    color: @ink40;
+    border: none;
+    border-right: 1px solid @divider;
+    padding: 0 8px;
+    font-size: 10px;
+    letter-spacing: 0;
+}
+/* The corner button — the small box where the two headers meet. It is a
+   separate native control (QTableView subcontrol), so the QHeaderView rules
+   above never reach it, and it falls through to Fusion's raised bevel. That
+   grey bevelled square in the top-left of every table is this. Flatten it to
+   the panel colour so it disappears into the header band. */
+QTableView QTableCornerButton::section {
+    background: @bgPanel;
+    border: none;
+    border-right: 1px solid @divider;
+    border-bottom: 1px solid @divider;
+}
 
 /* ============================ Form controls ============================ */
 QLineEdit,
