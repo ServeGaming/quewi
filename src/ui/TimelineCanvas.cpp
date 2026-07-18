@@ -1,5 +1,6 @@
 #include "ui/TimelineCanvas.h"
 #include "ui/SpectrogramImage.h"
+#include "ui/Theme.h"
 #include "audio/AudioFile.h"
 
 #include <QContextMenuEvent>
@@ -165,8 +166,10 @@ void TimelineCanvas::paintEvent(QPaintEvent *) {
     QPainter p(this);
     p.setRenderHint(QPainter::Antialiasing, false);
 
+    const auto &tk = Theme::tokens();
+
     // Background
-    p.fillRect(rect(), QColor(28, 30, 38));
+    p.fillRect(rect(), tk.bgDeep);
 
     if (!m_model) return;
 
@@ -174,9 +177,9 @@ void TimelineCanvas::paintEvent(QPaintEvent *) {
     for (int ti = 0; ti < m_model->trackCount(); ++ti) {
         int y = trackY(ti);
         QRect tr(0, y, width(), m_trackHeight);
-        p.fillRect(tr, (ti % 2 == 0) ? QColor(32, 35, 44) : QColor(36, 39, 50));
-        // Track separator
-        p.fillRect(0, y + m_trackHeight - 1, width(), 1, QColor(20, 22, 28));
+        p.fillRect(tr, (ti % 2 == 0) ? tk.bgRowAlt : tk.bgRow);
+        // Track separator — recessed gap between lanes, darker than the rows.
+        p.fillRect(0, y + m_trackHeight - 1, width(), 1, tk.bgDeep);
     }
 
     // Region waveforms
@@ -199,8 +202,9 @@ void TimelineCanvas::paintEvent(QPaintEvent *) {
 }
 
 void TimelineCanvas::drawRuler(QPainter &p) {
-    p.fillRect(0, 0, width(), kRulerHeight, QColor(24, 26, 34));
-    p.fillRect(0, kRulerHeight - 1, width(), 1, QColor(50, 55, 70));
+    const auto &tk = Theme::tokens();
+    p.fillRect(0, 0, width(), kRulerHeight, tk.bgPanel);
+    p.fillRect(0, kRulerHeight - 1, width(), 1, tk.divider);
 
     if (!m_model) return;
     int sr = m_model->sampleRate();
@@ -214,14 +218,14 @@ void TimelineCanvas::drawRuler(QPainter &p) {
     }
     double subInterval = tickInterval / 5.0;
 
-    p.setPen(QColor(130, 140, 160));
+    p.setPen(tk.ink60);
     QFont f = font(); f.setPointSizeF(9.0); p.setFont(f);
 
     double startSec = (m_scrollX * secPerPix);
     double endSec   = startSec + width() * secPerPix;
 
     // Sub-ticks
-    p.setPen(QColor(55, 62, 80));
+    p.setPen(tk.divider);
     for (double t = std::floor(startSec / subInterval) * subInterval; t < endSec; t += subInterval) {
         int x = int(framesToX(qint64(t * sr)));
         if (x < kHeaderWidth) continue;
@@ -229,7 +233,7 @@ void TimelineCanvas::drawRuler(QPainter &p) {
     }
 
     // Major ticks + labels
-    p.setPen(QColor(140, 150, 170));
+    p.setPen(tk.ink60);
     for (double t = std::floor(startSec / tickInterval) * tickInterval; t < endSec; t += tickInterval) {
         int x = int(framesToX(qint64(t * sr)));
         if (x < kHeaderWidth) continue;
@@ -249,10 +253,11 @@ void TimelineCanvas::drawRuler(QPainter &p) {
 
 void TimelineCanvas::drawTrackHeader(QPainter &p, int ti, const QRect &r) {
     auto *track = m_model->track(ti);
-    p.fillRect(r, QColor(40, 44, 56));
-    p.fillRect(r.right(), r.top(), 1, r.height(), QColor(20, 22, 28));
+    const auto &tk = Theme::tokens();
+    p.fillRect(r, tk.bgInteractive);
+    p.fillRect(r.right(), r.top(), 1, r.height(), tk.bgDeep);
 
-    p.setPen(QColor(200, 205, 215));
+    p.setPen(tk.ink100);
     QFont f = font(); f.setPointSizeF(10.0); f.setBold(true); p.setFont(f);
     p.drawText(r.adjusted(8, 6, -4, -30), Qt::AlignLeft | Qt::AlignTop, track->name());
 
@@ -260,9 +265,9 @@ void TimelineCanvas::drawTrackHeader(QPainter &p, int ti, const QRect &r) {
     p.setFont(QFont(font().family(), 8));
     QRect muteR(r.left()+6,  r.bottom()-22, 28, 16);
     QRect soloR(r.left()+38, r.bottom()-22, 28, 16);
-    p.fillRect(muteR, track->isMuted() ? QColor(220,80,80) : QColor(55,60,75));
-    p.fillRect(soloR, track->isSoloed() ? QColor(220,180,30) : QColor(55,60,75));
-    p.setPen(Qt::white);
+    p.fillRect(muteR, track->isMuted() ? tk.err : tk.bgRowHover);
+    p.fillRect(soloR, track->isSoloed() ? tk.warn : tk.bgRowHover);
+    p.setPen(tk.ink100);
     p.drawText(muteR, Qt::AlignCenter, QStringLiteral("M"));
     p.drawText(soloR, Qt::AlignCenter, QStringLiteral("S"));
 }
@@ -282,16 +287,17 @@ void TimelineCanvas::drawRegion(QPainter &p, const audio::AudioRegion &region,
     QRect rr(x1, yTop, x2 - x1, h);
 
     bool selected = (region.id == m_selectedRegion);
+    const auto &tk = Theme::tokens();
 
     // Region background
     QColor bg = region.color.darker(selected ? 130 : 160);
     p.fillRect(rr, bg);
     // Border
-    p.setPen(selected ? QColor(255,220,60) : region.color.lighter(140));
+    p.setPen(selected ? tk.warnBright : region.color.lighter(140));
     p.drawRect(rr.adjusted(0,0,-1,-1));
 
     // Region name
-    p.setPen(QColor(230, 235, 245));
+    p.setPen(tk.ink100);
     QFont f = font(); f.setPointSizeF(9.5); f.setBold(true); p.setFont(f);
     p.drawText(rr.adjusted(4, 2, -4, -h/2), Qt::AlignLeft | Qt::AlignTop,
                region.name.isEmpty() ? QStringLiteral("Region") : region.name);
@@ -312,22 +318,27 @@ void TimelineCanvas::drawRegion(QPainter &p, const audio::AudioRegion &region,
         }
     }
 
-    // Fade-in overlay
+    // Fade-in overlay — a darkening scrim (audio fading up from silence),
+    // so it shades toward pure black, not toward a hue.
     if (region.fadeIn.durationSamples > 0) {
         int fadeW = int(double(region.fadeIn.durationSamples) / m_framesPerPixel);
         fadeW = std::min(fadeW, rr.width());
+        QColor scrim = tk.bgInverse; scrim.setAlpha(180);
+        QColor clear = tk.bgInverse; clear.setAlpha(0);
         QLinearGradient grad(rr.left(), 0, rr.left() + fadeW, 0);
-        grad.setColorAt(0, QColor(0,0,0,180));
-        grad.setColorAt(1, QColor(0,0,0,0));
+        grad.setColorAt(0, scrim);
+        grad.setColorAt(1, clear);
         p.fillRect(QRect(rr.left(), yTop, fadeW, h), grad);
     }
     // Fade-out overlay
     if (region.fadeOut.durationSamples > 0) {
         int fadeW = int(double(region.fadeOut.durationSamples) / m_framesPerPixel);
         fadeW = std::min(fadeW, rr.width());
+        QColor scrim = tk.bgInverse; scrim.setAlpha(180);
+        QColor clear = tk.bgInverse; clear.setAlpha(0);
         QLinearGradient grad(rr.right() - fadeW, 0, rr.right(), 0);
-        grad.setColorAt(0, QColor(0,0,0,0));
-        grad.setColorAt(1, QColor(0,0,0,180));
+        grad.setColorAt(0, clear);
+        grad.setColorAt(1, scrim);
         p.fillRect(QRect(rr.right() - fadeW, yTop, fadeW, h), grad);
     }
 }
@@ -405,7 +416,9 @@ void TimelineCanvas::drawEditCursor(QPainter &p) {
     if (x < kHeaderWidth || x >= width()) return;
     // Thin vertical line + a downward handle that sits in the ruler "header"
     // so the click position is obvious there as well as in the tracks.
-    const QColor col(150, 200, 255);
+    // Info blue — a cool marker is meaningful here: it distinguishes the
+    // parked edit cursor from the amber playhead that moves during playback.
+    const QColor col = Theme::tokens().info;
     p.setPen(QPen(col, 1.0));
     p.drawLine(x, kRulerHeight, x, height());
     p.setBrush(col);
@@ -421,10 +434,11 @@ void TimelineCanvas::drawPlayhead(QPainter &p) {
     if (m_playheadFrame < 0) return; // hidden while stopped
     int x = int(framesToX(m_playheadFrame));
     if (x < kHeaderWidth || x >= width()) return;
-    p.setPen(QPen(QColor(255, 60, 60), 1.5));
+    const auto &tk = Theme::tokens();
+    p.setPen(QPen(tk.accent, 1.5));
     p.drawLine(x, 0, x, height());
     // Triangle handle
-    p.setBrush(QColor(255, 60, 60));
+    p.setBrush(tk.accent);
     p.setPen(Qt::NoPen);
     QPolygon tri;
     tri << QPoint(x-5, 0) << QPoint(x+5, 0) << QPoint(x, 10);

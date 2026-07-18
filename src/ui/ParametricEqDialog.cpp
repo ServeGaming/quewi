@@ -31,18 +31,19 @@
 namespace quewi::ui {
 
 QColor ParametricEqDialog::bandColor(int i) {
-    // Cool → warm spectrum, six steps. Picked for distinctness on the
-    // dark graph background.
-    static const QColor colors[] = {
-        QColor( 80, 180, 255),  // 1 — sky blue (low shelf)
-        QColor( 95, 220, 200),  // 2 — teal
-        QColor( 90, 220, 110),  // 3 — green
-        QColor(255, 200,  60),  // 4 — yellow
-        QColor(255, 140,  90),  // 5 — orange
-        QColor(255,  90, 160),  // 6 — pink (high shelf)
-    };
-    if (i < 0 || i >= int(std::size(colors))) return Qt::white;
-    return colors[i];
+    // Cool → warm spectrum, six steps, drawn from the theme's restrained
+    // state pastels so band identity stays distinct on the dark graph
+    // without importing colours from outside the token set.
+    const auto &tk = Theme::tokens();
+    switch (i) {
+        case 0: return tk.info;        // 1 — blue (low shelf)
+        case 1: return tk.loaded;      // 2 — dusty blue
+        case 2: return tk.running;     // 3 — mossy green
+        case 3: return tk.warnBright;  // 4 — bright yellow
+        case 4: return tk.warn;        // 5 — amber
+        case 5: return tk.err;         // 6 — terracotta (high shelf)
+        default: return tk.ink100;
+    }
 }
 
 ParametricEqDialog::ParametricEqDialog(audio::EqEffect *eq, QWidget *parent)
@@ -235,18 +236,20 @@ void ParametricEqDialog::paintEvent(QPaintEvent *) {
     QPainter p(this);
     p.setRenderHint(QPainter::Antialiasing);
 
-    // Window background (Stitch bgPanel).
-    p.fillRect(rect(), QColor(0x18, 0x1c, 0x22));
+    const auto &tk = Theme::tokens();
+
+    // Window background.
+    p.fillRect(rect(), tk.bgDeep);
     if (m_graphRect.isNull()) layoutGraph();
 
     // Graph background — slight vertical gradient.
     QLinearGradient grad(0, m_graphRect.top(), 0, m_graphRect.bottom());
-    grad.setColorAt(0.0, QColor(0x1c, 0x20, 0x26));
-    grad.setColorAt(1.0, QColor(0x10, 0x14, 0x19));
+    grad.setColorAt(0.0, tk.bgPanel);
+    grad.setColorAt(1.0, tk.bgDeep);
     p.fillRect(m_graphRect, grad);
 
     // Frame
-    p.setPen(QColor(0x41, 0x47, 0x52));
+    p.setPen(tk.outline);
     p.drawRect(m_graphRect.adjusted(0, 0, -1, -1));
 
     // ── Frequency grid ──────────────────────────────────────────────
@@ -258,7 +261,7 @@ void ParametricEqDialog::paintEvent(QPaintEvent *) {
         const int x = freqToX(f);
         if (x < m_graphRect.left() || x > m_graphRect.right()) continue;
         const bool major = (int(f) == 100 || int(f) == 1000 || int(f) == 10000);
-        p.setPen(major ? QColor(0x41, 0x47, 0x52) : QColor(0x26, 0x2a, 0x38));
+        p.setPen(major ? tk.outline : tk.divider);
         p.drawLine(x, m_graphRect.top(), x, m_graphRect.bottom());
     }
     // dB grid
@@ -266,15 +269,15 @@ void ParametricEqDialog::paintEvent(QPaintEvent *) {
         const int y = gainToY(float(dB));
         const bool major = (dB == 0);
         const bool half  = (dB % 6 == 0);
-        QColor c = major ? QColor(0x8a, 0x91, 0x9e)
-                  : half  ? QColor(0x41, 0x47, 0x52)
-                          : QColor(0x26, 0x2a, 0x38);
+        QColor c = major ? tk.ink40
+                  : half  ? tk.outline
+                          : tk.divider;
         p.setPen(c);
         p.drawLine(m_graphRect.left(), y, m_graphRect.right(), y);
     }
 
     // ── Axis labels ─────────────────────────────────────────────────
-    p.setPen(QColor(0x8a, 0x91, 0x9e));
+    p.setPen(tk.ink40);
     p.setFont(QFont(font().family(), 8));
     static const float kLabelF[] = {30, 100, 300, 1000, 3000, 10000};
     for (float f : kLabelF) {
@@ -322,14 +325,20 @@ void ParametricEqDialog::paintEvent(QPaintEvent *) {
                 // the graph) reads red, mids amber/yellow, quiet content green.
                 // The gradient is keyed to graph height, so a peak that climbs
                 // into the red zone shows red at its tip.
+                QColor gRed    = tk.errBright;  gRed.setAlpha(195);
+                QColor gOrange = tk.warn;       gOrange.setAlpha(170);
+                QColor gYellow = tk.warnBright; gYellow.setAlpha(135);
+                QColor gGreen  = tk.running;    gGreen.setAlpha(100);
+                QColor gFloor  = tk.running;    gFloor.setAlpha(0);
                 QLinearGradient g(0, m_graphRect.top(), 0, m_graphRect.bottom());
-                g.setColorAt(0.00, QColor(0xff, 0x46, 0x46, 195)); // red — peaking
-                g.setColorAt(0.22, QColor(0xff, 0x9b, 0x3d, 170)); // orange
-                g.setColorAt(0.45, QColor(0xf2, 0xd6, 0x44, 135)); // yellow
-                g.setColorAt(0.72, QColor(0x5f, 0xd9, 0x6a, 100)); // green
-                g.setColorAt(1.00, QColor(0x5f, 0xd9, 0x6a, 0));   // fade at the floor
+                g.setColorAt(0.00, gRed);    // red — peaking
+                g.setColorAt(0.22, gOrange); // orange
+                g.setColorAt(0.45, gYellow); // yellow
+                g.setColorAt(0.72, gGreen);  // green
+                g.setColorAt(1.00, gFloor);  // fade at the floor
                 p.fillPath(area, g);
-                p.setPen(QPen(QColor(0xff, 0xff, 0xff, 60), 1.0));
+                QColor spectrumLine = tk.ink100; spectrumLine.setAlpha(60);
+                p.setPen(QPen(spectrumLine, 1.0));
                 p.drawPolyline(pts.constData(), int(pts.size()));
             }
         }
@@ -390,13 +399,18 @@ void ParametricEqDialog::paintEvent(QPaintEvent *) {
     fill.lineTo(curve.back().x(), yZero);
     fill.closeSubpath();
 
+    // Composite response — info blue, matching the CompressorDialog's
+    // transfer curve so the two audio graphs read as the same instrument.
+    QColor fillHi = tk.info; fillHi.setAlpha(70);
+    QColor fillMd = tk.info; fillMd.setAlpha(25);
+    QColor fillLo = tk.info; fillLo.setAlpha(0);
     QLinearGradient fillGrad(0, m_graphRect.top(), 0, m_graphRect.bottom());
-    fillGrad.setColorAt(0.0, QColor(0xa4, 0xc9, 0xff, 70));
-    fillGrad.setColorAt(0.5, QColor(0xa4, 0xc9, 0xff, 25));
-    fillGrad.setColorAt(1.0, QColor(0xa4, 0xc9, 0xff, 0));
+    fillGrad.setColorAt(0.0, fillHi);
+    fillGrad.setColorAt(0.5, fillMd);
+    fillGrad.setColorAt(1.0, fillLo);
     p.fillPath(fill, fillGrad);
 
-    QPen curvePen(QColor(0xa4, 0xc9, 0xff)); curvePen.setWidthF(2.0);
+    QPen curvePen(tk.info); curvePen.setWidthF(2.0);
     p.setPen(curvePen);
     p.drawPolyline(curve.constData(), int(curve.size()));
 
@@ -413,10 +427,10 @@ void ParametricEqDialog::paintEvent(QPaintEvent *) {
             p.drawEllipse(c, kHandleRadius * 2, kHandleRadius * 2);
         }
         p.setBrush(color);
-        p.setPen(QPen(QColor(0x10, 0x14, 0x19), 2));
+        p.setPen(QPen(tk.bgDeep, 2));
         p.drawEllipse(c, kHandleRadius, kHandleRadius);
 
-        p.setPen(QColor(0x10, 0x14, 0x19));
+        p.setPen(tk.inkOnAccent);
         p.setFont(QFont(font().family(), 9, QFont::Bold));
         p.drawText(QRect(c.x() - kHandleRadius, c.y() - kHandleRadius,
                          kHandleRadius * 2, kHandleRadius * 2),
@@ -425,7 +439,8 @@ void ParametricEqDialog::paintEvent(QPaintEvent *) {
 
     // ── Cursor crosshair + readout ─────────────────────────────────
     if (m_graphRect.contains(m_cursor)) {
-        p.setPen(QPen(QColor(0xc0, 0xc7, 0xd4, 160), 1, Qt::DashLine));
+        QColor cross = tk.ink60; cross.setAlpha(160);
+        p.setPen(QPen(cross, 1, Qt::DashLine));
         p.drawLine(m_cursor.x(), m_graphRect.top(), m_cursor.x(), m_graphRect.bottom());
         p.drawLine(m_graphRect.left(), m_cursor.y(), m_graphRect.right(), m_cursor.y());
 
@@ -444,10 +459,11 @@ void ParametricEqDialog::paintEvent(QPaintEvent *) {
         const int rx = std::min(m_cursor.x() + 12, m_graphRect.right() - sz.width());
         const int ry = std::max(m_graphRect.top() + 4, m_cursor.y() - sz.height() - 6);
         const QRect rrect(rx, ry, sz.width(), sz.height());
-        p.fillRect(rrect, QColor(0x10, 0x14, 0x19, 220));
-        p.setPen(QColor(0x41, 0x47, 0x52));
+        QColor box = tk.bgDeep; box.setAlpha(220);
+        p.fillRect(rrect, box);
+        p.setPen(tk.outline);
         p.drawRect(rrect.adjusted(0,0,-1,-1));
-        p.setPen(QColor(0xe0, 0xe2, 0xeb));
+        p.setPen(tk.ink100);
         p.drawText(rrect, Qt::AlignCenter, readout);
     }
 }

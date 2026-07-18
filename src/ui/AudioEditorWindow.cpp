@@ -38,8 +38,8 @@ namespace quewi::ui {
 namespace {
 
 // 18×18 line icons painted into transparent QPixmaps. Cached on first
-// use. White ink so QSS-tinted toolbar buttons pick up the parent
-// stylesheet's text colour cleanly.
+// use. Drawn in the theme's primary ink so the toolbar glyphs match the
+// button text they sit beside.
 QIcon makeEditorIcon(const QString &name) {
     static QHash<QString, QIcon> cache;
     if (auto it = cache.constFind(name); it != cache.constEnd()) return it.value();
@@ -49,7 +49,7 @@ QIcon makeEditorIcon(const QString &name) {
     pm.fill(Qt::transparent);
     QPainter p(&pm);
     p.setRenderHint(QPainter::Antialiasing);
-    QColor ink(0xe0, 0xe2, 0xeb);
+    const QColor ink = Theme::tokens().ink100;
     QPen pen(ink); pen.setWidthF(1.5); pen.setCapStyle(Qt::RoundCap); pen.setJoinStyle(Qt::RoundJoin);
     p.setPen(pen);
     p.setBrush(Qt::NoBrush);
