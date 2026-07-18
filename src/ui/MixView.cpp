@@ -14,6 +14,7 @@
 #include <QComboBox>
 #include <QHBoxLayout>
 #include <QHeaderView>
+#include <QItemSelectionModel>
 #include <QLabel>
 #include <QLineEdit>
 #include <QMessageBox>
@@ -135,6 +136,10 @@ void MixView::buildUi()
 
     m_table = new QTableView(this);
     m_table->setModel(m_model);
+    // The main transport bar's DCA GO tracks the selection (its playhead), so
+    // tell it whenever the selected row moves.
+    connect(m_table->selectionModel(), &QItemSelectionModel::currentChanged,
+            this, [this] { emit mixStateChanged(); });
     // No alternating rows — the cue list makes the same call in a paragraph of
     // comment: on a long show they read as noise, and a single calm surface
     // with the change-tints doing the talking scans far better.
@@ -182,6 +187,7 @@ void MixView::setCueList(core::CueList *list)
     m_model->setCueList(list);
     if (m_model->rowCount() > 0)
         m_table->setCurrentIndex(m_model->index(0, MixGridModel::kFixedCols));
+    emit mixStateChanged();
 }
 
 MixCue *MixView::selectedCue() const
@@ -409,6 +415,9 @@ void MixView::refreshConnectionUi()
     m_host->setEnabled(!up);
 
     if (state == ConsoleLink::State::Disconnected) m_warning->setVisible(false);
+
+    // Connection state gates the DCA GO — refresh the transport bar.
+    emit mixStateChanged();
 }
 
 // ── Firing ───────────────────────────────────────────────────────────
@@ -436,6 +445,26 @@ bool MixView::fireSelected()
     if (idx.isValid() && idx.row() + 1 < m_model->rowCount())
         m_table->setCurrentIndex(m_model->index(idx.row() + 1, idx.column()));
     return true;
+}
+
+bool MixView::canFireNext() const
+{
+    return m_link && m_link->state() == ConsoleLink::State::Connected && selectedCue();
+}
+
+QString MixView::dcaGoTooltip() const
+{
+    if (!m_model->cueList())
+        return tr("Add a Mix (DCA) list and connect a console to fire DCA cues.");
+    if (!m_link || m_link->state() != ConsoleLink::State::Connected)
+        return tr("Connect a console on the Mix page to fire DCA cues.");
+    auto *cue = selectedCue();
+    if (!cue)
+        return tr("No DCA cue selected.");
+    const QString name = cue->name().isEmpty()
+                       ? tr("Cue %1").arg(cue->number())
+                       : cue->name();
+    return tr("DCA GO → %1  %2").arg(QString::number(cue->number(), 'f', 2), name);
 }
 
 void MixView::onCueEdited(MixCue *cue)

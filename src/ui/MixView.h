@@ -39,6 +39,14 @@ public:
     // there's nothing to fire or no console.
     bool fireSelected();
 
+    // ── State for the main transport bar's DCA GO button ──────────────
+    // MixView owns the mix list + console link, so it answers whether a DCA
+    // GO is possible and what the next cue is. The transport bar only shows
+    // the result — it stays free of mix types. mixStateChanged() fires
+    // whenever any of these answers could have changed.
+    bool    canFireNext() const;   // console connected AND a cue is queued
+    QString dcaGoTooltip() const;  // describes the next cue, or why disabled
+
     // Add a mix cue after the selection (or at the end), and start editing it.
     void addCue();
     // Delete the selected cue.
@@ -46,6 +54,10 @@ public:
 
 signals:
     void statusMessage(const QString &text);
+    // Emitted when the DCA GO's availability or next-cue label could have
+    // changed: selection moved, a console connected/dropped, or the mix list
+    // was swapped. The main window refreshes the transport bar's DCA GO on it.
+    void mixStateChanged();
 
 private slots:
     void onAddCue()    { addCue(); }

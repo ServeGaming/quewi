@@ -219,6 +219,29 @@ QPushButton#goButton {
 QPushButton#goButton:hover { background: #EFF4FF; }
 QPushButton#goButton:pressed { background: #E84A2F; color: #FFFFFF; border-color: #E84A2F; }
 
+/* DCA GO — the mix list's GO. A filled blue chip (vs the playback GO's white
+   hero body) so the two never blur together. Shorter than the hero GO. */
+QPushButton#dcaGoButton {
+    background: #2563EB;
+    color: #FFFFFF;
+    border: 2px solid #2563EB;
+    border-radius: 6px;
+    font-size: 20px;
+    font-weight: 800;
+    letter-spacing: 0.04em;
+    padding: 10px 18px;
+    min-height: 64px;
+    min-width: 120px;
+}
+QPushButton#dcaGoButton[state="ready"]    { background: #2563EB; color: #FFFFFF; }
+QPushButton#dcaGoButton[state="disabled"],
+QPushButton#dcaGoButton:disabled {
+    background: #E5E8EE;
+    color: #9CA3AF;
+    border-color: #D7D9DF;
+}
+QPushButton#dcaGoButton:pressed { background: #1D4FD8; }
+
 /* Fade All / Panic are custom-painted AnimatedButtons (TransportBar.cpp) — no
    object name, so rules here would be dead. Styled in C++ from Theme tokens. */
 

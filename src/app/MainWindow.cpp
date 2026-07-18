@@ -558,6 +558,19 @@ void MainWindow::buildLayout()
             m_actPause, &QAction::trigger);
     connect(m_transport, &ui::TransportBar::fadeAllPressed,
             m_actFadeAll, &QAction::trigger);
+
+    // DCA GO — the transport bar's second GO fires the Mix (DCA) list at the
+    // console, wherever the operator is in the app (they don't have to be on
+    // the Mix tab to advance the mix scene). MixView owns the list + link and
+    // reports back its state so the button paints live / disabled.
+    connect(m_transport, &ui::TransportBar::dcaGoPressed, this, [this] {
+        if (m_mixView) m_mixView->fireSelected();
+    });
+    connect(m_mixView, &ui::MixView::mixStateChanged, this, [this] {
+        if (m_transport && m_mixView)
+            m_transport->setDcaGoState(m_mixView->canFireNext(),
+                                       m_mixView->dcaGoTooltip());
+    });
 }
 
 void MainWindow::buildMenus()

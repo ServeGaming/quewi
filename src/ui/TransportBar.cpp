@@ -101,6 +101,19 @@ TransportBar::TransportBar(QWidget *parent)
     panicBtn->setToolTip(tr("Stop everything immediately"));
     m_panic = panicBtn;
 
+    // DCA GO — the second GO. Fires the Mix (DCA) list against the console,
+    // separate from the playback GO so the operator can advance the mix scene
+    // and the sound cues independently. Deliberately a different colour (dusty
+    // "console" blue, not the playback green) and shorter than the hero GO, so
+    // the two are never confused under booth pressure. Disabled until a mix
+    // list is loaded and a console is connected.
+    m_dcaGo = new QPushButton(tr("DCA GO"), this);
+    m_dcaGo->setObjectName(QStringLiteral("dcaGoButton"));
+    m_dcaGo->setProperty("state", "disabled");
+    m_dcaGo->setEnabled(false);
+    m_dcaGo->setMinimumHeight(64);
+    m_dcaGo->setToolTip(tr("Connect a console on a Mix (DCA) list to fire DCA cues."));
+
     m_goButton = new QPushButton(tr("GO"), this);
     m_goButton->setObjectName(QStringLiteral("goButton"));
     // Dynamic property drives QSS state colour: standby (blue) until a
@@ -117,12 +130,28 @@ TransportBar::TransportBar(QWidget *parent)
     layout->addWidget(m_pause,    0, Qt::AlignVCenter);
     layout->addWidget(m_fadeAll,  0, Qt::AlignVCenter);
     layout->addWidget(m_panic,    0, Qt::AlignVCenter);
+    layout->addWidget(m_dcaGo,    0, Qt::AlignVCenter);
     layout->addWidget(m_goButton, 0, Qt::AlignVCenter);
 
     connect(m_goButton, &QPushButton::clicked, this, &TransportBar::goPressed);
+    connect(m_dcaGo,    &QPushButton::clicked, this, &TransportBar::dcaGoPressed);
     connect(m_panic,    &QPushButton::clicked, this, &TransportBar::panicPressed);
     connect(m_pause,    &QPushButton::clicked, this, &TransportBar::pausePressed);
     connect(m_fadeAll,  &QPushButton::clicked, this, &TransportBar::fadeAllPressed);
+}
+
+void TransportBar::setDcaGoState(bool ready, const QString &tooltip)
+{
+    if (!m_dcaGo) return;
+    m_dcaGo->setEnabled(ready);
+    const char *state = ready ? "ready" : "disabled";
+    if (m_dcaGo->property("state").toString() != QLatin1String(state)) {
+        m_dcaGo->setProperty("state", state);
+        // Re-polish so the QSS attribute selector repaints the fill.
+        m_dcaGo->style()->unpolish(m_dcaGo);
+        m_dcaGo->style()->polish(m_dcaGo);
+    }
+    m_dcaGo->setToolTip(tooltip);
 }
 
 TransportBar::~TransportBar() = default;
