@@ -11,8 +11,9 @@ session on any computer can continue with no gaps.
 > enough that if the session ended right now, the next one would lose nothing.
 > The last section, *Update protocol*, tells you exactly how.
 
-Last updated: **2026-07-17**, the day **1.0.0 shipped**. Update the date
-whenever you touch this file.
+Last updated: **2026-07-18**. 1.0.0 shipped 2026-07-17; this day added three
+post-1.0 mix-workflow features (below) and closed the audio-editor retheme.
+Update the date whenever you touch this file.
 
 ---
 
@@ -71,6 +72,51 @@ it's what proves the abstraction.
   the mix view's "Channels & ensembles…" button. **This is what makes the grid
   usable** — without a named channel, `resolve()` drops the strip and the grid's
   highlighting stays inert.
+
+### Post-1.0 mix-workflow features (built 2026-07-18)
+
+Three features Matthew asked for after 1.0. All **compile clean, 19/19 tests
+green, selftest exits 0**, and the logic is reasoned through — but **none has
+been screen-driven yet** (see the driving blocker at the end of this section).
+"Built + unit-verified, view layer not yet driven" — the same honest state the
+mix grid is in.
+
+- **DCA GO button in the main transport bar** (commit `7f0438d`). A second GO,
+  left of the playback GO, that fires the Mix (DCA) list at the console from
+  anywhere in the app. Dusty "console" blue on dark / filled blue chip on
+  light, shorter than the hero GO so they're never confused. `MixView` reports
+  `canFireNext()` + a tooltip and emits `mixStateChanged()`; the transport bar
+  paints the result (disabled + explanatory tooltip until a console is live on a
+  Mix list). Wiring in `MainWindow::buildLayout` (the transport-connect block).
+- **Bidirectional cue links** (commit `437faf7`). `Cue::linkedCueId` (persisted,
+  single-sided) pairs a cue with one other — the point is pairing a sound cue
+  with a DCA cue so one GO fires both. Firing resolves the forward link **and**
+  any cue that links back, so it works from either end. `MainWindow` is the
+  coordinator (only object owning both the GoEngine and the console link): it
+  hooks `GoEngine::cueFired` + `MixView::mixCueFired`, and a `m_pendingLinkFires`
+  marker set breaks the A→B→A bounce **even across a pre-wait** (async fire).
+  UI: a "Linked DCA cue" picker in the Inspector's common header, shown only
+  when the show has mix cues. `MixView::fireCueAtConsole()` applies a specific
+  cue without advancing. **This is the one most worth driving** — confirm a
+  linked pair fires both ways against the emulator and does NOT loop/hang.
+- **Pop-out inspector sections** (commit `7e4a704`). Each type section (Audio,
+  Object Audio, Fade, Light, Visual, OSC, MIDI, MSC, Group, Wait, target) has a
+  ↗ corner button that floats it into its own always-on-top window; ↙ docks it
+  back to the exact spot. Qt::Window-on-a-child trick (keeps QObject parent → no
+  leak). Object Audio (nested in the audio group) is included per Matthew's ask.
+  Interaction note to verify: `rebuild()` still toggles group visibility per cue
+  type, so a floated section hides when you select a cue that doesn't use it and
+  reappears when you select one that does — intended, but eyeball it.
+
+**Driving blocker (why none is screen-driven yet):** computer-use only allows
+the **installed** binary (`c:\program files\quewi\bin\quewi.exe` = 1.0.0),
+which doesn't have these changes; the dev build at `build/windows-release/`
+isn't in the allowlist and can't be granted by path. Overwriting the Program
+Files install needs admin/UAC, which the desktop tools can't drive. So the
+verification path is: **Matthew runs the next build/patch** (or OKs a temporary
+binary swap), then eyeball the three above. The emulator on `127.0.0.1:10023`
+was up this session (the `x32_emulator` suite ran live, not skipped), so the
+link-fire test is ready the moment the new binary is running.
 
 ### What's NOT done on the mix feature
 
@@ -194,9 +240,12 @@ past it drifted. Now fixed:
   plus QSS rules for the gaps (radio buttons, scrollbar corner, dock title,
   table corner button). A painted widget that reads `palette()` now inherits the
   theme automatically.
-- **Still open (a real design pass, not mechanical):** TimelineCanvas +
-  AudioEditorWindow chrome — ~25 hardcoded cool-blue colours; the audio editor
-  reads as a "different room". That's design-review finding 3.
+- ~~**Still open:** the audio editor's cool-blue palette (finding 3).~~
+  **Closed 2026-07-18** (commit `5fea82e`, Fable). TimelineCanvas,
+  ParametricEqDialog and the AudioEditorWindow chrome now draw every colour
+  from `Theme::tokens()` — playhead on `accent`, the blue edit cursor kept on
+  `info` (deliberately cool, distinct from the playhead). Colours only, verified
+  no literals remain. The audio editor is now on-theme.
 
 The theme direction is deliberate and liked: warm dark greys, creamy off-white
 ink, one amber accent, restrained pastels, no purple/neon/glow, 3px control /
