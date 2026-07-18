@@ -438,12 +438,46 @@ bool MixView::fireSelected()
                         ? tr("Cue %1").arg(cue->number())
                         : cue->name();
     emit statusMessage(tr("Fired %1").arg(label));
+    emit mixCueFired(cue);   // let any linked playback cue follow
 
     // Advance, the way a cue list does — the operator's next GO should be the
     // next cue without them having to reach for the mouse.
     const auto idx = m_table->currentIndex();
     if (idx.isValid() && idx.row() + 1 < m_model->rowCount())
         m_table->setCurrentIndex(m_model->index(idx.row() + 1, idx.column()));
+    return true;
+}
+
+bool MixView::fireCueAtConsole(mix::MixCue *cue)
+{
+    if (!cue || !m_workspace || !m_workspace->mixShow()) return false;
+    if (!m_link || m_link->state() != ConsoleLink::State::Connected) {
+        emit statusMessage(tr("No console connected — linked DCA cue not fired."));
+        return false;
+    }
+
+    m_link->applyCue(cue->channelAssignments(*m_workspace->mixShow()));
+    setLiveCue(cue);
+
+    // If the cue is in the list we're showing, land the selection (and so the
+    // live marker) on it. Fired from a link, not a GO, so we don't advance.
+    if (m_model->cueList()) {
+        const int col = m_table->currentIndex().isValid()
+                      ? m_table->currentIndex().column()
+                      : int(MixGridModel::kFixedCols);
+        for (int r = 0; r < m_model->rowCount(); ++r) {
+            if (m_model->cueAt(r) == cue) {
+                m_table->setCurrentIndex(m_model->index(r, col));
+                break;
+            }
+        }
+    }
+
+    const QString label = cue->name().isEmpty()
+                        ? tr("Cue %1").arg(cue->number())
+                        : cue->name();
+    emit statusMessage(tr("Fired %1 (linked)").arg(label));
+    emit mixCueFired(cue);
     return true;
 }
 

@@ -39,6 +39,12 @@ public:
     // there's nothing to fire or no console.
     bool fireSelected();
 
+    // Apply a specific mix cue to the console without advancing — the entry
+    // point for cross-list links (a playback cue firing its paired DCA cue).
+    // Sets it live, moves the grid marker onto it if it's in the shown list,
+    // and emits mixCueFired(). Returns false with no console connected.
+    bool fireCueAtConsole(quewi::mix::MixCue *cue);
+
     // ── State for the main transport bar's DCA GO button ──────────────
     // MixView owns the mix list + console link, so it answers whether a DCA
     // GO is possible and what the next cue is. The transport bar only shows
@@ -58,6 +64,10 @@ signals:
     // changed: selection moved, a console connected/dropped, or the mix list
     // was swapped. The main window refreshes the transport bar's DCA GO on it.
     void mixStateChanged();
+    // Emitted whenever this view fires a mix cue at the console (via GO, the
+    // transport DCA GO, or a cross-list link). The main window uses it to fire
+    // the cue's linked playback partner.
+    void mixCueFired(quewi::mix::MixCue *cue);
 
 private slots:
     void onAddCue()    { addCue(); }

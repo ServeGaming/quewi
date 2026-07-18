@@ -48,6 +48,14 @@ public:
     bool    isArmed() const        { return m_armed; }
     QColor  color() const          { return m_color; } // invalid = no tint
 
+    // Cross-list link (QLab-style). A cue may point at one other cue — the
+    // common use is pairing a sound cue with a DCA (mix) cue so one GO fires
+    // both. Firing is bidirectional: firing this cue fires the linked one, and
+    // firing the linked one fires this (resolved by reverse lookup). Null = no
+    // link. The firing coordination + loop-guard live in MainWindow, which is
+    // the only place that owns both the GoEngine and the console link.
+    core::CueId linkedCueId() const { return m_linkedCueId; }
+
     // Generic accessor — returns invalid QVariant for unknown fields.
     virtual QVariant field(const QString &key) const;
     // Generic mutator — silently ignores unknown fields. Emits changed().
@@ -74,6 +82,7 @@ private:
     QString      m_notes;
     bool         m_armed = true;
     QColor       m_color;        // invalid by default → no tint
+    core::CueId  m_linkedCueId;  // null by default → no cross-list link
 };
 
 } // namespace quewi::cues

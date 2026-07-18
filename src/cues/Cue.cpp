@@ -22,6 +22,7 @@ QVariant Cue::field(const QString &key) const
     if (key == QLatin1String("notes"))        return m_notes;
     if (key == QLatin1String("armed"))        return m_armed;
     if (key == QLatin1String("color"))        return m_color;
+    if (key == QLatin1String("linkedCueId"))  return QVariant::fromValue(m_linkedCueId);
     return {};
 }
 
@@ -35,6 +36,7 @@ void Cue::setField(const QString &key, const QVariant &value)
     else if (key == QLatin1String("notes"))        m_notes = value.toString();
     else if (key == QLatin1String("armed"))        m_armed = value.toBool();
     else if (key == QLatin1String("color"))        m_color = value.value<QColor>();
+    else if (key == QLatin1String("linkedCueId"))  m_linkedCueId = value.value<QUuid>();
     else return;
     emitChanged();
 }
@@ -53,6 +55,10 @@ QJsonObject Cue::toPayload() const
     if (m_color.isValid()) {
         o.insert(QStringLiteral("color"), m_color.name(QColor::HexArgb));
     }
+    if (!m_linkedCueId.isNull()) {
+        o.insert(QStringLiteral("linkedCueId"),
+                 m_linkedCueId.toString(QUuid::WithoutBraces));
+    }
     return o;
 }
 
@@ -67,6 +73,8 @@ void Cue::fromPayload(const QJsonObject &payload)
     m_armed        = payload.value(QStringLiteral("armed")).toBool(true);
     const auto colName = payload.value(QStringLiteral("color")).toString();
     m_color = colName.isEmpty() ? QColor() : QColor(colName);
+    const auto linked = payload.value(QStringLiteral("linkedCueId")).toString();
+    m_linkedCueId = linked.isEmpty() ? core::CueId() : core::CueId(linked);
 }
 
 void Cue::emitChanged()

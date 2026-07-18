@@ -38,6 +38,7 @@
 #include "ui/ActiveCuesPanel.h"
 #include "ui/CartView.h"
 #include "ui/MixView.h"
+#include "mix/MixCue.h"
 #include "ui/AudioEditorWindow.h"
 #include "ui/CommandPalette.h"
 #include "ui/MediaImportDialog.h"
@@ -173,6 +174,9 @@ MainWindow::MainWindow(QWidget *parent)
     m_goEngine->setMidiEngine(m_midiEngine.get());
     connect(m_goEngine.get(), &GoEngine::statusMessage, this,
             [this](const QString &m) { statusBar()->showMessage(m, 2500); });
+    // Cross-list cue links: when any cue fires, fire its linked partner too.
+    connect(m_goEngine.get(), &GoEngine::cueFired, this,
+            [this](cues::Cue *c) { fireLinkedFor(c); });
     connect(m_goEngine.get(), &GoEngine::gotoRequested, this,
             [this](core::CueId id) {
                 if (!m_workspace) return;
@@ -571,6 +575,10 @@ void MainWindow::buildLayout()
             m_transport->setDcaGoState(m_mixView->canFireNext(),
                                        m_mixView->dcaGoTooltip());
     });
+    // Cross-list cue links, mix side: a DCA cue firing fires its linked
+    // playback cue too (bidirectional with the GoEngine hook above).
+    connect(m_mixView, &ui::MixView::mixCueFired, this,
+            [this](mix::MixCue *c) { fireLinkedFor(c); });
 }
 
 void MainWindow::buildMenus()
@@ -4008,6 +4016,44 @@ void MainWindow::fireCueByNumber(double number)
     // selecting and firing produces the right behaviour.
     selectCueByNumber(number);
     onGoRequested();
+}
+
+void MainWindow::fireLinkedFor(cues::Cue *source)
+{
+    if (!source || !m_workspace) return;
+
+    // If this fire is itself a link-fire we scheduled, consume the marker and
+    // stop — that's what breaks the A→B→A bounce, and it works even when the
+    // partner has a pre-wait so its cueFired arrives on a later event loop.
+    if (m_pendingLinkFires.remove(source->id())) return;
+
+    // Gather partners: the forward link this cue stores, plus any cue whose
+    // link points back at this one (single-sided storage, bidirectional fire).
+    const core::CueId fwd = source->linkedCueId();
+    QList<cues::Cue *> targets;
+    for (const auto &list : m_workspace->cueLists()) {
+        for (int i = 0; i < list->cueCount(); ++i) {
+            auto *c = list->cueAt(i);
+            if (!c || c == source) continue;
+            const bool isFwd = !fwd.isNull() && c->id() == fwd;
+            const bool isRev = c->linkedCueId() == source->id();
+            if ((isFwd || isRev) && !targets.contains(c)) targets.append(c);
+        }
+    }
+
+    for (auto *t : targets) {
+        // Mark before firing: the mix path emits mixCueFired() synchronously,
+        // so the marker must already be in place when fireLinkedFor(t) re-enters.
+        m_pendingLinkFires.insert(t->id());
+        if (auto *mc = qobject_cast<mix::MixCue *>(t)) {
+            if (m_mixView) m_mixView->fireCueAtConsole(mc);
+            else           m_pendingLinkFires.remove(t->id());
+        } else if (m_goEngine) {
+            m_goEngine->fire(t);
+        } else {
+            m_pendingLinkFires.remove(t->id());
+        }
+    }
 }
 
 } // namespace quewi

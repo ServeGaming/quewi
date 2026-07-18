@@ -3,7 +3,9 @@
 #include "osc/OscMessage.h"
 
 #include <QMainWindow>
+#include <QSet>
 #include <QString>
+#include <QUuid>
 #include <memory>
 #include <vector>
 
@@ -230,6 +232,14 @@ private:
     core::CueList *activeOscList() const;
     void selectCueByNumber(double number);
     void fireCueByNumber(double number);
+
+    // Cross-list cue links. When `source` fires, fire the cue it's linked to —
+    // the forward link it stores, plus any cue that links to it (links are
+    // stored single-sided but fire both ways). m_pendingLinkFires marks the
+    // partners we scheduled so a link-fire can't bounce back and loop, even
+    // when the partner has a pre-wait and fires asynchronously.
+    void fireLinkedFor(cues::Cue *source);
+    QSet<QUuid> m_pendingLinkFires;
 
     std::unique_ptr<core::Workspace>    m_workspace;
     std::unique_ptr<core::CueListModel> m_model;

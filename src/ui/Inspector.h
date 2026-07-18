@@ -60,6 +60,7 @@ private slots:
     void commitNotes();
     void commitContinueMode();
     void commitArmed();
+    void commitLink();
     void pickCueColor();
     void clearCueColor();
 
@@ -177,6 +178,12 @@ private:
     QComboBox      *m_continueMode = nullptr;
     QCheckBox      *m_armedCheck = nullptr;
     QPlainTextEdit *m_notes     = nullptr;
+    // Cross-list link picker — lists the show's Mix (DCA) cues so a playback
+    // cue can be paired with a DCA cue (fires bidirectionally). Row hidden
+    // when the show has no mix cues. m_headerForm is kept so the row can be
+    // toggled without rebuilding the whole common header.
+    QComboBox      *m_linkCombo  = nullptr;
+    QFormLayout    *m_headerForm = nullptr;
 
     // Wait
     QGroupBox      *m_waitGroup    = nullptr;

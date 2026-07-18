@@ -270,6 +270,18 @@ Inspector::Inspector(QWidget *parent)
         "Disarmed cues read dimmed in the list."));
     form->addRow(QString(), m_armedCheck);
 
+    // Cross-list link. Pairs this cue with a DCA (mix) cue so one GO fires both
+    // (bidirectional — see Cue::linkedCueId). The row is populated + shown only
+    // when the show actually has mix cues, so it's invisible to shows that
+    // don't use quewi Mix.
+    m_linkCombo = new QComboBox(this);
+    m_linkCombo->setToolTip(tr(
+        "Fire a DCA (mix) cue together with this one. Firing either cue fires "
+        "the other, so a sound cue and its mix scene stay in step."));
+    form->addRow(tr("Linked DCA cue"), m_linkCombo);
+
+    m_headerForm = form;
+
     m_notes = new QPlainTextEdit(this);
     m_notes->setMaximumBlockCount(0);
     // Cap the Notes field at 4 lines tall so a wall-of-text cue
@@ -939,6 +951,8 @@ Inspector::Inspector(QWidget *parent)
     connect(m_continueMode, &QComboBox::currentIndexChanged,
             this, [this](int){ commitContinueMode(); });
     connect(m_armedCheck, &QCheckBox::toggled, this, [this](bool){ commitArmed(); });
+    connect(m_linkCombo, &QComboBox::currentIndexChanged,
+            this, [this](int){ commitLink(); });
     connect(m_waitDuration, &QDoubleSpinBox::editingFinished,
             this, &Inspector::commitWaitDuration);
     connect(m_targetCombo, &QComboBox::currentIndexChanged,
@@ -1199,6 +1213,8 @@ void Inspector::rebuild()
         m_preWait->setValue(0.0);
         m_postWait->setValue(0.0);
         m_continueMode->setCurrentIndex(0);
+        m_linkCombo->clear();
+        if (m_headerForm) m_headerForm->setRowVisible(m_linkCombo, false);
         m_notes->clear();
         m_oscGroup->setVisible(false);
         m_audioGroup->setVisible(false);
@@ -1222,6 +1238,34 @@ void Inspector::rebuild()
     m_postWait->setValue(m_cue->postWait());
     m_continueMode->setCurrentIndex(static_cast<int>(m_cue->continueMode()));
     m_armedCheck->setChecked(m_cue->isArmed());
+
+    // Linked DCA cue picker — list every mix cue in the show. Hidden entirely
+    // when the show has none (m_loading is true here, so these changes don't
+    // re-commit). currentData carries each cue's id; "None" carries a null id.
+    m_linkCombo->clear();
+    m_linkCombo->addItem(tr("None"), QVariant::fromValue(core::CueId()));
+    int mixCueCount = 0;
+    int selectIdx   = 0;
+    if (m_workspace) {
+        for (const auto &list : m_workspace->cueLists()) {
+            if (list->kind() != core::CueList::Kind::Mix) continue;
+            for (int i = 0; i < list->cueCount(); ++i) {
+                auto *c = list->cueAt(i);
+                if (!c) continue;
+                ++mixCueCount;
+                const QString num = QString::number(c->number(), 'f', 2);
+                const QString label = c->name().isEmpty()
+                    ? tr("Cue %1").arg(num)
+                    : QStringLiteral("%1  %2").arg(num, c->name());
+                m_linkCombo->addItem(label, QVariant::fromValue(c->id()));
+                if (c->id() == m_cue->linkedCueId())
+                    selectIdx = m_linkCombo->count() - 1;
+            }
+        }
+    }
+    m_linkCombo->setCurrentIndex(selectIdx);
+    if (m_headerForm) m_headerForm->setRowVisible(m_linkCombo, mixCueCount > 0);
+
     if (m_notes->toPlainText() != m_cue->notes())
         m_notes->setPlainText(m_cue->notes());
 
@@ -1657,6 +1701,14 @@ void Inspector::commitArmed()
 {
     if (m_loading) return;
     pushFieldEdit(QStringLiteral("armed"), m_armedCheck->isChecked());
+}
+
+void Inspector::commitLink()
+{
+    if (m_loading) return;
+    // currentData holds the target mix cue's id (null QUuid for "None").
+    pushFieldEdit(QStringLiteral("linkedCueId"),
+                  m_linkCombo->currentData().toUuid());
 }
 
 void Inspector::commitWaitDuration()
