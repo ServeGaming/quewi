@@ -1,5 +1,6 @@
 #pragma once
 
+#include <QHash>
 #include <QPointer>
 #include <QWidget>
 
@@ -18,6 +19,9 @@ class QFormLayout;
 class QButtonGroup;
 class QListWidget;
 class QTimer;
+class QToolButton;
+class QBoxLayout;
+class QEvent;
 
 namespace quewi::core { class Workspace; class CueList; }
 namespace quewi::cues { class Cue; class FadeCue; }
@@ -50,6 +54,11 @@ public:
 
 public slots:
     void setCue(quewi::cues::Cue *cue);
+
+protected:
+    // Keeps each poppable section's ⤢ button pinned to the top-right corner as
+    // the section (or its floating window) resizes.
+    bool eventFilter(QObject *watched, QEvent *event) override;
 
 private slots:
     void onCueChanged();
@@ -147,6 +156,21 @@ private slots:
 private:
     void rebuild();
     void rebuildFadeTargets();
+
+    // ── Detachable sections (pop-out) ─────────────────────────────────
+    // Any section can be torn off into its own floating window and moved to
+    // another monitor, then docked back — the whole Inspector stays removable
+    // as before, this just makes the pieces movable too. makePoppable() adds
+    // the corner button; togglePopout() floats/re-docks; when floated we
+    // remember exactly where the section came from so it returns to the same
+    // spot. Uses the Qt::Window-on-a-child trick, so the section keeps its
+    // parent for ownership and never leaks.
+    void makePoppable(QGroupBox *box);
+    void togglePopout(QGroupBox *box);
+    void positionPopoutButton(QGroupBox *box);
+    struct Placement { QBoxLayout *layout = nullptr; int index = -1; };
+    QHash<QGroupBox *, QToolButton *> m_popoutButtons;
+    QHash<QGroupBox *, Placement>     m_poppedOut;
     void pushFieldEdit(const QString &field, const QVariant &newValue);
     void pollVideoTransport();
     // ~30 Hz follow of the selected audio cue's live voice position, used to

@@ -58,6 +58,8 @@
 #include <QUndoStack>
 #include <QVBoxLayout>
 #include <QToolButton>
+#include <QBoxLayout>
+#include <QEvent>
 
 #include <functional>
 
@@ -1114,10 +1116,106 @@ Inspector::Inspector(QWidget *parent)
     connect(m_textSize,      &QSpinBox::editingFinished,       this, &Inspector::commitTextSize);
     connect(m_textColorBtn,  &QPushButton::clicked,            this, &Inspector::pickTextColor);
 
+    // Make the type-specific sections detachable. Any of these can be torn off
+    // onto a second monitor and docked back; Object Audio (nested inside the
+    // audio group) is included because it's the one an operator most wants to
+    // keep open while working the rest of the cue.
+    for (QGroupBox *box : { m_waitGroup, m_targetGroup, m_groupGroup,
+                            m_midiGroup, m_mscGroup, m_oscGroup, m_audioGroup,
+                            m_objAudioGroup, m_fadeGroup, m_lightGroup,
+                            m_lightFadeGroup, m_visualGroup }) {
+        if (box) makePoppable(box);
+    }
+
     setCue(nullptr);
 }
 
 Inspector::~Inspector() = default;
+
+// ── Detachable sections ───────────────────────────────────────────────
+
+void Inspector::makePoppable(QGroupBox *box)
+{
+    auto *btn = new QToolButton(box);
+    btn->setObjectName(QStringLiteral("popoutBtn"));
+    btn->setText(QStringLiteral("↗"));
+    btn->setAutoRaise(true);
+    btn->setCursor(Qt::PointingHandCursor);
+    btn->setFixedSize(20, 20);
+    btn->setFocusPolicy(Qt::NoFocus);
+    btn->setToolTip(tr("Pop this section out into a floating window"));
+    m_popoutButtons.insert(box, btn);
+    connect(btn, &QToolButton::clicked, this, [this, box] { togglePopout(box); });
+    // Reposition the button whenever the section (docked) or its window
+    // (floating) changes size.
+    box->installEventFilter(this);
+    positionPopoutButton(box);
+}
+
+void Inspector::positionPopoutButton(QGroupBox *box)
+{
+    auto *btn = m_popoutButtons.value(box);
+    if (!btn) return;
+    btn->move(box->width() - btn->width() - 6, 3);
+    btn->raise();
+}
+
+void Inspector::togglePopout(QGroupBox *box)
+{
+    auto *btn = m_popoutButtons.value(box);
+    if (m_poppedOut.contains(box)) {
+        // ── Dock back ──
+        const Placement p = m_poppedOut.take(box);
+        box->setWindowFlags(Qt::Widget);
+        if (p.layout && p.index >= 0)
+            p.layout->insertWidget(qMin(p.index, p.layout->count()), box);
+        box->show();
+        if (btn) {
+            btn->setText(QStringLiteral("↗"));
+            btn->setToolTip(tr("Pop this section out into a floating window"));
+        }
+        positionPopoutButton(box);
+        return;
+    }
+
+    // ── Pop out ──
+    // Remember exactly where it sat so it returns to the same spot.
+    Placement p;
+    if (auto *parentW = box->parentWidget())
+        p.layout = qobject_cast<QBoxLayout *>(parentW->layout());
+    if (p.layout) {
+        for (int i = 0; i < p.layout->count(); ++i) {
+            if (p.layout->itemAt(i)->widget() == box) { p.index = i; break; }
+        }
+        if (p.index >= 0) {
+            if (auto *item = p.layout->takeAt(p.index)) delete item;  // frees the item, not the widget
+        }
+    }
+    m_poppedOut.insert(box, p);
+
+    // Qt::Tool child window: keeps `box`'s parent for ownership (no leak), but
+    // floats as its own movable window. Stays above the main window so it can't
+    // get lost behind it on a single screen.
+    box->setWindowFlags(Qt::Tool | Qt::WindowStaysOnTopHint);
+    box->setWindowTitle(box->title().isEmpty() ? tr("Inspector section") : box->title());
+    box->show();
+    box->raise();
+    if (btn) {
+        btn->setText(QStringLiteral("↙"));
+        btn->setToolTip(tr("Dock this section back into the inspector"));
+    }
+    positionPopoutButton(box);
+}
+
+bool Inspector::eventFilter(QObject *watched, QEvent *event)
+{
+    if (event->type() == QEvent::Resize || event->type() == QEvent::Show) {
+        if (auto *box = qobject_cast<QGroupBox *>(watched))
+            if (m_popoutButtons.contains(box))
+                positionPopoutButton(box);
+    }
+    return QWidget::eventFilter(watched, event);
+}
 
 void Inspector::setWorkspace(core::Workspace *workspace)
 {
