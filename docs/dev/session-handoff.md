@@ -82,8 +82,18 @@ it's what proves the abstraction.
   `textinputhost` stealing foreground, so it wasn't visually confirmed. Low
   risk, but eyeball it: mix grid → Channels & ensembles → add "Elphaba" strip 1
   → type "Elphaba" (or "1") into a DCA cell → the cell should light up.
-- **No end-to-end console run.** The links are unit-tested against fakes, never
-  against a real desk or the X32 emulator. Gate 4 (see below).
+- ~~**No end-to-end console run.**~~ **Gate 4 closed.** `tests/test_x32_emulator.cpp`
+  (suite `x32_emulator`, commit `ec9eda5`) drives the real production `X32Link`
+  against pmaillot's emulator — an *independent* protocol implementation, so it
+  can't rubber-stamp our own reading like the FakeX32 does. Confirms the connect
+  handshake, the DCA bitmask (0b101→2→0, i.e. DCA1=bit0 verified against foreign
+  iron), inverted mute polarity, and the full `applyCue` fire. Skips cleanly
+  (exit 0) when nothing answers on `127.0.0.1:10023`, so CI stays green; runs for
+  real when `X32.exe -i 127.0.0.1` is up (or `QUEWI_X32_HOST`). What's still
+  *not* screen-confirmed is the **view layer** — the live-cue marker painting and
+  the Scene Safe banner — because the protocol path is now proven but the GUI
+  wasn't driven end-to-end (window z-order + `textinputhost` kept stealing
+  focus). Lower priority than it was; the risky part (the wire) is verified.
 - Phases 3–8 of the spec: channel processing (profiles/backup/floating spare),
   positions, FX assignments, level offsets, the fader surface, the OSC surface.
   DM7 EQ is **blocked** on a hardware test (PEQ gain scaling: 3 sources disagree
@@ -100,12 +110,38 @@ and have patches as we go along."** Two of the four gates in
   (1.0.1) doubles as the updater's live test.** If it fails, users grab the MSI
   manually and the updater fix becomes the next patch. When cutting 1.0.1,
   watch `%APPDATA%/quewi/update-client.log` — the step-logging is already in.
-- **No full quewi-against-console run yet** — but the X32 emulator is now built
-  and verified locally (see the emulator section below), so this is hours away,
-  not blocked.
+- **No full quewi-against-console run at ship** — since closed at the protocol
+  layer by the `x32_emulator` integration test (see the mix "NOT done" section).
+  The remaining unverified sliver is the GUI view layer (marker/banner), not the
+  wire.
 
 Still explicitly deferred: code signing (paid certs; `release-signing.md`),
-DM7 EQ (blocked on the hardware probe), the fader surface.
+DM7 EQ (blocked on the hardware probe), the fader surface, and the **audio-editor
+retheme** — design-review finding 3 (TimelineCanvas + ParametricEqDialog still
+paint a private cool-blue palette; ~52 hardcoded colours). Handed to Fable 5 but
+its run **failed on a session/usage limit before committing anything** — the tree
+is clean, the retheme simply didn't happen. Purely cosmetic (the audio editor is
+its own window); pick it back up when usage resets. WaveformWidget was already
+retokenised in the earlier Fusion pass; CompressorDialog is the "good" reference.
+
+## Updater (1.0.1 gate 3) — review conclusion, do NOT edit blind
+
+Read `src/app/UpdateInstaller.cpp` in full. **It looks correct and has had
+serious fix work** since the 0.9.103 report: the Windows MSI path writes an
+elevated helper batch that quits quewi *first*, then runs `msiexec /i /qb!`
+(basic UI — a progress bar AND visible error dialogs, unlike the old silent
+`/passive` that made a failed install vanish), relaunches through Explorer at
+medium integrity, and self-deletes. macOS/Linux have analogous quit-first
+in-place swaps with the failure modes commented at each step. Step-logging to
+`%APPDATA%/quewi/{update-client,update-helper,update-install}.log` is in.
+
+**The blocker is not a known code bug — it's that none of this has ever run
+end-to-end**, because the reporting user was stuck on 0.9.103 and never got a
+working update *to* the fixed code. So: **do not "fix" the updater blind.** Any
+edit is unverifiable until a real release+click, and breaking the app's weakest
+subsystem while it can't be tested is the wrong risk. The verification IS the
+1.0.1 release: cut it, have Matthew click Check for Updates from 1.0.0, read the
+three logs. Only touch the code if those logs point at something specific.
 
 ## X32 emulator — set up and verified on this machine
 
@@ -128,9 +164,12 @@ round-trips correctly — the first confirmation of quewi Mix's core operation
 against an independent implementation of the protocol (our DCA1=bit0 mask
 semantics held).
 
-**Next session's job #1: drive quewi's mix view against it.** Connect to
-127.0.0.1, fire a cue, verify the live-cue marker paints, watch the Scene Safe
-banner and live-edit capture. That closes gate 4 and the last of gate 1.
+**Job now mostly done** by the `x32_emulator` integration test (`ec9eda5`),
+which drives the production `X32Link` against this emulator. What's left is only
+the GUI *view* layer: launch quewi → mix grid → connect to `127.0.0.1` → fire a
+cue → confirm the live-cue marker paints amber and the Scene Safe banner shows.
+Nice-to-have, not a gate — the protocol path is proven. Note the emulator holds
+up to 4 `/xremote` clients, so a driving session can coexist with the test.
 
 ## Blocked on Matthew (things Claude cannot do)
 
