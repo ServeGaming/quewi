@@ -112,6 +112,30 @@ Theme::Tokens synthwaveTokens()
     return t;
 }
 
+// Coffee — espresso-brown surfaces, latte ink, caramel accent. The warmest
+// of the dark family: it leans the default's brown undertone all the way into
+// a proper coffee palette. Functional state colours (running green, loaded
+// blue) stay distinct so cues still read at a glance on the brown.
+Theme::Tokens coffeeTokens()
+{
+    Theme::Tokens t;
+    t.bgDeep = QColor(0x1E,0x17,0x12); t.bgPanel = QColor(0x26,0x1E,0x18);
+    t.bgRow = QColor(0x2C,0x23,0x1C);  t.bgRowAlt = QColor(0x27,0x1F,0x19);
+    t.bgRowHover = QColor(0x3A,0x2E,0x24); t.bgRowSelected = QColor(0x4A,0x37,0x24);
+    t.bgInteractive = QColor(0x34,0x29,0x1F); t.bgInverse = QColor(0,0,0);
+    t.ink100 = QColor(0xEF,0xE4,0xD2); t.ink60 = QColor(0xC0,0xAE,0x97);
+    t.ink40 = QColor(0x85,0x74,0x63);  t.inkOnAccent = QColor(0x1C,0x13,0x0B);
+    t.divider = QColor(0x38,0x2C,0x22); t.outline = QColor(0x4A,0x3B,0x2D);
+    t.outlineFocus = QColor(0xC8,0x9A,0x5B);
+    t.accent = QColor(0xC8,0x9A,0x5B); t.accentSoft = QColor(0xA3,0x7B,0x42);
+    t.accentHover = QColor(0xE0,0xB6,0x76);
+    t.running = QColor(0x7F,0xB0,0x6A); t.loaded = QColor(0x6F,0xA0,0xC0);
+    t.warn = QColor(0xD8,0xA2,0x4E); t.warnBright = QColor(0xEF,0xC9,0x6A);
+    t.err = QColor(0xC8,0x6A,0x50); t.errBright = QColor(0xFF,0x5A,0x5A);
+    t.info = QColor(0x62,0xB4,0xFF);
+    return t;
+}
+
 // Light — mirrors the hardcoded values in quewi-light.qss so that
 // C++-painted widgets and the derived QPalette agree with the light
 // stylesheet. quewi-light.qss has no @placeholders (the substitution
@@ -155,6 +179,7 @@ Theme::Tokens tokensForName(const QString &name)
     if (name == QLatin1String("quewi-midnight"))     return midnightTokens();
     if (name == QLatin1String("quewi-forest"))       return forestTokens();
     if (name == QLatin1String("quewi-synthwave"))    return synthwaveTokens();
+    if (name == QLatin1String("quewi-coffee"))       return coffeeTokens();
     if (name == QLatin1String("quewi-light"))        return lightTokens();
     return Theme::Tokens{};   // warm-dark default
 }

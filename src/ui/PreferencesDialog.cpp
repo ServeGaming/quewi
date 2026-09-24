@@ -473,6 +473,8 @@ QWidget *makeThemePage(class PreferencesDialog *dlg, QWidget *parent)
                         QStringLiteral("quewi-forest"));
     themeCombo->addItem(QObject::tr("Synthwave"),
                         QStringLiteral("quewi-synthwave"));
+    themeCombo->addItem(QObject::tr("Coffee"),
+                        QStringLiteral("quewi-coffee"));
     const QString curTheme = s.value(QStringLiteral("theme/name"),
                                      QStringLiteral("quewi-dark")).toString();
     for (int i = 0; i < themeCombo->count(); ++i) {

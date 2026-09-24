@@ -662,6 +662,8 @@ void MainWindow::buildMenus()
                          this, [this]{ applyTheme(QStringLiteral("quewi-forest")); });
     themeMenu->addAction(tr("&Synthwave"),
                          this, [this]{ applyTheme(QStringLiteral("quewi-synthwave")); });
+    themeMenu->addAction(tr("&Coffee"),
+                         this, [this]{ applyTheme(QStringLiteral("quewi-coffee")); });
 
     viewMenu->addSeparator();
     // QDockWidget gives us a ready-made toggleViewAction whose checked
