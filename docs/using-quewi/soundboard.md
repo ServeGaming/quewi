@@ -13,7 +13,7 @@ next to your cue lists, and it's saved with the show.
 
 - **Drag audio files** from Explorer / Finder onto a pad,
 - **double-click an empty pad** to pick a file, or
-- *(coming in 1.0.2)* **right-click an empty pad** → **Choose sound
+- *(new in 1.0.2)* **right-click an empty pad** → **Choose sound
   file…** or **Import from URL…**. The second option searches YouTube (or takes a
   pasted link from almost any site), lets you preview, and downloads onto
   the pad. It can open the audio editor straight after, so you can trim one

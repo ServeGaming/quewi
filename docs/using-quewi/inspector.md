@@ -120,12 +120,12 @@ effects per cue:
 | Compressor | Evening out levels, taming peaks |
 | Reverb | Room, hall, cathedral |
 | Delay | Echoes, slapback |
-| Distortion *(1.0.2)* | Grit and overdrive: radios, megaphones, blown speakers |
-| Lo-Fi *(1.0.2)* | Bit crusher and sample-rate reducer: old recordings, 8-bit games |
-| Pitch Shift *(1.0.2)* | Higher or deeper without changing speed: monsters, chipmunks |
-| Tremolo *(1.0.2)* | Volume wobble. Turn **Stereo** up for an auto-pan |
+| Distortion *(new in 1.0.2)* | Grit and overdrive: radios, megaphones, blown speakers |
+| Lo-Fi *(new in 1.0.2)* | Bit crusher and sample-rate reducer: old recordings, 8-bit games |
+| Pitch Shift *(new in 1.0.2)* | Higher or deeper without changing speed: monsters, chipmunks |
+| Tremolo *(new in 1.0.2)* | Volume wobble. Turn **Stereo** up for an auto-pan |
 
-- **Presets** *(1.0.2)* — **Presets ▾** loads a ready-made chain, grouped
+- **Presets** *(new in 1.0.2)* — **Presets ▾** loads a ready-made chain, grouped
   by Voice (Telephone, Old radio, Megaphone, Walkie-talkie, Voice
   clarity), Space (Next room, Far away, Small room, Concert hall,
   Cathedral, Slapback, Canyon echo, Stadium announcer), Character (Monster,

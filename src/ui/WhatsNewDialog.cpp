@@ -20,8 +20,28 @@ struct Highlight { const char *title; const char *body; };
 // Curated highlights for this release. Written to read like a person wrote
 // them — specific, second-person, no filler. Update this list each release.
 //
-// 1.0.1: the first patch — soundboard keys, mix workflow, and the audit fixes.
+// 1.0.2: effects presets + new effects, pad import, the updater fix. The
+// 1.0.1 highlights follow for anyone jumping straight from 1.0.0.
 const Highlight kHighlights[] = {
+    { "Effects presets",
+      "Open a cue in the audio editor and pick from 28 ready-made chains: "
+      "Telephone, Megaphone, Next room, Cathedral, Monster, Chipmunk, Underwater "
+      "and more. Save your own from the same Presets menu." },
+    { "Four new effects",
+      "Distortion, Lo-Fi (bit crusher), Pitch Shift (higher or deeper, same speed) "
+      "and Tremolo, which turns into an auto-pan with Stereo up." },
+    { "Sound effects straight onto a pad",
+      "Right-click an empty soundboard pad → Import from URL… Search, preview, "
+      "download, and it lands on the pad, with an option to trim it in the audio "
+      "editor straight after." },
+    { "Update Render",
+      "Once a cue plays a render, re-rendering updates that same file with no "
+      "save dialog. Effect-only edits are now saved, and a rendered cue no "
+      "longer plays its effects twice." },
+    { "Updates that finish",
+      "quewi now closes itself when you install an update, so the installer can "
+      "run. (If this update left quewi open, that was the old bug, fixed here.)" },
+    // ── 1.0.1 ──
     { "A key for every pad",
       "Right-click a soundboard pad → Set keybind… On Windows the keys can work "
       "system-wide, so pads fire even while quewi sits behind a game, Discord or "

@@ -1,5 +1,51 @@
 # Release notes
 
+## 1.0.2 (September 2026)
+
+Effects presets, four new effects, sound effects straight from YouTube onto
+the soundboard, and an updater that finishes the job.
+
+**Updating from 1.0.1:** use **File → Check for updates…**. **If quewi
+stays open after you click Yes, close it yourself.** The update then
+installs. That's the bug this release fixes, so from 1.0.2 onwards quewi
+closes itself.
+
+### New
+
+- **Effects presets.** A **Presets** menu on the audio editor's effects
+  rack with 28 ready-made chains: Voice (Telephone, Old radio, Megaphone,
+  Walkie-talkie, Voice clarity), Space (Next room, Cathedral, Canyon echo,
+  Stadium announcer…), Character (Monster, Giant, Chipmunk, Robot, Ghost,
+  Underwater…) and Mix. You can also save your own.
+  [Effects rack →](../using-quewi/inspector.md#effects-rack-audio-cues-only)
+- **Four new effects:** Distortion, Lo-Fi (bit crusher), Pitch Shift (higher
+  or deeper without changing speed) and Tremolo (or auto-pan).
+- **Import sound effects onto a pad.** Right-click an empty soundboard pad
+  → **Import from URL…**. You get the same search, preview and download as
+  the cue list importer, and the sound lands on that pad.
+  [Import from URL →](../media-import.md)
+- **Trim after importing.** The importer can open the download in the
+  audio editor so you can cut one effect out of a long compilation.
+- **Update Render.** Once a cue plays a rendered file, re-rendering updates
+  that same file, with no save dialog. **Render As…** makes a new one.
+
+### Fixed
+
+- **In-app updates finish by themselves.** After you said Yes, quewi
+  didn't close, so the installer sat waiting until you closed quewi
+  yourself. quewi also asks about unsaved changes *before* the installer
+  starts now, not after.
+- **Effect changes in the audio editor are saved.** Changing only
+  effects used to be lost when you closed the editor.
+- **Effects no longer play twice after a render.** The render already
+  contains them, so quewi no longer applies them live on top.
+- **Shrinking the soundboard asks first** before removing pads that no
+  longer fit (on every layer).
+- **Fade All over OSC** (`/quewi/fadeAll`) now cancels pending
+  auto-continues, like the button does.
+
+---
+
 ## 1.0.1 (September 2026)
 
 The first patch after 1.0. It adds soundboard keybinds and a set of mixing

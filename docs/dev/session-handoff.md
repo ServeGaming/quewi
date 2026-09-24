@@ -189,14 +189,17 @@ V3/V4/V7–V10/V12–V14 (video), M11, and the low-severity audio/UI items.
 **Not yet driven by Matthew:** system-wide soundboard keys, draggable inspector
 sections, DCA picker, the long-file RAM fix inside the running app.
 
-**On main for 1.0.2 (untagged):** the updater quit fix (see "Updater"
+**1.0.2 tagged 2026-09-24** (Matthew: "get it to the release"). Contents below.
+The 1.0.1 → 1.0.2 update still runs 1.0.1's buggy quit, so Matthew may have
+to close quewi by hand once; 1.0.2 → 1.0.3 is the real test of the quit fix
+(check `update-client.log` for the new `quitForUpdate:` lines).
+**In 1.0.2:** the updater quit fix (see "Updater"
 below); right-click an empty soundboard pad → Choose sound file… / Import
 from URL… (the Ctrl+U yt-dlp importer in pad mode: audio only, "Download to
 pad", queued signal → `MainWindow::importToPad`); an "open in the audio
 editor afterwards to trim" checkbox in the importer (default on for pads,
 off for the cue list, remembered separately); the importer's docs page is
-now in the site nav. Docs mark these "coming in 1.0.2" — drop those markers
-when tagging. Menu + signal covered by `test_cart_view`; the download itself
+now in the site nav (docs now say "new in 1.0.2"). Menu + signal covered by `test_cart_view`; the download itself
 was NOT driven (it hits YouTube) — Matthew to try it.
 Also for 1.0.2: effects rack **presets** (`audio/EffectPresets` — 28 built-in
 chains in Voice/Space/Character/Mix groups + user presets in QSettings

@@ -6,7 +6,7 @@ There are two ways in:
 
 - **Cue list:** **Cue → Import from URL…** (`Ctrl+U`) adds an Audio or
   Video cue after the selected cue.
-- **Soundboard** *(coming in 1.0.2)*: right-click an **empty pad** →
+- **Soundboard** *(new in 1.0.2)*: right-click an **empty pad** →
   **Import from URL…** downloads the sound straight onto that pad. It's
   the same search, preview and download, audio only.
 
@@ -22,7 +22,7 @@ There are two ways in:
    show's `media/` folder, and a matching Audio or Video cue is added
    to the current list automatically. From a pad, **Download to pad**
    puts it on the pad instead.
-4. **Trim (optional, coming in 1.0.2)** — tick **Open it in the audio editor afterwards
+4. **Trim (optional, new in 1.0.2)** — tick **Open it in the audio editor afterwards
    to trim it** to set the in and out points straight away. That's handy
    for grabbing one effect out of a long compilation. The download itself
    is kept whole. The option is on by default for pads and off for the

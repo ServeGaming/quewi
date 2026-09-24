@@ -112,8 +112,9 @@ modify and distribute as long as you keep the same license. Nobody
 
 ## What's next
 
-- New in **1.0.1**: soundboard keybinds, DCA GO, linked cues and a big
-  bug-fix pass. See the [release notes](about/release-notes.md).
+- New in **1.0.2**: effects presets (Telephone, Cathedral, Monster…), four
+  new effects, and sound effects straight onto soundboard pads. See the
+  [release notes](about/release-notes.md).
 - Read the [quickstart](getting-started/quickstart.md) to build your
   first show.
 - Skim the [concepts](getting-started/concepts.md) page so the
