@@ -9,6 +9,7 @@
 
 class QComboBox;
 class QGridLayout;
+class QKeySequence;
 class QPushButton;
 class QShortcut;
 class QTabBar;
@@ -57,6 +58,14 @@ public:
     void beginMidiLearn(int row, int col, std::function<void(int)> onLearned);
     void cancelMidiLearn();
 
+    // Keybinds. hotkeyConflict() names the app command already on `seq` in this
+    // window ("the shortcut for “GO”"), or returns empty if the key is free —
+    // a pad key that collided with GO would make BOTH ambiguous, so neither
+    // fires. Pad-vs-pad reuse is handled separately (the key moves pads).
+    QString hotkeyConflict(const QKeySequence &seq) const;
+    // The name a pad shows: its custom label, else its cue's name.
+    QString padDisplayName(int row, int col) const;
+
 signals:
     void fireRequested(quewi::cues::Cue *cue);
     void editCueRequested(quewi::cues::Cue *cue);
@@ -88,6 +97,8 @@ private:
     void onPadClicked(int row, int col);
     void onPadEdit(int row, int col);
     void editPad(int row, int col);
+    void setPadKeybind(int row, int col);     // "press a key" capture dialog
+    void clearPadKeybind(int row, int col);
 
     QPointer<core::Workspace> m_workspace;
     QPointer<GoEngine>        m_goEngine;
@@ -99,7 +110,11 @@ private:
     QTabBar           *m_layerTabs = nullptr;
     bool               m_syncingLayers = false;
     QList<CartPad *>   m_pads;
-    QList<QShortcut *> m_shortcuts;
+    // QPointer because in "keys everywhere" mode they're parented to the main
+    // window, which may delete them before we do on shutdown.
+    QList<QPointer<QShortcut>> m_shortcuts;
+    QPushButton       *m_globalKeysBtn = nullptr;
+    bool               m_globalHotkeys = false;  // pad keys fire from any page
     QTimer            *m_pollTimer = nullptr;
     bool               m_editMode = false;
 

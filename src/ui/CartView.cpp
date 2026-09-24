@@ -8,6 +8,7 @@
 #include "cues/Cue.h"
 #include "ui/Theme.h"
 
+#include <QAction>
 #include <QAudioDevice>
 #include <QColorDialog>
 #include <QComboBox>
@@ -34,6 +35,7 @@
 #include <QPainter>
 #include <QPainterPath>
 #include <QPushButton>
+#include <QSettings>
 #include <QShortcut>
 #include <QSpinBox>
 #include <QTabBar>
@@ -96,6 +98,12 @@ signals:
     void editRequested(int row, int col);
     void editCueRequested(int row, int col);
     void fileDropped(int row, int col, const QString &path);
+    // From the right-click menu. CartView connects these QUEUED: acting on
+    // them rebuilds the grid (deleting this pad), which must not happen while
+    // the menu's exec() is still on this pad's stack.
+    void keybindRequested(int row, int col);
+    void clearKeybindRequested(int row, int col);
+    void customiseRequested(int row, int col);
 
 protected:
     void enterEvent(QEnterEvent *) override { m_hover = true;  update(); }
@@ -140,12 +148,28 @@ protected:
         if (e->mimeData()->hasUrls()) e->acceptProposedAction();
     }
     void contextMenuEvent(QContextMenuEvent *e) override {
-        // Right-click an audio pad to open its cue in the audio editor
-        // (EQ / trim / compress) without leaving the soundboard.
-        if (!qobject_cast<audio::AudioCue *>(m_cue.data())) return;
+        // Right-click any bound pad for its keybind and look, in perform mode
+        // too — setting a key shouldn't require flipping into Edit Layout.
+        // Audio pads also get "open in the audio editor".
+        if (!m_cue) return;   // empty pad: double-click or drop to pick a sound
         QMenu menu(this);
-        menu.addAction(tr("Open in audio editor…"), this,
-                       [this]{ emit editCueRequested(m_row, m_col); });
+        if (m_cell.hotkey.isEmpty()) {
+            menu.addAction(tr("Set keybind…"), this,
+                           [this]{ emit keybindRequested(m_row, m_col); });
+        } else {
+            menu.addAction(tr("Change keybind (%1)…").arg(
+                               QKeySequence(m_cell.hotkey).toString(QKeySequence::NativeText)),
+                           this, [this]{ emit keybindRequested(m_row, m_col); });
+            menu.addAction(tr("Clear keybind"), this,
+                           [this]{ emit clearKeybindRequested(m_row, m_col); });
+        }
+        menu.addAction(tr("Customise pad…"), this,
+                       [this]{ emit customiseRequested(m_row, m_col); });
+        if (qobject_cast<audio::AudioCue *>(m_cue.data())) {
+            menu.addSeparator();
+            menu.addAction(tr("Open in audio editor…"), this,
+                           [this]{ emit editCueRequested(m_row, m_col); });
+        }
         menu.exec(e->globalPos());
     }
     void dragLeaveEvent(QDragLeaveEvent *) override { m_dragHover = false; update(); }
@@ -223,7 +247,8 @@ protected:
 
         // Hotkey chip, top-right.
         if (!m_cell.hotkey.isEmpty())
-            drawChip(p, r, m_cell.hotkey, Qt::AlignTop | Qt::AlignRight, base, ink);
+            drawChip(p, r, QKeySequence(m_cell.hotkey).toString(QKeySequence::NativeText),
+                     Qt::AlignTop | Qt::AlignRight, base, ink);
         // MIDI chip, bottom-right.
         if (m_cell.midiNote >= 0)
             drawChip(p, r, QStringLiteral("♪ %1").arg(m_cell.midiNote),
@@ -341,9 +366,10 @@ public:
 
         m_hotkey = new QKeySequenceEdit(this);
         m_hotkey->setMaximumSequenceLength(1);
+        m_hotkey->setClearButtonEnabled(true);   // the only way to remove a key here
         if (!cell.hotkey.isEmpty())
             m_hotkey->setKeySequence(QKeySequence(cell.hotkey));
-        form->addRow(tr("Hotkey"), m_hotkey);
+        form->addRow(tr("Keybind"), m_hotkey);
 
         auto *midiRow = new QWidget(this);
         auto *ml = new QHBoxLayout(midiRow);
@@ -396,6 +422,24 @@ public:
 protected:
     void done(int r) override { if (m_view) m_view->cancelMidiLearn(); QDialog::done(r); }
 
+    void accept() override {
+        // Refuse a key that's already an app command: the two would become
+        // ambiguous and Qt fires NEITHER — i.e. binding Space here would
+        // silently kill GO while the soundboard is up.
+        if (!m_unbind && m_view) {
+            const QKeySequence seq = m_hotkey->keySequence();
+            const QString conflict = seq.isEmpty() ? QString() : m_view->hotkeyConflict(seq);
+            if (!conflict.isEmpty()) {
+                QMessageBox::warning(this, tr("Key already in use"),
+                    tr("%1 is already %2. Pick a different key for this pad.")
+                        .arg(seq.toString(QKeySequence::NativeText), conflict));
+                m_hotkey->setFocus();
+                return;
+            }
+        }
+        QDialog::accept();
+    }
+
 private:
     void setColor(const QColor &c) { m_color = c; refreshSwatchChecks(); }
     void refreshSwatchChecks() {
@@ -414,6 +458,97 @@ private:
     QSpinBox         *m_midi = nullptr;
     QPushButton      *m_learnBtn = nullptr;
     QList<QPushButton *> m_swatches;
+};
+
+// ───────────────────────────────────────────────────────────────────────────
+// CartKeybindDialog — "press the key for this pad". One keystroke assigns it:
+// an app-command clash is refused inline (press another), a key already on a
+// different pad asks before moving it, Esc cancels.
+// ───────────────────────────────────────────────────────────────────────────
+class CartKeybindDialog : public QDialog {
+    Q_OBJECT
+public:
+    CartKeybindDialog(CartView *view, core::CartGrid *cart, int row, int col,
+                      const QString &padName, QWidget *parent)
+        : QDialog(parent), m_view(view), m_cart(cart), m_row(row), m_col(col)
+    {
+        setWindowTitle(tr("Keybind — %1").arg(padName));
+        setModal(true);
+        setMinimumWidth(340);
+        auto *lay = new QVBoxLayout(this);
+
+        auto *prompt = new QLabel(
+            tr("Press the key that should fire “%1”.").arg(padName), this);
+        prompt->setWordWrap(true);
+        lay->addWidget(prompt);
+
+        m_edit = new QKeySequenceEdit(this);
+        m_edit->setMaximumSequenceLength(1);
+        const QString current = cart->cell(row, col).hotkey;
+        if (!current.isEmpty()) m_edit->setKeySequence(QKeySequence(current));
+        lay->addWidget(m_edit);
+
+        m_status = new QLabel(current.isEmpty()
+            ? tr("Letters, numbers and F-keys work well. Esc cancels.")
+            : tr("Currently %1. Press a new key, or Esc to keep it.")
+                  .arg(QKeySequence(current).toString(QKeySequence::NativeText)), this);
+        m_status->setWordWrap(true);
+        m_status->setStyleSheet(QStringLiteral("color:%1;").arg(Theme::tokens().ink60.name()));
+        lay->addWidget(m_status);
+
+        auto *bb = new QDialogButtonBox(this);
+        auto *clear = bb->addButton(tr("Clear keybind"), QDialogButtonBox::DestructiveRole);
+        clear->setEnabled(!current.isEmpty());
+        bb->addButton(QDialogButtonBox::Cancel);
+        connect(bb, &QDialogButtonBox::rejected, this, &QDialog::reject);
+        connect(clear, &QPushButton::clicked, this, [this] { m_result.clear(); accept(); });
+        lay->addWidget(bb);
+
+        // One key is a complete answer (maximumSequenceLength = 1), so act on
+        // it straight away rather than making them reach for an OK button —
+        // which the edit would just record as another keypress anyway.
+        connect(m_edit, &QKeySequenceEdit::editingFinished, this, &CartKeybindDialog::onKey);
+        m_edit->setFocus();
+    }
+
+    // Portable-text key to store on the pad; empty = clear it.
+    QString result() const { return m_result; }
+
+private:
+    void onKey() {
+        const QKeySequence seq = m_edit->keySequence();
+        if (seq.isEmpty()) return;
+        if (seq[0].key() == Qt::Key_Escape) { reject(); return; }
+
+        const QString keyName = seq.toString(QKeySequence::NativeText);
+        const QString conflict = m_view ? m_view->hotkeyConflict(seq) : QString();
+        if (!conflict.isEmpty()) {
+            m_status->setText(tr("%1 is already %2 — press a different key.")
+                                  .arg(keyName, conflict));
+            m_status->setStyleSheet(QStringLiteral("color:%1;")
+                                        .arg(Theme::tokens().err.name()));
+            m_edit->clear();
+            return;
+        }
+
+        const QString portable = seq.toString(QKeySequence::PortableText);
+        const auto [r, c] = m_cart->cellOfHotkey(portable);
+        if (r >= 0 && !(r == m_row && c == m_col)) {
+            const auto answer = QMessageBox::question(this, tr("Key already on a pad"),
+                tr("%1 already fires “%2”. Move it to this pad?")
+                    .arg(keyName, m_view ? m_view->padDisplayName(r, c) : QString()));
+            if (answer != QMessageBox::Yes) { m_edit->clear(); return; }
+        }
+        m_result = portable;
+        accept();
+    }
+
+    CartView         *m_view;
+    core::CartGrid   *m_cart;
+    int               m_row, m_col;
+    QKeySequenceEdit *m_edit   = nullptr;
+    QLabel           *m_status = nullptr;
+    QString           m_result;
 };
 
 // ───────────────────────────────────────────────────────────────────────────
@@ -464,6 +599,29 @@ CartView::CartView(QWidget *parent) : QWidget(parent)
              tk.accent.name(), tk.bgDeep.name()));
     connect(m_editBtn, &QPushButton::clicked, this, &CartView::toggleEditMode);
     bar->addWidget(m_editBtn);
+
+    // Where pad keybinds work. Board only (default): whenever the soundboard
+    // is on screen, wherever keyboard focus happens to be. Everywhere: from
+    // any page of quewi, so spot FX can be fired while running the cue list.
+    // Typing into a text field never fires a pad either way. Per-machine.
+    m_globalKeysBtn = new QPushButton(tr("Keys: board only"), this);
+    m_globalKeysBtn->setCheckable(true);
+    m_globalKeysBtn->setCursor(Qt::PointingHandCursor);
+    m_globalKeysBtn->setToolTip(tr(
+        "Where pad keybinds work.\n"
+        "Board only: while the soundboard is on screen.\n"
+        "Everywhere: from any page of quewi, e.g. while running the cue list.\n"
+        "Right-click a pad to set its key."));
+    m_globalKeysBtn->setStyleSheet(m_editBtn->styleSheet());
+    connect(m_globalKeysBtn, &QPushButton::toggled, this, [this](bool on) {
+        m_globalHotkeys = on;
+        m_globalKeysBtn->setText(on ? tr("Keys: everywhere") : tr("Keys: board only"));
+        QSettings().setValue(QStringLiteral("soundboard/globalHotkeys"), on);
+        rebuildHotkeys();
+    });
+    m_globalKeysBtn->setChecked(
+        QSettings().value(QStringLiteral("soundboard/globalHotkeys"), false).toBool());
+    bar->addWidget(m_globalKeysBtn);
 
     auto *resizeBtn = new QPushButton(tr("Resize…"), this);
     resizeBtn->setCursor(Qt::PointingHandCursor);
@@ -543,7 +701,13 @@ CartView::CartView(QWidget *parent) : QWidget(parent)
     connect(m_pollTimer, &QTimer::timeout, this, &CartView::onPollPlaying);
 }
 
-CartView::~CartView() = default;
+CartView::~CartView()
+{
+    // In "everywhere" mode the shortcuts belong to the main window, not us;
+    // take them with us so they can't fire into a dead view. (QPointer: the
+    // window may already have deleted them during its own teardown.)
+    for (auto &sc : m_shortcuts) delete sc.data();
+}
 
 void CartView::setWorkspace(core::Workspace *ws)
 {
@@ -667,6 +831,24 @@ void CartView::rebuildGrid()
                 if (auto *cue = cueForCellId(m_workspace->cart()->cueAt(rr, cc)))
                     emit editCueRequested(cue);
             });
+            // Queued: each of these ends up rebuilding the grid (deleting the
+            // pad) and they're emitted from inside the pad's context menu.
+            connect(pad, &CartPad::keybindRequested, this,
+                    &CartView::setPadKeybind, Qt::QueuedConnection);
+            connect(pad, &CartPad::clearKeybindRequested, this,
+                    &CartView::clearPadKeybind, Qt::QueuedConnection);
+            connect(pad, &CartPad::customiseRequested, this,
+                    &CartView::onPadEdit, Qt::QueuedConnection);
+
+            if (pad->cue()) {
+                QStringList tip{ padDisplayName(r, c) };
+                if (!cell.hotkey.isEmpty())
+                    tip << tr("Key: %1").arg(QKeySequence(cell.hotkey)
+                                                 .toString(QKeySequence::NativeText));
+                if (cell.midiNote >= 0) tip << tr("MIDI note %1").arg(cell.midiNote);
+                tip << tr("Right-click to set a keybind");
+                pad->setToolTip(tip.join(QLatin1Char('\n')));
+            }
             if (auto *cue = pad->cue())
                 // UniqueConnection: rebuildGrid re-runs on every layout change
                 // but the Cue and CartView both outlive the rebuild, so without
@@ -683,20 +865,93 @@ void CartView::rebuildGrid()
 
 void CartView::rebuildHotkeys()
 {
-    qDeleteAll(m_shortcuts);
+    for (auto &sc : m_shortcuts) delete sc.data();
     m_shortcuts.clear();
     if (!m_workspace || !m_workspace->cart()) return;
+
+    // These used to be Qt::WidgetWithChildrenShortcut on this view, which only
+    // fires while keyboard focus is INSIDE the soundboard — and pads never take
+    // focus, so after any click elsewhere the keys silently did nothing.
+    //
+    // Qt::WindowShortcut fires whenever its parent widget is visible in the
+    // active window, regardless of focus. Parented to this view that means
+    // "while the soundboard is on screen" (QStackedWidget hides it otherwise);
+    // parented to the main window it means "from anywhere in quewi". Either
+    // way a focused text field claims its keystrokes first (ShortcutOverride),
+    // so typing a cue name can't fire a pad.
+    QWidget *host = m_globalHotkeys ? window() : this;
     auto *cart = m_workspace->cart();
     for (int r = 0; r < cart->rows(); ++r) {
         for (int c = 0; c < cart->cols(); ++c) {
             const auto cell = cart->cell(r, c);
             if (cell.hotkey.isEmpty() || cell.cueId.isNull()) continue;
-            auto *sc = new QShortcut(QKeySequence(cell.hotkey), this);
-            sc->setContext(Qt::WidgetWithChildrenShortcut);
+            auto *sc = new QShortcut(QKeySequence(cell.hotkey), host);
+            sc->setContext(Qt::WindowShortcut);
+            // Holding the key must not machine-gun the sound.
+            sc->setAutoRepeat(false);
             connect(sc, &QShortcut::activated, this, [this, r, c]{ firePadAt(r, c); });
             m_shortcuts.append(sc);
         }
     }
+}
+
+QString CartView::padDisplayName(int row, int col) const
+{
+    if (!m_workspace || !m_workspace->cart()) return {};
+    const auto cell = m_workspace->cart()->cell(row, col);
+    if (!cell.label.isEmpty()) return cell.label;
+    if (auto *cue = cueForCellId(cell.cueId))
+        return cue->name().isEmpty() ? cue->typeName() : cue->name();
+    return tr("pad %1").arg(row * (m_workspace->cart()->cols()) + col + 1);
+}
+
+QString CartView::hotkeyConflict(const QKeySequence &seq) const
+{
+    QWidget *win = window();
+    if (!win || seq.isEmpty()) return {};
+
+    // Menu / transport commands (GO, Save, Panic…). An action that isn't
+    // installed on any widget can't fire, so it can't conflict.
+    for (QAction *a : win->findChildren<QAction *>()) {
+        if (a->associatedObjects().isEmpty()) continue;
+        if (!a->shortcuts().contains(seq)) continue;
+        QString name = a->text();
+        name.remove(QLatin1Char('&'));
+        name.remove(QStringLiteral("…"));
+        name = name.trimmed();
+        return name.isEmpty() ? tr("used by another command")
+                              : tr("the shortcut for “%1”").arg(name);
+    }
+    // Stand-alone window-level shortcuts, excluding our own pad keys (pad vs
+    // pad is resolved by moving the key). Focus-scoped ones (Widget /
+    // WidgetWithChildren) only live while their widget has focus, so they
+    // can't collide with a pad key that fires from the board.
+    for (QShortcut *s : win->findChildren<QShortcut *>()) {
+        bool ours = false;
+        for (const auto &own : m_shortcuts) if (own == s) { ours = true; break; }
+        if (ours) continue;
+        if (s->context() == Qt::WidgetShortcut
+            || s->context() == Qt::WidgetWithChildrenShortcut) continue;
+        if (s->keys().contains(seq)) return tr("used by another shortcut");
+    }
+    return {};
+}
+
+void CartView::setPadKeybind(int row, int col)
+{
+    auto *cart = m_workspace ? m_workspace->cart() : nullptr;
+    if (!cart || !cueForCellId(cart->cueAt(row, col))) return;
+    CartKeybindDialog dlg(this, cart, row, col, padDisplayName(row, col), this);
+    if (dlg.exec() == QDialog::Accepted)
+        // setCellHotkey also strips this key from any other pad on the layer
+        // (the dialog already asked); it rebuilds the grid + shortcuts.
+        cart->setCellHotkey(row, col, dlg.result());
+}
+
+void CartView::clearPadKeybind(int row, int col)
+{
+    if (auto *cart = m_workspace ? m_workspace->cart() : nullptr)
+        cart->setCellHotkey(row, col, QString());
 }
 
 void CartView::onPadClicked(int row, int col) { firePadAt(row, col); }
