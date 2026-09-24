@@ -3535,9 +3535,10 @@ void MainWindow::registerOscRemoteHandlers()
     sub("/quewi/fadeAll", [this, extractSeconds](const osc::Message &m) {
         const double dur = extractSeconds(m, 2.0);
         QMetaObject::invokeMethod(this, [this, dur]{
-            if (m_audioEngine)    m_audioEngine->stopAll(dur);
-            if (m_lightingEngine) m_lightingEngine->fadeOutAll(dur);
-            if (m_videoEngine)    m_videoEngine->fadeOutAll(dur);
+            // Same path as the Fade All button: also cancels pending pre-waits
+            // and auto-continues, so nothing fires after the fade.
+            if (m_goEngine) m_goEngine->fadeAll(dur);
+            m_pendingLinkFires.clear();
             statusBar()->showMessage(
                 tr("Fade all over %1 s via OSC").arg(dur, 0, 'f', 2),
                 2000);

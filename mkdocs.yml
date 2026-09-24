@@ -120,6 +120,8 @@ nav:
   - Using quewi:
       - Cue types overview: using-quewi/cue-types.md
       - Transport (GO / Panic / Pause): using-quewi/transport.md
+      - Soundboard: using-quewi/soundboard.md
+      - quewi Mix (DCA mixing): using-quewi/mix.md
       - Show Mode: using-quewi/show-mode.md
       - Pre-flight: using-quewi/preflight.md
       - Keyboard shortcuts: using-quewi/shortcuts.md
@@ -163,5 +165,6 @@ nav:
       - QLab parity roadmap: reference/qlab-parity-roadmap.md
 
   - About:
+      - Release notes: about/release-notes.md
       - License: about/license.md
       - Credits: about/credits.md

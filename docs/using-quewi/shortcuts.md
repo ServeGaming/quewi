@@ -1,10 +1,13 @@
 # Keyboard Shortcuts
 
-Audited against the actual wiring in `src/app/MainWindow.cpp`. Every
-shortcut here is rebindable through **Preferences → Shortcuts** —
-the defaults below are what ships out of the box.
+Checked against the actual wiring in `src/app/MainWindow.cpp` for 1.0.1.
 
 `Mod` = `Ctrl` on Windows/Linux, `Cmd` on macOS.
+
+!!! note "Changed in 1.0.1"
+    **New MSC cue moved to `Mod + Alt + M`.** It used to share
+    `Mod + Shift + M` with *View → Mix (DCA) grid*, and two actions on one
+    key cancel each other out — so neither worked.
 
 ---
 
@@ -14,11 +17,11 @@ the defaults below are what ships out of the box.
 |---|---|
 | GO (fire next cue) | `Space` |
 | Panic — hard stop everything | `Esc` |
-| Pause all (real pause, not stop) | `Mod + .` |
-| Fade All — fade running cues out over 2 s | `Mod + Shift + .` |
+| Pause / Resume (press again to resume) | `Mod + .` |
+| Fade All — fade sound, video and lights out over 2 s | `Mod + Shift + .` |
 
-The transport actions register through `ShortcutManager` so a remote
-console / Stream Deck can rebind them without recompiling.
+These four are rebindable in **Tools → Keyboard shortcuts…** — useful for a
+footswitch or a Stream Deck that sends a particular key.
 
 ---
 
@@ -29,7 +32,7 @@ console / Stream Deck can rebind them without recompiling.
 | New show | `Mod + N` |
 | Open… | `Mod + O` |
 | Save | `Mod + S` |
-| Save As… | `Mod + Shift + S` |
+| Save As… | platform default (`Mod + Shift + S` on macOS; not bound on Windows, where `Mod + Shift + S` opens the script follower) |
 | Close show | `Mod + W` |
 | Quit | `Mod + Q` (mac) / `Alt + F4` (Win) |
 
@@ -41,18 +44,16 @@ console / Stream Deck can rebind them without recompiling.
 |---|---|
 | Undo | `Mod + Z` |
 | Redo | `Mod + Y` (Win/Linux) · `Mod + Shift + Z` (mac) |
-| Find in cue list | `Mod + F` |
-| Find / replace | `Mod + Shift + R` |
+| Find / replace | `Mod + F` |
 | Command palette | `Mod + K` |
-| Preferences | `Mod + ,` |
 
 ---
 
-## Cue creation — single-key, list focus only
+## Cue creation — cue list focus only
 
-These are bare letter keys so they work fast during cue-writing. The
-key is consumed by the cue list, so they don't fire while a text
-edit is focused.
+Bare letter keys so they're fast while writing cues. They only work while the
+cue list has focus, so typing on the Soundboard or Mix page — or in a text
+field — never creates cues in a list you can't see.
 
 | New cue type | Key |
 |---|---|
@@ -71,7 +72,11 @@ edit is focused.
 | Goto | `Shift + G` |
 | Group | `Mod + G` |
 | MIDI | `Shift + M` |
-| MSC | `Mod + Shift + M` |
+| MSC | `Mod + Alt + M` |
+| Toggle armed | `E` |
+| Delete | `Del` |
+
+Import from URL (`Mod + U`) works from anywhere.
 
 ---
 
@@ -91,26 +96,24 @@ duplicate, and delete are blocked in Show Mode.
 
 ---
 
-## Tools / Windows
+## Tools / windows
 
 | Action | Default |
 |---|---|
-| Pre-flight | `Mod + Shift + P` |
+| Pre-flight | `Mod + P` |
 | OSC Monitor | `Mod + 1` |
-| Notifications | `Mod + ?` |
-| Inspector toggle | `Mod + I` |
-| Cart view toggle | `Mod + Shift + C` |
-| Print show summary | `Mod + P` |
+| Patch editor | `Mod + Shift + P` |
+| Script follower | `Mod + Shift + S` |
 | Show Mode toggle | `Mod + Shift + L` |
+| Inspector panel | `Mod + I` |
+| Soundboard | `Mod + Shift + C` |
+| Mix (DCA) grid | `Mod + Shift + M` |
+| About quewi | `Mod + ?` |
 
 ---
 
-## Rebinding
+## Soundboard pads
 
-Open **Preferences → Shortcuts**. The list is grouped by category;
-double-click a row to capture a new chord. Conflicts (two actions on
-the same chord) are flagged inline. `Reset to default` per action and
-`Reset all` at the bottom undo your changes.
-
-Custom bindings are stored in QSettings under `shortcuts/<actionId>`.
-They survive across updates.
+Each pad can have its own key — right-click the pad → **Set keybind…**. See
+[Soundboard](soundboard.md#keybinds) for where those keys work (board only,
+anywhere in quewi, or system-wide).

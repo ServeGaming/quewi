@@ -1107,6 +1107,16 @@ void CartView::resizeBoard()
     const int cols = QInputDialog::getInt(this, tr("Resize soundboard"),
         tr("Columns:"), cart->cols(), 1, 12, 1, &ok);
     if (!ok) return;
+    // Shrinking removes the pads that no longer fit, on every layer, and it
+    // isn't undoable — say so before doing it.
+    if (const int lost = cart->padsOutside(rows, cols); lost > 0) {
+        const auto answer = QMessageBox::question(this, tr("Resize soundboard"),
+            tr("%n pad(s) outside a %1 × %2 board will be removed, on every "
+               "layer. This can't be undone.", nullptr, lost)
+                .arg(rows).arg(cols),
+            QMessageBox::Ok | QMessageBox::Cancel, QMessageBox::Cancel);
+        if (answer != QMessageBox::Ok) return;
+    }
     cart->setSize(rows, cols);
 }
 

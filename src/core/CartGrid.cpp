@@ -47,6 +47,15 @@ void CartGrid::setSize(int rows, int cols)
     emit modified();   // persisted content changed → show is unsaved
 }
 
+int CartGrid::padsOutside(int rows, int cols) const
+{
+    int n = 0;
+    for (const auto &layer : m_layers)
+        for (auto it = layer.cells.cbegin(); it != layer.cells.cend(); ++it)
+            if (it.key() / 1000 >= rows || it.key() % 1000 >= cols) ++n;
+    return n;
+}
+
 // ── Layers ──────────────────────────────────────────────────────────────────
 
 void CartGrid::setActiveLayer(int index)

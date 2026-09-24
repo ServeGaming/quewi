@@ -20,40 +20,37 @@ struct Highlight { const char *title; const char *body; };
 // Curated highlights for this release. Written to read like a person wrote
 // them — specific, second-person, no filler. Update this list each release.
 //
-// 1.0 note: many users are arriving from 0.9.103 or earlier (the updater bug
-// kept them there), so this list keeps the best of the late-0.9 work alongside
-// the 1.0 headline — for them it's all new.
+// 1.0.1: the first patch — soundboard keys, mix workflow, and the audit fixes.
 const Highlight kHighlights[] = {
-    { "quewi Mix — your console, on cues",
-      "TheatreMix-style DCA mixing, built in. Every cue puts the right mics on "
-      "the right faders and mutes the rest, and the grid highlights exactly what "
-      "each GO will change. Speaks Behringer X32/M32 and Yamaha DM7 — and it "
-      "never touches your fader levels. The mix stays yours." },
-    { "Channels & ensembles",
-      "Name each mic once — strip, name, actor, backup — then group them "
-      "(“Ensemble Women”, “Orchestra”) to assign twenty mics in one cell. Edit "
-      "the group and every cue that uses it follows." },
-    { "Sharper, everywhere",
-      "A front-to-back design pass: the beveled boxes, stock-blue selections and "
-      "off-palette corners are gone. Every control and hand-drawn view now takes "
-      "its colours from one warm palette — in all five themes." },
-    { "Soundboard layers",
-      "Stack pages of pads behind one board and flip between them mid-show — "
-      "Act 1, Act 2, spot FX. Switchable from the board or over OSC." },
-    { "Auto-follow, the way it should be",
-      "Auto-continue fires the next cue the instant you hit GO; auto-follow waits "
-      "for the track to actually finish, then continues." },
-    { "Scrub the waveform",
-      "Click or drag anywhere on a cue's waveform to move the playhead, with a "
-      "live marker that follows playback." },
-    { "Run the whole show from OSC",
-      "Controllers like HeliOSC can fire and navigate cues, ride a live mix "
-      "(level / pan / seek), switch lists and soundboard layers, dial in a cue's "
-      "EQ and compressor, and edit any cue — remotely." },
-    { "Steadier on its feet",
-      "A top-to-bottom crash audit closed a class of rare-but-real crashes across "
-      "effects, undo, shutdown, and malformed network input. It should just keep "
-      "running." },
+    { "A key for every pad",
+      "Right-click a soundboard pad → Set keybind… On Windows the keys can work "
+      "system-wide, so pads fire even while quewi sits behind a game, Discord or "
+      "OBS. Pick where they work from the Keys menu on the soundboard." },
+    { "DCA GO, from anywhere",
+      "A second GO in the transport bar fires the next DCA cue at the console, "
+      "without switching to the Mix page." },
+    { "One GO, sound and scene",
+      "Link a sound cue to a DCA cue in the Inspector and firing either one fires "
+      "both. Double-click a DCA cell to tick who's on it." },
+    { "Tear off what you need",
+      "Drag an Inspector section's title out to float it (on a second monitor, "
+      "say). Close it and it docks back where it came from." },
+    { "Playback that does what you told it",
+      "Fades hold their level, loops wrap cleanly, Fade Out actually fades, and "
+      "auto-continue waits for post-wait. Pause is a real pause: press it again "
+      "to resume exactly where you were." },
+    { "Your desk, only your mics",
+      "A DCA GO now touches only the mics in your show and leaves band, playback "
+      "and talkback alone. The X32 link notices when the console drops and "
+      "reconnects by itself." },
+    { "Long tracks, light on memory",
+      "A three-hour track used to take about 4 GB of RAM. It now takes about "
+      "45 MB." },
+    { "Heads up: New MSC cue is now Ctrl+Alt+M",
+      "It clashed with the Mix grid's Ctrl+Shift+M, so neither worked. Show Mode "
+      "also really locks now: no editing shortcut gets through mid-show." },
+    { "Coffee",
+      "A new warm theme: View → Theme → Coffee." },
 };
 
 } // namespace
@@ -158,7 +155,7 @@ WhatsNewDialog::WhatsNewDialog(QWidget *parent) : QDialog(parent)
 
     auto *notes = new QLabel(footer);
     notes->setText(QStringLiteral(
-        "<a href='https://github.com/ServeGaming/quewi/releases' "
+        "<a href='https://servegaming.github.io/quewi/about/release-notes/' "
         "style='color:%1; text-decoration:none;'>%2</a>")
         .arg(tk.ink60.name(), tr("Full release notes")));
     notes->setOpenExternalLinks(true);

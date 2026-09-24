@@ -47,6 +47,8 @@ public:
     int  rows() const { return m_rows; }
     int  cols() const { return m_cols; }
     void setSize(int rows, int cols);
+    // How many pads (across every layer) setSize(rows, cols) would drop.
+    int  padsOutside(int rows, int cols) const;
 
     // ── Layers ──────────────────────────────────────────────────────────
     // The cart always has at least one layer. Cell access below operates on

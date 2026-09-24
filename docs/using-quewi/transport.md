@@ -22,33 +22,51 @@ After firing:
 - **DoNotContinue** (default) — pointer moves to the next row,
   but GO has to be pressed again.
 - **AutoContinue** — quewi fires the next cue after the
-  current cue's `postWait` elapses.
+  current cue's `postWait` elapses (immediately if post-wait is 0).
 - **AutoFollow** — next cue fires the moment the current cue
   finishes (audio voice ends, fade completes, etc.).
+
+When a cue auto-continues or auto-follows into the next, GO's pointer skips
+past the whole chain, so the next GO fires the cue *after* the chain rather
+than re-firing something that's already running.
 
 Continue mode is per-cue, edit it in the Inspector or set
 defaults in Preferences.
 
 ---
 
+## DCA GO
+
+If the show has a [Mix (DCA) list](mix.md), a second, smaller **DCA GO**
+button sits left of the main GO. It fires the next DCA cue at the console
+from anywhere in the app. It's greyed out, with a tooltip saying why, until a
+console is connected. It is deliberately a different colour and size from
+the playback GO so the two are never confused.
+
+---
+
 ## Pause
 
-**Action:** pauses every currently-playing audio voice in place.
-Fade and Wait cues mid-run continue (those are timeline-based,
-not voice-based).
+**Action:** freezes the show where it is: every playing audio and video
+cue, plus every pending pre-wait, post-wait and auto-continue timer. Lights
+stay as they are.
 
 **Default key:** <kbd>Mod</kbd>+<kbd>.</kbd>
 
-The voice keeps its read position. Press GO or use the OSC
-`/quewi/resume` command to restart from where you paused.
+While paused, the button reads **Resume**. Press it again (or send
+`/quewi/resume`) and everything picks up exactly where it stopped, timers
+included.
 
-Pause is reversible. Compare:
+Compare:
 
 | Pause | Fade All | Panic |
 |---|---|---|
-| Instant silence, no fade | 2-second fade-out | 50 ms fade-out |
-| Resumable | Resumable (the cue's still on the active list) | Not resumable |
+| Instant freeze, no fade | 2-second fade-out | 50 ms fade-out |
+| Resumable | Not resumable | Not resumable |
 | For "we're holding for a sec" | For "wrap this section cleanly" | For "something is wrong, STOP" |
+
+Fade All and Panic both cancel pending pre-waits and auto-continues, so
+nothing fires after them.
 
 ---
 
@@ -121,7 +139,7 @@ the operator's-fingers use.
 ## Defaults and rebinding
 
 The transport keys are listed in [keyboard shortcuts](shortcuts.md).
-Rebind any of them in **Preferences → Shortcuts** — useful if
+Rebind any of them in **Tools → Keyboard shortcuts…** — useful if
 you want a hardware footswitch sending a particular key, or to
 align with another tool's muscle memory.
 
@@ -136,7 +154,7 @@ Every transport action has an OSC equivalent:
 | GO | `/quewi/go` |
 | Pause | `/quewi/pause` |
 | Resume | `/quewi/resume` |
-| Fade All | (use `/quewi/cue/*/set/gainDb` for the audio; full Fade All isn't an OSC verb yet) |
+| Fade All | `/quewi/fadeAll` (optional seconds argument, default 2) |
 | Panic | `/quewi/panic` |
 
 Full address surface in [OSC reference](../osc-control/reference.md).

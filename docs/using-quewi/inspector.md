@@ -13,7 +13,9 @@ Top to bottom:
 
 1. **Type label** — "Audio Cue", "Light Cue", etc.
 2. **Common fields** — number, name, pre/post-wait, continue
-   mode, notes, armed, color.
+   mode, notes, armed, color. Once the show has a
+   [Mix (DCA) list](mix.md), a **Linked DCA cue** field appears too.
+   Pair a cue with a DCA cue and firing either one fires both.
 3. **Type-specific section** — collapsible group, content depends
    on the cue type. For audio: file picker, gain slider, fade
    in/out, trim, pan, loop, output device, output matrix, object
@@ -24,6 +26,18 @@ Top to bottom:
 If the Inspector feels cramped on a smaller screen, drag the
 splitter between it and the cue list. The Inspector is also
 dockable — drag its title bar out to float it on a second monitor.
+
+### Tearing off a section
+
+Each type-specific section (Audio, Object Audio, Fade, Light, Visual, OSC,
+MIDI, MSC, Group, Wait…) can be pulled out on its own. **Grab the section's
+title and drag it out.** It becomes a floating window you can drop anywhere,
+including another monitor. Close that window and the section docks back
+into exactly the spot it came from.
+
+A torn-off section follows the selection like the rest of the Inspector. It
+hides while you select a cue that doesn't use it, and comes back when you
+select one that does.
 
 ---
 

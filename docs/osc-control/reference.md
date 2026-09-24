@@ -48,10 +48,10 @@ All four share the same UDP socket. Quewi reads the source port of every inbound
 | Address | Args | Effect |
 |---|---|---|
 | `/quewi/go` | — | Fire the next cue (same as pressing GO) |
-| `/quewi/panic` | — | Hard-stop everything: 50 ms audio fade + lighting blackout + all video stopped |
+| `/quewi/panic` | — | Hard-stop everything: 50 ms audio fade + lighting blackout + all video stopped. Pending pre-waits and auto-continues are cancelled |
 | `/quewi/stop` | — | Same as `/quewi/panic` |
-| `/quewi/pause` | — | Real pause — every playing audio voice freezes at its current position |
-| `/quewi/resume` | — | Resume every paused voice |
+| `/quewi/pause` | — | Real pause, same as the Pause button. Audio and video freeze in place, and pending pre-waits and auto-continues freeze with their remaining time |
+| `/quewi/resume` | — | Resume everything that was paused, timers included |
 | `/quewi/heartbeat` | — | No-op, useful as a keepalive ping |
 
 ### Per-engine stops
@@ -64,7 +64,7 @@ These let a controller stop one engine without affecting the others. Use `/quewi
 | `/quewi/lighting/fadeOut` | optional `f` seconds (default 2.0) | Soft blackout — fades every active channel on every active universe down to 0 over the duration. |
 | `/quewi/video/stop` | — | Stop all video surfaces instantly (audio keeps going) |
 | `/quewi/video/fadeOut` | optional `f` seconds (default 1.0) | Soft stop — animates every active layer's opacity to 0 over the duration, then stops them. |
-| `/quewi/fadeAll` | optional `f` seconds (default 2.0) | **Headline one-button graceful stop.** Audio, lighting, and video all ramp to silent / black / empty in the same window. |
+| `/quewi/fadeAll` | optional `f` seconds (default 2.0) | **Headline one-button graceful stop.** Audio, lighting, and video all ramp to silent / black / empty in the same window, and pending pre-waits and auto-continues are cancelled so nothing fires afterwards. |
 
 ### Cue navigation
 

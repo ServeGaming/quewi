@@ -75,6 +75,12 @@ triggers.
 - **Audio playback** — multi-channel, fade-in/out, trim, loop, per-output
   matrix routing, an effects rack (EQ / Compressor / Reverb / Delay),
   object-audio placement with VBAP. Scrubbable progress while playing.
+- **Soundboard** — a grid of pads for spot effects, with layers, colours,
+  MIDI notes and a key per pad that can fire even while quewi is in the
+  background. [More →](using-quewi/soundboard.md)
+- **quewi Mix** — TheatreMix-style DCA mixing for Behringer X32/M32 and
+  Yamaha DM7. Cues put the right mics on the right DCAs and never touch your
+  fader levels. [More →](using-quewi/mix.md)
 - **Lighting** — sACN multicast, Art-Net, DMX-USB. Light cues set
   channel values; Light Fade cues animate between snapshots.
 - **Video** — Qt RHI compositor, multi-output windows, geometry +
@@ -106,6 +112,8 @@ modify and distribute as long as you keep the same license. Nobody
 
 ## What's next
 
+- New in **1.0.1**: soundboard keybinds, DCA GO, linked cues and a big
+  bug-fix pass. See the [release notes](about/release-notes.md).
 - Read the [quickstart](getting-started/quickstart.md) to build your
   first show.
 - Skim the [concepts](getting-started/concepts.md) page so the
