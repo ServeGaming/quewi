@@ -11,10 +11,9 @@ session on any computer can continue with no gaps.
 > enough that if the session ended right now, the next one would lose nothing.
 > The last section, *Update protocol*, tells you exactly how.
 
-Last updated: **2026-09-24**. 1.0.0 shipped 2026-07-17. September: soundboard
-keybinds (incl. system-wide), a whole-app bug audit, and a RAM fix for long
-files — all on `main`, **not yet released**; they are the 1.0.1 patch (see
-"Heading to 1.0.1" below). Update the date whenever you touch this file.
+Last updated: **2026-09-24**. 1.0.0 shipped 2026-07-17; **1.0.1 tagged
+2026-09-24** (soundboard keybinds incl. system-wide, a whole-app bug audit, a
+RAM fix for long files — see "1.0.1" below). Update the date whenever you touch this file.
 
 ---
 
@@ -146,10 +145,18 @@ link-fire test is ready the moment the new binary is running.
   DM7 EQ is **blocked** on a hardware test (PEQ gain scaling: 3 sources disagree
   1 vs 10 vs 100).
 
-## Heading to 1.0.1 (September 2026 work, on `main`, unreleased)
+## 1.0.1 — tagged 2026-09-24 (commit `edb0df0`)
 
-All committed + pushed; **22/22 ctest suites green, `--selftest` exits 0** as of
-`b720b2f`. Matthew has been running dev builds copied to a scratch folder;
+Matthew OK'd the release. Tag `v1.0.1` pushed; the docs site now has Release
+notes, Soundboard and quewi Mix pages, and the shortcuts page was re-audited
+against the code. The GitHub release body is set by hand with `gh release edit`
+(the workflow leaves it empty). **Next: Matthew clicks File → Check for
+updates… from 1.0.0 — this is the updater's live test; if it fails, read
+`%APPDATA%/quewi/update-client.log` and fix in 1.0.2.**
+
+What went into it:
+
+**22/22 ctest suites green, `--selftest` exits 0** at the tag. Matthew has been running dev builds copied to a scratch folder;
 **never `Stop-Process` every quewi** — only the dev-build path (killing his
 copy looked to him like a crash).
 
@@ -182,11 +189,11 @@ V3/V4/V7–V10/V12–V14 (video), M11, and the low-severity audio/UI items.
 **Not yet driven by Matthew:** system-wide soundboard keys, draggable inspector
 sections, DCA picker, the long-file RAM fix inside the running app.
 
-**1.0.1 release checklist** (when Matthew OKs it): version bump; **update the
-GitHub Pages docs site** (Matthew asked explicitly — release notes, Soundboard
-page, quewi Mix page, Transport/Inspector/OSC/shortcuts pages: MSC is now
-Ctrl+Alt+M, auto-continue waits for post-wait); WhatsNewDialog highlights; tag
-`v1.0.1` — which is also the live test of the Windows updater (below).
+**Release checklist for every future `v*` tag** (Matthew asked explicitly):
+version bump in the top `CMakeLists.txt`; WhatsNewDialog highlights; add the
+release to `docs/about/release-notes.md` and update any feature page that
+changed (the docs workflow deploys GitHub Pages on push to main); tag; then
+`gh release edit vX.Y.Z --notes-file …` once the release workflow has made it.
 
 ## 1.0 shipped — and what that decision was
 

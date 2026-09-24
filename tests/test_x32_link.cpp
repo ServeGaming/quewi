@@ -93,8 +93,20 @@ class X32LinkTests : public QObject {
     void connectAndSettle()
     {
         link->connectToConsole(QStringLiteral("127.0.0.1"), desk->port());
-        QTRY_COMPARE_WITH_TIMEOUT(link->state(), ConsoleLink::State::Connected, 2000);
-        QTest::qWait(50);   // let the initial state queries flush
+        QTRY_COMPARE_WITH_TIMEOUT(link->state(), ConsoleLink::State::Connected, 5000);
+        // The initial state queries go out on connect; wait until the desk has
+        // seen the last channel's, rather than guessing a delay.
+        QTRY_VERIFY_WITH_TIMEOUT(!desk->matching(x32::chAddr(32, QLatin1String("grp/dca"))).isEmpty(), 5000);
+        QTest::qWait(20);
+    }
+
+    // Sets reach the fake desk asynchronously, behind the connect-time state
+    // queries; a fixed short wait flaked on slow CI runners (macOS Debug).
+    bool deskGotSet(const QString &address) const
+    {
+        for (const auto &r : desk->matching(address))
+            if (!r.msg.args.empty()) return true;
+        return false;
     }
 
 private slots:
@@ -138,7 +150,7 @@ private slots:
     {
         connectAndSettle();
         link->setDcaAssignment(3, {1, 2});
-        QTest::qWait(50);
+        QTRY_VERIFY_WITH_TIMEOUT(deskGotSet(x32::chAddr(3, QLatin1String("grp/dca"))), 3000);
 
         const auto xremote = desk->matching(QStringLiteral("/xremote"));
         const auto sets    = desk->matching(x32::chAddr(3, QLatin1String("grp/dca")));
@@ -159,7 +171,7 @@ private slots:
     {
         connectAndSettle();
         link->setDcaAssignment(3, {1, 3});
-        QTest::qWait(50);
+        QTRY_VERIFY_WITH_TIMEOUT(deskGotSet(x32::chAddr(3, QLatin1String("grp/dca"))), 3000);
 
         const auto sets = desk->matching(x32::chAddr(3, QLatin1String("grp/dca")));
         std::optional<qint32> mask;
@@ -174,7 +186,7 @@ private slots:
     {
         connectAndSettle();
         link->setChannelMuted(7, true);
-        QTest::qWait(50);
+        QTRY_VERIFY_WITH_TIMEOUT(deskGotSet(x32::chAddr(7, QLatin1String("mix/on"))), 3000);
 
         const auto sets = desk->matching(x32::chAddr(7, QLatin1String("mix/on")));
         std::optional<qint32> on;
@@ -189,7 +201,7 @@ private slots:
     {
         connectAndSettle();
         link->setDcaLabel(2, QStringLiteral("a-very-long-dca-name-indeed"));
-        QTest::qWait(50);
+        QTRY_VERIFY_WITH_TIMEOUT(deskGotSet(QStringLiteral("/dca/2/config/name")), 3000);
 
         // Note the single-digit /dca/2, not /dca/02.
         const auto sets = desk->matching(QStringLiteral("/dca/2/config/name"));
