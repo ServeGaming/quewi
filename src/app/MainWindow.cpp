@@ -2433,9 +2433,12 @@ void MainWindow::runInAppInstall(const QString &msiUrl)
             prog->deleteLater();
             const QString installPrompt =
 #if defined(Q_OS_WIN)
-                tr("Download complete. quewi will close, install the update "
-                   "(you'll see one Windows permission prompt and a short "
-                   "progress bar), then reopen automatically. Continue?");
+                localPath.endsWith(QStringLiteral(".msi"), Qt::CaseInsensitive)
+                ? tr("Download complete. quewi will close, install the update "
+                     "(you'll see one Windows permission prompt and a short "
+                     "progress bar), then reopen automatically. Continue?")
+                : tr("Download complete. quewi will close, update itself, "
+                     "and reopen automatically. Continue?");
 #else
                 tr("Download complete. quewi will close, install the update, "
                    "and reopen automatically. Continue?");

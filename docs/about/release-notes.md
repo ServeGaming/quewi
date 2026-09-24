@@ -1,5 +1,37 @@
 # Release notes
 
+## 1.0.3 (September 2026)
+
+A fix release for in-app updates.
+
+!!! warning "Install this one by hand"
+    The bugs fixed here are in the *old* version's updater, which is what
+    runs an update. So from 1.0.2 or earlier, don't use Check for updates
+    this time. Download `quewi-1.0.3-win64.msi` from the
+    [releases page](https://github.com/ServeGaming/quewi/releases/latest)
+    and run it (quewi closed). From 1.0.3 on, in-app updates work.
+
+### Fixed
+
+- **"Install update" just closed quewi.** The updater lost track of the file
+  it had downloaded: by the time you clicked Yes, the path it held was
+  garbage, so quewi crashed or said the file didn't exist. This was also
+  behind the occasional "corrupted-looking path" in the update error.
+- **Portable (zip) installs never updated in place.** The step that swaps
+  the new files in was being started with a malformed command and silently
+  never ran. It now runs, logs each step to `update-helper.log`, and always
+  reopens quewi, even if the copy fails.
+- The update prompt no longer promises a Windows permission prompt for
+  portable installs, which don't need one.
+
+The portable path was run end to end against the real 1.0.2 release:
+download, quewi closing itself, files swapped, new version reopening,
+clean-up. The installer (MSI) path shares the fixed download-and-close steps;
+its install step already worked in the 1.0.0 → 1.0.1 update, once quewi was
+closed.
+
+---
+
 ## 1.0.2 (September 2026)
 
 Effects presets, four new effects, sound effects straight from YouTube onto

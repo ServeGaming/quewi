@@ -112,6 +112,8 @@ modify and distribute as long as you keep the same license. Nobody
 
 ## What's next
 
+- **1.0.3** fixes in-app updates. Coming from 1.0.2 or earlier? Install it
+  by hand once ([why](about/release-notes.md)).
 - New in **1.0.2**: effects presets (Telephone, Cathedral, Monster…), four
   new effects, and sound effects straight onto soundboard pads. See the
   [release notes](about/release-notes.md).

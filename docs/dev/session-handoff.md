@@ -189,6 +189,26 @@ V3/V4/V7–V10/V12–V14 (video), M11, and the low-severity audio/UI items.
 **Not yet driven by Matthew:** system-wide soundboard keys, draggable inspector
 sections, DCA picker, the long-file RAM fix inside the running app.
 
+**1.0.3 tagged 2026-09-24 — the updater, for real.** The 1.0.1→1.0.2 update
+"just closed quewi": `update-client.log` showed `launchInstaller(): path=`
+GARBAGE. Use-after-free — the downloadFinished lambda took `const QString&`
+to the installer's own `m_localPath`, then `installer->deleteLater()` ran
+inside the confirm dialog's nested loop (Qt 6 semantics). Fixed by value +
+scope-guarded deletion + the installer emitting a copy. Also the PORTABLE
+path had never worked: `cmd /c start "title" /min swap.bat` via QProcess arg
+list escaped the quotes as `\"title\"`; now `setNativeArguments` +
+CREATE_NO_WINDOW, and swap.bat step-logs to `update-helper.log`. **Driven end
+to end** with a dev build in `scratchpad/upd-test` (windeployqt'd) and the
+new dev hook `QUEWI_UPDATE_PRETEND_VERSION=1.0.1` against the real v1.0.2
+release: download → quitForUpdate → swap → relaunch → cleanup, all logged
+OK. MSI path: client side is the same fixed code; the elevated helper
+already worked in 1.0.0→1.0.1. **Everyone on ≤1.0.2 must install 1.0.3 by
+hand** (their old updater has the UAF). Driving tip: test-copy windows open
+on the 2nd monitor (DELL S2719HS); `scratchpad/front.ps1 -Title "..."` fronts
+a window; computer-use needs `request_access(["quewi.exe"])` for the
+test-folder exe. The test copy shares Matthew's QSettings — reset
+`lastSeenVersion` / `ui\whatsNewVersion` afterwards.
+
 **1.0.2 tagged 2026-09-24** (Matthew: "get it to the release"). Contents below.
 The 1.0.1 → 1.0.2 update still runs 1.0.1's buggy quit, so Matthew may have
 to close quewi by hand once; 1.0.2 → 1.0.3 is the real test of the quit fix

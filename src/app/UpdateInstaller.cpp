@@ -349,38 +349,93 @@ bool UpdateInstaller::launchInstaller(const QString &msiPath,
                 // /MIR mirror staging→install, start the new quewi,
                 // clean up.
                 const QString helperPath = stageRoot + QStringLiteral("/swap.bat");
+                const QString appData = QStandardPaths::writableLocation(
+                    QStandardPaths::AppDataLocation);
+                QDir().mkpath(appData);
+                const QString helperLog = QDir::toNativeSeparators(
+                    appData + QStringLiteral("/update-helper.log"));
+                const QString flagPath = QDir::toNativeSeparators(
+                    appData + QStringLiteral("/update-failed.flag"));
+                const QString exe = QDir::toNativeSeparators(
+                    installDir + QStringLiteral("/quewi.exe"));
                 QFile h(helperPath);
                 if (h.open(QIODevice::WriteOnly | QIODevice::Truncate)) {
                     QTextStream ts(&h);
+                    // Same shape as the MSI helper: step-log every stage so a
+                    // failure after quewi has quit is still traceable, and
+                    // relaunch quewi whatever happens.
                     ts << "@echo off\r\n"
                        << "set PID=" << QCoreApplication::applicationPid() << "\r\n"
+                       << "echo [%date% %time%] swap helper start pid=%PID%> \""
+                       <<   helperLog << "\"\r\n"
+                       << "set TRIES=0\r\n"
                        << ":wait\r\n"
                        << "tasklist /FI \"PID eq %PID%\" 2>nul | find \"%PID%\" >nul\r\n"
-                       << "if not errorlevel 1 (\r\n"
-                       << "  ping -n 1 127.0.0.1 >nul\r\n"
-                       << "  goto wait\r\n"
-                       << ")\r\n"
+                       << "if errorlevel 1 goto copy\r\n"
+                       << "set /a TRIES+=1\r\n"
+                       << "if %TRIES% GEQ 120 goto timedout\r\n"
+                       << "ping -n 2 127.0.0.1 >nul\r\n"
+                       << "goto wait\r\n"
+                       << ":copy\r\n"
+                       << "echo [%date% %time%] quewi exited; copying files>> \""
+                       <<   helperLog << "\"\r\n"
                        << "robocopy \"" << QDir::toNativeSeparators(stagedQuewi)
                        <<   "\" \"" << QDir::toNativeSeparators(installDir)
-                       <<   "\" /E /IS /R:2 /W:1 /NFL /NDL /NJH /NJS >nul\r\n"
-                       << "start \"\" \"" << QDir::toNativeSeparators(
-                              installDir + QStringLiteral("/quewi.exe")) << "\"\r\n"
+                       <<   "\" /E /IS /R:5 /W:1 /NFL /NDL /NJH /NJS >nul\r\n"
+                       // robocopy: 0-7 = success (files copied / nothing to do),
+                       // 8+ = at least one failure.
+                       << "if errorlevel 8 goto failed\r\n"
+                       << "echo [%date% %time%] install OK; relaunching>> \""
+                       <<   helperLog << "\"\r\n"
+                       << "del \"" << QDir::toNativeSeparators(msiPath) << "\" 2>nul\r\n"
+                       << "goto launch\r\n"
+                       << ":failed\r\n"
+                       << "echo [%date% %time%] copy FAILED; relaunching old quewi>> \""
+                       <<   helperLog << "\"\r\n"
+                       << "echo The last update did not finish copying. The download is "
+                          "still in your Downloads folder.> \"" << flagPath << "\"\r\n"
+                       << "goto launch\r\n"
+                       << ":timedout\r\n"
+                       << "echo [%date% %time%] TIMED OUT waiting for quewi to exit>> \""
+                       <<   helperLog << "\"\r\n"
+                       << "echo The update timed out waiting for quewi to close and was "
+                          "not installed.> \"" << flagPath << "\"\r\n"
+                       << "goto cleanup\r\n"
+                       << ":launch\r\n"
+                       << "start \"\" \"" << exe << "\"\r\n"
+                       << ":cleanup\r\n"
                        << "rmdir /S /Q \"" << QDir::toNativeSeparators(stageRoot)
-                       <<   "\" 2>nul\r\n"
-                       << "del \"" << QDir::toNativeSeparators(msiPath) << "\" 2>nul\r\n";
+                       <<   "\" 2>nul\r\n";
                     h.close();
 
-                    // Spawn helper detached via cmd.exe /c so the
-                    // batch lives past our exit.
-                    if (QProcess::startDetached(QStringLiteral("cmd.exe"),
-                            { QStringLiteral("/c"),
-                              QStringLiteral("start"),
-                              QStringLiteral("\"quewi-update\""),
-                              QStringLiteral("/min"),
-                              QDir::toNativeSeparators(helperPath) })) {
+                    // Run the batch directly, hidden, detached so it outlives
+                    // us. NOT `cmd /c start "title" /min swap.bat` through
+                    // QProcess's argument list: Qt escapes the title's quotes
+                    // as \"title\", which cmd doesn't understand, so `start`
+                    // failed silently and the portable update never ran.
+                    // setNativeArguments passes the command line verbatim.
+                    QProcess helper;
+                    helper.setProgram(QStringLiteral("cmd.exe"));
+                    helper.setNativeArguments(QStringLiteral("/d /c \"\"%1\"\"")
+                        .arg(QDir::toNativeSeparators(helperPath)));
+                    helper.setCreateProcessArgumentsModifier(
+                        [](QProcess::CreateProcessArguments *a) {
+                            a->flags |= CREATE_NO_WINDOW;
+                        });
+                    qint64 helperPid = 0;
+                    if (helper.startDetached(&helperPid)) {
                         started = true;
+                        logStep(QStringLiteral("portable swap helper launched, pid=%1")
+                                    .arg(helperPid));
+                    } else {
+                        logStep(QStringLiteral("portable swap helper launch FAILED: %1")
+                                    .arg(helper.errorString()));
                     }
                 }
+            } else {
+                logStep(QStringLiteral("portable: unzip failed (exit %1): %2")
+                            .arg(unzip.exitCode())
+                            .arg(QString::fromLocal8Bit(unzip.readAllStandardError()).left(300)));
             }
         }
     }

@@ -20,9 +20,14 @@ struct Highlight { const char *title; const char *body; };
 // Curated highlights for this release. Written to read like a person wrote
 // them — specific, second-person, no filler. Update this list each release.
 //
-// 1.0.2: effects presets + new effects, pad import, the updater fix. The
-// 1.0.1 highlights follow for anyone jumping straight from 1.0.0.
+// 1.0.3: the updater really works. The 1.0.2 and 1.0.1 highlights follow,
+// for anyone installing this by hand from an older version.
 const Highlight kHighlights[] = {
+    { "In-app updates work now",
+      "Install update used to just close quewi: the updater lost track of the "
+      "file it had downloaded. Fixed and checked end to end, so from here on, "
+      "File → Check for updates… closes quewi, installs, and reopens it." },
+    // ── 1.0.2 ──
     { "Effects presets",
       "Open a cue in the audio editor and pick from 28 ready-made chains: "
       "Telephone, Megaphone, Next room, Cathedral, Monster, Chipmunk, Underwater "
@@ -38,9 +43,6 @@ const Highlight kHighlights[] = {
       "Once a cue plays a render, re-rendering updates that same file with no "
       "save dialog. Effect-only edits are now saved, and a rendered cue no "
       "longer plays its effects twice." },
-    { "Updates that finish",
-      "quewi now closes itself when you install an update, so the installer can "
-      "run. (If this update left quewi open, that was the old bug, fixed here.)" },
     // ── 1.0.1 ──
     { "A key for every pad",
       "Right-click a soundboard pad → Set keybind… On Windows the keys can work "
