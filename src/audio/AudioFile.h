@@ -55,6 +55,10 @@ public:
 
     void load(const QString &path);
     void clear();
+    // Adopt already-decoded interleaved PCM and become Loaded immediately,
+    // with no decoder. Used by the mixer tests to feed exact, synthetic
+    // signals; also handy for generated audio.
+    void loadFromSamples(std::vector<float> interleaved, int channels, int sampleRate);
 
     State    state()       const { return m_state; }
     QString  path()        const { return m_path; }

@@ -6,6 +6,7 @@
 #include <QList>
 #include <QObject>
 #include <atomic>
+#include <functional>
 #include <memory>
 #include <mutex>
 #include <vector>
@@ -179,6 +180,7 @@ signals:
 
 private:
     class Mixer;
+    friend class OfflineRenderer;
 
     struct DeviceContext {
         QAudioDevice                  device;
@@ -209,6 +211,9 @@ private:
     // Remove any device context whose sink has stopped (dead device /
     // CoreAudio error), so it isn't handed back to a later GO.
     void pruneDeadContexts();
+    // Remove contexts matching `pred`, emitting voiceFinished for every voice
+    // that dies with them. All context teardown goes through here.
+    void eraseContextsIf(const std::function<bool(const DeviceContext &)> &pred);
 
     QMediaDevices                              *m_deviceWatcher = nullptr;
     bool                                        m_followSystemDefault = true;
@@ -216,6 +221,31 @@ private:
     std::vector<std::unique_ptr<DeviceContext>> m_contexts;
     std::atomic<bool>                           m_running{false};
     QString                                     m_lastError;
+};
+
+// The real Mixer — the exact code the sound card pulls from — rendering into
+// memory instead. Deterministic, so tests can check fades, loops, stops and
+// pause frame by frame without a device.
+class OfflineRenderer {
+public:
+    explicit OfflineRenderer(int sampleRate = 48000, int channels = 2);
+    ~OfflineRenderer();
+
+    VoiceId fire(const std::shared_ptr<const AudioFile> &file, const VoiceParams &params);
+    std::vector<float> render(int frames);   // interleaved output frames
+    void stop(VoiceId id, double fadeOutSeconds);
+    void stopAll(double fadeOutSeconds);
+    void fadeGain(VoiceId id, double targetDb, double seconds);
+    bool pause(VoiceId id);
+    bool resume(VoiceId id);
+    int  activeCount() const;
+    int  channels() const { return m_channels; }
+
+private:
+    std::unique_ptr<AudioEngine>        m_engine;   // target of the mixer's finished callback
+    std::unique_ptr<AudioEngine::Mixer> m_mixer;
+    int     m_channels;
+    VoiceId m_nextId = 1;
 };
 
 } // namespace quewi::audio

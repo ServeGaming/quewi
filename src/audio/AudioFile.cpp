@@ -60,6 +60,21 @@ std::shared_ptr<const AudioBufferSnapshot> AudioFile::snapshot() const
     return m_published;   // shared_ptr copy bumps refcount under the lock
 }
 
+void AudioFile::loadFromSamples(std::vector<float> interleaved, int channels, int sampleRate)
+{
+    clear();
+    if (channels <= 0 || sampleRate <= 0) { setState(State::Failed); return; }
+    m_channelCount = channels;
+    m_sampleRate   = sampleRate;
+    m_frameCount   = static_cast<qint64>(interleaved.size()) / channels;
+    interleaved.resize(static_cast<size_t>(m_frameCount) * channels);
+    m_samples = std::make_shared<std::vector<float>>(std::move(interleaved));
+    buildPeaksIncrementally(m_frameCount);
+    publishSnapshot();
+    m_lastPublishedFrames = m_frameCount;
+    setState(State::Loaded);
+}
+
 void AudioFile::publishSnapshot()
 {
     auto snap = std::make_shared<AudioBufferSnapshot>();

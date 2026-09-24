@@ -20,6 +20,9 @@ quewi_add_test(osc_pattern  Qt6::Test quewi_osc)
 quewi_add_test(osc_slip     Qt6::Test quewi_osc)
 quewi_add_test(osc_loopback Qt6::Test Qt6::Network quewi_osc)
 quewi_add_test(audio_smoke  Qt6::Test Qt6::Multimedia quewi_audio)
+# The real-time mixer rendered offline (audio::OfflineRenderer): fades,
+# loops, stops and pause checked sample by sample.
+quewi_add_test(mixer        Qt6::Test Qt6::Multimedia quewi_audio)
 quewi_add_test(vbap         Qt6::Test quewi_audio)
 quewi_add_test(trajectory   Qt6::Test quewi_audio)
 quewi_add_test(artnet       Qt6::Test Qt6::Network quewi_lighting)
@@ -43,6 +46,14 @@ quewi_add_test(mix_grid     Qt6::Test Qt6::Widgets quewi_mix)
 target_sources(test_mix_grid PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/../src/ui/MixGridModel.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/../src/ui/Theme.cpp
+)
+
+# The soundboard view. CartView reads the GoEngine (for the playing glow),
+# and GoEngine lives in the app target, so compile it in — same trick as the
+# mix grid above.
+quewi_add_test(cart_view    Qt6::Test Qt6::Widgets quewi_ui)
+target_sources(test_cart_view PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/../src/app/GoEngine.cpp
 )
 
 # On Windows, Qt's DLLs need to be reachable via PATH at test runtime.

@@ -60,7 +60,8 @@ public:
         v.fadeOutOnStop = static_cast<qint64>(params.fadeOutSeconds * m_outputSampleRate);
         v.loop = params.loop;
 
-        v.readPos = static_cast<qint64>(params.trimInSeconds * srcSr);
+        v.readPos = static_cast<qint64>(std::max(0.0, params.trimInSeconds) * srcSr);
+        v.startFrame = v.readPos;
         if (params.trimOutSeconds > 0.0) {
             v.endFrame = static_cast<qint64>(params.trimOutSeconds * srcSr);
         }
@@ -91,6 +92,11 @@ public:
 
         std::lock_guard<std::mutex> lock(m_mutex);
         m_voices.push_back(std::move(v));
+        // Room in the grave for every live voice, so the audio callback can
+        // bury a finished one without allocating (see reapFinished).
+        const size_t need = m_graveFiles.size() + m_voices.size() + 1;
+        if (m_graveFiles.capacity() < need) m_graveFiles.reserve(need * 2);
+        if (m_graveBufs.capacity()  < need) m_graveBufs.reserve(need * 2);
         return m_voices.back().id;
     }
 
@@ -98,6 +104,24 @@ public:
     // objects are destroyed HERE, never on the audio callback. No-op if this
     // mixer didn't own that voice id.
     void reapEffects(VoiceId id) { m_voiceFx.remove(id); }
+
+    // GUI thread: release the file/PCM references of voices the callback
+    // has finished. The callback moves them into the grave instead of letting
+    // them die with the voice: if a voice held the LAST reference (its cue's
+    // file was replaced while it played), ~AudioFile — a QObject owning a
+    // QAudioDecoder — and a possibly huge sample buffer used to be destroyed
+    // on the real-time audio thread.
+    void reapFinished()
+    {
+        std::vector<std::shared_ptr<const AudioFile>>           files;
+        std::vector<std::shared_ptr<const AudioBufferSnapshot>> bufs;
+        {
+            std::lock_guard<std::mutex> lock(m_mutex);
+            files.swap(m_graveFiles);
+            bufs.swap(m_graveBufs);
+        }
+        // Destroyed here, outside the lock, on the GUI thread.
+    }
 
     void stopVoice(VoiceId id, double fadeOutSeconds)
     {
@@ -176,6 +200,7 @@ public:
             if (target < 0) target = 0;
             if (target >= effEnd) target = std::max<qint64>(0, effEnd - 1);
             v.readPos = target;
+            v.readFrac = 0.0;
             // Short ramp on the next buffer so the discontinuity is
             // masked. Only meaningful if the voice isn't paused (a
             // paused voice will get the ramp at resume() time anyway).
@@ -226,6 +251,11 @@ public:
         std::lock_guard<std::mutex> lock(m_mutex);
         for (auto &v : m_voices) {
             if (v.id == id) {
+                // The resting gain must become the target too: once the ramp
+                // ends the mixer falls back to v.gain, which used to still
+                // hold the fired level — so every Fade cue snapped back to
+                // where it started the moment it finished.
+                v.gain.store(dbToLinear(targetDb), std::memory_order_relaxed);
                 v.targetGain.store(dbToLinear(targetDb), std::memory_order_relaxed);
                 v.gainFadeSamples = std::max<qint64>(
                     static_cast<qint64>(durationSeconds * m_outputSampleRate), 1);
@@ -357,6 +387,15 @@ public:
         return static_cast<int>(m_voices.size());
     }
 
+    QList<VoiceId> voiceIds() const
+    {
+        std::lock_guard<std::mutex> lock(m_mutex);
+        QList<VoiceId> ids;
+        ids.reserve(int(m_voices.size()));
+        for (const auto &v : m_voices) ids.append(v.id);
+        return ids;
+    }
+
     qint64 readData(char *data, qint64 maxlen) override;
     qint64 writeData(const char *, qint64) override { return -1; } // output-only
 
@@ -381,6 +420,18 @@ private:
         // publish mutex causes dropouts.
         bool     snapshotFinal = false;
         qint64   readPos = 0;
+        // Sub-frame remainder of the read position. Resampling advances by
+        // framesWritten*rate, which is rarely whole; truncating it every
+        // buffer made playback drift (and loops land off-point).
+        double   readFrac = 0.0;
+        // Where playback (and every loop pass) starts: the trim-in frame.
+        // Loops used to wrap to frame 0 and replay audio that was trimmed off.
+        qint64   startFrame = 0;
+        // Output frames rendered since fire — the clock the fade-in runs on.
+        // (It used to compare the absolute FILE position against a length in
+        // OUTPUT frames, so any trim-in broke the fade-in, and every loop
+        // pass re-faded in.)
+        qint64   playedFrames = 0;
         qint64   endFrame = 0;
         double   srcSampleRate = 0.0;
         std::atomic<double> gain{1.0};
@@ -447,6 +498,9 @@ private:
             , buf(std::move(other.buf))
             , snapshotFinal(other.snapshotFinal)
             , readPos(other.readPos)
+            , readFrac(other.readFrac)
+            , startFrame(other.startFrame)
+            , playedFrames(other.playedFrames)
             , endFrame(other.endFrame)
             , srcSampleRate(other.srcSampleRate)
             , gainFadeSamples(other.gainFadeSamples)
@@ -484,6 +538,9 @@ private:
             buf  = std::move(other.buf);
             snapshotFinal = other.snapshotFinal;
             readPos = other.readPos;
+            readFrac = other.readFrac;
+            startFrame = other.startFrame;
+            playedFrames = other.playedFrames;
             endFrame = other.endFrame;
             srcSampleRate = other.srcSampleRate;
             gainFadeSamples = other.gainFadeSamples;
@@ -532,6 +589,10 @@ private:
     // ever reads the raw pointers cached in Voice::effects. Keeping ownership
     // here is what makes a finished voice's effects destruct on the GUI thread.
     QHash<VoiceId, std::vector<std::shared_ptr<AudioEffect>>> m_voiceFx;
+    // Finished voices' file/PCM references awaiting release on the GUI
+    // thread (guarded by m_mutex; see reapFinished).
+    std::vector<std::shared_ptr<const AudioFile>>           m_graveFiles;
+    std::vector<std::shared_ptr<const AudioBufferSnapshot>> m_graveBufs;
 };
 
 qint64 AudioEngine::Mixer::readData(char *data, qint64 maxlen)
@@ -590,6 +651,15 @@ qint64 AudioEngine::Mixer::readData(char *data, qint64 maxlen)
             if (v.paused) {
                 v.peakL.store(0.f, std::memory_order_relaxed);
                 v.peakR.store(0.f, std::memory_order_relaxed);
+                // A paused voice is already silent, so a stop (Stop cue,
+                // Stop All, Panic) just ends it. This `continue` used to skip
+                // the stop entirely: the voice lived forever, held a voice
+                // slot, never sent voiceFinished, and a later Start "resumed"
+                // it into a 50 ms fade tail.
+                if (v.stopRequested) {
+                    v.finished = true;
+                    finished.push_back({ v.id, false });
+                }
                 continue;
             }
 
@@ -645,41 +715,60 @@ qint64 AudioEngine::Mixer::readData(char *data, qint64 maxlen)
                 !v.effects.empty()
                 && framesWanted <= kFxScratchFrames
                 && static_cast<qint64>(v.fxScratch.size()) >= framesWanted * 2;
+            // The end is only "known" once decode has finished, or when a
+            // trim-out sits inside the audio decoded so far. Until then the
+            // end of the snapshot means "wait for more", not "end" — for
+            // loops too (a loop fired mid-decode used to wrap early).
+            const bool endKnown = !decodeOngoing
+                || (v.endFrame > 0 && v.endFrame <= totalFrames);
+            const qint64 startFrame = std::clamp<qint64>(
+                v.startFrame, 0, std::max<qint64>(0, effectiveEnd - 1));
+            const qint64 loopLen = effectiveEnd - startFrame;
+            const bool   looping = v.loop && endKnown && loopLen > 0;
+            const double basePos = static_cast<double>(v.readPos) + v.readFrac;
+
             for (qint64 f = 0; f < framesWanted; ++f) {
                 if (v.finished) break;
 
-                const double srcF = static_cast<double>(v.readPos) + f * rate;
-                const qint64 i0 = static_cast<qint64>(srcF);
-                const double frac = srcF - static_cast<double>(i0);
-                qint64 i1 = i0 + 1;
-
-                if (v.loop) {
-                    if (i1 >= effectiveEnd) i1 -= effectiveEnd;
-                } else if (i1 >= effectiveEnd) {
-                    i1 = effectiveEnd - 1;
-                }
-                if (i0 >= effectiveEnd) {
-                    if (!v.loop) {
-                        // Stall instead of finish if decode is still
-                        // in progress — the next buffer will refresh
-                        // the snapshot and pick up new data.
-                        if (decodeOngoing) break;
+                double srcF = basePos + static_cast<double>(f) * rate;
+                if (srcF >= static_cast<double>(effectiveEnd)) {
+                    if (looping) {
+                        // Wrap EVERY frame that crosses the end back to the
+                        // trim-in point. Only the next-sample index used to
+                        // wrap, so the rest of the buffer read clamped
+                        // last-sample (a held-sample gap / click per pass).
+                        srcF = static_cast<double>(startFrame)
+                             + std::fmod(srcF - static_cast<double>(effectiveEnd),
+                                         static_cast<double>(loopLen));
+                    } else {
+                        // Stall rather than finish while decode can still
+                        // extend the audio; the next buffer picks it up.
+                        if (!endKnown) break;
                         v.finished = true;
                         break;
                     }
                 }
+                const qint64 i0 = static_cast<qint64>(srcF);
+                const double frac = srcF - static_cast<double>(i0);
+                qint64 i1 = i0 + 1;
+                if (i1 >= effectiveEnd) i1 = looping ? startFrame : effectiveEnd - 1;
                 ++framesWritten;
 
                 double envGain = 1.0;
-                // Source-frame playhead for this output frame. The cast
-                // must wrap the PRODUCT f*rate — casting `rate` alone
-                // truncated it to 0 for any downsampled material
-                // (44.1 kHz file on a 48 kHz device, rate ≈ 0.919),
-                // which froze the fade-in envelope flat within each
-                // buffer.
-                const qint64 absSamp = v.readPos + static_cast<qint64>(f * rate);
-                if (v.fadeInSamples > 0 && absSamp < v.fadeInSamples) {
-                    envGain *= static_cast<double>(absSamp) / static_cast<double>(v.fadeInSamples);
+                // Fade-in: measured in output frames from the moment the
+                // voice started, on the first pass only.
+                const qint64 played = v.playedFrames + f;
+                if (v.fadeInSamples > 0 && played < v.fadeInSamples) {
+                    envGain *= static_cast<double>(played) / static_cast<double>(v.fadeInSamples);
+                }
+                // Fade-out at the natural end (trim-out or end of file). The
+                // cue's Fade Out setting used to be stored and never applied,
+                // so every cue ended hard even though the Inspector drew a ramp.
+                if (!v.loop && v.fadeOutOnStop > 0 && endKnown && rate > 0.0) {
+                    const double remainingOut =
+                        (static_cast<double>(effectiveEnd) - srcF) / rate;
+                    if (remainingOut < static_cast<double>(v.fadeOutOnStop))
+                        envGain *= std::max(0.0, remainingOut / static_cast<double>(v.fadeOutOnStop));
                 }
                 if (v.resumeFadeSamples > 0
                     && v.resumeFadeCounter < v.resumeFadeSamples) {
@@ -694,6 +783,10 @@ qint64 AudioEngine::Mixer::readData(char *data, qint64 maxlen)
                     const qint64 cnt = v.fadeOutCounter + f;
                     if (cnt >= v.fadeOutSamples) {
                         v.finished = true;
+                        // This frame is still written: make it silent. It
+                        // used to go out un-attenuated — one full-level
+                        // sample at the end of every faded stop (a click).
+                        envGain = 0.0;
                     } else {
                         envGain *= 1.0 - static_cast<double>(cnt) / static_cast<double>(v.fadeOutSamples);
                     }
@@ -851,10 +944,16 @@ qint64 AudioEngine::Mixer::readData(char *data, qint64 maxlen)
             // decode-ongoing stall broke the inner loop early,
             // framesWritten < framesWanted and we keep readPos parked
             // so the next buffer resumes exactly where we paused.
-            const qint64 advanced = static_cast<qint64>(framesWritten * rate);
+            // Carry the sub-frame remainder instead of truncating it.
+            const double moved = v.readFrac + static_cast<double>(framesWritten) * rate;
+            const qint64 advanced = static_cast<qint64>(std::floor(moved));
+            v.readFrac = moved - static_cast<double>(advanced);
             v.readPos += advanced;
-            if (v.loop && effectiveEnd > 0) v.readPos %= effectiveEnd;
-            else if (v.readPos >= effectiveEnd && !decodeOngoing) {
+            v.playedFrames += framesWritten;
+            if (looping) {
+                if (v.readPos >= effectiveEnd)
+                    v.readPos = startFrame + (v.readPos - effectiveEnd) % loopLen;
+            } else if (v.readPos >= effectiveEnd && endKnown) {
                 v.finished = true;
             }
 
@@ -868,6 +967,15 @@ qint64 AudioEngine::Mixer::readData(char *data, qint64 maxlen)
         }
 
         if (!finished.empty()) {
+            // Bury the file/PCM references (no allocation: addVoice reserved
+            // the room) so they're released on the GUI thread, not here.
+            for (auto &v : m_voices) {
+                if (!v.finished) continue;
+                if (v.file && m_graveFiles.size() < m_graveFiles.capacity())
+                    m_graveFiles.push_back(std::move(v.file));
+                if (v.buf && m_graveBufs.size() < m_graveBufs.capacity())
+                    m_graveBufs.push_back(std::move(v.buf));
+            }
             m_voices.erase(std::remove_if(m_voices.begin(), m_voices.end(),
                 [&](const Voice &v) { return v.finished; }), m_voices.end());
         }
@@ -940,17 +1048,19 @@ void AudioEngine::onSystemDefaultOutputChanged()
     }
     const QByteArray oldId = m_defaultDevice.id();
     m_defaultDevice = sysDefault;
-    // Tear down the context bound to the OLD default; its CoreAudio sink
-    // is (or is about to be) dead. Voices that were playing on it are
-    // lost — Qt gives us no way to seamlessly migrate a live sink across
-    // devices — but the next GO (and any auto-followed cue) rebuilds on
-    // the new default instead of silently failing forever.
-    m_contexts.erase(
-        std::remove_if(m_contexts.begin(), m_contexts.end(),
-            [&](const std::unique_ptr<DeviceContext> &c) {
-                return c->device.id() == oldId;
-            }),
-        m_contexts.end());
+    // Future fires go to the new default. Only tear down the OLD default's
+    // context if that device has actually gone away — a Bluetooth headset
+    // connecting mid-show makes it the system default, and that used to
+    // hard-cut every cue still playing on the (perfectly healthy) speakers.
+    bool oldStillPresent = false;
+    for (const auto &dev : QMediaDevices::audioOutputs())
+        if (dev.id() == oldId) { oldStillPresent = true; break; }
+    if (!oldStillPresent) {
+        // Its sink is (or is about to be) dead. Voices that were playing on
+        // it are lost — Qt can't migrate a live sink across devices — but the
+        // next GO rebuilds on the new default instead of failing forever.
+        eraseContextsIf([&](const DeviceContext &c) { return c.device.id() == oldId; });
+    }
     pruneDeadContexts();
     if (m_contexts.empty() && m_running.load()) {
         m_running.store(false);
@@ -960,12 +1070,25 @@ void AudioEngine::onSystemDefaultOutputChanged()
 
 void AudioEngine::pruneDeadContexts()
 {
+    eraseContextsIf([](const DeviceContext &c) {
+        return !c.sink || c.sink->state() == QAudio::StoppedState;
+    });
+}
+
+void AudioEngine::eraseContextsIf(const std::function<bool(const DeviceContext &)> &pred)
+{
+    // Destroying a context destroys its mixer and every voice in it. Report
+    // those voices as finished (not natural): nothing used to, so the UI kept
+    // them "running", pads kept glowing, and an auto-follow waiting on one of
+    // them simply never fired.
+    QList<VoiceId> lost;
+    for (const auto &c : m_contexts)
+        if (c && pred(*c) && c->mixer) lost += c->mixer->voiceIds();
     m_contexts.erase(
         std::remove_if(m_contexts.begin(), m_contexts.end(),
-            [](const std::unique_ptr<DeviceContext> &c) {
-                return !c->sink || c->sink->state() == QAudio::StoppedState;
-            }),
+            [&](const std::unique_ptr<DeviceContext> &c) { return c && pred(*c); }),
         m_contexts.end());
+    for (const auto id : lost) emit voiceFinished(id);
 }
 
 QAudioDevice AudioEngine::resolveDevice(const QByteArray &deviceId) const
@@ -1005,12 +1128,7 @@ AudioEngine::DeviceContext *AudioEngine::ensureContextForDevice(const QAudioDevi
         const bool dead = !existing->sink
             || existing->sink->state() == QAudio::StoppedState;
         if (!dead) return existing;
-        m_contexts.erase(
-            std::remove_if(m_contexts.begin(), m_contexts.end(),
-                [&](const std::unique_ptr<DeviceContext> &c) {
-                    return c->device.id() == key;
-                }),
-            m_contexts.end());
+        eraseContextsIf([&](const DeviceContext &c) { return c.device.id() == key; });
     }
 
     // Channel-count negotiation. Object audio (Phase 6 / v0.3) needs more
@@ -1308,14 +1426,53 @@ bool AudioEngine::seek(VoiceId id, double seconds)
     return false;
 }
 
+// ---------------------------------------------------------------------
+// OfflineRenderer
+// ---------------------------------------------------------------------
+
+OfflineRenderer::OfflineRenderer(int sampleRate, int channels)
+    : m_engine(std::make_unique<AudioEngine>())
+    , m_mixer(std::make_unique<AudioEngine::Mixer>(m_engine.get()))
+    , m_channels(channels)
+{
+    m_mixer->configure(sampleRate, channels);
+}
+
+OfflineRenderer::~OfflineRenderer() = default;
+
+VoiceId OfflineRenderer::fire(const std::shared_ptr<const AudioFile> &file,
+                              const VoiceParams &params)
+{
+    return m_mixer->addVoice(m_nextId++, file, params, QByteArray());
+}
+
+std::vector<float> OfflineRenderer::render(int frames)
+{
+    std::vector<float> out(static_cast<size_t>(frames) * m_channels, 0.f);
+    m_mixer->readData(reinterpret_cast<char *>(out.data()),
+                      static_cast<qint64>(out.size() * sizeof(float)));
+    m_mixer->reapFinished();   // what the GUI thread does after a finish
+    return out;
+}
+
+void OfflineRenderer::stop(VoiceId id, double s)                 { m_mixer->stopVoice(id, s); }
+void OfflineRenderer::stopAll(double s)                          { m_mixer->stopAll(s); }
+void OfflineRenderer::fadeGain(VoiceId id, double db, double s)  { m_mixer->fadeGain(id, db, s); }
+bool OfflineRenderer::pause(VoiceId id)                          { return m_mixer->pauseVoice(id); }
+bool OfflineRenderer::resume(VoiceId id)                         { return m_mixer->resumeVoice(id); }
+int  OfflineRenderer::activeCount() const                        { return m_mixer->activeCount(); }
+
 void AudioEngine::onMixerVoiceFinished(VoiceId id, bool natural)
 {
     // Destroy the finished voice's effects chain on THIS (GUI) thread — the
     // mixer erased the voice on the audio callback but deliberately left the
     // owning shared_ptrs in m_voiceFx so the AudioEffect (QObject) destructors
     // never run on the RT thread. VoiceIds are global, so only one mixer owns it.
-    for (auto &ctx : m_contexts)
-        if (ctx->mixer) ctx->mixer->reapEffects(id);
+    for (auto &ctx : m_contexts) {
+        if (!ctx->mixer) continue;
+        ctx->mixer->reapEffects(id);
+        ctx->mixer->reapFinished();
+    }
     emit voiceFinished(id);
     // Auto-follow hook: only a true EOF advances the cue list.
     if (natural) emit voiceFinishedNatural(id);
