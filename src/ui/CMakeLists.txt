@@ -9,6 +9,8 @@ add_library(quewi_ui STATIC
     MixView.cpp
     ChannelEditorDialog.h
     ChannelEditorDialog.cpp
+    DcaAssignDialog.h
+    DcaAssignDialog.cpp
     SmoothScroll.h
     SmoothScroll.cpp
     AnimatedButton.h

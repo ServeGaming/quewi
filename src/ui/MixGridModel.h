@@ -82,6 +82,12 @@ public:
     // Human-readable contents of a cell, e.g. "Elphaba, Glinda".
     QString cellText(int row, int dca) const;
 
+    // Replace a DCA cell's whole assignment — the entry point for the picker
+    // dialog (DcaAssignDialog), which double-clicking a DCA cell opens. Mutates
+    // the cue, repaints the ripple, and emits cueEdited so a live cue re-pushes.
+    void setDcaAssignment(int row, int dca,
+                          const QSet<int> &strips, const QStringList &ensembles);
+
 signals:
     // A cue's assignments changed through the grid. MainWindow uses this to
     // push a live edit at the console when the edited cue is the active one.

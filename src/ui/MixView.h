@@ -10,6 +10,7 @@ class QComboBox;
 class QLabel;
 class QLineEdit;
 class QPushButton;
+class QModelIndex;
 class QSpinBox;
 class QTableView;
 
@@ -77,6 +78,8 @@ private slots:
     void onLinkState(quewi::mix::ConsoleLink::State state);
     void onResyncRequired(const QString &reason);
     void onCueEdited(quewi::mix::MixCue *cue);
+    // Double-clicking a DCA cell opens the "who's on this DCA?" picker.
+    void onCellDoubleClicked(const QModelIndex &index);
 
 private:
     void buildUi();

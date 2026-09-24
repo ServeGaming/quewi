@@ -8,6 +8,7 @@
 #include "mix/MixShow.h"
 #include "mix/X32Link.h"
 #include "ui/ChannelEditorDialog.h"
+#include "ui/DcaAssignDialog.h"
 #include "ui/MixGridModel.h"
 #include "ui/Theme.h"
 
@@ -16,6 +17,7 @@
 #include <QHeaderView>
 #include <QItemSelectionModel>
 #include <QLabel>
+#include <QModelIndex>
 #include <QLineEdit>
 #include <QMessageBox>
 #include <QPushButton>
@@ -140,6 +142,8 @@ void MixView::buildUi()
     // tell it whenever the selected row moves.
     connect(m_table->selectionModel(), &QItemSelectionModel::currentChanged,
             this, [this] { emit mixStateChanged(); });
+    // Double-click a DCA cell → the "who's on this DCA?" picker.
+    connect(m_table, &QTableView::doubleClicked, this, &MixView::onCellDoubleClicked);
     // No alternating rows — the cue list makes the same call in a paragraph of
     // comment: on a long show they read as noise, and a single calm surface
     // with the change-tints doing the talking scans far better.
@@ -252,6 +256,22 @@ void MixView::deleteSelectedCue()
     if (m_model->rowCount() > 0)
         m_table->setCurrentIndex(m_model->index(qMin(row, m_model->rowCount() - 1),
                                                 idx.column()));
+}
+
+void MixView::onCellDoubleClicked(const QModelIndex &index)
+{
+    if (!index.isValid() || !m_workspace || !m_workspace->mixShow()) return;
+    const int dca = m_model->dcaForColumn(index.column());
+    if (dca <= 0) return;   // cue number / name edit inline; only DCA cells pick
+    auto *cue = m_model->cueAt(index.row());
+    if (!cue) return;
+
+    DcaAssignDialog dlg(m_workspace->mixShow(), dca,
+                        cue->dcaStrips(dca), cue->dcaEnsembles(dca), this);
+    if (dlg.exec() == QDialog::Accepted) {
+        m_model->setDcaAssignment(index.row(), dca,
+                                  dlg.selectedStrips(), dlg.selectedEnsembles());
+    }
 }
 
 void MixView::onEditChannels()

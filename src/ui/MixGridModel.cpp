@@ -272,7 +272,26 @@ QVariant MixGridModel::headerData(int section, Qt::Orientation orientation, int 
 Qt::ItemFlags MixGridModel::flags(const QModelIndex &index) const
 {
     if (!index.isValid()) return Qt::NoItemFlags;
-    return Qt::ItemIsEnabled | Qt::ItemIsSelectable | Qt::ItemIsEditable;
+    Qt::ItemFlags f = Qt::ItemIsEnabled | Qt::ItemIsSelectable;
+    // Cue number/name edit inline; DCA cells are assigned through the picker
+    // dialog (double-click, handled in MixView), so they're not inline-editable.
+    if (index.column() < kFixedCols) f |= Qt::ItemIsEditable;
+    return f;
+}
+
+void MixGridModel::setDcaAssignment(int row, int dca,
+                                    const QSet<int> &strips, const QStringList &ensembles)
+{
+    auto *cue = cueAt(row);
+    if (!cue || dca <= 0 || !m_show) return;
+
+    cue->setDcaStrips(dca, strips);
+    cue->setDcaEnsembles(dca, ensembles);
+
+    // Every row below is painted relative to this one, so the change ripples.
+    emit dataChanged(this->index(row, 0),
+                     this->index(rowCount() - 1, columnCount() - 1));
+    emit cueEdited(cue);
 }
 
 bool MixGridModel::setData(const QModelIndex &index, const QVariant &value, int role)
