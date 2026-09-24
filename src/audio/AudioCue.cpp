@@ -2,6 +2,8 @@
 
 #include "audio/AudioEffect.h"
 
+#include <QDir>
+#include <QFileInfo>
 #include <QJsonArray>
 #include <QJsonObject>
 
@@ -162,30 +164,56 @@ void AudioCue::fromPayload(const QJsonObject &payload)
     m_file.reset();
 }
 
-std::vector<std::shared_ptr<AudioEffect>> AudioCue::buildEffectChain() const
+bool AudioCue::sameFile(const QString &a, const QString &b)
+{
+    // Not QFileInfo::operator== — that calls any two NON-EXISTENT files
+    // equal (both canonical paths are empty).
+    if (a.isEmpty() || b.isEmpty()) return false;
+    const QString ca = QDir::cleanPath(QFileInfo(a).absoluteFilePath());
+    const QString cb = QDir::cleanPath(QFileInfo(b).absoluteFilePath());
+#ifdef Q_OS_WIN
+    return ca.compare(cb, Qt::CaseInsensitive) == 0;
+#else
+    return ca == cb;
+#endif
+}
+
+bool AudioCue::effectsBakedIn() const
+{
+    return sameFile(m_editorModelJson.value(QStringLiteral("bouncedPath")).toString(),
+                    m_filePath);
+}
+
+std::vector<std::shared_ptr<AudioEffect>> AudioCue::rackChain() const
 {
     std::vector<std::shared_ptr<AudioEffect>> chain;
 
     // The cue's rack == track 0's effects in the saved editor session.
-    // Mirrors AudioEditorTrack::fromJson's effects loop so live playback
-    // and the editor stay in lockstep.
+    // Built with the same loader the editor uses, so live playback and the
+    // editor stay in lockstep.
     const auto tracks = m_editorModelJson.value(QStringLiteral("tracks")).toArray();
     if (tracks.isEmpty()) return chain;
     const auto fxArr = tracks.at(0).toObject()
                            .value(QStringLiteral("effects")).toArray();
-    for (const auto &v : fxArr) {
-        const QJsonObject fxo = v.toObject();
-        const auto typeOpt = AudioEffect::typeFromKey(fxo.value(QStringLiteral("type")).toString());
-        if (!typeOpt) continue;
-        auto fx = AudioEffect::create(*typeOpt, nullptr);
-        if (!fx) continue;
-        fx->setEnabled(fxo.value(QStringLiteral("enabled")).toBool(true));
-        const QJsonObject params = fxo.value(QStringLiteral("params")).toObject();
-        for (auto it = params.begin(); it != params.end(); ++it)
-            fx->setParameterValue(it.key(), float(it.value().toDouble()));
-        chain.push_back(std::shared_ptr<AudioEffect>(std::move(fx)));
-    }
+    for (const auto &v : fxArr)
+        if (auto fx = AudioEffect::fromJson(v.toObject()))
+            chain.push_back(std::shared_ptr<AudioEffect>(std::move(fx)));
     return chain;
+}
+
+std::vector<std::shared_ptr<AudioEffect>> AudioCue::buildEffectChain() const
+{
+    // A cue playing its editor render already has the rack baked into the
+    // file; applying it live as well doubled every effect.
+    if (effectsBakedIn()) return {};
+    return rackChain();
+}
+
+void AudioCue::reloadAudio()
+{
+    m_file.reset();
+    prepare();
+    emitChanged();
 }
 
 bool AudioCue::setEffectParam(const QString &typeKey, const QString &paramId,
@@ -247,7 +275,7 @@ bool AudioCue::setEffectParam(const QString &typeKey, const QString &paramId,
 QJsonObject AudioCue::effectChainSummary() const
 {
     QJsonArray effects;
-    for (const auto &fx : buildEffectChain()) {
+    for (const auto &fx : rackChain()) {     // the rack as edited, baked or not
         if (!fx) continue;
         QJsonObject e;
         e.insert(QStringLiteral("type"),    AudioEffect::typeKey(fx->type()));

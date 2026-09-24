@@ -1,5 +1,6 @@
 #include "ui/EffectsRackWidget.h"
 #include "audio/AudioEffect.h"
+#include "audio/EffectPresets.h"
 #include "audio/effects/EqEffect.h"
 #include "audio/effects/CompressorEffect.h"
 #include "ui/ParametricEqDialog.h"
@@ -10,8 +11,12 @@
 #include <QCheckBox>
 #include <QFrame>
 #include <QHBoxLayout>
+#include <QInputDialog>
 #include <QLabel>
+#include <QLineEdit>
+#include <QMap>
 #include <QMenu>
+#include <QMessageBox>
 #include <QPushButton>
 #include <QScrollArea>
 #include <QSignalBlocker>
@@ -33,8 +38,27 @@ QColor fxAccent(audio::AudioEffect::Type t) {
     case T::Compressor: return QColor(0x4f, 0xd1, 0xc5); // teal
     case T::Reverb:     return QColor(0xb3, 0x8b, 0xff); // violet
     case T::Delay:      return QColor(0xff, 0xb0, 0x5a); // amber
+    case T::Distortion: return QColor(0xff, 0x6b, 0x5a); // red-orange
+    case T::LoFi:       return QColor(0x9c, 0xd6, 0x5b); // green
+    case T::PitchShift: return QColor(0xff, 0x7e, 0xc2); // pink
+    case T::Tremolo:    return QColor(0x5a, 0xc8, 0xff); // sky
     }
     return QColor(0x8a, 0x91, 0x9e);
+}
+
+QString fxMenuName(audio::AudioEffect::Type t) {
+    using T = audio::AudioEffect::Type;
+    switch (t) {
+    case T::Eq:         return EffectsRackWidget::tr("Parametric EQ");
+    case T::Compressor: return EffectsRackWidget::tr("Compressor");
+    case T::Reverb:     return EffectsRackWidget::tr("Reverb");
+    case T::Delay:      return EffectsRackWidget::tr("Delay");
+    case T::Distortion: return EffectsRackWidget::tr("Distortion");
+    case T::LoFi:       return EffectsRackWidget::tr("Lo-Fi (bit crusher)");
+    case T::PitchShift: return EffectsRackWidget::tr("Pitch Shift");
+    case T::Tremolo:    return EffectsRackWidget::tr("Tremolo / Auto-pan");
+    }
+    return QString();
 }
 
 bool fxHasVisualEditor(audio::AudioEffect::Type t) {
@@ -49,6 +73,10 @@ QString fxTagline(audio::AudioEffect::Type t) {
     case T::Compressor: return EffectsRackWidget::tr("Dynamics — tame peaks, even out levels");
     case T::Reverb:     return EffectsRackWidget::tr("Spatial ambience and room tone");
     case T::Delay:      return EffectsRackWidget::tr("Echo and rhythmic repeats");
+    case T::Distortion: return EffectsRackWidget::tr("Grit and overdrive — radios, megaphones");
+    case T::LoFi:       return EffectsRackWidget::tr("Fewer bits, lower rate — old or cheap audio");
+    case T::PitchShift: return EffectsRackWidget::tr("Higher or deeper, same speed — character voices");
+    case T::Tremolo:    return EffectsRackWidget::tr("Volume wobble, or swing left and right");
     }
     return QString();
 }
@@ -100,6 +128,14 @@ EffectsRackWidget::EffectsRackWidget(QWidget *parent) : QWidget(parent) {
         "color:%1; font-size:12px; font-weight:700; letter-spacing:0.12em;")
         .arg(tk.ink60.name()));
     header->addWidget(m_trackLabel, 1);
+
+    auto *presetBtn = new QPushButton(tr("Presets  ▾"), this);
+    presetBtn->setObjectName(QStringLiteral("fxAddButton"));
+    presetBtn->setCursor(Qt::PointingHandCursor);
+    presetBtn->setToolTip(tr("Ready-made effect chains (Telephone, Cathedral, Monster…), "
+                             "and your own saved ones"));
+    connect(presetBtn, &QPushButton::clicked, this, &EffectsRackWidget::showPresets);
+    header->addWidget(presetBtn, 0);
 
     auto *addBtn = new QPushButton(tr("+   Add Effect"), this);
     addBtn->setObjectName(QStringLiteral("fxAddButton"));
@@ -157,7 +193,7 @@ void EffectsRackWidget::rebuild() {
     if (fxList.empty()) {
         m_cardsLayout->insertWidget(0, buildPlaceholder(
             tr("No effects on this track"),
-            tr("Add EQ, compression, reverb or delay to shape this audio.")));
+            tr("Pick a preset (Telephone, Cathedral, Monster…) or add effects one by one.")));
         return;
     }
     for (int i = 0; i < int(fxList.size()); ++i)
@@ -338,11 +374,79 @@ void EffectsRackWidget::openEditor(audio::AudioEffect *fx) {
 void EffectsRackWidget::addEffect() {
     if (!m_track) return;
     QMenu menu(this);
-    menu.addAction(tr("Parametric EQ"),  this, [this]{ m_track->addEffect(audio::AudioEffect::Type::Eq); });
-    menu.addAction(tr("Compressor"),     this, [this]{ m_track->addEffect(audio::AudioEffect::Type::Compressor); });
-    menu.addAction(tr("Reverb"),         this, [this]{ m_track->addEffect(audio::AudioEffect::Type::Reverb); });
-    menu.addAction(tr("Delay"),          this, [this]{ m_track->addEffect(audio::AudioEffect::Type::Delay); });
+    for (const auto t : audio::AudioEffect::allTypes()) {
+        auto *a = menu.addAction(fxMenuName(t), this, [this, t]{ m_track->addEffect(t); });
+        a->setToolTip(fxTagline(t));
+    }
+    menu.setToolTipsVisible(true);
     menu.exec(QCursor::pos());
+}
+
+void EffectsRackWidget::showPresets() {
+    if (!m_track) return;
+    QMenu menu(this);
+    menu.setToolTipsVisible(true);
+
+    // Built-ins, one submenu per group.
+    QMap<QString, QMenu *> groups;
+    for (const auto &p : audio::EffectPresets::builtIns()) {
+        QMenu *&sub = groups[p.group];
+        if (!sub) sub = menu.addMenu(p.group);
+        auto *a = sub->addAction(p.name, this, [this, p]{ applyPreset(p.name, p.effects); });
+        a->setToolTip(p.description);
+    }
+
+    const auto mine = audio::EffectPresets::userPresets();
+    menu.addSeparator();
+    if (mine.isEmpty()) {
+        menu.addAction(tr("(No saved presets yet)"))->setEnabled(false);
+    } else {
+        for (const auto &p : mine)
+            menu.addAction(p.name, this, [this, p]{ applyPreset(p.name, p.effects); });
+    }
+    menu.addSeparator();
+    auto *save = menu.addAction(tr("Save current effects as preset…"), this,
+                                &EffectsRackWidget::saveAsPreset);
+    save->setEnabled(!m_track->effects().empty());
+    if (!mine.isEmpty()) {
+        auto *del = menu.addMenu(tr("Delete saved preset"));
+        for (const auto &p : mine)
+            del->addAction(p.name, this, [this, name = p.name]{
+                if (QMessageBox::question(this, tr("Delete preset"),
+                        tr("Delete the preset \"%1\"?").arg(name)) == QMessageBox::Yes)
+                    audio::EffectPresets::removeUserPreset(name);
+            });
+    }
+    menu.exec(QCursor::pos());
+}
+
+void EffectsRackWidget::applyPreset(const QString &name, const QJsonArray &effects) {
+    if (!m_track) return;
+    // A preset replaces the chain; say so if that throws work away.
+    const int existing = int(m_track->effects().size());
+    if (existing > 0) {
+        const auto answer = QMessageBox::question(this, tr("Apply preset"),
+            tr("Replace the %n effect(s) on this track with \"%1\"?", nullptr, existing).arg(name),
+            QMessageBox::Yes | QMessageBox::Cancel, QMessageBox::Yes);
+        if (answer != QMessageBox::Yes) return;
+    }
+    m_track->setEffectsFromJson(effects);
+}
+
+void EffectsRackWidget::saveAsPreset() {
+    if (!m_track || m_track->effects().empty()) return;
+    bool ok = false;
+    const QString name = QInputDialog::getText(this, tr("Save preset"),
+        tr("Name for this effects chain:"), QLineEdit::Normal, QString(), &ok).trimmed();
+    if (!ok || name.isEmpty()) return;
+    for (const auto &p : audio::EffectPresets::userPresets()) {
+        if (p.name == name
+            && QMessageBox::question(this, tr("Save preset"),
+                   tr("You already have a preset called \"%1\". Replace it?").arg(name))
+                   != QMessageBox::Yes)
+            return;
+    }
+    audio::EffectPresets::saveUserPreset(name, m_track->effectsToJson());
 }
 
 } // namespace quewi::ui

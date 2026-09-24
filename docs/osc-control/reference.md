@@ -115,7 +115,8 @@ created with sensible defaults if the cue didn't have one yet.
 | `/quewi/cue/<num>/fx/<type>/<param>` | `f` value (or `T`/`F` for `enabled`) | Set one effect parameter on the cue. |
 | `/quewi/cue/<num>/fx/list` | — | Reply on `/quewi/reply/cue/fx` with the cue's chain as JSON (see below). |
 
-`<type>` is `eq`, `compressor`, `reverb`, or `delay`. `<param>` is one of that
+`<type>` is `eq`, `compressor`, `reverb`, `delay`, or (from 1.0.2)
+`distortion`, `lofi`, `pitch`, `tremolo`. `<param>` is one of that
 effect's parameter ids, or the special `enabled` (`0`/`F` = bypass, `1`/`T` =
 on). Unknown type or param are **rejected** (no silent no-op).
 
@@ -125,6 +126,14 @@ on). Unknown type or param are **rejected** (no silent no-op).
 | `compressor` | `threshold`, `ratio`, `attack`, `release`, `knee`, `makeup` |
 | `reverb` | `roomSize`, `damping`, `width`, `wet` |
 | `delay` | `timeL`, `timeR`, `feedback`, `wet` |
+| `distortion` | `drive` (0–1), `tone` (0–1), `mix` (0–1), `output` (dB, −24…6) |
+| `lofi` | `bits` (2–16), `downsample` (1–32), `mix` (0–1) |
+| `pitch` | `semitones` (−12…12), `mix` (0–1) |
+| `tremolo` | `rate` (Hz, 0.1–20), `depth` (0–1), `stereo` (0–1; 1 = auto-pan) |
+
+A cue that plays its own editor render has its effects baked into that file,
+so the stored rack isn't applied again on GO. Changing it over OSC updates the
+stored rack, but you hear the change only after the render is updated.
 
 ```
 # Compress cue 3 at 4:1 with a -18 dB threshold, then notch band 3 of its EQ:

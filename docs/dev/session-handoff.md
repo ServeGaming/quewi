@@ -198,6 +198,20 @@ off for the cue list, remembered separately); the importer's docs page is
 now in the site nav. Docs mark these "coming in 1.0.2" — drop those markers
 when tagging. Menu + signal covered by `test_cart_view`; the download itself
 was NOT driven (it hits YouTube) — Matthew to try it.
+Also for 1.0.2: effects rack **presets** (`audio/EffectPresets` — 28 built-in
+chains in Voice/Space/Character/Mix groups + user presets in QSettings
+`effects/userPresets`), four new effects on a table-driven `SimpleEffect`
+base (Distortion, Lo-Fi, Pitch Shift [two-tap delay-line], Tremolo), and three
+editor bugs fixed: effect-only edits were never saved (A8 — now
+`effectsEdited`/`effectsDirty`, synced to the cue 300 ms after each change);
+effects played twice after a render (the render bakes the rack; the session
+now stores `bouncedPath` and `AudioCue::buildEffectChain` skips the rack
+while the cue plays it); re-rendering asked for a file every time (now
+"Update Render" rewrites the same file via temp+swap; "Render As…" for a new
+one). `AudioFile` now frees its decoder after loading so Windows lets the
+render be replaced. Beware `QFileInfo::operator==`: it calls two missing
+files equal — use `AudioCue::sameFile`. `test_effects` covers the DSP,
+presets, dirty tracking and the bake rule. **Not driven in the GUI yet.**
 **Next feature idea queued:** Freesound.org as a second source (CC-licensed
 SFX; needs an API key — work out how quewi gets/stores one).
 

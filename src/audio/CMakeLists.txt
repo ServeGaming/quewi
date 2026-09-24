@@ -27,6 +27,17 @@ add_library(quewi_audio STATIC
     effects/ReverbEffect.cpp
     effects/DelayEffect.h
     effects/DelayEffect.cpp
+    effects/SimpleEffect.h
+    effects/DistortionEffect.h
+    effects/DistortionEffect.cpp
+    effects/LoFiEffect.h
+    effects/LoFiEffect.cpp
+    effects/PitchShiftEffect.h
+    effects/PitchShiftEffect.cpp
+    effects/TremoloEffect.h
+    effects/TremoloEffect.cpp
+    EffectPresets.h
+    EffectPresets.cpp
 )
 target_include_directories(quewi_audio PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/..)
 target_link_libraries(quewi_audio PUBLIC Qt6::Core Qt6::Multimedia quewi_core)

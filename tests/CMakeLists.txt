@@ -23,6 +23,8 @@ quewi_add_test(audio_smoke  Qt6::Test Qt6::Multimedia quewi_audio)
 # The real-time mixer rendered offline (audio::OfflineRenderer): fades,
 # loops, stops and pause checked sample by sample.
 quewi_add_test(mixer        Qt6::Test Qt6::Multimedia quewi_audio)
+# The effects rack: every effect type, the presets, and effect-edit saving.
+quewi_add_test(effects      Qt6::Test Qt6::Multimedia quewi_audio)
 # Manual RAM benchmark for long files; skips unless QUEWI_MEM_PROBE_FILE is set.
 quewi_add_test(long_file_memory Qt6::Test Qt6::Multimedia quewi_audio)
 if(WIN32)

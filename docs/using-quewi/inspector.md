@@ -111,10 +111,29 @@ resets.
 
 ## Effects rack (Audio cues only)
 
-Audio cues have an **Effects** tab in the editor at the bottom
-of the Inspector. The rack chains EQ, Compressor, Reverb, and
-Delay effects per-cue.
+Audio cues have an **Effects** tab in the audio editor. The rack chains
+effects per cue:
 
+| Effect | For |
+|---|---|
+| Parametric EQ | 6-band tone shaping, including high- and low-pass filters |
+| Compressor | Evening out levels, taming peaks |
+| Reverb | Room, hall, cathedral |
+| Delay | Echoes, slapback |
+| Distortion *(1.0.2)* | Grit and overdrive: radios, megaphones, blown speakers |
+| Lo-Fi *(1.0.2)* | Bit crusher and sample-rate reducer: old recordings, 8-bit games |
+| Pitch Shift *(1.0.2)* | Higher or deeper without changing speed: monsters, chipmunks |
+| Tremolo *(1.0.2)* | Volume wobble. Turn **Stereo** up for an auto-pan |
+
+- **Presets** *(1.0.2)* — **Presets ▾** loads a ready-made chain, grouped
+  by Voice (Telephone, Old radio, Megaphone, Walkie-talkie, Voice
+  clarity), Space (Next room, Far away, Small room, Concert hall,
+  Cathedral, Slapback, Canyon echo, Stadium announcer), Character (Monster,
+  Giant, Chipmunk, Robot, Ghost, Underwater, Old record, 8-bit game,
+  Warble, Auto-pan) and Mix (Loud & punchy, Gentle leveller, Warm, Bright,
+  Remove rumble). A preset replaces the track's effects; quewi asks first
+  if there are any. **Save current effects as preset…** keeps your own
+  chains, which are then listed in the same menu.
 - **Add** — click `+` Add, pick a type.
 - **Reorder** — drag the effect row.
 - **Enable / disable** — checkbox at the top of each row.
@@ -125,6 +144,15 @@ Delay effects per-cue.
   **Compressor** opens an interactive transfer curve with a live
   gain-reduction meter (drag threshold/ratio, wheel for knee).
 
-Effects are stored with the cue and persist across save/load.
-They apply during playback (live, the audio you hear includes
-the rack) AND during the editor's render-to-WAV export.
+Effects are stored with the cue and persist across save/load. Changes
+reach the cue as you make them, so firing it from the cue list with the
+editor still open plays the new settings.
+
+**Live, or rendered.** A cue that plays its original file applies the rack
+live. **Render to File** writes the edit, effects included, to a WAV and
+switches the cue to play that file. From then on the rack isn't applied a
+second time on top. Once a cue plays its render, the button reads
+**Update Render** and re-renders into that same file without a save
+dialog. Use **Render As…** when you want a new file. If you change
+effects on a rendered cue and close the editor, quewi offers to update
+the render.

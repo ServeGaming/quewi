@@ -11,6 +11,7 @@
 #include <QBuffer>
 #include <QLabel>
 #include <QPointer>
+#include <QPushButton>
 #include <QTimer>
 #include <memory>
 #include <vector>
@@ -50,7 +51,11 @@ private slots:
     void zoomOut();
     void zoomFit();
     void addTrack();
-    void bounceToFile();
+    // Render: updates the cue's existing render in place (no dialog) when the
+    // cue plays one, otherwise asks where to save. Returns false if nothing
+    // was rendered (cancelled or failed).
+    bool bounceToFile();
+    bool renderAs();                 // always asks for a file
     void onPlaybackTick();
     void onRegionSelected(QUuid regionId);
     void onTrackSelected(int trackIndex);
@@ -62,6 +67,17 @@ private:
     void startPlayback();
     void stopPlayback();
     bool promptSaveIfDirty();
+    bool renderTo(const QString &path);
+    // The cue plays the file this session was last rendered to.
+    bool playsOwnRender() const;
+    void updateRenderButton();
+    // Write the session (tracks, regions, effects rack) into the cue.
+    void syncSessionToCue();
+
+    QPushButton *m_renderBtn = nullptr;
+    // Effect edits reach the cue shortly after you make them, so firing the
+    // cue from the main window with the editor still open plays the new rack.
+    QTimer       m_syncTimer;
 
     QPointer<audio::AudioCue>        m_cue;
     std::unique_ptr<audio::AudioEditorModel>    m_model;

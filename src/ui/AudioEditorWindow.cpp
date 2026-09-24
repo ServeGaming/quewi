@@ -230,6 +230,16 @@ AudioEditorWindow::AudioEditorWindow(audio::AudioCue *cue, QWidget *parent)
     }
 
     connect(&m_playTimer, &QTimer::timeout, this, &AudioEditorWindow::onPlaybackTick);
+
+    m_syncTimer.setSingleShot(true);
+    m_syncTimer.setInterval(300);
+    connect(&m_syncTimer, &QTimer::timeout, this, [this] { syncSessionToCue(); });
+    connect(m_model.get(), &audio::AudioEditorModel::effectsEdited, this, [this] {
+        m_syncTimer.start();
+        if (playsOwnRender())
+            statusBar()->showMessage(tr("This cue plays a render — Update Render to "
+                                        "hear effect changes in the show."), 5000);
+    });
     connect(m_renderer.get(), &audio::AudioEditorRenderer::progress, this, [this](int pct){
         statusBar()->showMessage(tr("Rendering… %1%").arg(pct));
     });
@@ -362,7 +372,42 @@ void AudioEditorWindow::buildToolbar() {
         "QPushButton#goButton { font-size:12px; min-height:30px; padding:4px 18px; }"
     ));
     connect(bounceBtn, &QPushButton::clicked, this, &AudioEditorWindow::bounceToFile);
+
+    // Always asks for a new file, even when "Render" would update in place.
+    auto *renderAsBtn = new QPushButton(tr("Render As…"), tb);
+    renderAsBtn->setFlat(true);
+    renderAsBtn->setCursor(Qt::PointingHandCursor);
+    renderAsBtn->setToolTip(tr("Render to a new file of your choosing"));
+    connect(renderAsBtn, &QPushButton::clicked, this, [this] { renderAs(); });
+    tb->addWidget(renderAsBtn);
     tb->addWidget(bounceBtn);
+    m_renderBtn = bounceBtn;
+    updateRenderButton();
+}
+
+bool AudioEditorWindow::playsOwnRender() const
+{
+    const QString bounced = m_model->bouncedPath();
+    return m_cue && audio::AudioCue::sameFile(bounced, m_cue->filePath())
+        && QFileInfo::exists(bounced);
+}
+
+void AudioEditorWindow::updateRenderButton()
+{
+    if (!m_renderBtn) return;
+    if (playsOwnRender()) {
+        m_renderBtn->setText(tr("  Update Render"));
+        m_renderBtn->setToolTip(tr("Re-render into %1, the file this cue plays — no save dialog")
+                                    .arg(QFileInfo(m_model->bouncedPath()).fileName()));
+    } else {
+        m_renderBtn->setText(tr("  Render to File"));
+        m_renderBtn->setToolTip(tr("Render the edit (with its effects) to a WAV the cue plays"));
+    }
+}
+
+void AudioEditorWindow::syncSessionToCue()
+{
+    if (m_cue) m_cue->setEditorModelJson(m_model->toJson());
 }
 
 void AudioEditorWindow::buildCentral() {
@@ -648,45 +693,93 @@ void AudioEditorWindow::onTrackSelected(int trackIndex) {
 
 // ── Bounce ────────────────────────────────────────────────────────────────────
 
-void AudioEditorWindow::bounceToFile() {
-    QString path = QFileDialog::getSaveFileName(this, tr("Render to File"),
+bool AudioEditorWindow::bounceToFile() {
+    // Already playing our own render: update that file in place, no dialog.
+    if (playsOwnRender()) return renderTo(m_model->bouncedPath());
+    return renderAs();
+}
+
+bool AudioEditorWindow::renderAs() {
+    const QString path = QFileDialog::getSaveFileName(this, tr("Render to File"),
         m_cue ? QFileInfo(m_cue->filePath()).dir().absolutePath() : QString(),
         tr("WAV files (*.wav)"));
-    if (path.isEmpty()) return;
+    if (path.isEmpty()) return false;
+    return renderTo(path);
+}
 
+bool AudioEditorWindow::renderTo(const QString &path) {
+    stopPlayback();
     QProgressDialog prog(tr("Rendering…"), tr("Cancel"), 0, 100, this);
     prog.setMinimumDuration(0);
     prog.show();
 
-    bool ok = m_renderer->renderToWav(path);
+    // Render beside the target and swap it in, so a failed render (or a
+    // file another program holds open) never leaves a half-written WAV
+    // where the cue's audio was.
+    const QString tmp = path + QStringLiteral(".rendering");
+    QFile::remove(tmp);
+    bool ok = m_renderer->renderToWav(tmp);
     prog.close();
-
+    QString error = ok ? QString() : m_renderer->errorString();
+    if (ok && QFileInfo::exists(path) && !QFile::remove(path)) {
+        ok = false;
+        error = tr("Couldn't replace %1 — is it open in another program?")
+                    .arg(QDir::toNativeSeparators(path));
+    }
+    if (ok && !QFile::rename(tmp, path)) {
+        ok = false;
+        error = tr("Couldn't write %1.").arg(QDir::toNativeSeparators(path));
+    }
     if (!ok) {
-        QMessageBox::critical(this, tr("Render Failed"), m_renderer->errorString());
-        return;
+        QFile::remove(tmp);
+        QMessageBox::critical(this, tr("Render Failed"), error);
+        return false;
     }
 
-    // Update the cue's file path so it plays the bounced file
+    // The cue now plays the render, which has the rack baked in; remember
+    // that in the session so playback doesn't apply the rack a second time
+    // and so the next render updates this same file.
+    m_model->setBouncedPath(path);
+    m_model->markClean();
     if (m_cue) {
+        const bool samePath = audio::AudioCue::sameFile(m_cue->filePath(), path);
         m_cue->setField(QStringLiteral("filePath"), path);
+        if (samePath) m_cue->reloadAudio();   // same name, new audio
         setWindowTitle(tr("Audio Editor — %1").arg(m_cue->name()));
     }
+    syncSessionToCue();
+    updateRenderButton();
     statusBar()->showMessage(tr("Rendered to %1").arg(QFileInfo(path).fileName()));
+    return true;
 }
 
 // ── Close ─────────────────────────────────────────────────────────────────────
 
 bool AudioEditorWindow::promptSaveIfDirty() {
-    if (!m_model->isDirty()) return true;
     // The editable session is already saved into the cue (closeEvent does
-    // that unconditionally), so this is purely about flattening to a file
-    // the cue can *play* — the engine plays filePath, not the live model.
-    auto btn = QMessageBox::question(this, tr("Bounce for Playback?"),
-        tr("Your edits are saved with the cue. Bounce them to a file now so "
-           "the cue plays the edited audio?"),
-        QMessageBox::Yes | QMessageBox::No | QMessageBox::Cancel);
+    // that), so this is purely about the file the cue *plays*. Effects-only
+    // changes need no render while the cue plays its original file — the
+    // rack is applied live. But a cue playing a render has the OLD rack
+    // baked in, so there they need one too.
+    const bool ownRender = playsOwnRender();
+    if (!m_model->isDirty() && !(ownRender && m_model->effectsDirty())) return true;
+
+    QMessageBox::StandardButton btn;
+    if (ownRender) {
+        btn = QMessageBox::question(this, tr("Update Render?"),
+            tr("This cue plays %1. Update it with your changes now?\n\n"
+               "If you don't, your edits are still kept with the cue, but it "
+               "keeps playing the previous render.")
+                .arg(QFileInfo(m_model->bouncedPath()).fileName()),
+            QMessageBox::Yes | QMessageBox::No | QMessageBox::Cancel);
+    } else {
+        btn = QMessageBox::question(this, tr("Bounce for Playback?"),
+            tr("Your edits are saved with the cue. Bounce them to a file now so "
+               "the cue plays the edited audio?"),
+            QMessageBox::Yes | QMessageBox::No | QMessageBox::Cancel);
+    }
     if (btn == QMessageBox::Cancel) return false;
-    if (btn == QMessageBox::Yes)    bounceToFile();
+    if (btn == QMessageBox::Yes && !bounceToFile()) return false;   // failed / cancelled: stay open
     m_model->markClean();
     return true;
 }
@@ -694,10 +787,11 @@ bool AudioEditorWindow::promptSaveIfDirty() {
 void AudioEditorWindow::closeEvent(QCloseEvent *e) {
     stopPlayback();
     // Auto-save the editable multitrack session into the cue so regions,
-    // tracks, gains and fades round-trip on reopen and across show save/load.
-    // Independent of bouncing — the cue still plays its filePath.
-    if (m_cue && m_model->isDirty())
-        m_cue->setEditorModelJson(m_model->toJson());
+    // tracks, gains, fades AND the effects rack round-trip on reopen and
+    // across show save/load. (Effects-only edits used to be dropped here.)
+    m_syncTimer.stop();
+    if (m_cue && (m_model->isDirty() || m_model->effectsDirty()))
+        syncSessionToCue();
     if (!promptSaveIfDirty()) { e->ignore(); return; }
     e->accept();
 }

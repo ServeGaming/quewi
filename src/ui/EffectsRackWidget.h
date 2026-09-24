@@ -1,6 +1,7 @@
 #pragma once
 
 #include "audio/AudioEditorModel.h"
+#include <QJsonArray>
 #include <QWidget>
 
 class QHBoxLayout;
@@ -33,6 +34,8 @@ public:
 
 private slots:
     void addEffect();
+    void showPresets();
+    void saveAsPreset();
     void rebuild();
 
 private:
@@ -46,6 +49,8 @@ private:
                            const QColor &accent, QWidget *parent);
     QWidget *buildPlaceholder(const QString &title, const QString &subtitle);
     void     openEditor(audio::AudioEffect *fx);
+    // Replace the track's chain with a preset (asks first if it has effects).
+    void     applyPreset(const QString &name, const QJsonArray &effects);
 };
 
 } // namespace quewi::ui

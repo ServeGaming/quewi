@@ -9,29 +9,6 @@
 #include <cassert>
 #include <optional>
 
-namespace {
-// Stable string keys for AudioEffect::Type so saved JSON survives any
-// future re-ordering of the enum.
-QString effectTypeKey(quewi::audio::AudioEffect::Type t) {
-    using T = quewi::audio::AudioEffect::Type;
-    switch (t) {
-    case T::Eq:         return QStringLiteral("eq");
-    case T::Compressor: return QStringLiteral("compressor");
-    case T::Reverb:     return QStringLiteral("reverb");
-    case T::Delay:      return QStringLiteral("delay");
-    }
-    return QStringLiteral("eq");
-}
-std::optional<quewi::audio::AudioEffect::Type> effectTypeFromKey(const QString &k) {
-    using T = quewi::audio::AudioEffect::Type;
-    if (k == QLatin1String("eq"))         return T::Eq;
-    if (k == QLatin1String("compressor")) return T::Compressor;
-    if (k == QLatin1String("reverb"))     return T::Reverb;
-    if (k == QLatin1String("delay"))      return T::Delay;
-    return std::nullopt;
-}
-} // namespace
-
 namespace quewi::audio {
 
 // ── AudioRegion ───────────────────────────────────────────────────────────────
@@ -88,14 +65,23 @@ AudioEditorTrack::AudioEditorTrack(QObject *parent)
 
 AudioEditorTrack::~AudioEditorTrack() = default;
 
+void AudioEditorTrack::watchEffect(AudioEffect *fx) {
+    // Any knob or bypass change is an edit to the session (bug: these never
+    // marked anything, so an effects-only change was dropped on close).
+    connect(fx, &AudioEffect::parameterChanged, this, [this] { emit effectsEdited(); });
+    connect(fx, &AudioEffect::enabledChanged,   this, [this] { emit effectsEdited(); });
+}
+
 AudioEffect *AudioEditorTrack::addEffect(AudioEffect::Type t) {
     auto fx = AudioEffect::create(t, nullptr);
     auto *ptr = fx.get();
+    watchEffect(ptr);
     // Stop any live preview BEFORE the vector is reallocated/mutated — the
     // audio thread iterates m_effects by reference. Handler is synchronous.
     emit effectsAboutToChange();
     m_effects.push_back(std::move(fx));
     emit changed();
+    emit effectsEdited();
     return ptr;
 }
 
@@ -104,6 +90,7 @@ void AudioEditorTrack::removeEffect(int idx) {
     emit effectsAboutToChange();   // stop the preview before we free the effect
     m_effects.erase(m_effects.begin() + idx);
     emit changed();
+    emit effectsEdited();
 }
 
 void AudioEditorTrack::moveEffect(int from, int to) {
@@ -113,6 +100,27 @@ void AudioEditorTrack::moveEffect(int from, int to) {
     m_effects.erase(m_effects.begin() + from);
     m_effects.insert(m_effects.begin() + to, std::move(fx));
     emit changed();
+    emit effectsEdited();
+}
+
+QJsonArray AudioEditorTrack::effectsToJson() const {
+    QJsonArray arr;
+    for (const auto &fx : m_effects)
+        if (fx) arr.append(fx->toJson());
+    return arr;
+}
+
+void AudioEditorTrack::setEffectsFromJson(const QJsonArray &arr) {
+    std::vector<std::unique_ptr<AudioEffect>> next;
+    for (const auto &v : arr)
+        if (auto fx = AudioEffect::fromJson(v.toObject())) {
+            watchEffect(fx.get());
+            next.push_back(std::move(fx));
+        }
+    emit effectsAboutToChange();   // stop the preview before swapping the chain
+    m_effects = std::move(next);
+    emit changed();
+    emit effectsEdited();
 }
 
 QJsonObject AudioEditorTrack::toJson() const {
@@ -130,19 +138,7 @@ QJsonObject AudioEditorTrack::toJson() const {
     // dropped this on the floor, so any FX the user dialled in vanished
     // on save/reload (one of the recurring "the rack does nothing"
     // reports).
-    QJsonArray fxArr;
-    for (const auto &fx : m_effects) {
-        if (!fx) continue;
-        QJsonObject fxo;
-        fxo[QStringLiteral("type")]    = effectTypeKey(fx->type());
-        fxo[QStringLiteral("enabled")] = fx->isEnabled();
-        QJsonObject params;
-        for (const QString &pid : fx->parameterIds())
-            params[pid] = double(fx->parameterValue(pid));
-        fxo[QStringLiteral("params")] = params;
-        fxArr.append(fxo);
-    }
-    o[QStringLiteral("effects")] = fxArr;
+    o[QStringLiteral("effects")] = effectsToJson();
     return o;
 }
 
@@ -157,21 +153,14 @@ void AudioEditorTrack::fromJson(const QJsonObject &o) {
     // them from the cue's audio file when the editor opens. Effects
     // ARE restored so a user re-opening the editor finds their chain
     // intact rather than blank.
+    // Loading isn't an edit, so no effectsEdited() here.
     m_effects.clear();
     const auto fxArr = o.value(QStringLiteral("effects")).toArray();
-    for (const auto &v : fxArr) {
-        const QJsonObject fxo = v.toObject();
-        const auto typeOpt = effectTypeFromKey(
-            fxo.value(QStringLiteral("type")).toString());
-        if (!typeOpt) continue;
-        auto fx = AudioEffect::create(*typeOpt, nullptr);
-        if (!fx) continue;
-        fx->setEnabled(fxo.value(QStringLiteral("enabled")).toBool(true));
-        const QJsonObject params = fxo.value(QStringLiteral("params")).toObject();
-        for (auto it = params.begin(); it != params.end(); ++it)
-            fx->setParameterValue(it.key(), float(it.value().toDouble()));
-        m_effects.push_back(std::move(fx));
-    }
+    for (const auto &v : fxArr)
+        if (auto fx = AudioEffect::fromJson(v.toObject())) {
+            watchEffect(fx.get());
+            m_effects.push_back(std::move(fx));
+        }
     emit changed();
 }
 
@@ -315,6 +304,8 @@ void AudioEditorModel::initFromFile(const QString &path, int sampleRate) {
         track->regions().push_back(std::move(r));
     }
     m_dirty = false;
+    m_fxDirty = false;
+    m_bouncedPath.clear();
     emit tracksChanged();
 }
 
@@ -339,6 +330,10 @@ AudioEditorTrack *AudioEditorModel::addTrack(const QString &name) {
     connect(t.get(), &AudioEditorTrack::changed, this, &AudioEditorModel::tracksChanged);
     connect(t.get(), &AudioEditorTrack::effectsAboutToChange,
             this, &AudioEditorModel::effectsAboutToChange);
+    connect(t.get(), &AudioEditorTrack::effectsEdited, this, [this] {
+        m_fxDirty = true;
+        emit effectsEdited();
+    });
     auto *ptr = t.get();
     m_tracks.push_back(std::move(t));
     emit tracksChanged();
@@ -419,6 +414,7 @@ void AudioEditorModel::setRegionGain(QUuid id, float gainDb) {
 QJsonObject AudioEditorModel::toJson() const {
     QJsonObject o;
     o[QStringLiteral("sampleRate")] = m_sampleRate;
+    if (!m_bouncedPath.isEmpty()) o[QStringLiteral("bouncedPath")] = m_bouncedPath;
     QJsonArray tracks;
     for (auto &t : m_tracks) tracks.append(t->toJson());
     o[QStringLiteral("tracks")] = tracks;
@@ -427,6 +423,7 @@ QJsonObject AudioEditorModel::toJson() const {
 
 void AudioEditorModel::fromJson(const QJsonObject &o) {
     m_sampleRate = o[QStringLiteral("sampleRate")].toInt(48000);
+    m_bouncedPath = o.value(QStringLiteral("bouncedPath")).toString();
     m_tracks.clear();
     m_undoStack.clear();   // stale commands would reference now-dead regions
 
@@ -465,6 +462,7 @@ void AudioEditorModel::fromJson(const QJsonObject &o) {
     }
 
     m_dirty = false;
+    m_fxDirty = false;
     emit tracksChanged();   // rebuild scrollbars + repaint the timeline
 }
 

@@ -90,8 +90,19 @@ public:
     // Build a fresh effects chain from the saved editor session (track 0's
     // rack in editorModelJson). GoEngine uses it to apply the cue's
     // EQ/comp/reverb/delay to the fired voice. Empty when the cue has no
-    // editor session or no effects. See docs/dev/realtime-fx-plan.md.
+    // editor session or no effects — and empty while the cue plays its own
+    // editor render (effectsBakedIn), which already contains the rack.
+    // See docs/dev/realtime-fx-plan.md.
     std::vector<std::shared_ptr<AudioEffect>> buildEffectChain() const;
+    // The cue plays the file its editor session was last rendered to.
+    bool effectsBakedIn() const;
+    // Same file path (cleaned, absolute; case-insensitive on Windows). Works
+    // for files that don't exist yet, unlike QFileInfo's operator==.
+    static bool sameFile(const QString &a, const QString &b);
+
+    // Re-decode the file even though its path hasn't changed (the editor
+    // rewrote it in place).
+    void reloadAudio();
 
     // Set one parameter on the cue's STORED effect of the given type key
     // (eq / compressor / reverb / delay), creating that effect with default
@@ -113,6 +124,9 @@ public:
     void    setCurrentVoiceId(quint64 id) { m_currentVoiceId = id; }
 
 private:
+    // The stored rack as live effects, regardless of whether it's baked in.
+    std::vector<std::shared_ptr<AudioEffect>> rackChain() const;
+
     QString m_filePath;
     double  m_gainDb         = 0.0;
     double  m_fadeInSeconds  = 0.0;

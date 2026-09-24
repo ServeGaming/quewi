@@ -8,6 +8,7 @@
 #include <QUuid>
 #include <QColor>
 #include <QFileInfo>
+#include <QJsonArray>
 #include <QJsonObject>
 #include <memory>
 #include <vector>
@@ -71,18 +72,27 @@ public:
     AudioEffect *addEffect(AudioEffect::Type t);
     void removeEffect(int index);
     void moveEffect(int from, int to);
+    // The chain as show-file JSON, and replacing the whole chain from it
+    // (presets). Same {type, enabled, params} format either way.
+    QJsonArray effectsToJson() const;
+    void setEffectsFromJson(const QJsonArray &effects);
 
     QJsonObject toJson() const;
     void fromJson(const QJsonObject &);
 
 signals:
     void changed();
+    // An effect was added, removed, reordered, retuned or bypassed — i.e. the
+    // chain the cue plays with changed. (Not emitted while loading.)
+    void effectsEdited();
     // Emitted at the TOP of addEffect/removeEffect/moveEffect, BEFORE m_effects
     // is mutated, so the editor's live preview (LiveEffectDevice iterates this
     // exact vector on the audio thread) can synchronously stop its sink first.
     void effectsAboutToChange();
 
 private:
+    void watchEffect(AudioEffect *fx);
+
     QUuid   m_id;
     QString m_name;
     float   m_volume = 1.f;
@@ -109,8 +119,19 @@ public:
 
     int  sampleRate()       const { return m_sampleRate; }
     void setSampleRate(int sr);
+    // isDirty: the AUDIO changed (regions, gains, fades) — only a render
+    // makes the cue play that. effectsDirty: the rack changed — the cue
+    // applies its rack live, so that only needs saving (unless the cue plays
+    // a render, which has the old rack baked in).
     bool isDirty()          const { return m_dirty; }
-    void markClean()              { m_dirty = false; }
+    bool effectsDirty()     const { return m_fxDirty; }
+    void markClean()              { m_dirty = false; m_fxDirty = false; }
+
+    // The file this session was last rendered to (saved with the session).
+    // While the cue plays exactly that file, its effects are already baked
+    // in, and re-rendering updates that file instead of asking where to save.
+    QString bouncedPath() const            { return m_bouncedPath; }
+    void    setBouncedPath(const QString &p) { m_bouncedPath = p; }
 
     QUndoStack *undoStack()       { return &m_undoStack; }
 
@@ -138,6 +159,8 @@ signals:
     // aboutToRemoveTrack, so a per-effect add/remove/reorder during playback
     // can't race the audio callback.
     void effectsAboutToChange();
+    // Re-emitted from any track's effectsEdited().
+    void effectsEdited();
 
 public slots:
     // Undoable mutations — push commands onto m_undoStack
@@ -158,6 +181,8 @@ private:
     std::vector<std::unique_ptr<AudioEditorTrack>> m_tracks;
     QUndoStack m_undoStack;
     bool m_dirty = false;
+    bool m_fxDirty = false;
+    QString m_bouncedPath;
 
     void setDirty();
 };

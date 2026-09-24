@@ -311,7 +311,21 @@ void AudioFile::onFinished()
     }
     publishSnapshot();   // before Loaded — readers must see a valid snapshot
     releaseDecodedPages();
+    retireDecoder();
     setState(State::Loaded);
+}
+
+void AudioFile::retireDecoder()
+{
+    // Done with the decoder: free it (its buffers, and its handle on the
+    // file — Windows won't let the audio editor rewrite a render in place
+    // while a decoder still has it open). Deferred, because this runs
+    // inside one of the decoder's own signals.
+    if (!m_decoder) return;
+    QAudioDecoder *d = m_decoder.release();
+    d->disconnect(this);
+    d->stop();
+    d->deleteLater();
 }
 
 void AudioFile::releaseDecodedPages()
@@ -331,6 +345,7 @@ void AudioFile::releaseDecodedPages()
 void AudioFile::onError()
 {
     if (m_decoder) m_error = m_decoder->errorString();
+    retireDecoder();
     setState(State::Failed);
 }
 

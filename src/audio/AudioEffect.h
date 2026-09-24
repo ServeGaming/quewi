@@ -1,5 +1,6 @@
 #pragma once
 
+#include <QJsonObject>
 #include <QObject>
 #include <QString>
 #include <QStringList>
@@ -16,7 +17,10 @@ namespace quewi::audio {
 class AudioEffect : public QObject {
     Q_OBJECT
 public:
-    enum class Type { Eq, Compressor, Reverb, Delay };
+    // Append-only: the show file stores the string key (typeKey), not the
+    // number, but keep the order stable anyway.
+    enum class Type { Eq, Compressor, Reverb, Delay,
+                      Distortion, LoFi, PitchShift, Tremolo };
     Q_ENUM(Type)
 
     explicit AudioEffect(QObject *parent = nullptr) : QObject(parent) {}
@@ -25,10 +29,18 @@ public:
     static std::unique_ptr<AudioEffect> create(Type t, QObject *parent = nullptr);
 
     // Canonical stable type keys used in the show file, the editor model JSON,
-    // and the OSC API: "eq" / "compressor" / "reverb" / "delay". One source of
-    // truth so AudioCue, AudioEngine, and the OSC handlers can't drift.
+    // and the OSC API: "eq" / "compressor" / "reverb" / "delay" / "distortion"
+    // / "lofi" / "pitch" / "tremolo". One source of truth so AudioCue,
+    // AudioEngine, and the OSC handlers can't drift.
     static std::optional<Type> typeFromKey(const QString &key);
     static QString             typeKey(Type t);
+    static QList<Type>         allTypes();
+
+    // One effect as stored in the show: {type, enabled, params{id: value}}.
+    // fromJson builds it (unknown type → nullptr; params missing from the
+    // JSON keep their defaults, unknown param ids are ignored).
+    QJsonObject toJson() const;
+    static std::unique_ptr<AudioEffect> fromJson(const QJsonObject &o);
 
     virtual Type    type()    const = 0;
     virtual QString name()    const = 0;

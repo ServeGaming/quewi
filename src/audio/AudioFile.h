@@ -114,6 +114,7 @@ private:
     void publishSnapshot();
     void clearSnapshot();
     void releaseDecodedPages();
+    void retireDecoder();
     std::shared_ptr<SampleStore> copyOfSamples() const;
 
     // Mutex-guarded shared_ptr. We'd rather have std::atomic<shared_ptr>
