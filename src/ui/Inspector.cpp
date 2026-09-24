@@ -60,6 +60,9 @@
 #include <QToolButton>
 #include <QBoxLayout>
 #include <QEvent>
+#include <QApplication>
+#include <QMouseEvent>
+#include <QWindow>
 
 #include <functional>
 
@@ -1116,15 +1119,15 @@ Inspector::Inspector(QWidget *parent)
     connect(m_textSize,      &QSpinBox::editingFinished,       this, &Inspector::commitTextSize);
     connect(m_textColorBtn,  &QPushButton::clicked,            this, &Inspector::pickTextColor);
 
-    // Make the type-specific sections detachable. Any of these can be torn off
-    // onto a second monitor and docked back; Object Audio (nested inside the
-    // audio group) is included because it's the one an operator most wants to
-    // keep open while working the rest of the cue.
+    // Make the type-specific sections detachable by dragging their title. Any
+    // of these can be torn off onto a second monitor and docked back; Object
+    // Audio (nested inside the audio group) is included because it's the one an
+    // operator most wants to keep open while working the rest of the cue.
     for (QGroupBox *box : { m_waitGroup, m_targetGroup, m_groupGroup,
                             m_midiGroup, m_mscGroup, m_oscGroup, m_audioGroup,
                             m_objAudioGroup, m_fadeGroup, m_lightGroup,
                             m_lightFadeGroup, m_visualGroup }) {
-        if (box) makePoppable(box);
+        if (box) makeDraggable(box);
     }
 
     setCue(nullptr);
@@ -1132,54 +1135,20 @@ Inspector::Inspector(QWidget *parent)
 
 Inspector::~Inspector() = default;
 
-// ── Detachable sections ───────────────────────────────────────────────
+// ── Detachable sections (drag to tear off) ─────────────────────────────
 
-void Inspector::makePoppable(QGroupBox *box)
+void Inspector::makeDraggable(QGroupBox *box)
 {
-    auto *btn = new QToolButton(box);
-    btn->setObjectName(QStringLiteral("popoutBtn"));
-    btn->setText(QStringLiteral("↗"));
-    btn->setAutoRaise(true);
-    btn->setCursor(Qt::PointingHandCursor);
-    btn->setFixedSize(20, 20);
-    btn->setFocusPolicy(Qt::NoFocus);
-    btn->setToolTip(tr("Pop this section out into a floating window"));
-    m_popoutButtons.insert(box, btn);
-    connect(btn, &QToolButton::clicked, this, [this, box] { togglePopout(box); });
-    // Reposition the button whenever the section (docked) or its window
-    // (floating) changes size.
+    // Open-hand cursor over the section hints "grab me". The form fields inside
+    // are child widgets with their own cursors (I-beam etc.), so this only
+    // shows on the draggable title strip and the box's own padding.
+    box->setCursor(Qt::OpenHandCursor);
     box->installEventFilter(this);
-    positionPopoutButton(box);
 }
 
-void Inspector::positionPopoutButton(QGroupBox *box)
+void Inspector::popOutSection(QGroupBox *box, const QPoint &globalCursor)
 {
-    auto *btn = m_popoutButtons.value(box);
-    if (!btn) return;
-    btn->move(box->width() - btn->width() - 6, 3);
-    btn->raise();
-}
-
-void Inspector::togglePopout(QGroupBox *box)
-{
-    auto *btn = m_popoutButtons.value(box);
-    if (m_poppedOut.contains(box)) {
-        // ── Dock back ──
-        const Placement p = m_poppedOut.take(box);
-        box->setWindowFlags(Qt::Widget);
-        if (p.layout && p.index >= 0)
-            p.layout->insertWidget(qMin(p.index, p.layout->count()), box);
-        box->show();
-        if (btn) {
-            btn->setText(QStringLiteral("↗"));
-            btn->setToolTip(tr("Pop this section out into a floating window"));
-        }
-        positionPopoutButton(box);
-        return;
-    }
-
-    // ── Pop out ──
-    // Remember exactly where it sat so it returns to the same spot.
+    // Remember exactly where it sat so it returns to the same spot on dock-back.
     Placement p;
     if (auto *parentW = box->parentWidget())
         p.layout = qobject_cast<QBoxLayout *>(parentW->layout());
@@ -1193,26 +1162,75 @@ void Inspector::togglePopout(QGroupBox *box)
     }
     m_poppedOut.insert(box, p);
 
-    // Qt::Tool child window: keeps `box`'s parent for ownership (no leak), but
-    // floats as its own movable window. Stays above the main window so it can't
-    // get lost behind it on a single screen.
-    box->setWindowFlags(Qt::Tool | Qt::WindowStaysOnTopHint);
+    // Qt::Tool child window: keeps `box`'s QObject parent for ownership (no
+    // leak) but floats as its own window that sits above the main window.
+    box->setWindowFlags(Qt::Tool);
     box->setWindowTitle(box->title().isEmpty() ? tr("Inspector section") : box->title());
+    // Put the title under the cursor, then hand the drag to the OS move loop so
+    // the window tracks the mouse the operator is already holding down.
+    box->move(globalCursor.x() - 48, globalCursor.y() - 8);
     box->show();
     box->raise();
-    if (btn) {
-        btn->setText(QStringLiteral("↙"));
-        btn->setToolTip(tr("Dock this section back into the inspector"));
-    }
-    positionPopoutButton(box);
+    box->setCursor(Qt::OpenHandCursor);
+    if (QWindow *wh = box->windowHandle()) wh->startSystemMove();
+}
+
+void Inspector::dockSection(QGroupBox *box)
+{
+    const Placement p = m_poppedOut.take(box);
+    box->setWindowFlags(Qt::Widget);
+    if (p.layout && p.index >= 0)
+        p.layout->insertWidget(qMin(p.index, p.layout->count()), box);
+    else if (p.layout)
+        p.layout->addWidget(box);
+    box->show();
 }
 
 bool Inspector::eventFilter(QObject *watched, QEvent *event)
 {
-    if (event->type() == QEvent::Resize || event->type() == QEvent::Show) {
-        if (auto *box = qobject_cast<QGroupBox *>(watched))
-            if (m_popoutButtons.contains(box))
-                positionPopoutButton(box);
+    auto *box = qobject_cast<QGroupBox *>(watched);
+    if (!box) return QWidget::eventFilter(watched, event);
+
+    switch (event->type()) {
+    case QEvent::MouseButtonPress: {
+        auto *me = static_cast<QMouseEvent *>(event);
+        // Arm a drag only from the title strip, so presses on the section's own
+        // controls (which mostly are child widgets anyway) never start a tear.
+        if (me->button() == Qt::LeftButton && me->position().y() <= 26
+            && !m_poppedOut.contains(box)) {
+            m_dragBox      = box;
+            m_dragPressPos = me->globalPosition().toPoint();
+            m_dragArmed    = true;
+        }
+        break;
+    }
+    case QEvent::MouseMove: {
+        if (m_dragArmed && m_dragBox == box) {
+            auto *me = static_cast<QMouseEvent *>(event);
+            const int moved =
+                (me->globalPosition().toPoint() - m_dragPressPos).manhattanLength();
+            if (moved >= QApplication::startDragDistance()) {
+                m_dragArmed = false;
+                popOutSection(box, me->globalPosition().toPoint());
+            }
+        }
+        break;
+    }
+    case QEvent::MouseButtonRelease:
+        m_dragArmed = false;
+        m_dragBox   = nullptr;
+        break;
+    case QEvent::Close:
+        // The section can't really "close" — it belongs to the Inspector — so
+        // the window's ✕ docks it back where it came from instead.
+        if (m_poppedOut.contains(box)) {
+            dockSection(box);
+            event->ignore();
+            return true;
+        }
+        break;
+    default:
+        break;
     }
     return QWidget::eventFilter(watched, event);
 }

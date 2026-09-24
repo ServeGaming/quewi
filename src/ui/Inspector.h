@@ -1,6 +1,7 @@
 #pragma once
 
 #include <QHash>
+#include <QPoint>
 #include <QPointer>
 #include <QWidget>
 
@@ -157,20 +158,22 @@ private:
     void rebuild();
     void rebuildFadeTargets();
 
-    // ── Detachable sections (pop-out) ─────────────────────────────────
-    // Any section can be torn off into its own floating window and moved to
-    // another monitor, then docked back — the whole Inspector stays removable
-    // as before, this just makes the pieces movable too. makePoppable() adds
-    // the corner button; togglePopout() floats/re-docks; when floated we
-    // remember exactly where the section came from so it returns to the same
-    // spot. Uses the Qt::Window-on-a-child trick, so the section keeps its
-    // parent for ownership and never leaks.
-    void makePoppable(QGroupBox *box);
-    void togglePopout(QGroupBox *box);
-    void positionPopoutButton(QGroupBox *box);
+    // ── Detachable sections (drag to tear off) ────────────────────────
+    // Grab a section by its title strip and drag it out — past a small
+    // threshold it tears off into its own floating window that follows the
+    // cursor (handed to the OS move loop), which you can drop anywhere or on
+    // another monitor. Closing the floating window docks it back to the exact
+    // spot it came from. Sections detach one at a time; the whole Inspector
+    // stays removable as before. Uses the Qt::Window-on-a-child trick, so a
+    // torn-off section keeps its parent for ownership and never leaks.
+    void makeDraggable(QGroupBox *box);
+    void popOutSection(QGroupBox *box, const QPoint &globalCursor);
+    void dockSection(QGroupBox *box);
     struct Placement { QBoxLayout *layout = nullptr; int index = -1; };
-    QHash<QGroupBox *, QToolButton *> m_popoutButtons;
-    QHash<QGroupBox *, Placement>     m_poppedOut;
+    QHash<QGroupBox *, Placement> m_poppedOut;
+    QGroupBox *m_dragBox = nullptr;   // section under a potential title drag
+    QPoint     m_dragPressPos;        // global press point, to measure threshold
+    bool       m_dragArmed = false;
     void pushFieldEdit(const QString &field, const QVariant &newValue);
     void pollVideoTransport();
     // ~30 Hz follow of the selected audio cue's live voice position, used to
