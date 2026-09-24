@@ -1,6 +1,8 @@
 add_library(quewi_audio STATIC
     AudioFile.h
     AudioFile.cpp
+    SampleStore.h
+    SampleStore.cpp
     AudioEngine.h
     AudioEngine.cpp
     AudioCue.h

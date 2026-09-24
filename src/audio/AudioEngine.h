@@ -2,6 +2,7 @@
 
 #include <QAudioDevice>
 #include <QByteArray>
+#include <QHash>
 #include <QIODevice>
 #include <QList>
 #include <QObject>
@@ -12,9 +13,12 @@
 #include <vector>
 
 class QAudioSink;
+class QTimer;
 class QMediaDevices;
 
 namespace quewi::audio {
+
+class SampleStore;
 
 class AudioFile;
 class AudioEffect;
@@ -221,6 +225,11 @@ private:
     std::vector<std::unique_ptr<DeviceContext>> m_contexts;
     std::atomic<bool>                           m_running{false};
     QString                                     m_lastError;
+
+    // Paging housekeeping for disk-backed long files (every 500 ms).
+    void diskHousekeeping();
+    QTimer                                     *m_diskTimer = nullptr;
+    QHash<const SampleStore *, size_t>          m_diskReleased;   // samples released so far
 };
 
 // The real Mixer — the exact code the sound card pulls from — rendering into

@@ -23,6 +23,11 @@ quewi_add_test(audio_smoke  Qt6::Test Qt6::Multimedia quewi_audio)
 # The real-time mixer rendered offline (audio::OfflineRenderer): fades,
 # loops, stops and pause checked sample by sample.
 quewi_add_test(mixer        Qt6::Test Qt6::Multimedia quewi_audio)
+# Manual RAM benchmark for long files; skips unless QUEWI_MEM_PROBE_FILE is set.
+quewi_add_test(long_file_memory Qt6::Test Qt6::Multimedia quewi_audio)
+if(WIN32)
+    target_link_libraries(test_long_file_memory PRIVATE psapi)
+endif()
 quewi_add_test(vbap         Qt6::Test quewi_audio)
 quewi_add_test(trajectory   Qt6::Test quewi_audio)
 quewi_add_test(artnet       Qt6::Test Qt6::Network quewi_lighting)

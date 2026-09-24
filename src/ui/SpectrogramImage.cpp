@@ -54,7 +54,7 @@ QRgb heat(float db) {
 QImage buildFullFile(const std::shared_ptr<const audio::AudioBufferSnapshot> &snap,
                      int rows, int maxCols) {
     if (!snap || !snap->samples) return {};
-    const std::vector<float> &s = *snap->samples;
+    const auto &s = *snap->samples;
     const int    ch     = snap->channelCount;
     const qint64 frames = snap->frameCount;
     if (ch <= 0 || frames <= 0) return {};

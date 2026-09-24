@@ -2,6 +2,10 @@
 
 #include "audio/AudioEngine.h"
 #include "audio/AudioFile.h"
+#include "audio/SampleStore.h"
+
+#include <QDir>
+#include <QStandardPaths>
 
 #include <cmath>
 #include <memory>
@@ -148,6 +152,62 @@ private slots:
         // And the next buffer carries on seamlessly (read position kept).
         const auto next = r.render(10);
         QVERIFY(std::abs(L(next, 0) - src(1000 + 3500 % 1000)) < 1e-5f);
+    }
+
+    // Long files decode into a memory-mapped cache file instead of RAM. The
+    // mixer must play them sample-for-sample identically — loops, trims and
+    // all — and they must not count as resident RAM.
+    void diskBackedFilePlaysIdenticallyToRam()
+    {
+        const int N = 8000;
+        auto render = [&](qint64 threshold, bool *onDisk, qint64 *resident) {
+            SampleStore::setDiskThresholdBytes(threshold);
+            auto f = ramp(N);
+            *onDisk   = f->samples().onDisk();
+            *resident = f->bytesUsed();
+            OfflineRenderer r(kSr, 2);
+            VoiceParams p;
+            p.loop = true;
+            p.trimInSeconds  = 1000.0 / kSr;
+            p.trimOutSeconds = 3000.0 / kSr;
+            r.fire(f, p);
+            return r.render(9000);
+        };
+        const qint64 original = SampleStore::diskThresholdBytes();
+        bool ramOnDisk = true, diskOnDisk = false;
+        qint64 ramResident = 0, diskResident = -1;
+        const auto fromRam  = render(original, &ramOnDisk, &ramResident);
+        const auto fromDisk = render(1024, &diskOnDisk, &diskResident);   // force disk
+        SampleStore::setDiskThresholdBytes(original);
+
+        QVERIFY(!ramOnDisk);
+        QVERIFY2(diskOnDisk, "a file over the threshold must be disk-backed");
+        QVERIFY(ramResident > 0);
+        QCOMPARE(diskResident, qint64(0));
+        QCOMPARE(fromDisk.size(), fromRam.size());
+        for (size_t i = 0; i < fromRam.size(); ++i)
+            QVERIFY2(fromDisk[i] == fromRam[i],
+                     qPrintable(QStringLiteral("sample %1 differs").arg(i)));
+    }
+
+    void diskStoreSurvivesReverseAndCleansUp()
+    {
+        const qint64 original = SampleStore::diskThresholdBytes();
+        SampleStore::setDiskThresholdBytes(1024);
+        QString cachePath;
+        {
+            auto f = ramp(4000);
+            QVERIFY(f->samples().onDisk());
+            f->reverseSamples();                       // COW into a fresh disk store
+            QVERIFY(f->samples().onDisk());
+            QVERIFY(std::abs(f->samples()[0] - float(3999) / 4000.f) < 1e-6f);
+        }
+        SampleStore::setDiskThresholdBytes(original);
+        // The per-process cache folder is empty once every store is gone.
+        const QDir dir(QStandardPaths::writableLocation(QStandardPaths::CacheLocation)
+                       + QStringLiteral("/audio-cache/")
+                       + QString::number(QCoreApplication::applicationPid()));
+        QVERIFY(!dir.exists() || dir.entryList(QDir::Files).isEmpty());
     }
 
     void oneShotFinishesAtTrimOut()

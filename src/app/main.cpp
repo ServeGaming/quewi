@@ -1,3 +1,4 @@
+#include "audio/SampleStore.h"
 #include "MainWindow.h"
 #include "ui/SmoothScroll.h"
 #include "ui/Theme.h"
@@ -190,6 +191,10 @@ int main(int argc, char *argv[])
     };
     auto *comboFilter = new ComboFilter(&app);
     app.installEventFilter(comboFilter);
+
+    // Long audio files decode into memory-mapped cache files; clear any left
+    // behind by a quewi that crashed (they can be gigabytes).
+    quewi::audio::SampleStore::sweepStaleCache();
 
     quewi::MainWindow w;
 

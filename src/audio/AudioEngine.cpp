@@ -8,6 +8,7 @@
 #include <QAudioSink>
 #include <QHash>
 #include <QMediaDevices>
+#include <QTimer>
 #include <QtMath>
 
 #include <algorithm>
@@ -385,6 +386,35 @@ public:
     {
         std::lock_guard<std::mutex> lock(m_mutex);
         return static_cast<int>(m_voices.size());
+    }
+
+    // Voices playing disk-backed (memory-mapped) files, for the GUI-thread
+    // paging housekeeping. Copies the store shared_ptrs under the lock; the
+    // caller drops them on the GUI thread.
+    struct DiskVoice {
+        std::shared_ptr<const SampleStore> store;
+        qint64 readPos = 0, startFrame = 0, endFrame = 0;
+        int    channels = 0;
+        double sampleRate = 0.0;
+        bool   loop = false;
+    };
+    void collectDiskVoices(std::vector<DiskVoice> &out) const
+    {
+        std::lock_guard<std::mutex> lock(m_mutex);
+        for (const auto &v : m_voices) {
+            if (v.finished || !v.buf || !v.buf->samples || !v.buf->samples->onDisk())
+                continue;
+            DiskVoice d;
+            d.store      = v.buf->samples;
+            d.readPos    = v.readPos;
+            d.startFrame = v.startFrame;
+            d.endFrame   = v.endFrame > 0 ? std::min(v.endFrame, v.buf->frameCount)
+                                          : v.buf->frameCount;
+            d.channels   = v.buf->channelCount;
+            d.sampleRate = v.buf->sampleRate;
+            d.loop       = v.loop;
+            out.push_back(std::move(d));
+        }
     }
 
     QList<VoiceId> voiceIds() const
@@ -1010,6 +1040,56 @@ AudioEngine::AudioEngine(QObject *parent)
     // feeding a dead sink with no recovery.
     connect(m_deviceWatcher, &QMediaDevices::audioOutputsChanged,
             this, &AudioEngine::onSystemDefaultOutputChanged);
+
+    // Paging for long, disk-backed files (see SampleStore): keep what's
+    // about to play resident and let what's been played leave RAM.
+    m_diskTimer = new QTimer(this);
+    m_diskTimer->setInterval(500);
+    connect(m_diskTimer, &QTimer::timeout, this, &AudioEngine::diskHousekeeping);
+    m_diskTimer->start();
+}
+
+void AudioEngine::diskHousekeeping()
+{
+    std::vector<Mixer::DiskVoice> voices;
+    for (const auto &ctx : m_contexts)
+        if (ctx && ctx->mixer) ctx->mixer->collectDiskVoices(voices);
+
+    // Group by store: several voices can play one file. Only release what's
+    // behind the EARLIEST of them, so one voice can't page out another's audio.
+    struct Plan { qint64 minPos = -1; int channels = 0; double sr = 0.0; };
+    QHash<const SampleStore *, Plan> plans;
+    for (const auto &v : voices) {
+        if (v.channels <= 0 || v.sampleRate <= 0.0) continue;
+        const size_t ch = size_t(v.channels);
+        const qint64 ahead = qint64(v.sampleRate * 10.0);          // 10 s
+        // Prefetch the next stretch — and, for a loop, the start it will
+        // jump back to — off the audio thread.
+        v.store->prefetch(size_t(v.readPos) * ch, size_t(ahead) * ch);
+        if (v.loop) v.store->prefetch(size_t(v.startFrame) * ch, size_t(ahead) * ch);
+        auto &p = plans[v.store.get()];
+        p.minPos   = (p.minPos < 0) ? v.readPos : std::min(p.minPos, v.readPos);
+        p.channels = v.channels;
+        p.sr       = v.sampleRate;
+    }
+    for (const auto &v : voices) {
+        const auto it = plans.constFind(v.store.get());
+        if (it == plans.constEnd()) continue;
+        const qint64 behind = qint64(it->sr * 5.0);                // keep 5 s
+        const size_t until  = size_t(std::max<qint64>(0, it->minPos - behind))
+                            * size_t(it->channels);
+        size_t &released = m_diskReleased[v.store.get()];
+        if (until < released) released = 0;       // seek / loop went backwards
+        if (until > released) {
+            v.store->release(released, until - released);
+            released = until;
+        }
+    }
+    // Forget stores no longer playing (keys are only compared, never used).
+    for (auto it = m_diskReleased.begin(); it != m_diskReleased.end(); ) {
+        if (!plans.contains(it.key())) it = m_diskReleased.erase(it);
+        else ++it;
+    }
 }
 
 AudioEngine::~AudioEngine()
@@ -1300,6 +1380,15 @@ VoiceId AudioEngine::fire(const std::shared_ptr<const AudioFile> &file,
     constexpr int kVoiceCap = 64;
     if (ctx->mixer && ctx->mixer->activeCount() >= kVoiceCap) {
         ctx->mixer->stopOldestUnstopped(0.10);
+    }
+
+    // A long, disk-backed file: start paging in the first seconds now so the
+    // first audio buffers don't wait on the disk.
+    if (const auto snap = file->snapshot(); snap && snap->samples && snap->samples->onDisk()
+        && snap->sampleRate > 0 && snap->channelCount > 0) {
+        const size_t ch = size_t(snap->channelCount);
+        const size_t start = size_t(std::max(0.0, params.trimInSeconds) * snap->sampleRate) * ch;
+        snap->samples->prefetch(start, size_t(snap->sampleRate) * 10 * ch);
     }
 
     const VoiceId id = ++s_globalNextVoiceId;

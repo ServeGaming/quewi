@@ -1,5 +1,7 @@
 #pragma once
 
+#include "audio/SampleStore.h"
+
 #include <QObject>
 #include <QString>
 #include <atomic>
@@ -23,7 +25,9 @@ struct AudioBufferSnapshot {
     // publishSnapshot() copy a pointer instead of megabytes of audio,
     // which was the cause of the heap churn that looked like a leak
     // when the GO button was spammed mid-decode.
-    std::shared_ptr<const std::vector<float>> samples;
+    // (A SampleStore: heap memory for short files, a memory-mapped cache
+    // file for long ones - see SampleStore.h.)
+    std::shared_ptr<const SampleStore> samples;
     int    channelCount = 0;
     int    sampleRate   = 0;
     qint64 frameCount   = 0;
@@ -71,7 +75,7 @@ public:
     double durationSeconds() const;
 
     // Interleaved float32 buffer. Size == frameCount * channelCount.
-    const std::vector<float> &samples() const { return *m_samples; }
+    const SampleStore &samples() const { return *m_samples; }
 
     // Resident memory cost — what this file currently holds in RAM,
     // including the published snapshot (which holds a copy until the
@@ -109,6 +113,8 @@ private:
     void buildPeaksIncrementally(qint64 newFramesEnd);
     void publishSnapshot();
     void clearSnapshot();
+    void releaseDecodedPages();
+    std::shared_ptr<SampleStore> copyOfSamples() const;
 
     // Mutex-guarded shared_ptr. We'd rather have std::atomic<shared_ptr>
     // (C++20, P0718) but libc++ on macOS hasn't implemented it as of
@@ -135,7 +141,10 @@ private:
     // through immutable snapshots that share this pointer, so capacity
     // overflows during decode COW into a fresh backing rather than
     // realloc'ing under live readers.
-    std::shared_ptr<std::vector<float>> m_samples;
+    std::shared_ptr<SampleStore>   m_samples;
+    // Disk stores: decoded samples up to here have been dropped from the
+    // working set (only the newly decoded stretch is released each time).
+    size_t                         m_releasedSamples = 0;
     std::vector<float>             m_peaks;
     qint64                         m_peakFramesProcessed = 0;
     // Progressive publication cursor. publishSnapshot() runs every

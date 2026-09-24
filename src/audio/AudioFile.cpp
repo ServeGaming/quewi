@@ -12,7 +12,7 @@ namespace quewi::audio {
 
 AudioFile::AudioFile(QObject *parent)
     : QObject(parent),
-      m_samples(std::make_shared<std::vector<float>>())
+      m_samples(SampleStore::makeRam())
 {}
 AudioFile::~AudioFile() = default;
 
@@ -24,12 +24,12 @@ double AudioFile::durationSeconds() const
 
 qint64 AudioFile::bytesUsed() const
 {
-    // Single backing buffer — the published snapshot shares the same
-    // shared_ptr<vector<float>> so it doesn't double the cost. Capacity
-    // (not size) is what's actually committed; we reserve once based
-    // on duration, so capacity == final size for normal files. Peaks
-    // are ~kPeakBlock smaller and negligible.
-    return static_cast<qint64>(m_samples->capacity()) * qint64(sizeof(float));
+    // Single backing buffer — the published snapshot shares the same store
+    // so it doesn't double the cost. For RAM stores capacity (not size) is
+    // what's committed; a disk-backed long file is paged by the OS and
+    // trimmed as it's used, so it costs ~nothing resident. Peaks are
+    // ~kPeakBlock smaller and negligible.
+    return m_samples->residentBytes();
 }
 
 void AudioFile::clear()
@@ -40,7 +40,8 @@ void AudioFile::clear()
     }
     // Detach from any in-flight voice's snapshot — they keep the old
     // backing alive via their shared_ptr; we start fresh.
-    m_samples = std::make_shared<std::vector<float>>();
+    m_samples = SampleStore::makeRam();
+    m_releasedSamples = 0;
     m_peaks.clear();
     m_peaks.shrink_to_fit();
     m_sampleRate = 0;
@@ -67,8 +68,11 @@ void AudioFile::loadFromSamples(std::vector<float> interleaved, int channels, in
     m_channelCount = channels;
     m_sampleRate   = sampleRate;
     m_frameCount   = static_cast<qint64>(interleaved.size()) / channels;
-    interleaved.resize(static_cast<size_t>(m_frameCount) * channels);
-    m_samples = std::make_shared<std::vector<float>>(std::move(interleaved));
+    const size_t n = static_cast<size_t>(m_frameCount) * channels;
+    const bool big = qint64(n * sizeof(float)) > SampleStore::diskThresholdBytes();
+    m_samples = big ? SampleStore::makeDisk() : SampleStore::makeRam();
+    if (!m_samples->reserve(n) || !m_samples->resize(n)) { setState(State::Failed); return; }
+    if (n) std::memcpy(m_samples->data(), interleaved.data(), n * sizeof(float));
     buildPeaksIncrementally(m_frameCount);
     publishSnapshot();
     m_lastPublishedFrames = m_frameCount;
@@ -136,18 +140,38 @@ void AudioFile::onBufferReady()
             // decoder hands us. Falls back to 5 minutes when duration
             // is unknown (rare for local files); the COW path below
             // handles overflow safely if the estimate is short.
-            const qint64 totalUs = m_decoder ? m_decoder->duration() : -1;
+            // QAudioDecoder::duration() is in MILLISECONDS. It was read as
+            // microseconds, so every file reserved ~1/1000 of its size and
+            // then grew by copy-and-double — briefly holding the old buffer
+            // AND one twice its size at each step (a 3-hour mix peaked well
+            // over its 4 GB decoded size), and long files never reached the
+            // disk-backed threshold.
+            const qint64 totalMs = m_decoder ? m_decoder->duration() : -1;
             size_t reserveSamples;
-            if (totalUs > 0) {
+            if (totalMs > 0) {
                 const size_t totalFrames = static_cast<size_t>(
-                    (totalUs * static_cast<qint64>(m_sampleRate)) / 1'000'000);
+                    (totalMs * static_cast<qint64>(m_sampleRate)) / 1000);
                 reserveSamples = (totalFrames * static_cast<size_t>(m_channelCount));
                 reserveSamples += reserveSamples / 32;
             } else {
                 reserveSamples = static_cast<size_t>(m_sampleRate)
                                * static_cast<size_t>(m_channelCount) * 300u;
             }
-            m_samples->reserve(reserveSamples);
+            // Long files decode into a memory-mapped cache file instead of
+            // RAM: a 3-hour mix is ~4 GB of float, which used to sit in RAM
+            // for the life of the show. See SampleStore.
+            if (qint64(reserveSamples * sizeof(float)) > SampleStore::diskThresholdBytes())
+                m_samples = SampleStore::makeDisk();
+            // No room in the cache (disk full, no write access)? Fall back to
+            // RAM rather than failing the cue.
+            if (m_samples->onDisk() && !m_samples->reserve(reserveSamples))
+                m_samples = SampleStore::makeRam();
+            if (!m_samples->reserve(reserveSamples)) {
+                m_error = tr("Not enough memory to decode this file");
+                setState(State::Failed);
+                if (m_decoder) m_decoder->stop();
+                return;
+            }
         }
 
         // The Qt decoder yields samples in `fmt.sampleFormat()`. We
@@ -164,11 +188,23 @@ void AudioFile::onBufferReady()
         // instead so the old snapshot keeps pointing at stable
         // memory until its voices finish.
         if (m_samples->size() + growBy > m_samples->capacity()) {
-            auto fresh = std::make_shared<std::vector<float>>();
             const size_t need = m_samples->size() + growBy;
-            fresh->reserve(std::max(need, m_samples->capacity() * 2));
-            fresh->insert(fresh->end(), m_samples->begin(), m_samples->end());
+            const size_t cap  = std::max(need, m_samples->capacity() * 2);
+            auto fresh = (m_samples->onDisk()
+                          || qint64(cap * sizeof(float)) > SampleStore::diskThresholdBytes())
+                       ? SampleStore::makeDisk() : SampleStore::makeRam();
+            if (fresh->onDisk() && !fresh->reserve(cap)) fresh = SampleStore::makeRam();
+            if (!fresh->reserve(cap) || !fresh->resize(m_samples->size())) {
+                m_error = tr("Not enough memory to decode this file");
+                setState(State::Failed);
+                if (m_decoder) m_decoder->stop();
+                return;
+            }
+            if (!m_samples->empty())
+                std::memcpy(fresh->data(), m_samples->data(),
+                            m_samples->size() * sizeof(float));
             m_samples = std::move(fresh);
+            m_releasedSamples = 0;
         }
 
         const auto oldSize = m_samples->size();
@@ -230,6 +266,7 @@ void AudioFile::onBufferReady()
             || m_frameCount - m_lastPublishedFrames >= publishStride) {
             publishSnapshot();
             m_lastPublishedFrames = m_frameCount;
+            releaseDecodedPages();
         }
     }
 }
@@ -273,7 +310,22 @@ void AudioFile::onFinished()
         m_peakFramesProcessed = m_frameCount;
     }
     publishSnapshot();   // before Loaded — readers must see a valid snapshot
+    releaseDecodedPages();
     setState(State::Loaded);
+}
+
+void AudioFile::releaseDecodedPages()
+{
+    // Disk store only: everything decoded and already scanned for peaks can
+    // leave the working set now; playback pages back in just what it plays.
+    // Only the newly decoded stretch each time — re-releasing the whole file
+    // every couple of seconds would walk gigabytes of pages.
+    if (!m_samples->onDisk() || m_channelCount <= 0) return;
+    const size_t done = static_cast<size_t>(m_peakFramesProcessed)
+                      * static_cast<size_t>(m_channelCount);
+    if (done <= m_releasedSamples) return;
+    m_samples->release(m_releasedSamples, done - m_releasedSamples);
+    m_releasedSamples = done;
 }
 
 void AudioFile::onError()
@@ -288,10 +340,11 @@ void AudioFile::reverseSamples()
     // COW so any voice currently playing the un-reversed buffer keeps
     // reading stable memory until it finishes. New fires read the
     // reversed copy.
-    auto fresh = std::make_shared<std::vector<float>>(*m_samples);
+    auto fresh = copyOfSamples();
+    if (!fresh) return;
     const int chans = m_channelCount;
     const qint64 frames = m_frameCount;
-    auto &buf = *fresh;
+    float *buf = fresh->data();
     for (qint64 i = 0, j = frames - 1; i < j; ++i, --j) {
         for (int c = 0; c < chans; ++c) {
             std::swap(
@@ -300,6 +353,7 @@ void AudioFile::reverseSamples()
         }
     }
     m_samples = std::move(fresh);
+    m_releasedSamples = 0;
     // Rebuild peaks from scratch.
     m_peaks.clear();
     m_peaks.reserve(static_cast<size_t>((m_frameCount / kPeakBlock + 1) * m_channelCount));
@@ -313,22 +367,36 @@ void AudioFile::normaliseSamples(float targetPeak)
 {
     if (m_state != State::Loaded) return;
     float peak = 0.0f;
-    for (float v : *m_samples) {
+    for (float v : static_cast<const SampleStore &>(*m_samples)) {
         const float a = std::fabs(v);
         if (a > peak) peak = a;
     }
     if (peak <= 0.0001f) return;
     const float gain = targetPeak / peak;
     // COW for the same reason as reverseSamples.
-    auto fresh = std::make_shared<std::vector<float>>(*m_samples);
-    for (float &v : *fresh) v *= gain;
+    auto fresh = copyOfSamples();
+    if (!fresh) return;
+    float *p = fresh->data();
+    for (size_t i = 0, n = fresh->size(); i < n; ++i) p[i] *= gain;
     m_samples = std::move(fresh);
+    m_releasedSamples = 0;
     m_peaks.clear();
     m_peaks.reserve(static_cast<size_t>((m_frameCount / kPeakBlock + 1) * m_channelCount));
     m_peakFramesProcessed = 0;
     buildPeaksIncrementally(m_frameCount);
     publishSnapshot();
     emit stateChanged(m_state);
+}
+
+std::shared_ptr<SampleStore> AudioFile::copyOfSamples() const
+{
+    // A fresh store of the same kind holding a copy — the COW that lets
+    // voices still playing the old buffer keep reading stable memory.
+    auto fresh = m_samples->onDisk() ? SampleStore::makeDisk() : SampleStore::makeRam();
+    const size_t n = m_samples->size();
+    if (!fresh->reserve(n) || !fresh->resize(n)) return nullptr;
+    if (n) std::memcpy(fresh->data(), m_samples->data(), n * sizeof(float));
+    return fresh;
 }
 
 void AudioFile::setState(State s)
