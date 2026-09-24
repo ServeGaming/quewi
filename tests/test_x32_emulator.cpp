@@ -1,4 +1,5 @@
 #include <QTest>
+#include <QElapsedTimer>
 #include <QSignalSpy>
 #include <QUdpSocket>
 
@@ -35,6 +36,13 @@ class X32EmulatorTests : public QObject {
 
     // A direct probe socket, independent of X32Link, so we can read the
     // emulator's state back and check X32Link actually changed it.
+    //
+    // "Reachable" means an actual /info REPLY came back — not merely that the
+    // socket woke up. On Windows a datagram to a closed localhost port comes
+    // back as an ICMP port-unreachable that wakes waitForReadyRead() with no
+    // datagram behind it, which used to make this report an emulator that
+    // wasn't there (every case then timed out and the suite failed instead of
+    // skipping).
     bool emulatorReachable(quint16 &outPort)
     {
         QUdpSocket probe;
@@ -42,7 +50,26 @@ class X32EmulatorTests : public QObject {
         outPort = probe.localPort();
         const Message info{QStringLiteral("/info"), {}};
         probe.writeDatagram(Codec::encode(info), QHostAddress(host()), 10023);
-        return probe.waitForReadyRead(1500);
+
+        QElapsedTimer t;
+        t.start();
+        while (t.elapsed() < 1500) {
+            if (!probe.hasPendingDatagrams()
+                && !probe.waitForReadyRead(int(1500 - t.elapsed())))
+                return false;
+            while (probe.hasPendingDatagrams()) {
+                const qint64 size = probe.pendingDatagramSize();
+                if (size <= 0) { probe.readDatagram(nullptr, 0); continue; }
+                QByteArray buf(int(size), Qt::Uninitialized);
+                probe.readDatagram(buf.data(), buf.size());
+                const auto decoded = Codec::decode(buf);
+                if (!decoded) continue;
+                if (const auto *m = std::get_if<Message>(&*decoded);
+                    m && m->address == QLatin1String("/info"))
+                    return true;
+            }
+        }
+        return false;
     }
 
     // Read one parameter's current value straight from the console.
