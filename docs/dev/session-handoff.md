@@ -11,9 +11,10 @@ session on any computer can continue with no gaps.
 > enough that if the session ended right now, the next one would lose nothing.
 > The last section, *Update protocol*, tells you exactly how.
 
-Last updated: **2026-07-18**. 1.0.0 shipped 2026-07-17; this day added three
-post-1.0 mix-workflow features (below) and closed the audio-editor retheme.
-Update the date whenever you touch this file.
+Last updated: **2026-09-24**. 1.0.0 shipped 2026-07-17. September: soundboard
+keybinds (incl. system-wide), a whole-app bug audit, and a RAM fix for long
+files — all on `main`, **not yet released**; they are the 1.0.1 patch (see
+"Heading to 1.0.1" below). Update the date whenever you touch this file.
 
 ---
 
@@ -144,6 +145,48 @@ link-fire test is ready the moment the new binary is running.
   positions, FX assignments, level offsets, the fader surface, the OSC surface.
   DM7 EQ is **blocked** on a hardware test (PEQ gain scaling: 3 sources disagree
   1 vs 10 vs 100).
+
+## Heading to 1.0.1 (September 2026 work, on `main`, unreleased)
+
+All committed + pushed; **22/22 ctest suites green, `--selftest` exits 0** as of
+`b720b2f`. Matthew has been running dev builds copied to a scratch folder;
+**never `Stop-Process` every quewi** — only the dev-build path (killing his
+copy looked to him like a crash).
+
+- **Soundboard keybinds** (`CartView`, new `GlobalHotkeys`): per-pad key via
+  right-click → "Set key…", conflict warnings, plus a scope combo:
+  Board / App / **System** (Windows `WH_KEYBOARD_LL` pass-through hook; fires
+  only while quewi is *not* foreground, so no double-fire). Setting persists in
+  QSettings `soundboard/keyScope`. System scope is Windows-only; other OSes fall
+  back to App. The add-layer button is now a real "+" add button.
+- **Whole-app audit** (`fix(playback)`, `fix(audio)`, `fix(mix)`, `fix(ui)`
+  commits): GoEngine rewrite (auto-continue honours post-wait, playhead skips
+  the chain, Pause/Fade All/panic, group modes, recursion guard); mixer fixes
+  (fades hold, paused voices stop, loops wrap to trim-in, Fade Out applied) —
+  pinned by `test_mixer` rendering the real mixer offline; mix only touches the
+  show's strips, X32 initial-sync race fixed, DM7 writes full rows when unknown,
+  ensemble renames follow; Show Mode really locks, crash recovery runs before
+  Welcome, cue shortcuts no longer collide (**MSC moved to Ctrl+Alt+M**),
+  workspace dirty-tracking covers soundboard/mix/patch edits.
+- **RAM** (`b720b2f`): files whose decoded audio > 96 MB decode into a
+  memory-mapped cache (`SampleStore`, under the app cache dir, swept at start).
+  Measured on a 179-min MP3: **peak working set 45 MB, was 4.1 GB**; decode
+  ~47× realtime. Also fixed `QAudioDecoder::duration()` being read as µs (it's
+  ms) — the pre-reserve was 1000× too small for every file.
+  `test_long_file_memory` is the manual benchmark (env `QUEWI_MEM_PROBE_FILE`).
+
+**Audit items still open:** A7 (audio-editor track-removal crash), A8 (editor
+effects not saved), A12 (output matrix sliders), A5 (waveform handles),
+V3/V4/V7–V10/V12–V14 (video), M11, and the low-severity audio/UI items.
+
+**Not yet driven by Matthew:** system-wide soundboard keys, draggable inspector
+sections, DCA picker, the long-file RAM fix inside the running app.
+
+**1.0.1 release checklist** (when Matthew OKs it): version bump; **update the
+GitHub Pages docs site** (Matthew asked explicitly — release notes, Soundboard
+page, quewi Mix page, Transport/Inspector/OSC/shortcuts pages: MSC is now
+Ctrl+Alt+M, auto-continue waits for post-wait); WhatsNewDialog highlights; tag
+`v1.0.1` — which is also the live test of the Windows updater (below).
 
 ## 1.0 shipped — and what that decision was
 
