@@ -16,10 +16,13 @@ namespace {
 // the failure is a show losing live capture silently.
 constexpr int kKeepaliveMs = 1500;
 
-// Two silent windows (~3 s) with no traffic at all. The console is chatty
-// once /xremote is live, so prolonged silence means we probably lost the
-// registration race for one of its four client slots.
+// Two windows (~3 s) without the console relaying a DCA change we made:
+// we've lost our /xremote slot to another client.
 constexpr int kSilentWindowsBeforeAlarm = 2;
+
+// Four windows (~6 s) without ANY reply — including to the /info we ping
+// with every keepalive — means the console isn't there any more.
+constexpr int kSilentWindowsBeforeLost = 4;
 
 // Scene Safe bitmap for input channels. bit 5 = Groups (DCA + mute group
 // assign) — the one that decides whether a scene recall wipes our work.
@@ -92,10 +95,15 @@ void X32Link::disconnectFromConsole()
     m_keepalive.reset();
     m_rx.reset();
     m_tx.reset();
-    m_dcaCache.clear();
+    forgetDcaState();
     m_linkedChannels.clear();
     m_groupsSafed = false;
-    m_silentKeepalives = 0;
+    m_silentTicks = 0;
+    m_lostContact = false;
+    m_echoPending.clear();
+    m_echoTicks = 0;
+    m_syncPending.clear();
+    m_writtenMask.clear();
     setState(State::Disconnected);
 }
 
@@ -112,16 +120,34 @@ void X32Link::onKeepaliveTick()
     // /xremote must come from rx — registration is keyed on (IP, source port),
     // and rx is the socket we want the console talking to.
     query({QStringLiteral("/xremote"), {}});
+    // /xremote is never answered; /info always is. It's our pulse.
+    query({QStringLiteral("/info"), {}});
 
-    if (state() == State::Connected) {
-        if (++m_silentKeepalives == kSilentWindowsBeforeAlarm) {
-            // Not fatal — we can still drive the desk. But live capture is
-            // dead and the operator must know, because the symptom otherwise
-            // is "quewi mysteriously ignores console moves".
-            emit remoteRegistrationLost();
-            setError(tr("The console isn't reporting changes. It accepts only four "
-                        "remote clients — X32-Edit or a tablet may have taken the slot."));
-        }
+    if (!m_lostContact && state() != State::Disconnected
+        && ++m_silentTicks >= kSilentWindowsBeforeLost) {
+        const bool wasConnected = (state() == State::Connected);
+        m_lostContact = true;
+        m_echoPending.clear();
+        forgetDcaState();   // we'll have missed whatever happened meanwhile
+        setError(wasConnected
+            ? tr("Lost contact with the console — check the network cable and the "
+                 "console's power. quewi will reconnect by itself when it answers.")
+            : tr("No reply from a console at %1. Check the IP address and that "
+                 "the console is on the same network.").arg(m_host.toString()));
+        setState(State::Failed);
+        return;
+    }
+
+    if (state() == State::Connected && !m_echoPending.isEmpty()
+        && ++m_echoTicks >= kSilentWindowsBeforeAlarm) {
+        m_echoPending.clear();
+        m_echoTicks = 0;
+        // Not fatal — we can still drive the desk. But live capture is dead
+        // and the operator must know, because the symptom otherwise is
+        // "quewi mysteriously ignores console moves".
+        emit remoteRegistrationLost();
+        setError(tr("The console isn't reporting changes. It accepts only four "
+                    "remote clients — X32-Edit or a tablet may have taken the slot."));
     }
 }
 
@@ -131,7 +157,13 @@ void X32Link::onRxReadyRead()
         QByteArray buf(int(m_rx->pendingDatagramSize()), Qt::Uninitialized);
         m_rx->readDatagram(buf.data(), buf.size());
 
-        m_silentKeepalives = 0;   // any traffic proves we're still registered
+        m_silentTicks = 0;   // the console is there
+        if (m_lostContact) {
+            // It's back. Our view of the desk is stale; the /info reply in
+            // this burst returns us to Connected and re-reads everything.
+            m_lostContact = false;
+            emit resyncRequired(tr("Contact with the console restored."));
+        }
 
         const auto decoded = Codec::decode(buf);
         if (!decoded) continue;   // not fatal: the desk emits some malformed replies
@@ -178,7 +210,7 @@ void X32Link::handleMessage(const osc::Message &m)
     // view and resync. If Groups isn't safed, our assignments are also gone.
     if (m.address.startsWith(QLatin1String("/-action/go")) ||
         m.address == QLatin1String("/-show/prepos/current")) {
-        m_dcaCache.clear();
+        forgetDcaState();
         emit resyncRequired(m_groupsSafed
             ? tr("The console recalled a scene.")
             : tr("The console recalled a scene and Scene Safe 'Groups' is off — "
@@ -189,7 +221,24 @@ void X32Link::handleMessage(const osc::Message &m)
 
     // DCA membership changed on the surface.
     if (const auto ch = channelFromAddress(m.address, QLatin1String("grp/dca"))) {
+        // A relayed DCA write proves we still hold our /xremote slot.
+        if (m_echoPending.contains(*ch)) {
+            m_echoPending.clear();
+            m_echoTicks = 0;
+        }
         if (const auto n = firstNumber(m)) {
+            if (m_syncPending.contains(*ch)) {
+                const auto written = m_writtenMask.constFind(*ch);
+                if (written == m_writtenMask.constEnd()) {
+                    m_syncPending.remove(*ch);          // the sync reply itself
+                } else if (int(*n) != *written) {
+                    // The sync reply, but older than our write: stale. Drop it.
+                    m_syncPending.remove(*ch);
+                    m_writtenMask.remove(*ch);
+                    return;
+                }
+                // Equal to our write: the relay of it. Keep waiting for the reply.
+            }
             const auto list = x32::dcaMaskToList(x32::DcaMask(*n));
             noteSurfaceDcaAssignment(*ch, DcaSet(list.begin(), list.end()));
         }
@@ -246,6 +295,8 @@ void X32Link::requestInitialState()
         query({QStringLiteral("/config/chlink/%1-%2").arg(a).arg(a + 1), {}});
 
     // Current DCA membership and mute for every channel.
+    m_writtenMask.clear();
+    for (int ch = 1; ch <= x32::kChannelCount; ++ch) m_syncPending.insert(ch);
     for (int ch = 1; ch <= x32::kChannelCount; ++ch) {
         query({x32::chAddr(ch, QLatin1String("grp/dca")), {}});
         query({x32::chAddr(ch, QLatin1String("mix/on")), {}});
@@ -264,16 +315,23 @@ void X32Link::requestSceneSafeGroups()
     query({kSceneSafeInputsAddr, {}});   // read back rather than assume
 }
 
-void X32Link::writeDcaAssignment(int channel, const DcaSet &previous, const DcaSet &next)
+void X32Link::writeDcaAssignment(int channel, const DcaSet &previous, const DcaSet &next,
+                                 bool previousKnown)
 {
     // The X32 has no per-membership address: grp/dca is replace-not-toggle, so
     // `previous` is irrelevant here — we always write the whole mask. (The DM7
     // link will use `previous` to send only the pairs that differ.)
-    Q_UNUSED(previous);
-
     QVector<int> list(next.begin(), next.end());
-    set({x32::chAddr(channel, QLatin1String("grp/dca")),
-         {Argument::i(x32::dcaListToMask(list))}});
+    const int mask = int(x32::dcaListToMask(list));
+    set({x32::chAddr(channel, QLatin1String("grp/dca")), {Argument::i(mask)}});
+    if (m_syncPending.contains(channel)) m_writtenMask.insert(channel, mask);
+
+    // A genuine change to a row we know: the desk will relay it to rx if we
+    // still hold our /xremote slot. Watch for that (see onKeepaliveTick).
+    if (previousKnown && previous != next) {
+        if (m_echoPending.isEmpty()) m_echoTicks = 0;
+        m_echoPending.insert(channel);
+    }
 }
 
 void X32Link::setChannelMuted(int channel, bool muted)

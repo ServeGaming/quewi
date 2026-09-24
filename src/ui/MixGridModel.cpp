@@ -30,6 +30,14 @@ void MixGridModel::setCueList(core::CueList *list)
         connect(m_list, &core::CueList::cueInserted, this, &MixGridModel::onListChanged);
         connect(m_list, &core::CueList::cueRemoved,  this, &MixGridModel::onListChanged);
         connect(m_list, &core::CueList::cueChanged,  this, &MixGridModel::onListChanged);
+        // Deleting the mix list (or opening another show) destroys it. The
+        // QPointer went null silently, leaving ghost rows on screen and a DCA
+        // GO that stayed lit but did nothing. Reset to empty instead.
+        connect(m_list, &QObject::destroyed, this, [this] {
+            beginResetModel();
+            m_list = nullptr;
+            endResetModel();
+        });
     }
     endResetModel();
 }

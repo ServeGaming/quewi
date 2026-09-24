@@ -45,7 +45,7 @@ signals:
 
 protected:
     void writeDcaAssignment(int channel, const DcaSet &previous,
-                            const DcaSet &next) override;
+                            const DcaSet &next, bool previousKnown) override;
 
 private slots:
     void onReadyRead();

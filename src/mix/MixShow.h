@@ -67,6 +67,11 @@ public:
     Ensemble    ensemble(const QString &name) const;
     void        setEnsemble(const QString &name, const Ensemble &strips);
     void        removeEnsemble(const QString &name);
+    // Rename in place, keeping members, and announce it (ensembleRenamed) so
+    // every cue that uses the old name is rewritten. Remove-then-add used to
+    // leave cues pointing at a name that no longer exists — their mics
+    // silently resolved to nothing and were muted on GO.
+    bool        renameEnsemble(const QString &from, const QString &to);
 
     // Expand a mixed list of strip numbers and ensemble names into plain
     // strips. Unknown names and strips with no channel are dropped, so a cue
@@ -92,6 +97,12 @@ signals:
     void channelsChanged();
     void ensemblesChanged();
     void dcaCountChanged();
+    // References to one strip / ensemble name moved to another. The cues
+    // live in cue lists MixShow can't see, so whoever owns them (MixView)
+    // must rewrite them — otherwise every cue keeps the old strip/name and
+    // that mic is muted on GO.
+    void stripReassigned(int fromStrip, int toStrip);
+    void ensembleRenamed(const QString &from, const QString &to);
 
 private:
     int                      m_dcaCount = kMinDcaCount;

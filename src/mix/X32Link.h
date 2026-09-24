@@ -61,7 +61,7 @@ signals:
 
 protected:
     void writeDcaAssignment(int channel, const DcaSet &previous,
-                            const DcaSet &next) override;
+                            const DcaSet &next, bool previousKnown) override;
 
 private slots:
     void onRxReadyRead();
@@ -98,10 +98,31 @@ private:
     quint8   m_sceneSafeInputs = 0;
     QSet<int> m_linkedChannels;   // 1-based; both members of a linked pair
 
-    // Set when we send /xremote, cleared when the console says anything.
-    // Two consecutive silent keepalive windows means we are almost certainly
-    // not one of the four registered clients.
-    int m_silentKeepalives = 0;
+    // Liveness. Every keepalive also sends /info, which the desk always
+    // answers; if several windows pass with NO reply at all, the console is
+    // gone (cable, power, IP change) and we go to Failed — quewi used to stay
+    // "Connected" forever, firing DCA cues into nothing. Any reply afterwards
+    // recovers automatically with a full resync.
+    int  m_silentTicks = 0;
+    bool m_lostContact = false;
+
+    // Registration. The console relays our tx socket's sets to rx only while
+    // we hold one of its four /xremote slots. When a DCA change we KNOW is a
+    // change isn't relayed back within two windows, the slot is gone. (This
+    // used to be "no traffic for 3 s", which fired on any untouched desk —
+    // /xremote itself is never answered.)
+    QSet<int> m_echoPending;   // channels whose DCA write we're awaiting
+    int       m_echoTicks = 0;
+
+    // Initial-sync race. On connect / resync we ask for every channel's DCA
+    // mask; if we WRITE a channel before its reply lands, the late reply
+    // carries the desk's pre-write value and used to overwrite the cache —
+    // so a later cue wanting that stale value was skipped as a "no-op" and
+    // the mic stayed on the wrong DCA. While a channel's sync reply is
+    // outstanding we remember what we wrote, and a differing reply is
+    // recognised as stale and dropped.
+    QSet<int>      m_syncPending;
+    QHash<int,int> m_writtenMask;
 };
 
 } // namespace quewi::mix

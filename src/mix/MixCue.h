@@ -58,6 +58,8 @@ public:
     // Swap one strip for another wherever it appears in this cue.
     // Returns true if anything changed.
     bool reassignStrip(int fromStrip, int toStrip);
+    // Follow an ensemble rename wherever this cue uses it.
+    bool renameEnsemble(const QString &from, const QString &to);
 
     QJsonObject toPayload() const override;
     void        fromPayload(const QJsonObject &payload) override;

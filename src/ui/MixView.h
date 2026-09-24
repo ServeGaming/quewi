@@ -3,6 +3,7 @@
 #include "mix/ConsoleLink.h"
 
 #include <QPointer>
+#include <QSet>
 #include <QWidget>
 #include <memory>
 
@@ -46,6 +47,10 @@ public:
     // and emits mixCueFired(). Returns false with no console connected.
     bool fireCueAtConsole(quewi::mix::MixCue *cue);
 
+    // Make this a secondary view (a detached mix window) that drives
+    // `primary`'s console connection instead of opening its own.
+    void setPrimary(MixView *primary);
+
     // ── State for the main transport bar's DCA GO button ──────────────
     // MixView owns the mix list + console link, so it answers whether a DCA
     // GO is possible and what the next cue is. The transport bar only shows
@@ -80,6 +85,9 @@ private slots:
     void onCueEdited(quewi::mix::MixCue *cue);
     // Double-clicking a DCA cell opens the "who's on this DCA?" picker.
     void onCellDoubleClicked(const QModelIndex &index);
+    void onStripReassigned(int fromStrip, int toStrip);
+    void onEnsembleRenamed(const QString &from, const QString &to);
+    void repushLiveCue();
 
 private:
     void buildUi();
@@ -89,6 +97,16 @@ private:
     void setLiveCue(mix::MixCue *cue);
     void checkSceneSafe();
     mix::MixCue *selectedCue() const;
+
+    // The console this view fires at: its own, or the main view's when
+    // detached. consoleOwner() is the view that owns it (and its live cue).
+    mix::ConsoleLink *activeLink() const;
+    MixView          *consoleOwner();
+    bool              consoleConnected() const;
+    // The show's registered channels — the only ones a cue may mute.
+    QSet<int>         controlledStrips() const;
+    void              applyToConsole(mix::MixCue *cue);
+    bool              fireCue(mix::MixCue *cue, bool fromLink);
 
     QPointer<core::Workspace> m_workspace;
 
@@ -108,6 +126,13 @@ private:
     // The cue currently applied to the console. Editing THIS cue live-updates
     // the desk; editing any other one only edits the show.
     QPointer<QObject> m_liveCue;
+
+    // Set on a detached view: the main view whose console we drive.
+    QPointer<MixView> m_primary;
+
+    // Selection carried across a model reset (see buildUi).
+    QPointer<QObject> m_resetSelCue;
+    int               m_resetSelCol = -1;
 };
 
 } // namespace quewi::ui

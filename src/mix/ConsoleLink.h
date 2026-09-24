@@ -88,10 +88,15 @@ public:
     void   setDcaAssignment(int channel, const DcaSet &dcas);
     DcaSet dcaAssignment(int channel) const;
 
-    // Apply a whole cue at once. Channels absent from `assignments` are muted,
-    // which is the TheatreMix rule and the reason the workflow is safe: if a
-    // mic isn't in this scene, it is off, with no way to forget.
-    void applyCue(const QHash<int, DcaSet> &assignments);
+    // Apply a whole cue at once. Every CONTROLLED channel absent from
+    // `assignments` is unassigned and muted — the TheatreMix rule and the
+    // reason the workflow is safe: if a mic isn't in this scene it is off,
+    // with no way to forget. `controlled` is the show's registered channels
+    // (the mics quewi owns); channels named by the cue count as controlled.
+    // Everything else on the desk — band, playback returns, talkback — is
+    // never touched. (It used to walk every channel on the console, so the
+    // first DCA GO muted the band and pulled it off its DCAs.)
+    void applyCue(const QHash<int, DcaSet> &assignments, const QSet<int> &controlled);
 
     virtual void setDcaLabel(int dca, const QString &name) = 0;
     virtual void setChannelMuted(int channel, bool muted) = 0;
@@ -127,15 +132,24 @@ protected:
 
     // Push a console-originated assignment into the cache and notify. Links
     // call this from their change-notification path. Does not write back.
-    void noteSurfaceDcaAssignment(int channel, const DcaSet &dcas);
+    // `complete` = this is the channel's WHOLE DCA row (X32 mask), so the cache
+    // now reflects the desk; a single-pair update (DM7) leaves it unknown.
+    void noteSurfaceDcaAssignment(int channel, const DcaSet &dcas, bool complete = true);
+
+    // Drop everything we believe about the desk's assignments (disconnect,
+    // scene recall). Every channel's next write then sends its full row.
+    void forgetDcaState();
 
     // Write an assignment change to the wire.
     //
     // `previous` is what we believed before, `next` is what's wanted. X32
     // ignores `previous` and writes the full mask; DM7 writes only the pairs
     // that differ. Both are correct implementations of the same call.
+    // `previousKnown` is false when we don't know what the desk holds for
+    // this channel (nothing seen since connect / scene recall): a diffing
+    // link must then write EVERY pair, or stale assignments survive.
     virtual void writeDcaAssignment(int channel, const DcaSet &previous,
-                                    const DcaSet &next) = 0;
+                                    const DcaSet &next, bool previousKnown) = 0;
 
     bool isChannelValid(int channel) const;
     bool isDcaValid(int dca) const;
@@ -144,6 +158,9 @@ protected:
 
     // Cache of what we believe the console holds, keyed by 1-based channel.
     QHash<int, DcaSet> m_dcaCache;
+    // Channels whose cache entry actually reflects the desk (we wrote their
+    // whole row, or the desk reported it). Anything else is unknown.
+    QSet<int>          m_dcaKnown;
 
 private:
     State        m_state = State::Disconnected;

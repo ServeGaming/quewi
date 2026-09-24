@@ -150,6 +150,34 @@ private slots:
                                   std::optional<qint32>(0), 2000);
     }
 
+    // The initial-sync race: a write that goes out BEFORE the connect-time
+    // query reply for that channel lands. The late reply carries the desk's
+    // pre-write value; it used to overwrite the cache, so returning to that
+    // value looked like a no-op and was never sent — the mic stayed on the
+    // wrong DCA.
+    void writeRacingTheInitialSyncStillLands()
+    {
+        // Known starting point on the desk: channel 6 on no DCA.
+        {
+            QUdpSocket probe;
+            probe.bind(QHostAddress::AnyIPv4, 0);
+            probe.writeDatagram(Codec::encode(Message{x32::chAddr(6, QLatin1String("grp/dca")),
+                                                      {Argument::i(0)}}),
+                                QHostAddress(host()), 10023);
+        }
+        QTRY_COMPARE_WITH_TIMEOUT(readInt(x32::chAddr(6, QLatin1String("grp/dca"))),
+                                  std::optional<qint32>(0), 2000);
+
+        link->connectToConsole(host());
+        QTRY_COMPARE_WITH_TIMEOUT(link->state(), ConsoleLink::State::Connected, 4000);
+        // No settling wait: write while the sync replies are still in flight.
+        link->setDcaAssignment(6, {3});
+        QTest::qWait(300);                       // let the (stale) sync reply land
+        link->setDcaAssignment(6, {});           // back to the desk's original value
+        QTRY_COMPARE_WITH_TIMEOUT(readInt(x32::chAddr(6, QLatin1String("grp/dca"))),
+                                  std::optional<qint32>(0), 2000);
+    }
+
     // Mute is mix/on inverted: muting sends 0. Verify against the real desk.
     void muteSendsInvertedOn()
     {
@@ -166,16 +194,20 @@ private slots:
     }
 
     // applyCue is the whole show-fire operation: named channels assigned,
-    // everything else muted. Verify a couple of channels the cue does and
-    // doesn't name.
+    // every other CONTROLLED channel muted, uncontrolled ones untouched.
     void applyCueAssignsAndMutes()
     {
         link->connectToConsole(host());
         QTRY_COMPARE_WITH_TIMEOUT(link->state(), ConsoleLink::State::Connected, 4000);
         QTest::qWait(100);
 
-        // Cue: ch2 on DCA1, ch4 on DCA2. Everything else muted.
-        link->applyCue({{2, DcaSet{1}}, {4, DcaSet{2}}});
+        // A known starting point for the uncontrolled channel: unmuted.
+        link->setChannelMuted(30, false);
+        QTRY_COMPARE_WITH_TIMEOUT(readInt(x32::chAddr(30, QLatin1String("mix/on"))),
+                                  std::optional<qint32>(1), 2000);
+
+        // Show controls channels 1-4. Cue: ch2 on DCA1, ch4 on DCA2.
+        link->applyCue({{2, DcaSet{1}}, {4, DcaSet{2}}}, {1, 2, 3, 4});
 
         QTRY_COMPARE_WITH_TIMEOUT(readInt(x32::chAddr(2, QLatin1String("grp/dca"))),
                                   std::optional<qint32>(1), 2000);   // DCA1
@@ -185,6 +217,8 @@ private slots:
         QTRY_COMPARE_WITH_TIMEOUT(readInt(x32::chAddr(2, QLatin1String("mix/on"))),
                                   std::optional<qint32>(1), 2000);
         QCOMPARE(readInt(x32::chAddr(1, QLatin1String("mix/on"))), std::optional<qint32>(0));
+        // Channel 30 isn't controlled by the show — the band, say. Untouched.
+        QCOMPARE(readInt(x32::chAddr(30, QLatin1String("mix/on"))), std::optional<qint32>(1));
     }
 };
 

@@ -105,7 +105,18 @@ void MixShow::setEnsemble(const QString &name, const Ensemble &strips)
 
 void MixShow::removeEnsemble(const QString &name)
 {
-    if (m_ensembles.remove(name) > 0) emit ensemblesChanged();
+    if (m_ensembles.remove(name)) emit ensemblesChanged();
+}
+
+bool MixShow::renameEnsemble(const QString &from, const QString &to)
+{
+    if (from == to || to.isEmpty() || !m_ensembles.contains(from)
+        || m_ensembles.contains(to))
+        return false;
+    m_ensembles.insert(to, m_ensembles.take(from));
+    emit ensembleRenamed(from, to);   // cues first, so the refresh below reads right
+    emit ensemblesChanged();
+    return true;
 }
 
 QSet<int> MixShow::resolve(const QSet<int> &strips, const QStringList &ensembles) const
@@ -148,6 +159,9 @@ int MixShow::reassignStrip(int fromStrip, int toStrip)
         if (members.remove(fromStrip)) { members.insert(toStrip); ensemblesTouched = true; }
     }
 
+    // Cues reference strips directly; their owner rewrites them. Before the
+    // change signals, so the grid refresh already sees the new strip.
+    emit stripReassigned(fromStrip, toStrip);
     if (touched) emit channelsChanged();
     if (ensemblesTouched) emit ensemblesChanged();
     return touched;

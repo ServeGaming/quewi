@@ -41,7 +41,7 @@ void Dm7Link::disconnectFromConsole()
     m_keepalive.reset();
     m_sock.reset();
     m_rxBuffer.clear();
-    m_dcaCache.clear();
+    forgetDcaState();
     m_split = false;
     setState(State::Disconnected);
 }
@@ -178,7 +178,7 @@ void Dm7Link::handleReply(const dm7::Reply &reply)
     // our cached view is worthless and the only correct move is a full resync.
     if (reply.action.startsWith(QLatin1String("sscurrent")) ||
         reply.action.startsWith(QLatin1String("ssrecall"))) {
-        m_dcaCache.clear();
+        forgetDcaState();
         emit resyncRequired(tr("The console recalled a scene."));
         requestInitialState();
         return;
@@ -196,7 +196,8 @@ void Dm7Link::handleReply(const dm7::Reply &reply)
         DcaSet current = dcaAssignment(channel);
         if (reply.value.toInt() != 0) current.insert(dca);
         else                          current.remove(dca);
-        noteSurfaceDcaAssignment(channel, current);
+        // One pair, not the whole row: the channel's other DCAs stay unknown.
+        noteSurfaceDcaAssignment(channel, current, /*complete=*/false);
         return;
     }
 
@@ -222,7 +223,8 @@ void Dm7Link::requestInitialState()
         send(dm7::getCommand(QLatin1String(dm7::kChannelOn), ch - 1, 0));
 }
 
-void Dm7Link::writeDcaAssignment(int channel, const DcaSet &previous, const DcaSet &next)
+void Dm7Link::writeDcaAssignment(int channel, const DcaSet &previous, const DcaSet &next,
+                                 bool previousKnown)
 {
     // THE point of ConsoleLink handing us (previous, next).
     //
@@ -232,7 +234,18 @@ void Dm7Link::writeDcaAssignment(int channel, const DcaSet &previous, const DcaS
     // all 24 pairs per channel per cue would be 24x the traffic for no reason
     // — and a full show sync is already 120x24 = 2880 messages.
     //
-    // So: send only what actually changed. Usually one or two messages.
+    // So: send only what actually changed. Usually one or two messages —
+    // BUT only once we know what the desk holds. For a channel we haven't
+    // seen since connect or a scene recall, a diff against an empty cache
+    // never clears the DCAs the desk already has it on (Elphaba stayed on
+    // DCA 3 while the cue added DCA 1), so write the whole row, once.
+    if (!previousKnown) {
+        for (int dca = 1; dca <= capabilities().dcaCount; ++dca)
+            send(dm7::setCommand(QLatin1String(dm7::kDcaAssign), channel - 1, dca - 1,
+                                 next.contains(dca) ? QStringLiteral("1") : QStringLiteral("0")));
+        return;
+    }
+
     for (int dca : previous)
         if (!next.contains(dca))
             send(dm7::setCommand(QLatin1String(dm7::kDcaAssign), channel - 1, dca - 1,

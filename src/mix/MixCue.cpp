@@ -36,7 +36,7 @@ void MixCue::setDcaEnsembles(int dca, const QStringList &ensembles)
 
 void MixCue::clearDca(int dca)
 {
-    if (m_dcas.remove(dca) > 0) emitChanged();
+    if (m_dcas.remove(dca)) emitChanged();   // QHash::remove returns bool in Qt 6
 }
 
 QList<int> MixCue::assignedDcas() const
@@ -74,6 +74,21 @@ bool MixCue::reassignStrip(int fromStrip, int toStrip)
             entry.strips.insert(toStrip);
             changed = true;
         }
+    }
+    if (changed) emitChanged();
+    return changed;
+}
+
+bool MixCue::renameEnsemble(const QString &from, const QString &to)
+{
+    if (from == to || to.isEmpty()) return false;
+    bool changed = false;
+    for (auto &entry : m_dcas) {
+        const int i = entry.ensembles.indexOf(from);
+        if (i < 0) continue;
+        if (entry.ensembles.contains(to)) entry.ensembles.removeAt(i);
+        else                              entry.ensembles[i] = to;
+        changed = true;
     }
     if (changed) emitChanged();
     return changed;

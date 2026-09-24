@@ -325,9 +325,9 @@ void ChannelEditorDialog::renameSelectedEnsemble()
             tr("An ensemble called \"%1\" already exists.").arg(name));
         return;
     }
-    const Ensemble members = m_show->ensemble(old);
-    m_show->removeEnsemble(old);
-    m_show->setEnsemble(name, members);
+    // A real rename: every mix cue that uses the old name follows it (see
+    // MixShow::ensembleRenamed). Remove-then-add silently orphaned them.
+    m_show->renameEnsemble(old, name);
     reloadEnsembleList();
 }
 

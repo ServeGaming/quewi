@@ -11,7 +11,7 @@ using quewi::mix::DcaSet;
 class FakeLink : public ConsoleLink {
     Q_OBJECT
 public:
-    struct Write { int channel; DcaSet previous; DcaSet next; };
+    struct Write { int channel; DcaSet previous; DcaSet next; bool previousKnown; };
     QVector<Write> writes;
     QVector<QPair<int, bool>> mutes;
 
@@ -26,11 +26,13 @@ public:
 
     using ConsoleLink::noteSurfaceDcaAssignment;
     using ConsoleLink::setCapabilities;
+    using ConsoleLink::forgetDcaState;
 
 protected:
-    void writeDcaAssignment(int channel, const DcaSet &previous, const DcaSet &next) override
+    void writeDcaAssignment(int channel, const DcaSet &previous, const DcaSet &next,
+                            bool previousKnown) override
     {
-        writes.push_back({channel, previous, next});
+        writes.push_back({channel, previous, next, previousKnown});
     }
 };
 
@@ -76,6 +78,54 @@ private slots:
         // A DM7 link would derive: remove DCA1, add DCA3, leave DCA2 alone.
     }
 
+    // Until we've written a channel's row (or the desk reported all of it) we
+    // don't know what it holds. The first write must say so, so a diffing link
+    // (DM7) sends the whole row — otherwise DCAs the desk already had the mic
+    // on (from a scene, or before we connected) were never cleared.
+    void firstWriteIsMarkedUnknownThenKnown()
+    {
+        link->setDcaAssignment(3, {1});
+        QCOMPARE(link->writes.size(), 1);
+        QVERIFY(!link->writes[0].previousKnown);
+
+        link->setDcaAssignment(3, {2});
+        QCOMPARE(link->writes.size(), 2);
+        QVERIFY(link->writes[1].previousKnown);
+    }
+
+    // An empty cache is NOT "the desk has nothing": clearing an unknown
+    // channel must still go on the wire.
+    void clearingAnUnknownChannelStillWrites()
+    {
+        link->setDcaAssignment(6, {});
+        QCOMPARE(link->writes.size(), 1);
+        QVERIFY(!link->writes[0].previousKnown);
+    }
+
+    void forgettingStateMakesChannelsUnknownAgain()
+    {
+        link->setDcaAssignment(3, {1});
+        link->forgetDcaState();            // disconnect / scene recall
+        link->reset();
+        link->setDcaAssignment(3, {1});    // same set — but we no longer know
+        QCOMPARE(link->writes.size(), 1);
+        QVERIFY(!link->writes[0].previousKnown);
+    }
+
+    // A single-pair report (DM7 NOTIFY) doesn't reveal the rest of the row.
+    void partialSurfaceReportLeavesChannelUnknown()
+    {
+        link->noteSurfaceDcaAssignment(4, {2}, /*complete=*/false);
+        link->setDcaAssignment(4, {2});
+        QCOMPARE(link->writes.size(), 1);
+        QVERIFY(!link->writes[0].previousKnown);
+
+        link->reset();
+        link->noteSurfaceDcaAssignment(5, {2}, /*complete=*/true);   // X32 full mask
+        link->setDcaAssignment(5, {2});
+        QCOMPARE(link->writes.size(), 0);  // genuinely a no-op now
+    }
+
     void noOpWritesNothing()
     {
         link->setDcaAssignment(3, {1, 2});
@@ -116,13 +166,13 @@ private slots:
         QCOMPARE(link->writes.size(), 0);
     }
 
-    // The whole safety property of DCA cueing: a mic not named by the cue is
-    // unassigned AND muted. There is no way to forget one.
-    void applyCueMutesEveryChannelTheCueDoesNotName()
+    // The whole safety property of DCA cueing: a CONTROLLED mic not named by
+    // the cue is unassigned AND muted. There is no way to forget one.
+    void applyCueMutesEveryControlledChannelTheCueDoesNotName()
     {
-        link->applyCue({{2, DcaSet{1}}, {5, DcaSet{2, 3}}});
+        link->applyCue({{2, DcaSet{1}}, {5, DcaSet{2, 3}}}, {1, 2, 3, 4, 5, 6});
 
-        QCOMPARE(link->mutes.size(), 8);    // every channel gets a decision
+        QCOMPARE(link->mutes.size(), 6);    // every controlled channel gets a decision
         for (const auto &[channel, muted] : link->mutes) {
             const bool named = (channel == 2 || channel == 5);
             QVERIFY2(muted == !named,
@@ -130,15 +180,30 @@ private slots:
         }
         QCOMPARE(link->dcaAssignment(2), DcaSet{1});
         QCOMPARE(link->dcaAssignment(5), DcaSet({2, 3}));
-        QCOMPARE(link->dcaAssignment(7), DcaSet{});
+        QCOMPARE(link->dcaAssignment(6), DcaSet{});
+    }
+
+    // Channels the show doesn't control (the band on 7-8, say) are never
+    // touched: not muted, not pulled off the DCAs the operator put them on.
+    void applyCueLeavesUncontrolledChannelsAlone()
+    {
+        link->noteSurfaceDcaAssignment(7, {4});   // band channel, on DCA 4 by hand
+        link->reset();
+
+        link->applyCue({{2, DcaSet{1}}}, {1, 2, 3});
+        for (const auto &[channel, muted] : link->mutes)
+            QVERIFY2(channel <= 3, qPrintable(QStringLiteral("touched channel %1").arg(channel)));
+        for (const auto &w : link->writes)
+            QVERIFY(w.channel <= 3);
+        QCOMPARE(link->dcaAssignment(7), DcaSet{4});
     }
 
     void applyCueClearsChannelsFromThePreviousCue()
     {
-        link->applyCue({{2, DcaSet{1}}});
+        link->applyCue({{2, DcaSet{1}}}, {2, 3});
         link->reset();
 
-        link->applyCue({{3, DcaSet{1}}});   // channel 2 no longer named
+        link->applyCue({{3, DcaSet{1}}}, {2, 3});   // channel 2 no longer named
         QCOMPARE(link->dcaAssignment(2), DcaSet{});
 
         bool ch2Muted = false;
@@ -149,7 +214,7 @@ private slots:
 
     void applyCueIgnoresUnknownChannels()
     {
-        link->applyCue({{99, DcaSet{1}}});  // beyond capability
+        link->applyCue({{99, DcaSet{1}}}, {99});  // beyond capability
         QCOMPARE(link->dcaAssignment(99), DcaSet{});
         for (const auto &w : link->writes)
             QVERIFY(w.channel >= 1 && w.channel <= 8);

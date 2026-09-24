@@ -152,16 +152,23 @@ private slots:
     // X32 ignores `previous` and writes a whole bitmask. DM7 must do the
     // opposite: address each (channel, DCA) pair individually, so it sends
     // ONLY the difference. One ConsoleLink call, two opposite wire forms.
-    void writesOnlyTheChangedPairs()
+    //
+    // …once it knows the row. The FIRST write to a channel (after connect or
+    // a scene recall) sends all 24 pairs, because we don't know which DCAs the
+    // desk already has that mic on — diffing against an empty cache used to
+    // leave those stale assignments in place.
+    void firstWriteSendsTheWholeRowThenOnlyChanges()
     {
         connectAndSettle();
 
         link->setDcaAssignment(3, {1, 2});
-        QVERIFY(awaitLines(QStringLiteral("set ") + QLatin1String(dm7::kDcaAssign), 2));
+        QVERIFY(awaitLines(QStringLiteral("set ") + QLatin1String(dm7::kDcaAssign), 24));
         auto writes = desk->matching(QStringLiteral("set ") + QLatin1String(dm7::kDcaAssign));
-        QCOMPARE(writes.size(), 2);                       // two adds, not 24 pairs
+        QCOMPARE(writes.size(), 24);                      // unknown row: every pair
         QVERIFY(writes.contains(QStringLiteral("set %1 2 0 1").arg(QLatin1String(dm7::kDcaAssign))));
         QVERIFY(writes.contains(QStringLiteral("set %1 2 1 1").arg(QLatin1String(dm7::kDcaAssign))));
+        QVERIFY(writes.contains(QStringLiteral("set %1 2 2 0").arg(QLatin1String(dm7::kDcaAssign))));
+        QVERIFY(writes.contains(QStringLiteral("set %1 2 23 0").arg(QLatin1String(dm7::kDcaAssign))));
 
         desk->received.clear();
         link->setDcaAssignment(3, {2, 3});                // drop DCA1, add DCA3

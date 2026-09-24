@@ -28,6 +28,9 @@
 #include <QVBoxLayout>
 #include <QUndoStack>
 
+#include <algorithm>
+#include <initializer_list>
+
 using quewi::mix::ConsoleLink;
 using quewi::mix::Dm7Link;
 using quewi::mix::MixCue;
@@ -135,6 +138,32 @@ void MixView::buildUi()
     // ── Grid ─────────────────────────────────────────────────────────
     m_model = new MixGridModel(this);
     connect(m_model, &MixGridModel::cueEdited, this, &MixView::onCueEdited);
+    // The grid model does a full reset on every edit (each row is painted
+    // relative to the one above), and a reset wipes the table's current index
+    // without saying so. That index IS the DCA GO playhead: after a DCA-picker
+    // edit Qt re-selected row 0, so the next GO fired the first cue of the
+    // show. Remember the selected cue across every reset and put it back.
+    // Connected before the view's own handlers so the selection is read first.
+    connect(m_model, &QAbstractItemModel::modelAboutToBeReset, this, [this] {
+        m_resetSelCue = selectedCue();
+        m_resetSelCol = m_table ? m_table->currentIndex().column() : -1;
+    });
+    connect(m_model, &QAbstractItemModel::modelReset, this, [this] {
+        auto *keep = qobject_cast<MixCue *>(m_resetSelCue.data());
+        m_resetSelCue = nullptr;
+        if (keep && m_table) {
+            const int cols = m_model->columnCount();
+            const int col  = (m_resetSelCol >= 0 && m_resetSelCol < cols)
+                           ? m_resetSelCol : std::min(int(MixGridModel::kFixedCols), cols - 1);
+            for (int r = 0; r < m_model->rowCount(); ++r) {
+                if (m_model->cueAt(r) == keep) {
+                    m_table->setCurrentIndex(m_model->index(r, std::max(0, col)));
+                    break;
+                }
+            }
+        }
+        emit mixStateChanged();
+    });
 
     m_table = new QTableView(this);
     m_table->setModel(m_model);
@@ -177,17 +206,37 @@ void MixView::buildUi()
 
 void MixView::setWorkspace(core::Workspace *ws)
 {
+    if (m_workspace && m_workspace->mixShow())
+        disconnect(m_workspace->mixShow(), nullptr, this, nullptr);
     m_workspace = ws;
     auto *show = ws ? ws->mixShow() : nullptr;
     m_model->setMixShow(show);
     if (show) {
         QSignalBlocker b(m_dcaCount);
         m_dcaCount->setValue(show->dcaCount());
+        // Renames / renumbers must reach every cue, and the live cue must be
+        // re-sent when what it resolves to changes.
+        connect(show, &mix::MixShow::stripReassigned,  this, &MixView::onStripReassigned);
+        connect(show, &mix::MixShow::ensembleRenamed,  this, &MixView::onEnsembleRenamed);
+        connect(show, &mix::MixShow::channelsChanged,  this, &MixView::repushLiveCue);
+        connect(show, &mix::MixShow::ensemblesChanged, this, &MixView::repushLiveCue);
+        connect(show, &mix::MixShow::dcaCountChanged,  this, [this, show] {
+            QSignalBlocker blk(m_dcaCount);
+            m_dcaCount->setValue(show->dcaCount());
+        });
     }
+    emit mixStateChanged();
 }
 
 void MixView::setCueList(core::CueList *list)
 {
+    // Re-showing the list already on screen (clicking its tab again) must not
+    // move the playhead. It used to jump back to cue 1, so the operator's next
+    // DCA GO re-cast the whole desk from the top of the show.
+    if (m_model->cueList() == list) {
+        emit mixStateChanged();
+        return;
+    }
     m_model->setCueList(list);
     if (m_model->rowCount() > 0)
         m_table->setCurrentIndex(m_model->index(0, MixGridModel::kFixedCols));
@@ -408,7 +457,8 @@ void MixView::setLiveCue(mix::MixCue *cue)
 
 void MixView::refreshConnectionUi()
 {
-    const auto state = m_link ? m_link->state() : ConsoleLink::State::Disconnected;
+    const ConsoleLink *link = activeLink();
+    const auto state = link ? link->state() : ConsoleLink::State::Disconnected;
     const auto &t = Theme::tokens();
 
     QString text;
@@ -417,14 +467,15 @@ void MixView::refreshConnectionUi()
     case ConsoleLink::State::Disconnected: text = tr("Not connected"); break;
     case ConsoleLink::State::Connecting:   text = tr("Connecting…");   colour = t.warn; break;
     case ConsoleLink::State::Connected:
-        text = tr("Connected — %1").arg(m_link->capabilities().model);
+        text = tr("Connected — %1").arg(link->capabilities().model);
         colour = t.running;
         break;
     case ConsoleLink::State::Failed:
-        text = m_link->lastError().isEmpty() ? tr("Connection failed") : m_link->lastError();
+        text = link->lastError().isEmpty() ? tr("Connection failed") : link->lastError();
         colour = t.err;
         break;
     }
+    if (m_primary) text = tr("Main window's console: %1").arg(text);
     m_status->setText(text);
     m_status->setStyleSheet(QStringLiteral("color: %1;").arg(colour.name()));
 
@@ -442,23 +493,86 @@ void MixView::refreshConnectionUi()
 
 // ── Firing ───────────────────────────────────────────────────────────
 
-bool MixView::fireSelected()
+ConsoleLink *MixView::activeLink() const
 {
-    auto *cue = selectedCue();
+    return m_primary ? m_primary->activeLink() : m_link.get();
+}
+
+MixView *MixView::consoleOwner()
+{
+    return m_primary ? m_primary.data() : this;
+}
+
+bool MixView::consoleConnected() const
+{
+    const auto *link = activeLink();
+    return link && link->state() == ConsoleLink::State::Connected;
+}
+
+void MixView::setPrimary(MixView *primary)
+{
+    // A detached mix window. It used to open its OWN console connection — a
+    // second X32 /xremote slot or DM7 session — and nothing it fired reached
+    // linked cues, the transport's DCA GO, or the main grid's live marker.
+    // Now it drives the main window's connection instead.
+    m_primary = primary;
+    for (QWidget *w : std::initializer_list<QWidget *>{ m_protocol, m_host, m_connect })
+        if (w) w->setVisible(!primary);
+    if (primary) {
+        connect(primary, &MixView::mixStateChanged, this, &MixView::refreshConnectionUi);
+        connect(primary, &QObject::destroyed, this, [this] { refreshConnectionUi(); });
+    }
+    refreshConnectionUi();
+}
+
+QSet<int> MixView::controlledStrips() const
+{
+    QSet<int> out;
+    if (m_workspace && m_workspace->mixShow())
+        for (const auto &ch : m_workspace->mixShow()->channels()) out.insert(ch.strip);
+    return out;
+}
+
+void MixView::applyToConsole(mix::MixCue *cue)
+{
+    // Only the show's registered channels are controlled; the band and
+    // anything else on the desk is left exactly as the operator has it.
+    if (auto *link = activeLink(); link && cue && m_workspace && m_workspace->mixShow())
+        link->applyCue(cue->channelAssignments(*m_workspace->mixShow()), controlledStrips());
+}
+
+bool MixView::fireCue(mix::MixCue *cue, bool fromLink)
+{
     if (!cue || !m_workspace || !m_workspace->mixShow()) return false;
-    if (!m_link || m_link->state() != ConsoleLink::State::Connected) {
-        emit statusMessage(tr("No console connected."));
+    if (!consoleConnected()) {
+        emit statusMessage(fromLink ? tr("No console connected — linked DCA cue not fired.")
+                                    : tr("No console connected."));
         return false;
     }
-
-    m_link->applyCue(cue->channelAssignments(*m_workspace->mixShow()));
+    applyToConsole(cue);
     setLiveCue(cue);
-
     const QString label = cue->name().isEmpty()
                         ? tr("Cue %1").arg(cue->number())
                         : cue->name();
-    emit statusMessage(tr("Fired %1").arg(label));
+    emit statusMessage(fromLink ? tr("Fired %1 (linked)").arg(label)
+                                : tr("Fired %1").arg(label));
     emit mixCueFired(cue);   // let any linked playback cue follow
+    return true;
+}
+
+bool MixView::fireSelected()
+{
+    auto *cue = selectedCue();
+    if (!cue) return false;
+
+    // A detached view fires through the main view, so the main view's live
+    // marker, linked cues and the transport DCA GO all see it.
+    const bool ok = m_primary ? m_primary->fireCue(cue, false) : fireCue(cue, false);
+    if (!ok) {
+        if (m_primary) emit statusMessage(tr("No console connected."));
+        return false;
+    }
+    if (m_primary) setLiveCue(cue);
 
     // Advance, the way a cue list does — the operator's next GO should be the
     // next cue without them having to reach for the mouse.
@@ -470,14 +584,7 @@ bool MixView::fireSelected()
 
 bool MixView::fireCueAtConsole(mix::MixCue *cue)
 {
-    if (!cue || !m_workspace || !m_workspace->mixShow()) return false;
-    if (!m_link || m_link->state() != ConsoleLink::State::Connected) {
-        emit statusMessage(tr("No console connected — linked DCA cue not fired."));
-        return false;
-    }
-
-    m_link->applyCue(cue->channelAssignments(*m_workspace->mixShow()));
-    setLiveCue(cue);
+    if (!fireCue(cue, true)) return false;
 
     // If the cue is in the list we're showing, land the selection (and so the
     // live marker) on it. Fired from a link, not a GO, so we don't advance.
@@ -492,25 +599,29 @@ bool MixView::fireCueAtConsole(mix::MixCue *cue)
             }
         }
     }
-
-    const QString label = cue->name().isEmpty()
-                        ? tr("Cue %1").arg(cue->number())
-                        : cue->name();
-    emit statusMessage(tr("Fired %1 (linked)").arg(label));
-    emit mixCueFired(cue);
     return true;
+}
+
+void MixView::repushLiveCue()
+{
+    if (m_primary) return;   // the main view does it, once
+    // The desk must keep matching the grid: when a channel or ensemble edit
+    // changes what the LIVE cue resolves to, send it again.
+    auto *owner = consoleOwner();
+    auto *live = qobject_cast<MixCue *>(owner->m_liveCue.data());
+    if (live && owner->consoleConnected()) owner->applyToConsole(live);
 }
 
 bool MixView::canFireNext() const
 {
-    return m_link && m_link->state() == ConsoleLink::State::Connected && selectedCue();
+    return consoleConnected() && selectedCue();
 }
 
 QString MixView::dcaGoTooltip() const
 {
     if (!m_model->cueList())
         return tr("Add a Mix (DCA) list and connect a console to fire DCA cues.");
-    if (!m_link || m_link->state() != ConsoleLink::State::Connected)
+    if (!consoleConnected())
         return tr("Connect a console on the Mix page to fire DCA cues.");
     auto *cue = selectedCue();
     if (!cue)
@@ -530,11 +641,37 @@ void MixView::onCueEdited(MixCue *cue)
     // Live edit: if the operator changes the cue that's currently ON the desk,
     // push it. Editing any other cue is just programming and must not touch a
     // live console mid-show.
-    if (!cue || cue != m_liveCue) return;
-    if (!m_link || m_link->state() != ConsoleLink::State::Connected) return;
-    if (!m_workspace || !m_workspace->mixShow()) return;
+    auto *owner = consoleOwner();
+    if (!cue || cue != owner->m_liveCue) return;
+    if (!owner->consoleConnected()) return;
+    owner->applyToConsole(cue);
+}
 
-    m_link->applyCue(cue->channelAssignments(*m_workspace->mixShow()));
+void MixView::onStripReassigned(int fromStrip, int toStrip)
+{
+    // Renumbering a channel (or recasting to a backup mic) must move every
+    // cue's reference with it — otherwise the cues keep the old strip, which
+    // no longer exists, and that mic is muted on GO.
+    if (!m_workspace || m_primary) return;   // the main view owns this; once
+    for (const auto &list : m_workspace->cueLists()) {
+        if (list->kind() != core::CueList::Kind::Mix) continue;
+        for (int r = 0; r < list->cueCount(); ++r)
+            if (auto *mc = qobject_cast<MixCue *>(list->cueAt(r)))
+                mc->reassignStrip(fromStrip, toStrip);
+    }
+    m_workspace->markModified();
+}
+
+void MixView::onEnsembleRenamed(const QString &from, const QString &to)
+{
+    if (!m_workspace || m_primary) return;
+    for (const auto &list : m_workspace->cueLists()) {
+        if (list->kind() != core::CueList::Kind::Mix) continue;
+        for (int r = 0; r < list->cueCount(); ++r)
+            if (auto *mc = qobject_cast<MixCue *>(list->cueAt(r)))
+                mc->renameEnsemble(from, to);
+    }
+    m_workspace->markModified();
 }
 
 } // namespace quewi::ui
