@@ -673,16 +673,22 @@ CartView::CartView(QWidget *parent) : QWidget(parent)
     });
     layerRow->addWidget(m_layerTabs);
 
-    auto *addLayerBtn = new QPushButton(QStringLiteral("+"), this);
+    // A labelled, accent-coloured "+ Add layer" — it used to be a bare 26 px
+    // "+" square that read as decoration rather than an action.
+    auto *addLayerBtn = new QPushButton(tr("+  Add layer"), this);
     addLayerBtn->setCursor(Qt::PointingHandCursor);
-    addLayerBtn->setToolTip(tr("Add a layer"));
-    addLayerBtn->setFixedSize(26, 24);
+    addLayerBtn->setToolTip(tr("Add another page of pads (e.g. Act 2, spot FX)"));
+    addLayerBtn->setFixedHeight(26);
+    const auto rgba = [](const QColor &c, int a) {
+        return QStringLiteral("rgba(%1,%2,%3,%4)").arg(c.red()).arg(c.green()).arg(c.blue()).arg(a);
+    };
     addLayerBtn->setStyleSheet(QStringLiteral(
         "QPushButton{background:%1;color:%2;border:1px solid %3;border-radius:6px;"
-        "  font-size:15px;font-weight:700;}"
-        "QPushButton:hover{border-color:%4;color:%4;}")
-        .arg(tk.bgInteractive.name(), tk.ink100.name(), tk.outline.name(),
-             tk.accent.name()));
+        "  padding:0 12px;font-weight:700;}"
+        "QPushButton:hover{background:%4;color:%5;}"
+        "QPushButton:pressed{background:%3;color:%6;}")
+        .arg(rgba(tk.accent, 34), tk.accentHover.name(), tk.accent.name(),
+             rgba(tk.accent, 70), tk.ink100.name(), tk.inkOnAccent.name()));
     connect(addLayerBtn, &QPushButton::clicked, this, &CartView::addLayer);
     layerRow->addWidget(addLayerBtn);
     layerRow->addStretch(1);
