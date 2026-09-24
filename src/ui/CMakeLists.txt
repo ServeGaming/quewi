@@ -11,6 +11,8 @@ add_library(quewi_ui STATIC
     ChannelEditorDialog.cpp
     DcaAssignDialog.h
     DcaAssignDialog.cpp
+    GlobalHotkeys.h
+    GlobalHotkeys.cpp
     SmoothScroll.h
     SmoothScroll.cpp
     AnimatedButton.h

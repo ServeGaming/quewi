@@ -2035,6 +2035,10 @@ void MainWindow::detachCueListTab(int idx)
         auto *view = new ui::MixView(win);
         view->setWorkspace(m_workspace.get());
         view->setCueList(list);
+        // Drive the main window's console connection rather than opening a
+        // second one (a second /xremote slot or DM7 session). Its fires go
+        // through the main view, so links and the transport DCA GO see them.
+        view->setPrimary(m_mixView);
         connect(view, &ui::MixView::statusMessage, this,
                 [this](const QString &t) { statusBar()->showMessage(t, 6000); });
         win->setCentralWidget(view);
@@ -2046,6 +2050,9 @@ void MainWindow::detachCueListTab(int idx)
         // is a genuine second view of the same CartGrid — which is the point
         // on a second monitor.
         auto *view = new ui::CartView(win);
+        // The main soundboard owns the app-wide / system-wide pad keys; this
+        // second view must not claim them too (both would go ambiguous).
+        view->setSecondary(true);
         view->setWorkspace(m_workspace.get());
         view->setGoEngine(m_goEngine.get());
         connect(view, &ui::CartView::fireRequested, this,

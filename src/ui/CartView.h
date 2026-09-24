@@ -2,6 +2,7 @@
 
 #include "core/CartGrid.h"
 
+#include <QKeyCombination>
 #include <QPointer>
 #include <QUuid>
 #include <QWidget>
@@ -66,6 +67,12 @@ public:
     // The name a pad shows: its custom label, else its cue's name.
     QString padDisplayName(int row, int col) const;
 
+    // A second view of the same board (a detached window). Pad keys belong
+    // to the main view in the app-wide and system-wide scopes, so a
+    // secondary view registers its own only in board-only scope — two views
+    // claiming the same key would make both ambiguous and neither would fire.
+    void setSecondary(bool secondary);
+
 signals:
     void fireRequested(quewi::cues::Cue *cue);
     void editCueRequested(quewi::cues::Cue *cue);
@@ -99,6 +106,8 @@ private:
     void editPad(int row, int col);
     void setPadKeybind(int row, int col);     // "press a key" capture dialog
     void clearPadKeybind(int row, int col);
+    // A pad key pressed while quewi was in the background (system-wide scope).
+    void onSystemKey(QKeyCombination key);
 
     QPointer<core::Workspace> m_workspace;
     QPointer<GoEngine>        m_goEngine;
@@ -110,11 +119,11 @@ private:
     QTabBar           *m_layerTabs = nullptr;
     bool               m_syncingLayers = false;
     QList<CartPad *>   m_pads;
-    // QPointer because in "keys everywhere" mode they're parented to the main
+    // QPointer because in the wider scopes they're parented to the main
     // window, which may delete them before we do on shutdown.
     QList<QPointer<QShortcut>> m_shortcuts;
-    QPushButton       *m_globalKeysBtn = nullptr;
-    bool               m_globalHotkeys = false;  // pad keys fire from any page
+    QComboBox         *m_keyScope = nullptr;   // board only / in quewi / system-wide
+    bool               m_secondary = false;
     QTimer            *m_pollTimer = nullptr;
     bool               m_editMode = false;
 

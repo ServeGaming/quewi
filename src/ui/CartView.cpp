@@ -6,6 +6,7 @@
 #include "core/CueList.h"
 #include "core/Workspace.h"
 #include "cues/Cue.h"
+#include "ui/GlobalHotkeys.h"
 #include "ui/Theme.h"
 
 #include <QAction>
@@ -600,28 +601,40 @@ CartView::CartView(QWidget *parent) : QWidget(parent)
     connect(m_editBtn, &QPushButton::clicked, this, &CartView::toggleEditMode);
     bar->addWidget(m_editBtn);
 
-    // Where pad keybinds work. Board only (default): whenever the soundboard
-    // is on screen, wherever keyboard focus happens to be. Everywhere: from
-    // any page of quewi, so spot FX can be fired while running the cue list.
-    // Typing into a text field never fires a pad either way. Per-machine.
-    m_globalKeysBtn = new QPushButton(tr("Keys: board only"), this);
-    m_globalKeysBtn->setCheckable(true);
-    m_globalKeysBtn->setCursor(Qt::PointingHandCursor);
-    m_globalKeysBtn->setToolTip(tr(
-        "Where pad keybinds work.\n"
+    // Where pad keybinds work (per machine; see GlobalHotkeys). Defaults to
+    // system-wide where supported — pads fire even while another app has
+    // focus. Right-click a pad to set its key.
+    m_keyScope = new QComboBox(this);
+    m_keyScope->setCursor(Qt::PointingHandCursor);
+    m_keyScope->addItem(tr("Keys: board only"), int(GlobalHotkeys::Scope::Board));
+    m_keyScope->addItem(tr("Keys: anywhere in quewi"), int(GlobalHotkeys::Scope::App));
+    if (GlobalHotkeys::systemWideSupported())
+        m_keyScope->addItem(tr("Keys: system-wide"), int(GlobalHotkeys::Scope::System));
+    m_keyScope->setToolTip(tr(
+        "Where pad keybinds work — right-click a pad to set its key.\n"
         "Board only: while the soundboard is on screen.\n"
-        "Everywhere: from any page of quewi, e.g. while running the cue list.\n"
-        "Right-click a pad to set its key."));
-    m_globalKeysBtn->setStyleSheet(m_editBtn->styleSheet());
-    connect(m_globalKeysBtn, &QPushButton::toggled, this, [this](bool on) {
-        m_globalHotkeys = on;
-        m_globalKeysBtn->setText(on ? tr("Keys: everywhere") : tr("Keys: board only"));
-        QSettings().setValue(QStringLiteral("soundboard/globalHotkeys"), on);
+        "Anywhere in quewi: from any page, e.g. while running the cue list.\n"
+        "System-wide: even while another app (a game, Discord, a browser) has\n"
+        "focus. That app still receives the key too, so bind keys you don't\n"
+        "type there — F13–F24, the numpad, or Ctrl+Alt combinations."));
+    m_keyScope->setCurrentIndex(
+        std::max(0, m_keyScope->findData(int(GlobalHotkeys::instance()->scope()))));
+    connect(m_keyScope, &QComboBox::currentIndexChanged, this, [this](int) {
+        GlobalHotkeys::instance()->setScope(
+            GlobalHotkeys::Scope(m_keyScope->currentData().toInt()));
+    });
+    // Every soundboard view follows the scope, whichever one changed it.
+    connect(GlobalHotkeys::instance(), &GlobalHotkeys::scopeChanged, this, [this] {
+        const int i = m_keyScope->findData(int(GlobalHotkeys::instance()->scope()));
+        if (i >= 0 && i != m_keyScope->currentIndex()) {
+            QSignalBlocker block(m_keyScope);
+            m_keyScope->setCurrentIndex(i);
+        }
         rebuildHotkeys();
     });
-    m_globalKeysBtn->setChecked(
-        QSettings().value(QStringLiteral("soundboard/globalHotkeys"), false).toBool());
-    bar->addWidget(m_globalKeysBtn);
+    connect(GlobalHotkeys::instance(), &GlobalHotkeys::triggered,
+            this, &CartView::onSystemKey);
+    bar->addWidget(m_keyScope);
 
     auto *resizeBtn = new QPushButton(tr("Resize…"), this);
     resizeBtn->setCursor(Qt::PointingHandCursor);
@@ -709,10 +722,35 @@ CartView::CartView(QWidget *parent) : QWidget(parent)
 
 CartView::~CartView()
 {
-    // In "everywhere" mode the shortcuts belong to the main window, not us;
+    // In the wider scopes the shortcuts belong to the main window, not us;
     // take them with us so they can't fire into a dead view. (QPointer: the
     // window may already have deleted them during its own teardown.)
     for (auto &sc : m_shortcuts) delete sc.data();
+    // And stop watching the keyboard system-wide on our behalf.
+    if (!m_secondary) GlobalHotkeys::instance()->setWatchedKeys({});
+}
+
+void CartView::setSecondary(bool secondary)
+{
+    m_secondary = secondary;
+    rebuildHotkeys();
+}
+
+void CartView::onSystemKey(QKeyCombination key)
+{
+    if (m_secondary || !m_workspace || !m_workspace->cart()) return;
+    auto *cart = m_workspace->cart();
+    for (int r = 0; r < cart->rows(); ++r) {
+        for (int c = 0; c < cart->cols(); ++c) {
+            const auto cell = cart->cell(r, c);
+            if (cell.hotkey.isEmpty() || cell.cueId.isNull()) continue;
+            const QKeySequence seq(cell.hotkey);
+            if (!seq.isEmpty() && GlobalHotkeys::normalized(seq[0]) == key) {
+                firePadAt(r, c);
+                return;
+            }
+        }
+    }
 }
 
 void CartView::setWorkspace(core::Workspace *ws)
@@ -873,32 +911,50 @@ void CartView::rebuildHotkeys()
 {
     for (auto &sc : m_shortcuts) delete sc.data();
     m_shortcuts.clear();
-    if (!m_workspace || !m_workspace->cart()) return;
+    auto *hotkeys = GlobalHotkeys::instance();
+    if (!m_workspace || !m_workspace->cart()) {
+        if (!m_secondary) hotkeys->setWatchedKeys({});
+        return;
+    }
 
     // These used to be Qt::WidgetWithChildrenShortcut on this view, which only
     // fires while keyboard focus is INSIDE the soundboard — and pads never take
     // focus, so after any click elsewhere the keys silently did nothing.
     //
-    // Qt::WindowShortcut fires whenever its parent widget is visible in the
-    // active window, regardless of focus. Parented to this view that means
-    // "while the soundboard is on screen" (QStackedWidget hides it otherwise);
-    // parented to the main window it means "from anywhere in quewi". Either
-    // way a focused text field claims its keystrokes first (ShortcutOverride),
-    // so typing a cue name can't fire a pad.
-    QWidget *host = m_globalHotkeys ? window() : this;
-    auto *cart = m_workspace->cart();
-    for (int r = 0; r < cart->rows(); ++r) {
-        for (int c = 0; c < cart->cols(); ++c) {
-            const auto cell = cart->cell(r, c);
-            if (cell.hotkey.isEmpty() || cell.cueId.isNull()) continue;
-            auto *sc = new QShortcut(QKeySequence(cell.hotkey), host);
-            sc->setContext(Qt::WindowShortcut);
-            // Holding the key must not machine-gun the sound.
-            sc->setAutoRepeat(false);
-            connect(sc, &QShortcut::activated, this, [this, r, c]{ firePadAt(r, c); });
-            m_shortcuts.append(sc);
+    //   Board scope: Qt::WindowShortcut on this view — live whenever the
+    //   soundboard is on screen (QStackedWidget hides it otherwise), wherever
+    //   focus is.
+    //   App / System scope: Qt::ApplicationShortcut on the main window — live
+    //   from any page or quewi window. System scope additionally has the
+    //   GlobalHotkeys hook catch the keys while quewi is in the background.
+    //
+    // A focused text field always claims its keystrokes first
+    // (ShortcutOverride), so typing a cue name can't fire a pad.
+    const auto scope = hotkeys->scope();
+    const bool boardOnly = (scope == GlobalHotkeys::Scope::Board);
+    QList<QKeyCombination> keys;
+    if (!m_secondary || boardOnly) {
+        QWidget *host = boardOnly ? static_cast<QWidget *>(this) : window();
+        auto *cart = m_workspace->cart();
+        for (int r = 0; r < cart->rows(); ++r) {
+            for (int c = 0; c < cart->cols(); ++c) {
+                const auto cell = cart->cell(r, c);
+                if (cell.hotkey.isEmpty() || cell.cueId.isNull()) continue;
+                const QKeySequence seq(cell.hotkey);
+                if (seq.isEmpty()) continue;
+                auto *sc = new QShortcut(seq, host);
+                sc->setContext(boardOnly ? Qt::WindowShortcut : Qt::ApplicationShortcut);
+                // Holding the key must not machine-gun the sound.
+                sc->setAutoRepeat(false);
+                connect(sc, &QShortcut::activated, this, [this, r, c]{ firePadAt(r, c); });
+                m_shortcuts.append(sc);
+                keys.append(seq[0]);
+            }
         }
     }
+    if (!m_secondary)
+        hotkeys->setWatchedKeys(scope == GlobalHotkeys::Scope::System ? keys
+                                                                      : QList<QKeyCombination>{});
 }
 
 QString CartView::padDisplayName(int row, int col) const
