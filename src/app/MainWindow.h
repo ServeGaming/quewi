@@ -118,6 +118,14 @@ public:
     // with manual=false so a flat line stays silent.
     void checkForUpdates(bool manual);
     void runInAppInstall(const QString &msiUrl);
+    // Startup pop-ups (silent update check, "last update failed", What's new).
+    // main() calls this once the window is shown and the Welcome dialog has
+    // closed — scheduled from the constructor, they fired inside the Welcome
+    // dialog's event loop, before app.exec(), where quit() is a no-op.
+    void runStartupChecks();
+    // True once an update installer has been launched and quewi is closing
+    // so it can install. main() checks this after the Welcome dialog.
+    bool isQuittingForUpdate() const { return m_quittingForUpdate; }
 
 private:
     void buildLayout();
@@ -128,6 +136,11 @@ private:
     void resetWorkspace();
     void rebindModel();
     bool maybeSaveChanges();
+    // Close quewi so a launched update installer (which waits for this
+    // process to exit) can run. Never prompts; the save question has
+    // already been asked.
+    void quitForUpdate();
+    bool m_quittingForUpdate = false;
     bool saveTo(const QString &path);
     // Build a cue from a media file, classified by extension. When audioOnly
     // is true (soundboard pads), audio-/video-container files both become an

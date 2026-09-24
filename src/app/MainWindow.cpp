@@ -4,8 +4,13 @@
 #include "UpdateChecker.h"
 #include "UpdateInstaller.h"
 
+#include <QDialog>
 #include <QProgressDialog>
 #include <QProcess>
+
+#include <chrono>
+#include <cstdlib>
+#include <thread>
 
 #include <QDesktopServices>
 
@@ -323,6 +328,13 @@ MainWindow::MainWindow(QWidget *parent)
     // here, so it popped up over the Welcome dialog, and whatever was chosen
     // there then silently replaced the recovered show).
 
+    // The startup pop-ups (update check, failed-update notice, What's new) are
+    // scheduled by runStartupChecks(), which main() calls after the Welcome
+    // dialog has closed and the window is shown.
+}
+
+void MainWindow::runStartupChecks()
+{
     // Silent update check on startup. Three-second delay so it doesn't
     // contend with the cold-start path; the user-facing dialog only
     // appears if a newer release is actually published.
@@ -2426,6 +2438,14 @@ void MainWindow::runInAppInstall(const QString &msiUrl)
                 "runInAppInstall: confirm answer=%1")
                 .arg(answer == QMessageBox::Yes ? QStringLiteral("Yes")
                                                 : QStringLiteral("No")));
+            // Ask about unsaved work BEFORE launching: the installer waits
+            // for quewi to exit, so a Cancel on a save prompt after launch
+            // would leave it waiting with nothing to install over.
+            if (answer == QMessageBox::Yes && !maybeSaveChanges()) {
+                UpdateInstaller::logStep(QStringLiteral(
+                    "runInAppInstall: save prompt cancelled, not installing"));
+                return;
+            }
             if (answer == QMessageBox::Yes) {
                 const bool reopen = reopenCheck->isChecked();
                 updSettings.setValue(QStringLiteral("update/reopenAfter"), reopen);
@@ -2437,12 +2457,8 @@ void MainWindow::runInAppInstall(const QString &msiUrl)
                                   : QStringLiteral("false (showing fallback)")));
                 if (launched) {
                     // The installer/helper waits for quewi to exit before it
-                    // swaps files and relaunches — so we MUST quit now, or
-                    // the helper waits forever and "nothing installs" (the
-                    // exact reported bug). Deferred a tick so this lambda
-                    // unwinds first; the normal close path still offers to
-                    // save any unsaved show.
-                    QTimer::singleShot(0, this, [] { QCoreApplication::quit(); });
+                    // swaps files and relaunches — so we MUST exit now.
+                    quitForUpdate();
                 } else {
                     // Two recurring bug reports said this dialog showed
                     // a corrupted-looking path. Defensive rewrite:
@@ -2889,8 +2905,43 @@ static void legacy_dispatch_keep_diff_small() {
 }
 #endif // legacy dispatch
 
+void MainWindow::quitForUpdate()
+{
+    m_quittingForUpdate = true;
+    UpdateInstaller::logStep(QStringLiteral("quitForUpdate: closing quewi"));
+    // Unwind any modal dialog first (the Welcome dialog, if the update was
+    // started from the startup prompt): QCoreApplication::quit() is a no-op
+    // until app.exec() is running, and main() checks isQuittingForUpdate()
+    // when the Welcome dialog returns.
+    for (QWidget *w : QApplication::topLevelWidgets())
+        if (auto *dlg = qobject_cast<QDialog *>(w); dlg && dlg->isVisible())
+            dlg->reject();
+    QTimer::singleShot(0, qApp, [] { QCoreApplication::quit(); });
+    // Belt and braces: the helper waits for this process to exit, so if
+    // something still holds quewi open (a window refusing to close, or a
+    // hang during shutdown after the event loop has gone), don't strand the
+    // update. A plain thread, not a QTimer, so it fires even then. The save
+    // question was already asked and answered.
+    std::thread([] {
+        std::this_thread::sleep_for(std::chrono::seconds(15));
+        UpdateInstaller::logStep(QStringLiteral(
+            "quitForUpdate: still running after 15 s, forcing exit"));
+        std::_Exit(0);
+    }).detach();
+}
+
 void MainWindow::closeEvent(QCloseEvent *event)
 {
+    // Closing for an update: the save question was asked before the
+    // installer launched. Asking again here could only strand it.
+    if (m_quittingForUpdate) {
+        QSettings s(QStringLiteral("ServeGaming"), QStringLiteral("quewi"));
+        s.setValue(QStringLiteral("ui/mainGeometry"), saveGeometry());
+        s.setValue(QStringLiteral("ui/mainState"),    saveState());
+        clearJournal();
+        event->accept();
+        return;
+    }
     if (maybeSaveChanges()) {
         // Persist window geometry + dock layout so the next launch
         // restores exactly where the user left things — including

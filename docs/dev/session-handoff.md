@@ -231,13 +231,28 @@ medium integrity, and self-deletes. macOS/Linux have analogous quit-first
 in-place swaps with the failure modes commented at each step. Step-logging to
 `%APPDATA%/quewi/{update-client,update-helper,update-install}.log` is in.
 
-**The blocker is not a known code bug — it's that none of this has ever run
-end-to-end**, because the reporting user was stuck on 0.9.103 and never got a
-working update *to* the fixed code. So: **do not "fix" the updater blind.** Any
-edit is unverifiable until a real release+click, and breaking the app's weakest
-subsystem while it can't be tested is the wrong risk. The verification IS the
-1.0.1 release: cut it, have Matthew click Check for Updates from 1.0.0, read the
-three logs. Only touch the code if those logs point at something specific.
+**1.0.0 → 1.0.1 live test (2026-09-24), what the logs showed:** the install
+half WORKS — once quewi had exited, the elevated helper ran msiexec, the MSI
+major-upgraded 1.0.0 → 1.0.1 (only 1.0.1 left in Apps & Features) and quewi
+relaunched. The bug was **quewi not closing itself**: Matthew had to close it
+by hand. Root cause: the silent startup check was scheduled from the
+MainWindow constructor, so its "Update available" prompt fired inside the
+Welcome dialog's `exec()` — before `app.exec()` — and in Qt 6
+`QCoreApplication::quit()` is a no-op until the main loop runs. The helper
+then waited for a PID that never exited. Second hole: the save prompt only
+came from `closeEvent` *after* the installer launched, so Cancel stranded it.
+
+Fixed on main after the 1.0.1 tag (so it takes effect for updates *starting
+from* the next release; 1.0.0/1.0.1 users updating still need to close quewi
+by hand if it stays open — the helper waits ~10 min for them):
+`MainWindow::runStartupChecks()` is called by main() after the Welcome dialog;
+the save question is asked before launching; `quitForUpdate()` rejects open
+dialogs, quits, skips the close prompt, and a 15 s detached-thread watchdog
+`_Exit`s if anything still holds the process; main() returns if an update was
+started before `app.exec()`. **Unexplained:** the first 1.0.0 attempt's log
+stops right after "confirm answer=Yes" with no `launchInstaller()` line (the
+July 0.9.120 attempt shows the same). The new code logs more steps; check
+`update-client.log` after the next update.
 
 ## X32 emulator — set up and verified on this machine
 

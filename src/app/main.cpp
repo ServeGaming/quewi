@@ -229,7 +229,12 @@ int main(int argc, char *argv[])
         // state the MainWindow already creates.
     }
 
+    // An update was started from a prompt shown before the event loop ran:
+    // the installer is waiting for this process to exit, so do exactly that.
+    if (w.isQuittingForUpdate()) return 0;
+
     w.show();
+    if (!parser.isSet(selftestOpt)) w.runStartupChecks();
 
     // First-run-after-update toast. If the version stored in
     // QSettings differs from the binary's version, this is either
