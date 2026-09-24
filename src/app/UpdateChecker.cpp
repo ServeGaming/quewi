@@ -110,7 +110,11 @@ void UpdateChecker::onReplyFinished()
         return;
     }
     const auto remote = parseVersion(tag);
-    const auto local  = parseVersion(QStringLiteral(QUEWI_VERSION));
+    // Developer hook: QUEWI_UPDATE_PRETEND_VERSION=1.0.0 makes this build
+    // compare as that version, so the whole update flow can be driven
+    // against the real latest release without publishing a new one.
+    const QString pretend = qEnvironmentVariable("QUEWI_UPDATE_PRETEND_VERSION");
+    const auto local  = parseVersion(pretend.isEmpty() ? QStringLiteral(QUEWI_VERSION) : pretend);
     if (!isStrictlyNewer(remote, local)) {
         emit upToDate(m_mode);
         return;

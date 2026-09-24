@@ -6,6 +6,7 @@
 
 #include <QDialog>
 #include <QProgressDialog>
+#include <QScopeGuard>
 #include <QProcess>
 
 #include <chrono>
@@ -2411,12 +2412,25 @@ void MainWindow::runInAppInstall(const QString &msiUrl)
                     .arg(received / 1024));
             }
         });
+    // The path is taken BY VALUE. The signal passes a reference to the
+    // installer's own m_localPath, and the installer is deleteLater()'d just
+    // below — which Qt 6 carries out inside the confirm dialog's nested event
+    // loop. Holding a reference, the path the user said Yes to was freed
+    // memory: launchInstaller got garbage ("SFX.quewi C:\Users\...",
+    // random bytes), crashed or reported "file does not exist", and quewi
+    // just closed. (Also the old "corrupted-looking path" reports.)
     connect(installer, &UpdateInstaller::downloadFinished, this,
-        [this, prog, installer](const QString &localPath) {
+        [this, prog, installer](QString localPath) {
             UpdateInstaller::logStep(QStringLiteral(
                 "runInAppInstall: downloadFinished, showing confirm dialog"));
+            // Free the downloader only once this handler (and its dialogs)
+            // is done — never from inside a nested dialog loop while it is
+            // still mid-emit. Closing the progress dialog emits canceled(),
+            // which would schedule that deletion early, so detach it first.
+            const auto freeInstaller = qScopeGuard([installer] { installer->deleteLater(); });
+            QObject::disconnect(prog, &QProgressDialog::canceled, installer, nullptr);
             prog->close();
-            installer->deleteLater();
+            prog->deleteLater();
             const QString installPrompt =
 #if defined(Q_OS_WIN)
                 tr("Download complete. quewi will close, install the update "
@@ -2536,11 +2550,13 @@ void MainWindow::runInAppInstall(const QString &msiUrl)
             }
         });
     connect(installer, &UpdateInstaller::downloadFailed, this,
-        [this, prog, installer](const QString &reason) {
+        [this, prog, installer](QString reason) {   // by value: see above
             UpdateInstaller::logStep(QStringLiteral(
                 "runInAppInstall: downloadFailed: %1").arg(reason));
+            const auto freeInstaller = qScopeGuard([installer] { installer->deleteLater(); });
+            QObject::disconnect(prog, &QProgressDialog::canceled, installer, nullptr);
             prog->close();
-            installer->deleteLater();
+            prog->deleteLater();
             QMessageBox::warning(this, tr("Update download failed"),
                 tr("Couldn't download the installer:\n%1").arg(reason));
         });

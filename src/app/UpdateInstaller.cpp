@@ -260,7 +260,11 @@ void UpdateInstaller::onReplyFinished()
     }
     logStep(QStringLiteral("download OK, emitting downloadFinished: %1")
                 .arg(m_localPath));
-    emit downloadFinished(m_localPath);
+    // Emit a copy, not the member: a receiver may delete this installer
+    // (deleteLater runs inside any nested dialog loop) while still using
+    // the path it was handed.
+    const QString path = m_localPath;
+    emit downloadFinished(path);
 }
 
 bool UpdateInstaller::launchInstaller(const QString &msiPath,
