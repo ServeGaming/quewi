@@ -44,6 +44,7 @@ void CartGrid::setSize(int rows, int cols)
         }
     }
     emit layoutChanged();
+    emit modified();   // persisted content changed → show is unsaved
 }
 
 // ── Layers ──────────────────────────────────────────────────────────────────
@@ -68,6 +69,7 @@ void CartGrid::setLayerName(int index, const QString &name)
     if (m_layers[index].name == name) return;
     m_layers[index].name = name;
     emit layersChanged();
+    emit modified();   // persisted content changed → show is unsaved
 }
 
 int CartGrid::addLayer(const QString &name)
@@ -79,6 +81,7 @@ int CartGrid::addLayer(const QString &name)
     m_active = int(m_layers.size()) - 1;
     emit layersChanged();
     emit layoutChanged();
+    emit modified();   // persisted content changed → show is unsaved
     return m_active;
 }
 
@@ -93,6 +96,7 @@ void CartGrid::removeLayer(int index)
     else if (m_active > index)       --m_active;
     emit layersChanged();
     emit layoutChanged();
+    emit modified();   // persisted content changed → show is unsaved
 }
 
 // ── Cell access ─────────────────────────────────────────────────────────────
@@ -131,11 +135,12 @@ void CartGrid::setCell(int row, int col, const QUuid &cueId)
         cs[k].cueId = cueId;
     }
     emit layoutChanged();
+    emit modified();   // persisted content changed → show is unsaved
 }
 
 void CartGrid::clearCell(int row, int col)
 {
-    if (cells().remove(packKey(row, col))) emit layoutChanged();
+    if (cells().remove(packKey(row, col))) { emit layoutChanged(); emit modified(); }
 }
 
 void CartGrid::setOutputDeviceId(const QByteArray &id)
@@ -143,6 +148,7 @@ void CartGrid::setOutputDeviceId(const QByteArray &id)
     if (m_outputDeviceId == id) return;
     m_outputDeviceId = id;
     emit layoutChanged();
+    emit modified();   // persisted content changed → show is unsaved
 }
 
 void CartGrid::setCellColor(int row, int col, const QColor &color)
@@ -150,6 +156,7 @@ void CartGrid::setCellColor(int row, int col, const QColor &color)
     if (row < 0 || row >= m_rows || col < 0 || col >= m_cols) return;
     mutableCell(row, col).color = color;
     emit layoutChanged();
+    emit modified();   // persisted content changed → show is unsaved
 }
 
 void CartGrid::setCellLabel(int row, int col, const QString &label)
@@ -157,6 +164,7 @@ void CartGrid::setCellLabel(int row, int col, const QString &label)
     if (row < 0 || row >= m_rows || col < 0 || col >= m_cols) return;
     mutableCell(row, col).label = label;
     emit layoutChanged();
+    emit modified();   // persisted content changed → show is unsaved
 }
 
 void CartGrid::setCellHotkey(int row, int col, const QString &hotkey)
@@ -172,6 +180,7 @@ void CartGrid::setCellHotkey(int row, int col, const QString &hotkey)
     }
     mutableCell(row, col).hotkey = hotkey;
     emit layoutChanged();
+    emit modified();   // persisted content changed → show is unsaved
 }
 
 void CartGrid::setCellMidiNote(int row, int col, int note)
@@ -185,6 +194,7 @@ void CartGrid::setCellMidiNote(int row, int col, int note)
     }
     mutableCell(row, col).midiNote = note;
     emit layoutChanged();
+    emit modified();   // persisted content changed → show is unsaved
 }
 
 QPair<int,int> CartGrid::cellOfCue(const QUuid &cueId) const

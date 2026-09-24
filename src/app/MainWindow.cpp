@@ -762,6 +762,9 @@ void MainWindow::resetWorkspace()
     m_workspace->setName(tr("Untitled Show"));
     auto list = std::make_unique<core::CueList>(tr("Main"));
     m_workspace->addCueList(std::move(list));
+    // Adding the default list trips the non-undoable-edit flag; a brand-new
+    // show with nothing in it is not "unsaved".
+    m_workspace->markClean();
 
     m_model = std::make_unique<core::CueListModel>();
     rebindModel();

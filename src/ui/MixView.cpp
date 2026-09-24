@@ -523,6 +523,10 @@ QString MixView::dcaGoTooltip() const
 
 void MixView::onCueEdited(MixCue *cue)
 {
+    // Grid edits (DCA picker, cue number/name) write the cue directly rather
+    // than through the undo stack, so flag the show unsaved ourselves.
+    if (m_workspace) m_workspace->markModified();
+
     // Live edit: if the operator changes the cue that's currently ON the desk,
     // push it. Editing any other cue is just programming and must not touch a
     // live console mid-show.

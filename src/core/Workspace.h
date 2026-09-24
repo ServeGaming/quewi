@@ -65,8 +65,14 @@ public:
     // user sets up a console.
     mix::MixShow *mixShow() const { return m_mixShow.get(); }
 
-    bool isDirty() const { return m_undoStack.isClean() == false; }
-    void markClean() { m_undoStack.setClean(); }
+    // Unsaved = the undo stack moved since the last save, OR something that
+    // bypasses the undo stack changed: soundboard layout/keys, mix channels and
+    // ensembles, patches, script notes, cue-list add/remove/rename/reorder, or
+    // a mix-grid assignment. Without the second half those edits never raised
+    // the close-without-saving prompt and were silently lost.
+    bool isDirty() const { return !m_undoStack.isClean() || m_modified; }
+    void markModified();
+    void markClean();
 
 signals:
     void nameChanged();
@@ -83,6 +89,7 @@ private:
     std::unique_ptr<ScriptModel>   m_script;
     std::unique_ptr<CartGrid>      m_cart;
     std::unique_ptr<mix::MixShow>  m_mixShow;
+    bool m_modified = false;   // a non-undoable edit since the last save/load
 };
 
 } // namespace quewi::core

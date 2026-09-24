@@ -97,6 +97,12 @@ public:
 signals:
     void layoutChanged();   // size or any cell changed (rebuild the visible grid)
     void layersChanged();   // a layer was added/removed/renamed, or active changed
+    // Something that's saved in the show changed (pads, keys, colours, layers,
+    // size, output device). Deliberately NOT emitted for switching the active
+    // layer or loading — flipping pages mid-show isn't an edit worth a save
+    // prompt. Workspace uses it for dirty-tracking, since cart edits bypass
+    // the undo stack.
+    void modified();
 
 private:
     int m_rows = 4;
