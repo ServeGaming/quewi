@@ -169,8 +169,12 @@ void CueListView::setWorkspace(core::Workspace *workspace)
 void CueListView::setModel(QAbstractItemModel *model)
 {
     QTreeView::setModel(model);
+    m_pastEnd = false;
     using core::CueListModel;
     if (model) {
+        // A different list (or a reloaded one) starts with a fresh playhead.
+        connect(model, &QAbstractItemModel::modelReset, this,
+                [this]{ m_pastEnd = false; });
         // Re-paint the empty-state placeholder when the row count changes.
         connect(model, &QAbstractItemModel::rowsInserted, this,
                 [this]{ viewport()->update(); applyFilter(); });
@@ -255,6 +259,7 @@ cues::Cue *CueListView::nextCue() const
     // cues are skipped on GO, so the real target is the first ARMED cue
     // at or after the playhead. Pressing GO fires it and the caller is
     // responsible for advancing the standby past it.
+    if (m_pastEnd) return nullptr;
     auto *m = qobject_cast<core::CueListModel *>(model());
     if (!m || m->rowCount() == 0) return nullptr;
     const auto idx = currentIndex();
@@ -381,31 +386,32 @@ void CueListView::dropEvent(QDropEvent *event)
     }
     // pos == OnItem: drop *onto* a row — treat as "before that row".
 
-    // Move rows in source order, top-to-bottom. Issue one undoable
-    // command per moved row so the user can ctrl-Z each step (or undo
-    // the whole batch if we wrap them into a macro — done below).
+    // Work in cues, not row numbers: every move shifts the rows after it, so
+    // row numbers captured before the first move go stale (dragging B+C of
+    // A..F down to before F used to move D instead of C). Instead pick the
+    // ANCHOR — the first non-dragged cue at/after the drop point — and insert
+    // each dragged cue, in original order, right before it. Each lands after
+    // the previous one, so the block stays contiguous and in order.
+    std::sort(rows.begin(), rows.end());
+    rows.erase(std::unique(rows.begin(), rows.end()), rows.end());
+    QList<cues::Cue *> moving;
+    for (int r : rows)
+        if (auto *c = list->cueAt(r)) moving.append(c);
+    cues::Cue *anchor = (dest < list->cueCount()) ? list->cueAt(dest) : nullptr;
+    while (anchor && moving.contains(anchor)) {
+        const int next = list->rowOf(anchor) + 1;
+        anchor = (next < list->cueCount()) ? list->cueAt(next) : nullptr;
+    }
+
+    // One undoable command per moved cue, wrapped in a macro so a single
+    // Ctrl+Z undoes the whole drag.
     auto *stack = m_workspace->undoStack();
     stack->beginMacro(QObject::tr("Reorder cues"));
-    for (int row : rows) {
-        if (row == dest || row + 1 == dest) {
-            // No-op move (dropping a row on itself)
-            continue;
-        }
-        stack->push(new core::MoveCueCommand(list, row, dest));
-        // After moving row → dest, subsequent rows in the source list
-        // shift if they were below dest.
-        if (row > dest) {
-            // Rows numerically greater than the *original* row that we
-            // captured shift up by one if they were between dest..row-1,
-            // but our snapshot rows were already collected pre-move.
-            // The simplest correct behaviour for multi-row drag is to
-            // recompute on the fly: increment dest so the next moved row
-            // lands right after the previous one.
-            dest += 1;
-        }
-        // For row < dest case the source got pulled out from below dest,
-        // so dest itself shifted down; the destRowAfterTake() in the
-        // command already handles that.
+    for (auto *c : moving) {
+        const int from = list->rowOf(c);
+        const int to   = anchor ? list->rowOf(anchor) : list->cueCount();
+        if (from < 0 || from + 1 == to) continue;   // already right there
+        stack->push(new core::MoveCueCommand(list, from, to));
     }
     stack->endMacro();
     m_dragActive = false;
@@ -415,9 +421,22 @@ void CueListView::dropEvent(QDropEvent *event)
 
 void CueListView::currentChanged(const QModelIndex &current, const QModelIndex &previous)
 {
+    // Only a real selection leaves the past-end state; setPlayheadPastEnd()
+    // itself clears the current index (invalid), which must not undo it.
+    if (current.isValid()) m_pastEnd = false;
     QTreeView::currentChanged(current, previous);
     auto *m = qobject_cast<core::CueListModel *>(model());
     emit currentCueChanged(m ? m->cueAt(current) : nullptr);
+}
+
+void CueListView::setPlayheadPastEnd()
+{
+    // Set BEFORE clearing: the clear emits currentCueChanged, and listeners
+    // (the NEXT label) call nextCue() and must already see "nothing".
+    m_pastEnd = true;
+    setCurrentIndex(QModelIndex());
+    clearSelection();
+    viewport()->update();
 }
 
 void CueListView::setFilterText(const QString &substring)

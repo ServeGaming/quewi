@@ -179,12 +179,17 @@ MainWindow::MainWindow(QWidget *parent)
             [this](cues::Cue *c) { fireLinkedFor(c); });
     connect(m_goEngine.get(), &GoEngine::gotoRequested, this,
             [this](core::CueId id) {
-                if (!m_workspace) return;
-                auto *list = m_workspace->activeCueList();
+                // Search the list the cue view is showing — m_model's rows are
+                // what setCurrentIndex indexes into.
+                auto *list = m_model ? m_model->cueList() : nullptr;
                 if (!list) return;
                 for (int row = 0; row < list->cueCount(); ++row) {
                     if (auto *c = list->cueAt(row); c && c->id() == id) {
                         m_cueListView->setCurrentIndex(m_model->index(row, 0));
+                        // Tell onGoRequested not to advance over our jump (a
+                        // zero-pre-wait Goto fires inside it, so its normal
+                        // "advance past the fired cue" used to undo the Goto).
+                        m_playheadJumped = true;
                         return;
                     }
                 }
@@ -205,23 +210,36 @@ MainWindow::MainWindow(QWidget *parent)
     m_actPanic->setShortcutContext(Qt::ApplicationShortcut);
     connect(m_actPanic, &QAction::triggered, this, [this] {
         if (m_goEngine) m_goEngine->cancelAll(0.05);
+        m_pendingLinkFires.clear();
         statusBar()->showMessage(tr("PANIC: all output stopped"), 2000);
     });
 
+    // Pause is a real pause now: playing audio/video freeze in place along
+    // with every pending pre-wait/continue, and pressing it again resumes
+    // them. It used to be a disguised panic — audio stopped for good and the
+    // lighting rig snapped to black.
     m_actPause = new QAction(tr("Pause"), this);
     addAction(m_actPause);
     m_actPause->setShortcutContext(Qt::ApplicationShortcut);
     connect(m_actPause, &QAction::triggered, this, [this] {
-        if (m_goEngine) m_goEngine->cancelAll(0.25);
-        statusBar()->showMessage(tr("Paused (cancels pending continues)"), 2500);
+        if (!m_goEngine) return;
+        if (m_goEngine->isPaused()) {
+            m_goEngine->resumeAll();
+            statusBar()->showMessage(tr("Resumed"), 2000);
+        } else {
+            m_goEngine->pauseAll();
+            statusBar()->showMessage(tr("Paused — press Pause again to resume"), 4000);
+        }
     });
 
     m_actFadeAll = new QAction(tr("Fade All"), this);
     addAction(m_actFadeAll);
     m_actFadeAll->setShortcutContext(Qt::ApplicationShortcut);
     connect(m_actFadeAll, &QAction::triggered, this, [this] {
-        if (m_goEngine) m_goEngine->cancelAll(2.0);
-        statusBar()->showMessage(tr("Fade All: 2 s fade-out across every voice"), 3000);
+        // Audio, video AND lights fade over 2 s (lights used to cut to black).
+        if (m_goEngine) m_goEngine->fadeAll(2.0);
+        m_pendingLinkFires.clear();
+        statusBar()->showMessage(tr("Fade All: 2 s fade-out of sound, video and lights"), 3000);
     });
 
     // Register every meaningful shortcut. Defaults match what was
@@ -426,8 +444,8 @@ void MainWindow::buildLayout()
         });
     connect(m_cartView, &ui::CartView::fileDropped,
             this, &MainWindow::onCartFileDropped);
-    connect(m_cartView, &ui::CartView::stopAllRequested, this,
-        [this] { if (m_goEngine) m_goEngine->cancelAll(); });
+    connect(m_cartView, &ui::CartView::stopAllRequested,
+            this, &MainWindow::stopSoundboard);
     connect(m_cartView, &ui::CartView::editCueRequested, this,
         [this](cues::Cue *cue) {
             if (auto *ac = qobject_cast<audio::AudioCue *>(cue)) {
@@ -575,6 +593,10 @@ void MainWindow::buildLayout()
             m_transport->setDcaGoState(m_mixView->canFireNext(),
                                        m_mixView->dcaGoTooltip());
     });
+    // The Pause button reads "Resume" while everything is paused.
+    connect(m_goEngine.get(), &GoEngine::pausedChanged,
+            m_transport, &ui::TransportBar::setPaused);
+
     // Cross-list cue links, mix side: a DCA cue firing fires its linked
     // playback cue too (bidirectional with the GoEngine hook above).
     connect(m_mixView, &ui::MixView::mixCueFired, this,
@@ -758,6 +780,9 @@ void MainWindow::resetWorkspace()
     // cues) are destroyed below — otherwise the GoEngine is left holding raw
     // Cue* pointers into freed memory until its next workspace is set.
     if (m_goEngine) m_goEngine->cancelAll(0.0);
+    // Link markers are keyed by cue id, and reopening a show brings the same
+    // ids back — a stale one would swallow a real fire in the new session.
+    m_pendingLinkFires.clear();
     m_workspace = std::make_unique<core::Workspace>();
     m_workspace->setName(tr("Untitled Show"));
     auto list = std::make_unique<core::CueList>(tr("Main"));
@@ -2030,8 +2055,18 @@ void MainWindow::detachCueListTab(int idx)
                     ? m_workspace->cart()->outputDeviceId() : QByteArray();
                 m_goEngine->fire(c, dev);
             });
-        connect(view, &ui::CartView::stopAllRequested, this,
-            [this] { if (m_goEngine) m_goEngine->cancelAll(); });
+        connect(view, &ui::CartView::stopAllRequested,
+                this, &MainWindow::stopSoundboard);
+        // The detached board used to ignore dropped files and "Open in audio
+        // editor…" — only fire and stop were wired.
+        connect(view, &ui::CartView::fileDropped,
+                this, &MainWindow::onCartFileDropped);
+        connect(view, &ui::CartView::editCueRequested, this, [this](cues::Cue *cue) {
+            if (auto *ac = qobject_cast<audio::AudioCue *>(cue)) {
+                ac->prepare();
+                (new ui::AudioEditorWindow(ac, this))->show();
+            }
+        });
         win->setCentralWidget(view);
         win->resize(720, 560);
         break;
@@ -2459,29 +2494,62 @@ void MainWindow::onGoRequested()
         return;
     }
 
+    m_playheadJumped = false;
     if (m_goEngine) m_goEngine->fire(cue);
 
-    // Advance the standby past the cue we just fired, then skip over any
-    // disarmed cues so the playhead lands on the next ARMED target (QLab
-    // "skip disarmed on GO" semantics). nextCue() returned the first armed
-    // cue at/after the playhead, which may be ahead of the selected row, so
-    // resume from that fired cue's row rather than the raw selection.
-    int firedRow = -1;
-    for (int r = 0; r < m_model->rowCount(); ++r) {
-        if (m_model->cueAt(m_model->index(r, 0)) == cue) { firedRow = r; break; }
-    }
-    int nextRow = firedRow + 1;
-    while (nextRow < m_model->rowCount()) {
-        auto *c = m_model->cueAt(m_model->index(nextRow, 0));
-        if (c && c->isArmed()) break;
-        ++nextRow;
-    }
-    if (nextRow < m_model->rowCount()) {
-        m_cueListView->setCurrentIndex(m_model->index(nextRow, 0));
-    }
+    // A zero-pre-wait Goto has already moved the playhead to its target;
+    // advancing now would undo the jump.
+    if (!m_playheadJumped) advancePlayheadAfter(cue);
+
     if (auto *upcoming = m_cueListView->nextCue()) {
         if (auto *ac = qobject_cast<audio::AudioCue *>(upcoming)) ac->prepare();
     }
+}
+
+void MainWindow::stopSoundboard()
+{
+    if (!m_workspace || !m_workspace->cart()) return;
+    // Only the voices the board's pads own. This used to be a full panic:
+    // it killed the main list's audio and blacked out the lighting rig too.
+    int stopped = 0;
+    for (const auto &id : m_workspace->cart()->allCueIds()) {
+        for (const auto &list : m_workspace->cueLists()) {
+            for (int r = 0; r < list->cueCount(); ++r) {
+                auto *c = list->cueAt(r);
+                if (!c || c->id() != id) continue;
+                if (auto *ac = qobject_cast<audio::AudioCue *>(c);
+                    ac && ac->currentVoiceId() != 0 && m_audioEngine) {
+                    m_audioEngine->stop(ac->currentVoiceId(), 0.05);
+                    ++stopped;
+                } else if (auto *vc = qobject_cast<video::VisualCue *>(c);
+                           vc && vc->currentVoiceId() != 0 && m_videoEngine) {
+                    m_videoEngine->stop(vc->currentVoiceId());
+                    ++stopped;
+                }
+            }
+        }
+    }
+    statusBar()->showMessage(tr("Soundboard: stopped %1 pad%2")
+        .arg(stopped).arg(stopped == 1 ? QString() : QStringLiteral("s")), 2000);
+}
+
+void MainWindow::advancePlayheadAfter(cues::Cue *fired)
+{
+    if (!m_model || !m_goEngine) return;
+    // The GoEngine knows the chain: skip every cue the auto-continue /
+    // auto-follow chain will fire by itself, a group's children, and
+    // disarmed cues. nullptr = nothing left → playhead goes past the end, so
+    // a second GO on the last cue no longer fires it again.
+    cues::Cue *target = m_goEngine->standbyAfter(fired);
+    if (target) {
+        for (int r = 0; r < m_model->rowCount(); ++r) {
+            if (m_model->cueAt(m_model->index(r, 0)) == target) {
+                m_cueListView->setCurrentIndex(m_model->index(r, 0));
+                return;
+            }
+        }
+    }
+    m_cueListView->setPlayheadPastEnd();
 }
 
 #if 0
@@ -2877,53 +2945,35 @@ void MainWindow::registerOscRemoteHandlers()
     sub("/quewi/go", [this](const osc::Message &) {
         QMetaObject::invokeMethod(this, [this]{ onGoRequested(); }, Qt::QueuedConnection);
     });
+    // Remote panic/stop go through the GoEngine exactly like the keyboard
+    // Panic. They used to stop the output engines directly, so pending
+    // pre-waits and auto-follow chains survived and fired afterwards.
     sub("/quewi/panic", [this](const osc::Message &) {
         QMetaObject::invokeMethod(this, [this]{
-            m_audioEngine->stopAll(0.05);
-            m_lightingEngine->blackout();
-            m_videoEngine->stopAll();
+            if (m_goEngine) m_goEngine->cancelAll(0.05);
+            m_pendingLinkFires.clear();
             statusBar()->showMessage(tr("PANIC: remote OSC"), 2000);
         }, Qt::QueuedConnection);
     });
     sub("/quewi/stop", [this](const osc::Message &) {
         QMetaObject::invokeMethod(this, [this]{
-            m_audioEngine->stopAll(0.05);
-            m_lightingEngine->blackout();
-            m_videoEngine->stopAll();
+            if (m_goEngine) m_goEngine->cancelAll(0.05);
+            m_pendingLinkFires.clear();
         }, Qt::QueuedConnection);
     });
-    // /quewi/pause — *real* pause (voice keeps its read position),
-    // not a fade-out-stop like the old behaviour. Walk every audio cue
-    // in the active list and pause whichever ones currently own a
-    // voice; /quewi/resume undoes the same set.
+    // /quewi/pause and /quewi/resume drive the same real pause as the
+    // transport Pause button: voices keep their position, pending pre-waits
+    // and continues freeze, and resume picks everything back up.
     sub("/quewi/pause", [this](const osc::Message &) {
         QMetaObject::invokeMethod(this, [this]{
-            if (!m_workspace) return;
-            auto *list = activeOscList();
-            if (!list) return;
-            int n = 0;
-            for (int r = 0; r < list->cueCount(); ++r) {
-                if (auto *ac = qobject_cast<audio::AudioCue *>(list->cueAt(r));
-                    ac && ac->currentVoiceId()) {
-                    if (m_audioEngine->pause(ac->currentVoiceId())) ++n;
-                }
-            }
-            statusBar()->showMessage(tr("Paused %1 voices via OSC").arg(n), 2000);
+            if (m_goEngine) m_goEngine->pauseAll();
+            statusBar()->showMessage(tr("Paused via OSC"), 2000);
         }, Qt::QueuedConnection);
     });
     sub("/quewi/resume", [this](const osc::Message &) {
         QMetaObject::invokeMethod(this, [this]{
-            if (!m_workspace) return;
-            auto *list = activeOscList();
-            if (!list) return;
-            int n = 0;
-            for (int r = 0; r < list->cueCount(); ++r) {
-                if (auto *ac = qobject_cast<audio::AudioCue *>(list->cueAt(r));
-                    ac && ac->currentVoiceId()) {
-                    if (m_audioEngine->resume(ac->currentVoiceId())) ++n;
-                }
-            }
-            statusBar()->showMessage(tr("Resumed %1 voices via OSC").arg(n), 2000);
+            if (m_goEngine) m_goEngine->resumeAll();
+            statusBar()->showMessage(tr("Resumed via OSC"), 2000);
         }, Qt::QueuedConnection);
     });
 
@@ -2944,11 +2994,10 @@ void MainWindow::registerOscRemoteHandlers()
             else        m_cartView->firePadIndex(x);
         }, Qt::QueuedConnection);
     });
-    // Stop everything the board started (panic-lite).
+    // Stop everything the board started — and only that.
     sub("/quewi/cart/stop", [this](const osc::Message &) {
-        QMetaObject::invokeMethod(this, [this]{
-            if (m_goEngine) m_goEngine->cancelAll();
-        }, Qt::QueuedConnection);
+        QMetaObject::invokeMethod(this, [this]{ stopSoundboard(); },
+                                  Qt::QueuedConnection);
     });
     // Bring the soundboard to the front (selects its tab, creating one if
     // the show has no board yet).
@@ -4002,13 +4051,20 @@ void MainWindow::wireOscNotifications()
     pushOscNotify(QStringLiteral("/quewi/notify/workspace/changed"), {});
 }
 
+namespace {
+// Cue numbers are user-typed decimals (1, 1.5, 12.25). qFuzzyCompare can't
+// compare against 0 and is relative, so use a small absolute tolerance.
+bool sameCueNumber(double a, double b) { return std::abs(a - b) < 1e-6; }
+} // namespace
+
 void MainWindow::selectCueByNumber(double number)
 {
-    auto *list = m_workspace ? m_workspace->activeCueList() : nullptr;
+    // The list the cue view shows — m_model's rows are what we index into.
+    auto *list = m_model ? m_model->cueList() : nullptr;
     if (!list) return;
     for (int row = 0; row < list->cueCount(); ++row) {
         auto *c = list->cueAt(row);
-        if (c && qFuzzyCompare(c->number(), number)) {
+        if (c && sameCueNumber(c->number(), number)) {
             m_cueListView->setCurrentIndex(m_model->index(row, 0));
             return;
         }
@@ -4017,10 +4073,27 @@ void MainWindow::selectCueByNumber(double number)
 
 void MainWindow::fireCueByNumber(double number)
 {
-    // With QLab-style semantics (GO fires the selected cue), simply
-    // selecting and firing produces the right behaviour.
-    selectCueByNumber(number);
-    onGoRequested();
+    // Fire exactly that cue. This used to select-then-GO: an unknown number
+    // left the selection alone and GO fired whatever was on standby, and a
+    // disarmed cue made GO skip ahead to the next armed one. Like QLab's
+    // /cue/x/start it also leaves the playhead where it is.
+    auto *list = activeOscList();
+    cues::Cue *cue = nullptr;
+    for (int row = 0; list && row < list->cueCount(); ++row) {
+        if (auto *c = list->cueAt(row); c && sameCueNumber(c->number(), number)) {
+            cue = c;
+            break;
+        }
+    }
+    if (!cue) {
+        statusBar()->showMessage(tr("OSC start: no cue %1").arg(number), 3000);
+        return;
+    }
+    if (!cue->isArmed()) {
+        statusBar()->showMessage(tr("OSC start: cue %1 is disarmed").arg(number), 3000);
+        return;
+    }
+    if (m_goEngine) m_goEngine->fire(cue);
 }
 
 void MainWindow::fireLinkedFor(cues::Cue *source)
@@ -4047,12 +4120,17 @@ void MainWindow::fireLinkedFor(cues::Cue *source)
     }
 
     for (auto *t : targets) {
+        // A marker must only exist for a fire that will really happen: a
+        // leftover one would swallow the partner's NEXT genuine fire, so its
+        // linked cue silently wouldn't follow (found by three auditors).
+        if (!t->isArmed()) continue;   // GoEngine::fire would no-op
         // Mark before firing: the mix path emits mixCueFired() synchronously,
         // so the marker must already be in place when fireLinkedFor(t) re-enters.
         m_pendingLinkFires.insert(t->id());
         if (auto *mc = qobject_cast<mix::MixCue *>(t)) {
-            if (m_mixView) m_mixView->fireCueAtConsole(mc);
-            else           m_pendingLinkFires.remove(t->id());
+            // Returns false (and emits nothing) with no console connected.
+            if (!m_mixView || !m_mixView->fireCueAtConsole(mc))
+                m_pendingLinkFires.remove(t->id());
         } else if (m_goEngine) {
             m_goEngine->fire(t);
         } else {

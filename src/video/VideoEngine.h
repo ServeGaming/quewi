@@ -2,6 +2,7 @@
 
 #include <QColor>
 #include <QHash>
+#include <QList>
 #include <QObject>
 #include <QPolygonF>
 #include <QPointer>
@@ -65,6 +66,12 @@ public:
     void fadeOpacity(VideoVoiceId id, double targetOpacity, double durationSeconds);
 
     int activeVoiceCount() const { return static_cast<int>(m_voices.size()); }
+    QList<VideoVoiceId> activeVoiceIds() const {
+        QList<VideoVoiceId> ids;
+        ids.reserve(int(m_voices.size()));
+        for (const auto &v : m_voices) ids.append(v.id);
+        return ids;
+    }
 
     // ── Live transport for a playing video voice ────────────────────────
     // Lets a UI scrubber drive a fired video cue. A snapshot query (polled

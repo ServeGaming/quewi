@@ -9,6 +9,7 @@
 #include <QObject>
 #include <QPointer>
 #include <QSet>
+#include <functional>
 
 class QTimer;
 
@@ -49,7 +50,29 @@ public:
     // soundboard to send its whole board to a chosen device (e.g. a virtual
     // cable) without mutating the shared cue. Empty = use the cue's device.
     void fire(cues::Cue *cue, const QByteArray &outputDeviceOverride = {});
+
+    // PANIC: cancel everything scheduled and stop every output now — audio
+    // (short fade), video, and the lighting rig to black.
     void cancelAll(double fadeOutSeconds = 0.05);
+    // Cancel pre-waits, continues, follows and group waits only. Output is
+    // left exactly as it is.
+    void cancelScheduling();
+    // FADE ALL: cancel scheduling, then fade audio, video AND lights out over
+    // `seconds` (it used to snap the lights to black instantly).
+    void fadeAll(double seconds);
+    // PAUSE: freeze every playing audio/video voice and every pending timer
+    // (pre-waits, continues, wait durations) where it is; resumeAll() picks
+    // them all up again. Lights are left as they are. (Pause used to be a
+    // disguised panic: it stopped the audio for good and blacked out the rig.)
+    void pauseAll();
+    void resumeAll();
+    bool isPaused() const { return m_paused; }
+
+    // Where the playhead belongs after GO fired `fired`: past the whole
+    // auto-continue / auto-follow chain (those cues fire on their own) and
+    // past every fired group's children (they fire with their group).
+    // nullptr = past the end of the list.
+    cues::Cue *standbyAfter(cues::Cue *fired) const;
 
     // Set of audio voice ids currently alive. The soundboard polls this to
     // light pads whose cue is playing (a cue is playing when its
@@ -66,16 +89,34 @@ signals:
     //   - Audio / Video: NOT emitted here; AudioEngine::voiceFinished
     //     and VideoEngine::voiceFinished are the authoritative
     //     signals — MainWindow maps those to cueFinished separately
-    //   - Group: NOT emitted (would require child tracking; v1.1+)
+    //   - Group: once every child it fired has finished (so an auto-follow
+    //     group continues after its contents, like QLab)
     void cueFinished(quewi::cues::Cue *cue);
     void statusMessage(const QString &msg);
     void gotoRequested(quewi::core::CueId targetId);
+    void pausedChanged(bool paused);
 
 private:
+    void runFire(cues::Cue *cue, const QByteArray &outputDeviceOverride);
     void doFire(cues::Cue *cue, const QByteArray &outputDeviceOverride = {});
     void scheduleContinue(cues::Cue *cue, double delaySeconds);
     cues::Cue *nextCueAfter(cues::Cue *cue) const;
-    cues::Cue *findCue(core::CueId id) const;
+    // Resolve a target id: the firing cue's OWN list first (a Fade in list A
+    // must find its target while list B's tab is on screen), then every list.
+    cues::Cue *findCue(core::CueId id, const cues::Cue *context = nullptr) const;
+    // First ARMED cue after `cue` in its own list, skipping ids in `skip`.
+    cues::Cue *nextArmedAfter(const cues::Cue *cue, const QSet<core::CueId> &skip) const;
+    // Every cue nested under `cue` if it's a group (children, grandchildren…).
+    QSet<core::CueId> descendantsOf(const cues::Cue *cue) const;
+    // Stop cue behaviour on any target: audio, video, or a whole group.
+    void stopTarget(cues::Cue *target, int depth = 0);
+    // A child of a running group finished; finishes the group when it's the last.
+    void noteChildFinished(cues::Cue *child);
+    void clearPauseState();
+    // Every delayed action goes through here so Panic cancels it and Pause
+    // freezes it. (Some used to be untracked QTimer::singleShots: a Wait's
+    // "finished" timer survived a panic and could release a later follow early.)
+    void after(int ms, std::function<void()> fn);
 
     // Auto-follow: a cue is added to m_followPending when it fires in
     // AutoFollow mode, and its continue is triggered only when its action
@@ -98,6 +139,22 @@ private:
     midi::MidiEngine             *m_midi = nullptr;
 
     QList<QTimer *> m_pending;
+
+    // Running groups → the children they fired that haven't finished yet.
+    // Keyed by id (not pointer) so a group deleted mid-run can't dangle.
+    QHash<core::CueId, QSet<core::CueId>> m_groupRemaining;
+
+    // Pause state: which voices WE paused (so resume doesn't wake ones a
+    // Pause cue paused on purpose) and each frozen timer's remaining ms.
+    bool                 m_paused = false;
+    QList<quint64>       m_pausedAudio;
+    QList<quint64>       m_pausedVideo;
+    QHash<QTimer *, int> m_frozenTimers;
+
+    // Nesting depth of synchronous fires (Start / Group children / links).
+    // Past a limit, fires bounce through the event loop instead of
+    // recursing, so a self-starting loop can't overflow the stack.
+    int m_fireDepth = 0;
 
     // Object-audio trajectory ticker. While at least one playing audio
     // cue has a non-trivial trajectory, a 30 Hz timer recomputes VBAP

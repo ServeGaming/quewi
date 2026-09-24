@@ -241,6 +241,16 @@ private:
     void fireLinkedFor(cues::Cue *source);
     QSet<QUuid> m_pendingLinkFires;
 
+    // Move the playhead to where it belongs after GO fired `fired` (past its
+    // auto-continue chain and a group's children), or past the end.
+    void advancePlayheadAfter(cues::Cue *fired);
+    // Set by the Goto handler: a Goto fired during onGoRequested already put
+    // the playhead where it wants it, so the normal advance must not undo it.
+    bool m_playheadJumped = false;
+    // Soundboard "Stop All": stop only what the board's pads are playing —
+    // not the main list, not the lights (it used to be a full panic).
+    void stopSoundboard();
+
     std::unique_ptr<core::Workspace>    m_workspace;
     std::unique_ptr<core::CueListModel> m_model;
     // Models behind detached cue-list windows — fed the same running/peak

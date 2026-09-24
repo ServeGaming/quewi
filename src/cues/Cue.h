@@ -14,7 +14,8 @@ namespace quewi::cues {
 // them stable. Semantics follow QLab:
 enum class ContinueMode {
     DoNotContinue = 0,
-    AutoContinue,   // on GO, fire the NEXT cue immediately (after pre-wait)
+    AutoContinue,   // once this cue starts, fire the NEXT cue after this
+                    // cue's post-wait (0 = immediately)
     AutoFollow,     // fire the next cue only AFTER this cue's action finishes
                     // (audio/video reaches its end, or the duration elapses),
                     // then this cue's post-wait

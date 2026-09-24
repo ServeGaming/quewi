@@ -140,6 +140,15 @@ TransportBar::TransportBar(QWidget *parent)
     connect(m_fadeAll,  &QPushButton::clicked, this, &TransportBar::fadeAllPressed);
 }
 
+void TransportBar::setPaused(bool paused)
+{
+    if (!m_pause) return;
+    m_pause->setText(paused ? tr("Resume") : tr("Pause"));
+    m_pause->setToolTip(paused ? tr("Resume everything that was paused")
+                               : tr("Pause all playing sound and video, and any "
+                                    "pending waits; press again to resume"));
+}
+
 void TransportBar::setDcaGoState(bool ready, const QString &tooltip)
 {
     if (!m_dcaGo) return;

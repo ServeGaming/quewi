@@ -83,6 +83,8 @@ public:
     QPair<int,int> cellOfHotkey(const QString &hotkey) const;  // first match
     QPair<int,int> cellOfMidiNote(int note) const;             // first match
     QPair<int,int> firstEmpty() const;
+    // Every cue bound to a pad on ANY layer (for the board's Stop All).
+    QList<QUuid> allCueIds() const;
 
     // The whole board routes to this output device (empty = engine default).
     // Voicemod-style: send every pad to a chosen device (e.g. a virtual

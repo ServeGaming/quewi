@@ -235,6 +235,15 @@ QPair<int,int> CartGrid::firstEmpty() const
     return {-1, -1};
 }
 
+QList<QUuid> CartGrid::allCueIds() const
+{
+    QList<QUuid> ids;
+    for (const auto &layer : m_layers)
+        for (const auto &cell : layer.cells)
+            if (!cell.cueId.isNull() && !ids.contains(cell.cueId)) ids.append(cell.cueId);
+    return ids;
+}
+
 // ── Serialisation ───────────────────────────────────────────────────────────
 
 QJsonObject CartGrid::toJson() const

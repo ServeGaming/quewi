@@ -27,6 +27,8 @@ public slots:
     // MixView owns the mix state, so the label text is computed there and
     // handed in as a string to keep this bar free of mix types.
     void setDcaGoState(bool ready, const QString &tooltip);
+    // Pause is a toggle: while paused the button reads "Resume".
+    void setPaused(bool paused);
 
 signals:
     void goPressed();

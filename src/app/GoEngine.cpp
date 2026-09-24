@@ -27,9 +27,29 @@
 #include <QRandomGenerator>
 #include <QTimer>
 
+#include <algorithm>
 #include <cmath>
 
 namespace quewi {
+
+namespace {
+
+// The list a cue lives in (cues are parented to their CueList).
+core::CueList *listOf(const cues::Cue *c)
+{
+    return c ? qobject_cast<core::CueList *>(c->parent()) : nullptr;
+}
+
+QString nameOf(const cues::Cue *c)
+{
+    return c->name().isEmpty() ? c->typeName() : c->name();
+}
+
+// Synchronous fires nest (Start → target, Group → children, links). Past this
+// depth a fire is bounced through the event loop instead — see fire().
+constexpr int kMaxFireDepth = 16;
+
+} // namespace
 
 GoEngine::GoEngine(QObject *parent) : QObject(parent)
 {
@@ -55,7 +75,9 @@ void GoEngine::onTrajectoryTick()
             it = m_trajectories.erase(it);
             continue;
         }
-        const double t = posByVoice.value(vid);
+        // positionSeconds is the voice's position IN THE FILE; trajectory
+        // time is seconds since the cue started, i.e. since trim-in.
+        const double t = std::max(0.0, posByVoice.value(vid) - rec.cue->trimInSeconds());
         const auto sample = rec.cue->trajectory().sampleAt(t);
         audio::Vbap v(rec.speakers);
         const auto gains = v.gains(static_cast<float>(sample.azimuthDeg),
@@ -93,56 +115,144 @@ void GoEngine::setVideoEngine(video::VideoEngine *e)
 void GoEngine::setOscEngine(osc::OscEngine *e)                { m_osc = e; }
 void GoEngine::setMidiEngine(midi::MidiEngine *e)             { m_midi = e; }
 
-cues::Cue *GoEngine::findCue(core::CueId id) const
+// ── Lookups ────────────────────────────────────────────────────────────
+
+cues::Cue *GoEngine::findCue(core::CueId id, const cues::Cue *context) const
 {
-    if (!m_workspace) return nullptr;
-    auto *list = m_workspace->activeCueList();
-    if (!list) return nullptr;
-    for (int row = 0; row < list->cueCount(); ++row) {
+    if (!m_workspace || id.isNull()) return nullptr;
+    if (auto *own = listOf(context)) {
+        for (int row = 0; row < own->cueCount(); ++row)
+            if (auto *c = own->cueAt(row); c && c->id() == id) return c;
+    }
+    for (const auto &list : m_workspace->cueLists())
+        for (int row = 0; row < list->cueCount(); ++row)
+            if (auto *c = list->cueAt(row); c && c->id() == id) return c;
+    return nullptr;
+}
+
+QSet<core::CueId> GoEngine::descendantsOf(const cues::Cue *cue) const
+{
+    QSet<core::CueId> out;
+    auto *group = qobject_cast<const cues::GroupCue *>(cue);
+    if (!group) return out;
+    QList<core::CueId> stack = group->childIds();
+    while (!stack.isEmpty()) {
+        const core::CueId id = stack.takeLast();
+        if (out.contains(id) || id == cue->id()) continue;   // cycle-safe
+        out.insert(id);
+        if (auto *sub = qobject_cast<cues::GroupCue *>(findCue(id, cue)))
+            stack.append(sub->childIds());
+    }
+    return out;
+}
+
+cues::Cue *GoEngine::nextArmedAfter(const cues::Cue *cue, const QSet<core::CueId> &skip) const
+{
+    // Walk the cue's OWN list. It used to walk whichever list tab was on
+    // screen, so switching tabs mid-chain made the continue silently stop.
+    auto *list = listOf(cue);
+    if (!list && m_workspace) list = m_workspace->activeCueList();
+    if (!list || !cue) return nullptr;
+    const int n = list->cueCount();
+    for (int row = list->rowOf(const_cast<cues::Cue *>(cue)) + 1; row > 0 && row < n; ++row) {
+        // Skip disarmed cues so a chain lands on the next ARMED cue instead
+        // of dead-ending on a disarmed one (fire() would no-op).
         auto *c = list->cueAt(row);
-        if (c && c->id() == id) return c;
+        if (c && c->isArmed() && !skip.contains(c->id())) return c;
     }
     return nullptr;
 }
 
 cues::Cue *GoEngine::nextCueAfter(cues::Cue *cue) const
 {
-    if (!m_workspace || !cue) return nullptr;
-    auto *list = m_workspace->activeCueList();
-    if (!list) return nullptr;
-    const int n = list->cueCount();
-    for (int row = 0; row < n; ++row) {
-        if (list->cueAt(row) != cue) continue;
-        // Skip past any disarmed cues so an auto-continue / auto-follow
-        // chain lands on the next ARMED cue instead of dead-ending on a
-        // disarmed one (fire() would otherwise no-op and break the chain).
-        for (int next = row + 1; next < n; ++next) {
-            auto *c = list->cueAt(next);
-            if (c && c->isArmed()) return c;
-        }
-        return nullptr;
+    // A group's children are rows right after it, but they fire WITH the
+    // group — continuing into them would fire them a second time.
+    return nextArmedAfter(cue, descendantsOf(cue));
+}
+
+cues::Cue *GoEngine::standbyAfter(cues::Cue *fired) const
+{
+    if (!fired) return nullptr;
+    QSet<core::CueId> skip = descendantsOf(fired);
+    const cues::Cue *c = fired;
+    // Everything the auto-continue / auto-follow chain will fire by itself is
+    // not a GO target: the playhead jumps past the whole chain, as in QLab.
+    // (It used to stop on the second cue of the chain, so the next GO fired
+    // cues the chain had already played.)
+    for (int guard = 0; c && c->continueMode() != cues::ContinueMode::DoNotContinue
+                        && guard < 100000; ++guard) {
+        auto *n = nextArmedAfter(c, skip);
+        if (!n) return nullptr;              // the chain runs off the end
+        skip.unite(descendantsOf(n));
+        c = n;
     }
-    return nullptr;
+    return nextArmedAfter(c, skip);
+}
+
+// ── Firing ─────────────────────────────────────────────────────────────
+
+void GoEngine::after(int ms, std::function<void()> fn)
+{
+    auto *t = new QTimer(this);
+    t->setSingleShot(true);
+    m_pending.append(t);
+    connect(t, &QTimer::timeout, this, [this, t, fn = std::move(fn)] {
+        m_pending.removeAll(t);
+        m_frozenTimers.remove(t);
+        t->deleteLater();
+        fn();
+    });
+    t->start(std::max(0, ms));
 }
 
 void GoEngine::fire(cues::Cue *cue, const QByteArray &outputDeviceOverride)
 {
     if (!cue || !cue->isArmed()) return;
 
+    // Start and Group cues fire their targets inline, so a cycle — a group
+    // that Starts itself (the usual "loop this" setup), or two Starts aimed
+    // at each other — used to recurse until the stack overflowed and quewi
+    // crashed. Past a sane depth, bounce through the event loop instead: the
+    // loop still runs, but on a flat stack.
+    if (m_fireDepth >= kMaxFireDepth) {
+        QPointer<cues::Cue> guard(cue);
+        after(0, [this, guard, outputDeviceOverride] {
+            if (guard) fire(guard, outputDeviceOverride);
+        });
+        return;
+    }
+
     const double preWait = cue->preWait();
     if (preWait > 0.0) {
-        auto *t = new QTimer(this);
-        t->setSingleShot(true);
-        m_pending.append(t);
         QPointer<cues::Cue> guard(cue);
-        connect(t, &QTimer::timeout, this, [this, t, guard, outputDeviceOverride] {
-            m_pending.removeAll(t);
-            t->deleteLater();
-            if (guard) doFire(guard, outputDeviceOverride);
+        after(static_cast<int>(preWait * 1000.0), [this, guard, outputDeviceOverride] {
+            if (guard) runFire(guard, outputDeviceOverride);
         });
-        t->start(static_cast<int>(preWait * 1000.0));
     } else {
-        doFire(cue, outputDeviceOverride);
+        runFire(cue, outputDeviceOverride);
+    }
+}
+
+void GoEngine::runFire(cues::Cue *cue, const QByteArray &outputDeviceOverride)
+{
+    ++m_fireDepth;
+    doFire(cue, outputDeviceOverride);
+    --m_fireDepth;
+}
+
+void GoEngine::stopTarget(cues::Cue *target, int depth)
+{
+    if (!target || depth > 32) return;
+    // A stopped cue must never advance an auto-follow chain.
+    m_followPending.remove(target);
+    if (auto *ac = qobject_cast<audio::AudioCue *>(target)) {
+        if (m_audio && ac->currentVoiceId() != 0) m_audio->stop(ac->currentVoiceId(), 0.1);
+    } else if (auto *vc = qobject_cast<video::VisualCue *>(target)) {
+        if (m_video && vc->currentVoiceId() != 0) m_video->stop(vc->currentVoiceId());
+    } else if (auto *g = qobject_cast<cues::GroupCue *>(target)) {
+        m_groupRemaining.remove(g->id());
+        for (const auto &id : g->childIds())
+            stopTarget(findCue(id, g), depth + 1);
     }
 }
 
@@ -270,8 +380,7 @@ void GoEngine::doFire(cues::Cue *cue, const QByteArray &outputDeviceOverride)
                 }
                 if (vid == 0) status(tr("GO: audio engine failed — %1")
                     .arg(m_audio->lastError()));
-                else status(tr("GO: ▶ %1").arg(
-                    cue->name().isEmpty() ? cue->typeName() : cue->name()));
+                else status(tr("GO: ▶ %1").arg(nameOf(cue)));
             }
         }
     } else if (auto *lightCue = qobject_cast<lighting::LightCue *>(cue)) {
@@ -285,7 +394,7 @@ void GoEngine::doFire(cues::Cue *cue, const QByteArray &outputDeviceOverride)
             status(tr("GO: ⚡ Light U%1").arg(lightCue->universe()));
         }
     } else if (auto *lfadeCue = qobject_cast<lighting::LightFadeCue *>(cue)) {
-        auto *target = qobject_cast<lighting::LightCue *>(findCue(lfadeCue->targetId()));
+        auto *target = qobject_cast<lighting::LightCue *>(findCue(lfadeCue->targetId(), cue));
         if (m_lighting && target) {
             QHash<int, int> values;
             const auto &chs = target->channels();
@@ -320,11 +429,11 @@ void GoEngine::doFire(cues::Cue *cue, const QByteArray &outputDeviceOverride)
             // can resolve cue -> VideoVoiceId -> VideoLayer to seek/pause.
             visualCue->setCurrentVoiceId(m_video->fire(p));
             status(tr("GO: ▶ %1 on screen %2")
-                .arg(cue->name().isEmpty() ? cue->typeName() : cue->name())
+                .arg(nameOf(cue))
                 .arg(visualCue->screenIndex()));
         }
     } else if (auto *fadeCue = qobject_cast<cues::FadeCue *>(cue)) {
-        auto *targetCue   = findCue(fadeCue->targetId());
+        auto *targetCue   = findCue(fadeCue->targetId(), cue);
         auto *audioTarget = qobject_cast<audio::AudioCue *>(targetCue);
         auto *videoTarget = qobject_cast<video::VisualCue *>(targetCue);
         if (m_audio && audioTarget && audioTarget->currentVoiceId() != 0
@@ -347,49 +456,59 @@ void GoEngine::doFire(cues::Cue *cue, const QByteArray &outputDeviceOverride)
         status(tr("Wait %1 s")
             .arg(qobject_cast<cues::WaitCue *>(cue)->durationSeconds()));
     } else if (auto *startCue = qobject_cast<cues::StartCue *>(cue)) {
-        if (auto *target = findCue(startCue->targetId())) {
-            // If the target is an audio cue currently paused, Start
-            // resumes it from the pause point rather than firing a
-            // fresh voice. Operators expect this — Start after Pause
-            // means "go again" not "start over."
-            if (auto *ac = qobject_cast<audio::AudioCue *>(target);
-                ac && m_audio && ac->currentVoiceId() != 0
+        if (auto *target = findCue(startCue->targetId(), cue)) {
+            // If the target is paused, Start resumes it from the pause point
+            // rather than firing a fresh voice. Operators expect this — Start
+            // after Pause means "go again" not "start over."
+            auto *ac = qobject_cast<audio::AudioCue *>(target);
+            auto *vc = qobject_cast<video::VisualCue *>(target);
+            if (ac && m_audio && ac->currentVoiceId() != 0
                 && m_audio->isPaused(ac->currentVoiceId()))
             {
                 m_audio->resume(ac->currentVoiceId());
-                status(tr("Start (resume) → %1").arg(
-                    ac->name().isEmpty() ? ac->typeName() : ac->name()));
+                m_pausedAudio.removeAll(ac->currentVoiceId());
+                status(tr("Start (resume) → %1").arg(nameOf(ac)));
+            } else if (vc && m_video && vc->currentVoiceId() != 0
+                       && m_video->transport(vc->currentVoiceId()).paused) {
+                m_video->resume(vc->currentVoiceId());
+                m_pausedVideo.removeAll(vc->currentVoiceId());
+                status(tr("Start (resume) → %1").arg(nameOf(vc)));
             } else {
-                status(tr("Start → %1").arg(
-                    target->name().isEmpty() ? target->typeName() : target->name()));
+                status(tr("Start → %1").arg(nameOf(target)));
                 fire(target);
             }
         } else {
             status(tr("Start: target not found"));
         }
     } else if (auto *stopCue = qobject_cast<cues::StopCue *>(cue)) {
-        if (auto *ac = qobject_cast<audio::AudioCue *>(findCue(stopCue->targetId()))) {
-            if (m_audio && ac->currentVoiceId() != 0) {
-                m_audio->stop(ac->currentVoiceId(), 0.1);
-                status(tr("Stop → %1").arg(
-                    ac->name().isEmpty() ? ac->typeName() : ac->name()));
-            }
+        // Stops audio, video, or a whole group (it used to handle audio only
+        // and report every other target as "not found").
+        if (auto *target = findCue(stopCue->targetId(), cue)) {
+            stopTarget(target);
+            status(tr("Stop → %1").arg(nameOf(target)));
         } else {
-            status(tr("Stop: target not found / not playing"));
+            status(tr("Stop: target not found"));
         }
     } else if (auto *gotoCue = qobject_cast<cues::GotoCue *>(cue)) {
-        if (auto *target = findCue(gotoCue->targetId())) {
+        if (auto *target = findCue(gotoCue->targetId(), cue)) {
             emit gotoRequested(target->id());
             status(tr("Goto %1").arg(QString::number(target->number(), 'f', 2)));
         }
     } else if (auto *pauseCue = qobject_cast<cues::PauseCue *>(cue)) {
-        // Real pause: voice keeps its read position and rejoins the mix
+        // Real pause: the voice keeps its read position and rejoins the mix
         // unchanged when a Start cue targeting it fires.
-        if (auto *ac = qobject_cast<audio::AudioCue *>(findCue(pauseCue->targetId()))) {
+        auto *target = findCue(pauseCue->targetId(), cue);
+        if (auto *ac = qobject_cast<audio::AudioCue *>(target)) {
             if (m_audio && ac->currentVoiceId() != 0
                 && m_audio->pause(ac->currentVoiceId())) {
-                status(tr("Pause → %1").arg(
-                    ac->name().isEmpty() ? ac->typeName() : ac->name()));
+                status(tr("Pause → %1").arg(nameOf(ac)));
+            } else {
+                status(tr("Pause: target not playing"));
+            }
+        } else if (auto *vc = qobject_cast<video::VisualCue *>(target)) {
+            if (m_video && vc->currentVoiceId() != 0) {
+                m_video->pause(vc->currentVoiceId());
+                status(tr("Pause → %1").arg(nameOf(vc)));
             } else {
                 status(tr("Pause: target not playing"));
             }
@@ -397,21 +516,24 @@ void GoEngine::doFire(cues::Cue *cue, const QByteArray &outputDeviceOverride)
             status(tr("Pause: target not found"));
         }
     } else if (auto *loadCue = qobject_cast<cues::LoadCue *>(cue)) {
-        if (auto *ac = qobject_cast<audio::AudioCue *>(findCue(loadCue->targetId()))) {
+        if (auto *ac = qobject_cast<audio::AudioCue *>(findCue(loadCue->targetId(), cue))) {
             ac->prepare();
-            status(tr("Load → %1").arg(
-                ac->name().isEmpty() ? ac->typeName() : ac->name()));
+            status(tr("Load → %1").arg(nameOf(ac)));
         } else {
             status(tr("Load: target not an audio cue"));
         }
     } else if (auto *resetCue = qobject_cast<cues::ResetCue *>(cue)) {
-        if (auto *ac = qobject_cast<audio::AudioCue *>(findCue(resetCue->targetId()))) {
+        auto *target = findCue(resetCue->targetId(), cue);
+        if (auto *ac = qobject_cast<audio::AudioCue *>(target)) {
             if (m_audio && ac->currentVoiceId() != 0) {
                 m_audio->stop(ac->currentVoiceId(), 0.0);
             }
+            m_followPending.remove(ac);
             ac->prepare();      // re-decode head so next fire is instant
-            status(tr("Reset → %1").arg(
-                ac->name().isEmpty() ? ac->typeName() : ac->name()));
+            status(tr("Reset → %1").arg(nameOf(ac)));
+        } else if (target) {
+            stopTarget(target);
+            status(tr("Reset → %1").arg(nameOf(target)));
         } else {
             status(tr("Reset: target not found"));
         }
@@ -447,72 +569,85 @@ void GoEngine::doFire(cues::Cue *cue, const QByteArray &outputDeviceOverride)
     } else if (auto *groupCue = qobject_cast<cues::GroupCue *>(cue)) {
         const auto kids = groupCue->childIds();
         const auto offs = groupCue->childOffsets();
+
+        // Resolve which children this GO will actually fire, and register the
+        // group as running BEFORE firing any of them, so a child that finishes
+        // instantly is still counted. The group finishes (cueFinished → an
+        // auto-follow group continues) when the last of them finishes.
+        QList<cues::Cue *> toFire;   // in fire order
         switch (groupCue->mode()) {
         case cues::GroupCue::Mode::Parallel:
-            status(tr("Group ▶ %1 children (parallel)").arg(kids.size()));
-            for (const auto &id : kids) if (auto *c = findCue(id)) fire(c);
+        case cues::GroupCue::Mode::Sequential:
+        case cues::GroupCue::Mode::Timeline:
+            for (const auto &id : kids)
+                if (auto *c = findCue(id, groupCue); c && c->isArmed()) toFire.append(c);
+            break;
+        case cues::GroupCue::Mode::StartFirst:
+            if (!kids.isEmpty())
+                if (auto *c = findCue(kids.first(), groupCue); c && c->isArmed())
+                    toFire.append(c);
+            break;
+        case cues::GroupCue::Mode::StartRandom:
+            if (!kids.isEmpty()) {
+                const int idx = QRandomGenerator::global()->bounded(kids.size());
+                if (auto *c = findCue(kids[idx], groupCue); c && c->isArmed())
+                    toFire.append(c);
+                status(tr("Group ▶ random child %1/%2").arg(idx + 1).arg(kids.size()));
+            }
+            break;
+        }
+        QSet<core::CueId> running;
+        for (auto *c : toFire) running.insert(c->id());
+        m_groupRemaining.insert(groupCue->id(), running);
+        if (running.isEmpty()) {
+            // Nothing to run → the group is done straight away.
+            QPointer<cues::Cue> safe(groupCue);
+            after(0, [this, safe] {
+                if (safe) { m_groupRemaining.remove(safe->id()); emit cueFinished(safe.data()); }
+            });
+        }
+
+        switch (groupCue->mode()) {
+        case cues::GroupCue::Mode::Parallel:
+            status(tr("Group ▶ %1 children (parallel)").arg(toFire.size()));
+            for (auto *c : toFire) fire(c);
             break;
         case cues::GroupCue::Mode::Sequential: {
-            status(tr("Group ▶ %1 children (sequential)").arg(kids.size()));
+            status(tr("Group ▶ %1 children (sequential)").arg(toFire.size()));
             double delay = 0.0;
             const double step = std::max(0.0, groupCue->stepInterval());
-            for (const auto &id : kids) {
-                auto *child = findCue(id);
-                if (!child) continue;
+            for (auto *child : toFire) {
                 if (delay <= 0.0) {
                     fire(child);
                 } else {
-                    auto *t = new QTimer(this);
-                    t->setSingleShot(true);
-                    m_pending.append(t);
                     QPointer<cues::Cue> guard(child);
-                    connect(t, &QTimer::timeout, this, [this, t, guard] {
-                        m_pending.removeAll(t);
-                        t->deleteLater();
-                        if (guard) fire(guard);
-                    });
-                    t->start(static_cast<int>(delay * 1000.0));
+                    after(static_cast<int>(delay * 1000.0),
+                          [this, guard] { if (guard) fire(guard); });
                 }
                 delay += step;
             }
             break;
         }
         case cues::GroupCue::Mode::StartFirst:
-            if (!kids.isEmpty()) {
-                if (auto *c = findCue(kids.first())) {
-                    status(tr("Group ▶ first child"));
-                    fire(c);
-                }
+            if (!toFire.isEmpty()) {
+                status(tr("Group ▶ first child"));
+                fire(toFire.first());
             }
             break;
         case cues::GroupCue::Mode::StartRandom:
-            if (!kids.isEmpty()) {
-                const int idx = QRandomGenerator::global()->bounded(kids.size());
-                if (auto *c = findCue(kids[idx])) {
-                    status(tr("Group ▶ random child %1/%2").arg(idx + 1).arg(kids.size()));
-                    fire(c);
-                }
-            }
+            if (!toFire.isEmpty()) fire(toFire.first());
             break;
         case cues::GroupCue::Mode::Timeline: {
-            status(tr("Group ▶ %1 children (timeline)").arg(kids.size()));
-            for (int i = 0; i < kids.size(); ++i) {
-                auto *child = findCue(kids[i]);
-                if (!child) continue;
-                const double off = (i < offs.size()) ? std::max(0.0, offs[i]) : 0.0;
+            status(tr("Group ▶ %1 children (timeline)").arg(toFire.size()));
+            for (auto *child : toFire) {
+                const int i = kids.indexOf(child->id());
+                const double off = (i >= 0 && i < offs.size()) ? std::max(0.0, offs[i]) : 0.0;
                 if (off <= 0.0) {
                     fire(child);
                 } else {
-                    auto *t = new QTimer(this);
-                    t->setSingleShot(true);
-                    m_pending.append(t);
                     QPointer<cues::Cue> guard(child);
-                    connect(t, &QTimer::timeout, this, [this, t, guard] {
-                        m_pending.removeAll(t);
-                        t->deleteLater();
-                        if (guard) fire(guard);
-                    });
-                    t->start(static_cast<int>(off * 1000.0));
+                    after(static_cast<int>(off * 1000.0),
+                          [this, guard] { if (guard) fire(guard); });
                 }
             }
             break;
@@ -526,13 +661,12 @@ void GoEngine::doFire(cues::Cue *cue, const QByteArray &outputDeviceOverride)
     emit cueFired(cue);
 
     // Schedule cueFinished emission. Audio + Video cues finish when
-    // their engine's voiceFinished fires (handled by MainWindow);
-    // everything else either has a known duration (fold into a
-    // QTimer::singleShot) or is "instant" (the cue's effect IS the
-    // GO press, so emit immediately on the next event-loop turn so
-    // OSC subscribers see fired→finished in order).
+    // their engine's voiceFinished fires (handled by MainWindow); groups
+    // finish when their last child does (noteChildFinished); everything
+    // else either has a known duration or is "instant" (the cue's effect IS
+    // the GO press, so emit on the next event-loop turn so OSC subscribers
+    // see fired→finished in order). Tracked, so a panic cancels them.
     double finishedDelay = -1.0;
-    bool   isInstant     = false;
     if (auto *lf = qobject_cast<lighting::LightFadeCue *>(cue)) {
         finishedDelay = lf->durationSeconds();
     } else if (auto *fc = qobject_cast<cues::FadeCue *>(cue)) {
@@ -545,23 +679,13 @@ void GoEngine::doFire(cues::Cue *cue, const QByteArray &outputDeviceOverride)
             || qobject_cast<midi::MscCue *>(cue)
             || qobject_cast<cues::TargetingCue *>(cue)
             || qobject_cast<lighting::LightCue *>(cue)) {
-        // Instant cues — the GO press IS the cue's effect. Light
-        // (static, not fade) lays down its channel values on the
-        // next tick and is done; everything in this branch is the
-        // same shape.
-        isInstant = true;
+        finishedDelay = 0.0;   // instant
     }
-    if (isInstant) {
+    if (finishedDelay >= 0.0) {
         QPointer<cues::Cue> safe(cue);
-        QTimer::singleShot(0, this, [this, safe] {
+        after(int(finishedDelay * 1000.0), [this, safe] {
             if (safe) emit cueFinished(safe.data());
         });
-    } else if (finishedDelay >= 0.0) {
-        QPointer<cues::Cue> safe(cue);
-        QTimer::singleShot(int(finishedDelay * 1000.0), this,
-            [this, safe] {
-                if (safe) emit cueFinished(safe.data());
-            });
     }
 
     // Continue logic. Wait cues fold their duration into the chain delay.
@@ -572,16 +696,18 @@ void GoEngine::doFire(cues::Cue *cue, const QByteArray &outputDeviceOverride)
     case cues::ContinueMode::DoNotContinue:
         break;
     case cues::ContinueMode::AutoContinue:
-        // Fire the NEXT cue immediately on GO (after pre-wait). A Wait cue
-        // folds its duration in, so Wait + AutoContinue still waits it out.
-        scheduleContinue(cue, waitExtra);
+        // Fire the NEXT cue once this cue has started, after its post-wait
+        // (QLab semantics, and what the docs have always said; with the
+        // default post-wait of 0 that's immediate). A Wait cue folds its
+        // duration in, so Wait + AutoContinue still waits it out.
+        scheduleContinue(cue, waitExtra + std::max(0.0, cue->postWait()));
         break;
     case cues::ContinueMode::AutoFollow:
         // Defer: the next cue fires only when THIS cue's action finishes.
-        // Mark it pending; onCueFinishedFollow (instant/duration cues) or
-        // on{Audio,Video}VoiceFinishedNatural (a track reaching its end) does
-        // the actual continue, then post-wait. cancelAll() clears the set so
-        // a panic mid-cue never advances.
+        // Mark it pending; onCueFinishedFollow (instant/duration cues and
+        // groups) or on{Audio,Video}VoiceFinishedNatural (a track reaching
+        // its end) does the actual continue, then post-wait. cancelAll()
+        // clears the set so a panic mid-cue never advances.
         m_followPending.insert(cue);
         break;
     }
@@ -592,45 +718,103 @@ void GoEngine::scheduleContinue(cues::Cue *cue, double delaySeconds)
     auto *next = nextCueAfter(cue);
     if (!next) return;
     QPointer<cues::Cue> guard(next);
-    if (delaySeconds <= 0.0) {
-        // Zero-delay continue still goes through the event loop rather
-        // than calling doFire() inline. A list of all-AutoFollow,
-        // zero-wait cues would otherwise recurse
-        // doFire→scheduleContinue→doFire for the whole list on one
-        // stack frame (stack growth on long lists), and a cue that
-        // GOTOs backward into such a chain would infinite-loop
-        // synchronously and hang the UI. singleShot(0) lets each cue
-        // fire on a fresh event-loop turn, bounding stack depth and
-        // keeping the app responsive.
-        QTimer::singleShot(0, this, [this, guard] {
-            if (guard) fire(guard);
-        });
-        return;
-    }
-    auto *t = new QTimer(this);
-    t->setSingleShot(true);
-    m_pending.append(t);
-    connect(t, &QTimer::timeout, this, [this, t, guard] {
-        m_pending.removeAll(t);
-        t->deleteLater();
+    // Even a zero-delay continue goes through the event loop rather than
+    // calling fire() inline: a list of all-auto-follow zero-wait cues would
+    // otherwise recurse for the whole list on one stack frame, and a cue that
+    // GOTOs backward into such a chain would hang the UI synchronously.
+    after(static_cast<int>(delaySeconds * 1000.0), [this, guard] {
         if (guard) fire(guard);
     });
-    t->start(static_cast<int>(delaySeconds * 1000.0));
+}
+
+// ── Panic / Fade All / Pause ───────────────────────────────────────────
+
+void GoEngine::cancelScheduling()
+{
+    for (auto *t : m_pending) { t->stop(); t->deleteLater(); }
+    m_pending.clear();
+    m_frozenTimers.clear();
+    // Disarm every pending auto-follow so a late cueFinished or
+    // voiceFinishedNatural arriving after the cancel can't advance.
+    m_followPending.clear();
+    m_groupRemaining.clear();
+}
+
+void GoEngine::clearPauseState()
+{
+    const bool was = m_paused;
+    m_paused = false;
+    m_pausedAudio.clear();
+    m_pausedVideo.clear();
+    m_frozenTimers.clear();
+    if (was) emit pausedChanged(false);
 }
 
 void GoEngine::cancelAll(double fadeOutSeconds)
 {
-    for (auto *t : m_pending) { t->stop(); t->deleteLater(); }
-    m_pending.clear();
-    // Disarm every pending auto-follow so a cueFinished timer or a late
-    // voiceFinishedNatural that arrives after the panic can't advance.
-    m_followPending.clear();
+    cancelScheduling();
+    clearPauseState();
     if (m_audio)    m_audio->stopAll(fadeOutSeconds);
     if (m_lighting) m_lighting->blackout();
     if (m_video)    m_video->stopAll();
     m_trajectories.clear();
     if (m_trajectoryTimer) m_trajectoryTimer->stop();
 }
+
+void GoEngine::fadeAll(double seconds)
+{
+    cancelScheduling();
+    clearPauseState();
+    if (m_audio)    m_audio->stopAll(seconds);
+    if (m_lighting) m_lighting->fadeOutAll(seconds);
+    if (m_video)    m_video->fadeOutAll(seconds);
+}
+
+void GoEngine::pauseAll()
+{
+    if (m_paused) return;
+    m_paused = true;
+    if (m_audio) {
+        for (const auto &av : m_audio->activeVoices()) {
+            if (!m_audio->isPaused(av.id) && m_audio->pause(av.id))
+                m_pausedAudio.append(av.id);
+        }
+    }
+    if (m_video) {
+        for (const auto id : m_video->activeVoiceIds()) {
+            const auto t = m_video->transport(id);
+            if (t.valid && !t.paused) {
+                m_video->pause(id);
+                m_pausedVideo.append(id);
+            }
+        }
+    }
+    // Freeze the clock: every pre-wait, continue, wait duration and group
+    // step stops where it is and resumes with exactly the time it had left.
+    for (auto *t : m_pending) {
+        if (t->isActive()) {
+            m_frozenTimers.insert(t, t->remainingTime());
+            t->stop();
+        }
+    }
+    emit pausedChanged(true);
+}
+
+void GoEngine::resumeAll()
+{
+    if (!m_paused) return;
+    if (m_audio) for (const auto id : m_pausedAudio) m_audio->resume(id);
+    if (m_video) for (const auto id : m_pausedVideo) m_video->resume(id);
+    for (auto it = m_frozenTimers.constBegin(); it != m_frozenTimers.constEnd(); ++it)
+        if (m_pending.contains(it.key())) it.key()->start(std::max(0, it.value()));
+    m_paused = false;
+    m_pausedAudio.clear();
+    m_pausedVideo.clear();
+    m_frozenTimers.clear();
+    emit pausedChanged(false);
+}
+
+// ── Auto-follow / group completion ─────────────────────────────────────
 
 void GoEngine::tryFollow(cues::Cue *cue)
 {
@@ -640,7 +824,29 @@ void GoEngine::tryFollow(cues::Cue *cue)
         scheduleContinue(cue, cue->postWait());
 }
 
-void GoEngine::onCueFinishedFollow(cues::Cue *cue) { tryFollow(cue); }
+void GoEngine::noteChildFinished(cues::Cue *child)
+{
+    if (!child || m_groupRemaining.isEmpty()) return;
+    QList<core::CueId> done;
+    for (auto it = m_groupRemaining.begin(); it != m_groupRemaining.end(); ) {
+        if (it.value().remove(child->id()) && it.value().isEmpty()) {
+            done.append(it.key());
+            it = m_groupRemaining.erase(it);
+        } else {
+            ++it;
+        }
+    }
+    for (const auto &gid : done) {
+        QPointer<cues::Cue> safe(findCue(gid, child));
+        after(0, [this, safe] { if (safe) emit cueFinished(safe.data()); });
+    }
+}
+
+void GoEngine::onCueFinishedFollow(cues::Cue *cue)
+{
+    tryFollow(cue);
+    noteChildFinished(cue);
+}
 
 void GoEngine::onAudioVoiceFinishedNatural(quint64 voiceId)
 {
@@ -648,7 +854,11 @@ void GoEngine::onAudioVoiceFinishedNatural(quint64 voiceId)
     for (const auto &list : m_workspace->cueLists())
         for (int i = 0; i < list->cueCount(); ++i)
             if (auto *ac = qobject_cast<audio::AudioCue *>(list->cueAt(i)))
-                if (ac->currentVoiceId() == voiceId) { tryFollow(ac); return; }
+                if (ac->currentVoiceId() == voiceId) {
+                    tryFollow(ac);
+                    noteChildFinished(ac);
+                    return;
+                }
 }
 
 void GoEngine::onVideoVoiceFinishedNatural(quint64 voiceId)
@@ -657,7 +867,11 @@ void GoEngine::onVideoVoiceFinishedNatural(quint64 voiceId)
     for (const auto &list : m_workspace->cueLists())
         for (int i = 0; i < list->cueCount(); ++i)
             if (auto *vc = qobject_cast<video::VisualCue *>(list->cueAt(i)))
-                if (vc->currentVoiceId() == voiceId) { tryFollow(vc); return; }
+                if (vc->currentVoiceId() == voiceId) {
+                    tryFollow(vc);
+                    noteChildFinished(vc);
+                    return;
+                }
 }
 
 QSet<quint64> GoEngine::activeAudioVoiceIds() const

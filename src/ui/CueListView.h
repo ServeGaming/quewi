@@ -32,6 +32,13 @@ public:
     cues::Cue *currentCue() const;
     cues::Cue *nextCue() const;
 
+    // After GO on the last cue the playhead goes "past the end": nothing is
+    // on standby, so the next GO does nothing (QLab semantics). Without this
+    // the playhead stayed on the last cue and a second GO fired it again. Any
+    // real selection (click, arrow key, Goto) clears it.
+    void setPlayheadPastEnd();
+    bool isPlayheadPastEnd() const { return m_pastEnd; }
+
     // Clipboard helpers exposed for the empty-area context menu (the menu
     // itself is built by MainWindow, which owns the cue-creation actions).
     bool canPasteCues() const;
@@ -93,6 +100,7 @@ private:
 
     // Show Mode lock — see setShowModeLocked.
     bool      m_showLocked = false;
+    bool      m_pastEnd = false;   // see setPlayheadPastEnd
     QAbstractItemView::EditTriggers m_savedEditTriggers{};
 };
 
