@@ -77,6 +77,9 @@ signals:
     void fireRequested(quewi::cues::Cue *cue);
     void editCueRequested(quewi::cues::Cue *cue);
     void fileDropped(int row, int col, const QString &filePath);
+    // Right-click an empty pad → Import from URL… (the Ctrl+U importer,
+    // downloading onto this pad).
+    void importUrlRequested(int row, int col);
     void stopAllRequested();
 
 protected:

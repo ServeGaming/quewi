@@ -106,7 +106,11 @@ private slots:
     void openRecent(const QString &path);
     void rebuildRecentMenu();
     void onMidiTrigger(quint8 status, const QByteArray &bytes);
-    void onCartFileDropped(int row, int col, const QString &path);
+    // Returns the cue now on the pad (nullptr if the file couldn't be added).
+    cues::Cue *onCartFileDropped(int row, int col, const QString &path);
+    // Right-click an empty pad → Import from URL…: the Ctrl+U importer in
+    // soundboard mode, downloading onto that pad.
+    void importToPad(int row, int col);
 
 public:
     bool loadShowFromPath(const QString &path);
@@ -136,6 +140,10 @@ private:
     void resetWorkspace();
     void rebindModel();
     bool maybeSaveChanges();
+    // Where Import from URL downloads land: media/ beside a saved show, else
+    // ~/Music/quewi-imports.
+    QString mediaImportDir() const;
+    void openAudioEditor(cues::Cue *cue);
     // Close quewi so a launched update installer (which waits for this
     // process to exit) can run. Never prompts; the save question has
     // already been asked.

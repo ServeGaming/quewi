@@ -99,6 +99,7 @@ signals:
     void editRequested(int row, int col);
     void editCueRequested(int row, int col);
     void fileDropped(int row, int col, const QString &path);
+    void importUrlRequested(int row, int col);
     // From the right-click menu. CartView connects these QUEUED: acting on
     // them rebuilds the grid (deleting this pad), which must not happen while
     // the menu's exec() is still on this pad's stack.
@@ -132,14 +133,17 @@ protected:
         // the cue is created and bound exactly as a drag-drop would.
         if (e->button() == Qt::LeftButton && !m_cue) {
             m_pressed = false;
-            const QString p = QFileDialog::getOpenFileName(this,
-                tr("Pick a sound for this pad"), QString(),
-                tr("Audio files (*.wav *.mp3 *.flac *.aiff *.aif *.ogg *.oga "
-                   "*.opus *.m4a *.aac *.wma *.webm);;All files (*.*)"));
-            if (!p.isEmpty()) emit fileDropped(m_row, m_col, p);
+            pickFile();
             return;
         }
         QWidget::mouseDoubleClickEvent(e);
+    }
+    void pickFile() {
+        const QString p = QFileDialog::getOpenFileName(this,
+            tr("Pick a sound for this pad"), QString(),
+            tr("Audio files (*.wav *.mp3 *.flac *.aiff *.aif *.ogg *.oga "
+               "*.opus *.m4a *.aac *.wma *.webm);;All files (*.*)"));
+        if (!p.isEmpty()) emit fileDropped(m_row, m_col, p);
     }
 
     void dragEnterEvent(QDragEnterEvent *e) override {
@@ -152,8 +156,19 @@ protected:
         // Right-click any bound pad for its keybind and look, in perform mode
         // too — setting a key shouldn't require flipping into Edit Layout.
         // Audio pads also get "open in the audio editor".
-        if (!m_cue) return;   // empty pad: double-click or drop to pick a sound
         QMenu menu(this);
+        if (!m_cue) {
+            // Empty pad: pick a file from disk, or search / paste a link and
+            // download straight onto this pad (same importer as Ctrl+U).
+            // Deferred so the menu is off the stack before binding the file
+            // rebuilds the grid (the same shape as the double-click path).
+            menu.addAction(tr("Choose sound file…"), this,
+                           [this]{ QTimer::singleShot(0, this, [this]{ pickFile(); }); });
+            menu.addAction(tr("Import from URL…"), this,
+                           [this]{ emit importUrlRequested(m_row, m_col); });
+            menu.exec(e->globalPos());
+            return;
+        }
         if (m_cell.hotkey.isEmpty()) {
             menu.addAction(tr("Set keybind…"), this,
                            [this]{ emit keybindRequested(m_row, m_col); });
@@ -870,6 +885,10 @@ void CartView::rebuildGrid()
             connect(pad, &CartPad::clicked,      this, &CartView::onPadClicked);
             connect(pad, &CartPad::editRequested, this, &CartView::onPadEdit);
             connect(pad, &CartPad::fileDropped,  this, &CartView::fileDropped);
+            // Queued like the menu actions below: the import binds a cue to
+            // the pad, which rebuilds the grid and deletes this pad.
+            connect(pad, &CartPad::importUrlRequested, this,
+                    &CartView::importUrlRequested, Qt::QueuedConnection);
             connect(pad, &CartPad::editCueRequested, this, [this](int rr, int cc) {
                 if (!m_workspace || !m_workspace->cart()) return;
                 if (auto *cue = cueForCellId(m_workspace->cart()->cueAt(rr, cc)))

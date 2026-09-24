@@ -189,6 +189,18 @@ V3/V4/V7–V10/V12–V14 (video), M11, and the low-severity audio/UI items.
 **Not yet driven by Matthew:** system-wide soundboard keys, draggable inspector
 sections, DCA picker, the long-file RAM fix inside the running app.
 
+**On main for 1.0.2 (untagged):** the updater quit fix (see "Updater"
+below); right-click an empty soundboard pad → Choose sound file… / Import
+from URL… (the Ctrl+U yt-dlp importer in pad mode: audio only, "Download to
+pad", queued signal → `MainWindow::importToPad`); an "open in the audio
+editor afterwards to trim" checkbox in the importer (default on for pads,
+off for the cue list, remembered separately); the importer's docs page is
+now in the site nav. Docs mark these "coming in 1.0.2" — drop those markers
+when tagging. Menu + signal covered by `test_cart_view`; the download itself
+was NOT driven (it hits YouTube) — Matthew to try it.
+**Next feature idea queued:** Freesound.org as a second source (CC-licensed
+SFX; needs an API key — work out how quewi gets/stores one).
+
 **Release checklist for every future `v*` tag** (Matthew asked explicitly):
 version bump in the top `CMakeLists.txt`; WhatsNewDialog highlights; add the
 release to `docs/about/release-notes.md` and update any feature page that

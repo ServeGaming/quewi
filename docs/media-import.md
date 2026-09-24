@@ -2,7 +2,13 @@
 
 Quewi can pull audio and video straight into a show from YouTube and
 ~1800 other sites, powered by [yt-dlp](https://github.com/yt-dlp/yt-dlp).
-**Cue → Import from URL…** (Ctrl+U).
+There are two ways in:
+
+- **Cue list:** **Cue → Import from URL…** (`Ctrl+U`) adds an Audio or
+  Video cue after the selected cue.
+- **Soundboard** *(coming in 1.0.2)*: right-click an **empty pad** →
+  **Import from URL…** downloads the sound straight onto that pad. It's
+  the same search, preview and download, audio only.
 
 ---
 
@@ -10,11 +16,17 @@ Quewi can pull audio and video straight into a show from YouTube and
 
 1. **Search** — type a phrase to search YouTube, or paste any video /
    playlist URL.
-2. **Preview** — audio previews stream inside quewi (no download);
-   video opens the source page in your browser.
+2. **Preview** — plays inside quewi without downloading, with a level
+   meter and a scrub bar. Video previews show the picture as well.
 3. **Download + add cue** — pick Audio or Video, download into the
    show's `media/` folder, and a matching Audio or Video cue is added
-   to the current list automatically.
+   to the current list automatically. From a pad, **Download to pad**
+   puts it on the pad instead.
+4. **Trim (optional, coming in 1.0.2)** — tick **Open it in the audio editor afterwards
+   to trim it** to set the in and out points straight away. That's handy
+   for grabbing one effect out of a long compilation. The download itself
+   is kept whole. The option is on by default for pads and off for the
+   cue list, and quewi remembers your choice for each.
 
 ---
 
@@ -60,6 +72,7 @@ more), not a YouTube-specific ripper.
 
 - [ ] Bundle/download ffmpeg to unlock full-resolution video (merged
       streams) and audio transcode-to-WAV for zero-latency GO.
-- [ ] In-app video preview (currently opens the browser).
 - [ ] Format/quality picker (resolution, codec, bitrate).
-- [ ] Clip trimming on download (`--download-sections`).
+- [ ] Download only the trimmed section (`--download-sections`) instead of
+      the whole file. Today you trim after downloading.
+- [ ] Freesound.org as a source for Creative Commons sound effects.

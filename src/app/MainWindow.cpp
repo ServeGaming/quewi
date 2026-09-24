@@ -466,15 +466,12 @@ void MainWindow::buildLayout()
         });
     connect(m_cartView, &ui::CartView::fileDropped,
             this, &MainWindow::onCartFileDropped);
+    connect(m_cartView, &ui::CartView::importUrlRequested,
+            this, &MainWindow::importToPad);
     connect(m_cartView, &ui::CartView::stopAllRequested,
             this, &MainWindow::stopSoundboard);
-    connect(m_cartView, &ui::CartView::editCueRequested, this,
-        [this](cues::Cue *cue) {
-            if (auto *ac = qobject_cast<audio::AudioCue *>(cue)) {
-                ac->prepare();
-                (new ui::AudioEditorWindow(ac, this))->show();
-            }
-        });
+    connect(m_cartView, &ui::CartView::editCueRequested,
+            this, &MainWindow::openAudioEditor);
 
     // The live-mixing page: a DCA cue grid plus a console connection. Same
     // arrangement as the soundboard — its own page, its own tab kind, and it
@@ -1735,25 +1732,31 @@ void MainWindow::showNotifications()
     refreshNotifBadge();
 }
 
+QString MainWindow::mediaImportDir() const
+{
+    // Download into a 'media' folder next to the saved show so the
+    // show stays self-contained and portable; fall back to a default
+    // under the user's Music folder for an untitled show.
+    if (!m_currentPath.isEmpty())
+        return QFileInfo(m_currentPath).absolutePath() + QStringLiteral("/media");
+    return QStandardPaths::writableLocation(QStandardPaths::MusicLocation)
+         + QStringLiteral("/quewi-imports");
+}
+
+void MainWindow::openAudioEditor(cues::Cue *cue)
+{
+    if (auto *ac = qobject_cast<audio::AudioCue *>(cue)) {
+        ac->prepare();
+        (new ui::AudioEditorWindow(ac, this))->show();
+    }
+}
+
 void MainWindow::showMediaImport()
 {
     // One-time legal disclaimer before the importer is usable.
     if (!ui::MediaImportDialog::confirmDisclaimer(this)) return;
 
-    // Download into a 'media' folder next to the saved show so the
-    // show stays self-contained and portable; fall back to a default
-    // under the user's Music folder for an untitled show.
-    QString destDir;
-    if (!m_currentPath.isEmpty()) {
-        destDir = QFileInfo(m_currentPath).absolutePath()
-                + QStringLiteral("/media");
-    } else {
-        destDir = QStandardPaths::writableLocation(
-                      QStandardPaths::MusicLocation)
-                + QStringLiteral("/quewi-imports");
-    }
-
-    ui::MediaImportDialog dlg(destDir, this);
+    ui::MediaImportDialog dlg(mediaImportDir(), this);
     if (dlg.exec() != QDialog::Accepted) return;
     const QString path = dlg.importedPath();
     if (path.isEmpty()) return;
@@ -1764,8 +1767,13 @@ void MainWindow::showMediaImport()
     if (dlg.importedIsAudio()) {
         auto cue = std::make_unique<audio::AudioCue>();
         cue->setField(QStringLiteral("filePath"), path);
+        // The list takes ownership (insertCueOfType drops the cue only when
+        // there's no active list, checked here first).
+        auto *raw = cue.get();
+        const bool inserted = m_workspace && m_workspace->activeCueList();
         insertCueOfType(std::move(cue), base);
         prewarmAudioCues();   // decode it so it's ready to fire
+        if (inserted && dlg.openEditorAfter()) openAudioEditor(raw);
     } else {
         auto cue = std::make_unique<video::VideoCue>();
         cue->setField(QStringLiteral("filePath"), path);
@@ -2232,12 +2240,10 @@ void MainWindow::detachCueListTab(int idx)
         // editor…" — only fire and stop were wired.
         connect(view, &ui::CartView::fileDropped,
                 this, &MainWindow::onCartFileDropped);
-        connect(view, &ui::CartView::editCueRequested, this, [this](cues::Cue *cue) {
-            if (auto *ac = qobject_cast<audio::AudioCue *>(cue)) {
-                ac->prepare();
-                (new ui::AudioEditorWindow(ac, this))->show();
-            }
-        });
+        connect(view, &ui::CartView::importUrlRequested,
+                this, &MainWindow::importToPad);
+        connect(view, &ui::CartView::editCueRequested,
+                this, &MainWindow::openAudioEditor);
         win->setCentralWidget(view);
         win->resize(720, 560);
         break;
@@ -2544,13 +2550,51 @@ void MainWindow::runInAppInstall(const QString &msiUrl)
     installer->download(msiUrl);
 }
 
-void MainWindow::onCartFileDropped(int row, int col, const QString &path)
+void MainWindow::importToPad(int row, int col)
 {
     if (!m_workspace) return;
+    if (m_showMode) {
+        statusBar()->showMessage(tr("Show Mode is on — unlock to add sounds."), 4000);
+        return;
+    }
+    if (!ui::MediaImportDialog::confirmDisclaimer(this)) return;
+
+    // Remember WHICH layer the pad is on: the dialog is modal but long, and
+    // the board could be flipped by OSC while it's open.
+    auto *cart = m_workspace->cart();
+    const int layer = cart ? cart->activeLayer() : 0;
+    const QString padName = m_cartView ? m_cartView->padDisplayName(row, col)
+                                       : tr("pad %1").arg(row + 1);
+
+    ui::MediaImportDialog dlg(mediaImportDir(), this);
+    dlg.setPadTarget(padName);
+    if (dlg.exec() != QDialog::Accepted) return;
+    const QString path = dlg.importedPath();
+    if (path.isEmpty() || !m_workspace || !(cart = m_workspace->cart())) return;
+
+    if (cart->activeLayer() != layer && layer < cart->layerCount())
+        cart->setActiveLayer(layer);
+    // If the pad filled up meanwhile (a drop, a second import), don't
+    // replace what's there — the download is still in the media folder.
+    if (!cart->cueAt(row, col).isNull()) {
+        statusBar()->showMessage(tr("%1 is no longer empty — the download is in %2")
+            .arg(padName, QDir::toNativeSeparators(QFileInfo(path).absolutePath())), 6000);
+        return;
+    }
+    auto *cue = onCartFileDropped(row, col, path);
+    if (!cue) return;
+    statusBar()->showMessage(tr("Imported %1 to %2")
+        .arg(QFileInfo(path).fileName(), padName), 4000);
+    if (dlg.openEditorAfter()) openAudioEditor(cue);
+}
+
+cues::Cue *MainWindow::onCartFileDropped(int row, int col, const QString &path)
+{
+    if (!m_workspace) return nullptr;
     // Soundboard cues live in the dedicated soundboard list so they stay out
     // of the set list (created on first drop if the show has no board yet).
     auto *list = getOrCreateSoundboardList();
-    if (!list) return;
+    if (!list) return nullptr;
 
     // Re-use the existing drag-import path that knows how to make a
     // cue from any supported file type, then bind whichever cue id
@@ -2561,12 +2605,13 @@ void MainWindow::onCartFileDropped(int row, int col, const QString &path)
     // cueAt(cueCount()-1) would return the wrong (pre-existing) cue.
     const auto added = insertCuesFromUrls({ QUrl::fromLocalFile(path) },
                                           list->cueCount(), list);
-    if (added <= 0) return;
+    if (added <= 0) return nullptr;
     auto *newCue = list->cueAt(list->cueCount() - 1);
-    if (!newCue) return;
+    if (!newCue) return nullptr;
     if (auto *cart = m_workspace->cart()) {
         cart->setCell(row, col, newCue->id());
     }
+    return newCue;
 }
 
 void MainWindow::onMidiTrigger(quint8 status, const QByteArray &bytes)

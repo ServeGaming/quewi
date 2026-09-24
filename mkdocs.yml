@@ -121,6 +121,7 @@ nav:
       - Cue types overview: using-quewi/cue-types.md
       - Transport (GO / Panic / Pause): using-quewi/transport.md
       - Soundboard: using-quewi/soundboard.md
+      - Import from URL (YouTube etc.): media-import.md
       - quewi Mix (DCA mixing): using-quewi/mix.md
       - Show Mode: using-quewi/show-mode.md
       - Pre-flight: using-quewi/preflight.md

@@ -4,6 +4,7 @@
 
 #include <QDialog>
 
+class QCheckBox;
 class QLabel;
 class QLineEdit;
 class QListWidget;
@@ -35,6 +36,12 @@ public:
 
     QString importedPath()    const { return m_importedPath; }
     bool    importedIsAudio() const { return m_audioMode; }
+    // Ticked "Trim it in the audio editor afterwards" (audio only).
+    bool    openEditorAfter() const;
+
+    // Soundboard mode: the download goes onto a pad, so it's audio-only and
+    // the wording says where it's going. Same search / preview / download.
+    void setPadTarget(const QString &padName);
 
     // One-time legal disclaimer gate. Returns true if the user has
     // accepted (or accepts now); false if they declined. Shown before
@@ -71,6 +78,8 @@ private:
     QProgressBar  *m_progress    = nullptr;
     QLabel        *m_status      = nullptr;
     QPushButton   *m_updateBtn   = nullptr;
+    QCheckBox     *m_trimCheck   = nullptr;
+    bool           m_padMode     = false;
     LevelMeter    *m_meter       = nullptr;
 
     QNetworkAccessManager *m_thumbNam = nullptr;

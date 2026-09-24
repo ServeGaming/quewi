@@ -25,6 +25,7 @@
 #include <QPushButton>
 #include <QRadioButton>
 #include <QSettings>
+#include <QSignalBlocker>
 #include <QStyledItemDelegate>
 #include <QUrl>
 #include <QVBoxLayout>
@@ -213,6 +214,18 @@ MediaImportDialog::MediaImportDialog(const QString &destDir, QWidget *parent)
     modeRow->addWidget(m_downloadBtn);
     root->addLayout(modeRow);
 
+    // Sound effects often come from long compilations ("50 door sounds"):
+    // offer to open the download in the audio editor to cut out the bit you
+    // want. Remembered separately for cue-list and soundboard imports.
+    m_trimCheck = new QCheckBox(
+        tr("Open it in the audio editor afterwards to trim it"), this);
+    m_trimCheck->setToolTip(tr(
+        "Set the in and out points on the new sound, e.g. one effect out of a\n"
+        "long compilation. The download itself is kept whole."));
+    m_trimCheck->setChecked(QSettings(QStringLiteral("ServeGaming"), QStringLiteral("quewi"))
+        .value(QStringLiteral("mediaImport/trimAfterCue"), false).toBool());
+    root->addWidget(m_trimCheck);
+
     // ── Progress + status ─────────────────────────────────────────
     m_progress = new QProgressBar(this);
     m_progress->setRange(0, 100);
@@ -248,9 +261,14 @@ MediaImportDialog::MediaImportDialog(const QString &destDir, QWidget *parent)
     connect(m_stopBtn, &QPushButton::clicked, this, &MediaImportDialog::stopPreview);
     connect(m_downloadBtn, &QPushButton::clicked, this, &MediaImportDialog::onDownloadClicked);
     connect(m_audioRadio, &QRadioButton::toggled, this,
-            [this](bool on) { if (on) m_audioMode = true; });
+            [this](bool on) { if (on) m_audioMode = true;  m_trimCheck->setEnabled(m_audioMode); });
     connect(m_videoRadio, &QRadioButton::toggled, this,
-            [this](bool on) { if (on) m_audioMode = false; });
+            [this](bool on) { if (on) m_audioMode = false; m_trimCheck->setEnabled(m_audioMode); });
+    connect(m_trimCheck, &QCheckBox::toggled, this, [this](bool on) {
+        QSettings(QStringLiteral("ServeGaming"), QStringLiteral("quewi")).setValue(
+            m_padMode ? QStringLiteral("mediaImport/trimAfterPad")
+                      : QStringLiteral("mediaImport/trimAfterCue"), on);
+    });
     connect(m_updateBtn, &QPushButton::clicked, this, [this] {
         setBusy(tr("Updating yt-dlp…"), true);
         m_svc->updateTool();
@@ -375,6 +393,27 @@ MediaImportDialog::MediaImportDialog(const QString &destDir, QWidget *parent)
 MediaImportDialog::~MediaImportDialog()
 {
     if (m_player) m_player->stop();
+}
+
+bool MediaImportDialog::openEditorAfter() const
+{
+    return m_audioMode && m_trimCheck && m_trimCheck->isChecked();
+}
+
+void MediaImportDialog::setPadTarget(const QString &padName)
+{
+    m_padMode = true;
+    setWindowTitle(tr("Import to %1").arg(padName));
+    // Pads play sounds: audio only.
+    m_audioRadio->setChecked(true);
+    m_audioRadio->setVisible(false);
+    m_videoRadio->setVisible(false);
+    m_downloadBtn->setText(tr("Download to pad"));
+    // Trimming is the usual next step for a sound effect, so it defaults on
+    // here (and is remembered separately from cue-list imports).
+    QSignalBlocker block(m_trimCheck);
+    m_trimCheck->setChecked(QSettings(QStringLiteral("ServeGaming"), QStringLiteral("quewi"))
+        .value(QStringLiteral("mediaImport/trimAfterPad"), true).toBool());
 }
 
 void MediaImportDialog::setBusy(const QString &what, bool busy)

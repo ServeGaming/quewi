@@ -1,5 +1,11 @@
 #include <QTest>
+#include <QApplication>
+#include <QContextMenuEvent>
+#include <QMenu>
 #include <QSignalSpy>
+#include <QTimer>
+
+#include <algorithm>
 
 #include "core/CartGrid.h"
 #include "core/CueList.h"
@@ -105,6 +111,83 @@ private slots:
 
         b.ws.cart()->setSize(2, 2);
         QVERIFY(b.ws.isDirty());
+    }
+
+    // The Resize dialog warns with this count before shrinking.
+    void padsOutsideCountsEveryLayer()
+    {
+        Board b;
+        fill(b, 3);
+        auto *cart = b.ws.cart();
+        cart->setSize(4, 4);
+        cart->setCell(0, 0, b.ids[0]);
+        cart->setCell(3, 3, b.ids[1]);
+        cart->addLayer();
+        cart->setCell(2, 3, b.ids[2]);
+        QCOMPARE(cart->padsOutside(4, 4), 0);
+        QCOMPARE(cart->padsOutside(2, 4), 2);   // (3,3) on layer 1, (2,3) on layer 2
+        QCOMPARE(cart->padsOutside(1, 1), 2);
+        QCOMPARE(cart->padsOutside(4, 3), 2);
+    }
+
+    // Right-click an EMPTY pad → "Import from URL…" asks the host to import
+    // onto that pad; a bound pad's menu doesn't offer it.
+    void emptyPadOffersImportFromUrl()
+    {
+        Board b;
+        fill(b, 1);
+        auto *cart = b.ws.cart();
+        cart->setSize(1, 2);
+        cart->setCell(0, 0, b.ids[0]);          // (0,0) bound, (0,1) empty
+
+        ui::CartView view;
+        view.setWorkspace(&b.ws);
+        view.resize(600, 300);
+        view.show();
+        QVERIFY(QTest::qWaitForWindowExposed(&view));
+        settle();
+
+        QList<QWidget *> pads;
+        for (auto *w : view.findChildren<QWidget *>())
+            if (QByteArray(w->metaObject()->className()).endsWith("CartPad") && w->isVisible())
+                pads.append(w);
+        QCOMPARE(pads.size(), 2);
+        std::sort(pads.begin(), pads.end(), [](QWidget *a, QWidget *b) {
+            return a->mapTo(a->window(), QPoint()).x() < b->mapTo(b->window(), QPoint()).x();
+        });
+
+        // Open a pad's context menu and report the action texts it shows;
+        // trigger `pick` if it's there.
+        auto menuOf = [](QWidget *pad, const QString &pick) {
+            QStringList texts;
+            QTimer::singleShot(50, [&texts, pick] {
+                auto *menu = qobject_cast<QMenu *>(QApplication::activePopupWidget());
+                if (!menu) return;
+                QAction *hit = nullptr;
+                for (auto *a : menu->actions()) {
+                    texts << a->text();
+                    if (a->text() == pick) hit = a;
+                }
+                if (hit) hit->trigger();
+                menu->close();
+            });
+            QContextMenuEvent ev(QContextMenuEvent::Mouse, pad->rect().center(),
+                                 pad->mapToGlobal(pad->rect().center()));
+            QApplication::sendEvent(pad, &ev);
+            return texts;
+        };
+
+        QSignalSpy spy(&view, &ui::CartView::importUrlRequested);
+        const QStringList bound = menuOf(pads[0], QString());
+        QVERIFY2(!bound.isEmpty(), "bound pad context menu didn't open");
+        QVERIFY(!bound.contains(QStringLiteral("Import from URL…")));
+
+        const QStringList empty = menuOf(pads[1], QStringLiteral("Import from URL…"));
+        QVERIFY(empty.contains(QStringLiteral("Choose sound file…")));
+        QVERIFY(empty.contains(QStringLiteral("Import from URL…")));
+        QTRY_COMPARE(spy.count(), 1);           // queued
+        QCOMPARE(spy.first().at(0).toInt(), 0);
+        QCOMPARE(spy.first().at(1).toInt(), 1);
     }
 };
 
