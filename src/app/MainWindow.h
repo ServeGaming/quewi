@@ -110,6 +110,9 @@ private slots:
 
 public:
     bool loadShowFromPath(const QString &path);
+    // Offer to recover unsaved work left by a crash. main() calls this once,
+    // before the Welcome dialog. Returns true if a show was recovered.
+    bool recoverFromJournalIfPresent();
     // Manual = launched from File → Check for updates… (Verbose mode, so
     // "you're up to date" is also confirmed). Startup pass calls this
     // with manual=false so a flat line stays silent.
@@ -142,6 +145,11 @@ private:
     // removing the last Normal list (the soundboard isn't a valid set-list
     // home). Shared by the menu-bar action and the tab right-click → Delete.
     void removeCueListAt(int idx);
+    // Switch to `list`'s tab: page, model and GO context together.
+    void selectListTab(core::CueList *list);
+    // Point the Inspector and NEXT label at the cue view's current cue.
+    void syncSelectionUi();
+    void closeDetachedWindows();
     // Shared body for every New-<type> menu action: inserts `cue`
     // after the current selection, names + numbers it, pushes the
     // undo command, and selects the new row. Each insertXCue() slot
@@ -195,6 +203,11 @@ private:
     // Wire workspace + cue-list + cue signals into OSC push
     // notifications. Reattaches after every resetWorkspace.
     void wireOscNotifications();
+    // Row notifications for the ACTIVE list (re-run whenever it changes) and
+    // the workspace-level ones; split out of wireOscNotifications.
+    void wireOscListNotifications();
+    void wireOscWorkspaceNotifications();
+    QList<QMetaObject::Connection> m_oscListConnections;
     // Push an OSC notification to every subscribed peer whose pattern
     // matches the address. No-op when there are no subscribers.
     void pushOscNotify(const QString &address,
@@ -256,6 +269,8 @@ private:
     // Models behind detached cue-list windows — fed the same running/peak
     // state as the main view so their live dots/VU update too.
     QList<QPointer<core::CueListModel>> m_detachedModels;
+    QList<QPointer<QWidget>>            m_detachedWindows;
+    QList<QPointer<ui::CueListView>>    m_detachedCueViews;
     std::unique_ptr<osc::OscEngine>     m_oscEngine;
     std::unique_ptr<audio::AudioEngine> m_audioEngine;
     std::unique_ptr<lighting::LightingEngine> m_lightingEngine;
@@ -310,6 +325,8 @@ private:
     QTabBar *m_listTabs = nullptr;
     QWidget *m_showModeStrip = nullptr;
     bool     m_showMode = false;
+    // Actions Show Mode disabled, with the enabled state to restore on exit.
+    QList<QPair<QPointer<QAction>, bool>> m_showModeLocked;
 
     QString m_currentPath;
     QString m_journalPath;
@@ -320,7 +337,7 @@ private:
     void scheduleJournal();
     void writeJournal();
     void clearJournal();
-    void recoverFromJournalIfPresent();
+    void forgetRecentFile(const QString &path);
 };
 
 } // namespace quewi

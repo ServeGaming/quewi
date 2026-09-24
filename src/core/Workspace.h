@@ -79,6 +79,9 @@ signals:
     void cueListsChanged();
     void activeCueListChanged();
     void dirtyChanged();
+    // Every non-undoable edit (markModified), not just the first — drives
+    // the crash journal.
+    void contentModified();
 
 private:
     QString m_name;

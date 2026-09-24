@@ -38,6 +38,7 @@ Workspace::~Workspace() = default;
 
 void Workspace::markModified()
 {
+    emit contentModified();
     if (m_modified) return;
     const bool wasDirty = isDirty();
     m_modified = true;

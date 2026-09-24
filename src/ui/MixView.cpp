@@ -16,6 +16,7 @@
 #include <QHBoxLayout>
 #include <QHeaderView>
 #include <QItemSelectionModel>
+#include <QKeyEvent>
 #include <QLabel>
 #include <QModelIndex>
 #include <QLineEdit>
@@ -100,13 +101,13 @@ void MixView::buildUi()
     connect(m_go, &QPushButton::clicked, this, [this] { fireSelected(); });
     actions->addWidget(m_go);
 
-    auto *addBtn = new QPushButton(tr("Add cue"), this);
-    connect(addBtn, &QPushButton::clicked, this, &MixView::onAddCue);
-    actions->addWidget(addBtn);
+    m_addBtn = new QPushButton(tr("Add cue"), this);
+    connect(m_addBtn, &QPushButton::clicked, this, &MixView::onAddCue);
+    actions->addWidget(m_addBtn);
 
-    auto *delBtn = new QPushButton(tr("Delete cue"), this);
-    connect(delBtn, &QPushButton::clicked, this, &MixView::onDeleteCue);
-    actions->addWidget(delBtn);
+    m_delBtn = new QPushButton(tr("Delete cue"), this);
+    connect(m_delBtn, &QPushButton::clicked, this, &MixView::onDeleteCue);
+    actions->addWidget(m_delBtn);
 
     actions->addStretch(1);
 
@@ -114,9 +115,9 @@ void MixView::buildUi()
     // strip numbers and the change-highlighting stays inert (resolve() drops
     // unregistered strips), so this is where a usable mix show actually begins.
     // "&&" so Qt doesn't eat the ampersand as a mnemonic accelerator.
-    auto *channelsBtn = new QPushButton(tr("Channels && ensembles…"), this);
-    connect(channelsBtn, &QPushButton::clicked, this, &MixView::onEditChannels);
-    actions->addWidget(channelsBtn);
+    m_channelsBtn = new QPushButton(tr("Channels && ensembles…"), this);
+    connect(m_channelsBtn, &QPushButton::clicked, this, &MixView::onEditChannels);
+    actions->addWidget(m_channelsBtn);
 
     root->addLayout(actions);
 
@@ -145,7 +146,7 @@ void MixView::buildUi()
     // show. Remember the selected cue across every reset and put it back.
     // Connected before the view's own handlers so the selection is read first.
     connect(m_model, &QAbstractItemModel::modelAboutToBeReset, this, [this] {
-        m_resetSelCue = selectedCue();
+        m_resetSelCue = m_table ? selectedCue() : nullptr;
         m_resetSelCol = m_table ? m_table->currentIndex().column() : -1;
     });
     connect(m_model, &QAbstractItemModel::modelReset, this, [this] {
@@ -191,17 +192,50 @@ void MixView::buildUi()
                              | QAbstractItemView::EditKeyPressed);
     root->addWidget(m_table, 1);
 
-    // Scoped to this widget: the set list has its own GO on Space, and the two
-    // must never fight over a keypress.
-    auto *goSc = new QShortcut(QKeySequence(Qt::Key_Space), this);
-    goSc->setContext(Qt::WidgetWithChildrenShortcut);
-    connect(goSc, &QShortcut::activated, this, [this] { fireSelected(); });
-
-    auto *delSc = new QShortcut(QKeySequence::Delete, this);
-    delSc->setContext(Qt::WidgetWithChildrenShortcut);
-    connect(delSc, &QShortcut::activated, this, &MixView::onDeleteCue);
+    // Space = DCA GO and Delete = delete cue while the grid has focus. The
+    // grid claims these keys itself (see eventFilter): as scoped shortcuts
+    // they collided with the main window's GO (Space) and Cue → Delete, Qt
+    // treated both as ambiguous, and NEITHER fired on the mix page.
+    m_table->installEventFilter(this);
 
     refreshConnectionUi();
+}
+
+void MixView::setShowModeLocked(bool locked)
+{
+    // Show Mode locks programming, not running: GO (button, Space, transport
+    // DCA GO) and the console connection stay live; adding, deleting,
+    // editing cells and channel/DCA-count changes are refused. The mix page
+    // used to ignore Show Mode entirely.
+    m_showLocked = locked;
+    for (QWidget *w : std::initializer_list<QWidget *>{ m_addBtn, m_delBtn, m_channelsBtn, m_dcaCount })
+        if (w) w->setEnabled(!locked);
+    m_table->setEditTriggers(locked ? QAbstractItemView::NoEditTriggers
+                                    : QAbstractItemView::DoubleClicked
+                                      | QAbstractItemView::SelectedClicked
+                                      | QAbstractItemView::EditKeyPressed);
+}
+
+bool MixView::eventFilter(QObject *watched, QEvent *event)
+{
+    if (watched == m_table
+        && (event->type() == QEvent::ShortcutOverride || event->type() == QEvent::KeyPress)) {
+        auto *ke = static_cast<QKeyEvent *>(event);
+        const bool plain = (ke->modifiers() & ~Qt::KeypadModifier) == Qt::NoModifier;
+        const bool isGo  = plain && ke->key() == Qt::Key_Space;
+        const bool isDel = plain && ke->key() == Qt::Key_Delete && !m_showLocked;
+        if (isGo || isDel) {
+            // Accepting the override delivers the key to the grid instead of
+            // to any window shortcut on the same key.
+            if (event->type() == QEvent::ShortcutOverride) { event->accept(); return true; }
+            if (!ke->isAutoRepeat()) {
+                if (isGo) fireSelected();
+                else      deleteSelectedCue();
+            }
+            return true;
+        }
+    }
+    return QWidget::eventFilter(watched, event);
 }
 
 void MixView::setWorkspace(core::Workspace *ws)
@@ -309,6 +343,7 @@ void MixView::deleteSelectedCue()
 
 void MixView::onCellDoubleClicked(const QModelIndex &index)
 {
+    if (m_showLocked) return;
     if (!index.isValid() || !m_workspace || !m_workspace->mixShow()) return;
     const int dca = m_model->dcaForColumn(index.column());
     if (dca <= 0) return;   // cue number / name edit inline; only DCA cells pick

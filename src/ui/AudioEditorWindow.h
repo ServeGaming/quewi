@@ -40,6 +40,7 @@ public:
 protected:
     void closeEvent(QCloseEvent *) override;
     void keyPressEvent(QKeyEvent *) override;
+    bool event(QEvent *e) override;
 
 private slots:
     void onPlay();

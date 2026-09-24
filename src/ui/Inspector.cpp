@@ -1176,6 +1176,14 @@ void Inspector::popOutSection(QGroupBox *box, const QPoint &globalCursor)
     if (QWindow *wh = box->windowHandle()) wh->startSystemMove();
 }
 
+void Inspector::dockAllSections()
+{
+    // View → Reset panel layout brings torn-off sections home too.
+    const auto popped = m_poppedOut.keys();
+    for (QGroupBox *box : popped) dockSection(box);
+    rebuild();   // re-apply which sections this cue should show
+}
+
 void Inspector::dockSection(QGroupBox *box)
 {
     const Placement p = m_poppedOut.take(box);
@@ -1335,6 +1343,10 @@ void Inspector::rebuild()
         m_notes->clear();
         m_oscGroup->setVisible(false);
         m_audioGroup->setVisible(false);
+        // A torn-off Object Audio floats as its own window, so hiding the
+        // audio section no longer hides it — do it explicitly, or it keeps
+        // showing (and editing!) the previous cue's panner.
+        if (m_poppedOut.contains(m_objAudioGroup)) m_objAudioGroup->setVisible(false);
         m_fadeGroup->setVisible(false);
         m_lightGroup->setVisible(false);
         m_lightFadeGroup->setVisible(false);
@@ -1403,6 +1415,8 @@ void Inspector::rebuild()
 
     m_oscGroup->setVisible(oscCue != nullptr);
     m_audioGroup->setVisible(audioCue != nullptr);
+    if (m_poppedOut.contains(m_objAudioGroup))
+        m_objAudioGroup->setVisible(audioCue != nullptr);   // see the no-cue branch
     m_fadeGroup->setVisible(fadeCue != nullptr);
     m_lightGroup->setVisible(lightCue != nullptr);
     m_lightFadeGroup->setVisible(lfadeCue != nullptr);

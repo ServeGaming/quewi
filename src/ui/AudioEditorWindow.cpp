@@ -702,6 +702,23 @@ void AudioEditorWindow::closeEvent(QCloseEvent *e) {
     e->accept();
 }
 
+bool AudioEditorWindow::event(QEvent *e)
+{
+    // Esc here means "stop the editor's preview". Panic is an application-
+    // wide shortcut on Esc, so it grabbed the key first: stopping a preview
+    // during a show killed every playing cue. Claiming the override delivers
+    // Esc to keyPressEvent below instead. (The main window's Panic button and
+    // Esc there are unaffected.)
+    if (e->type() == QEvent::ShortcutOverride) {
+        auto *ke = static_cast<QKeyEvent *>(e);
+        if (ke->key() == Qt::Key_Escape && ke->modifiers() == Qt::NoModifier) {
+            e->accept();
+            return true;
+        }
+    }
+    return QMainWindow::event(e);
+}
+
 void AudioEditorWindow::keyPressEvent(QKeyEvent *e) {
     // Consume Space locally so the main window's GO never fires while the
     // editor is focused. Space here toggles play/stop on the editor mix.

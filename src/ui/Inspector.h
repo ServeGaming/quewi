@@ -52,6 +52,8 @@ public:
     void setAudioEngine(audio::AudioEngine *engine);
     void setVideoEngine(video::VideoEngine *engine);
     void setMidiEngine(midi::MidiEngine *engine);
+    // Dock every torn-off section back (View → Reset panel layout).
+    void dockAllSections();
 
 public slots:
     void setCue(quewi::cues::Cue *cue);

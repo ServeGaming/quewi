@@ -114,6 +114,13 @@
 
 namespace quewi {
 
+namespace {
+// Cue numbers are user-typed decimals (1, 1.5, 12.25). qFuzzyCompare can't
+// compare against 0 (cue 0 never matched) and is relative, so use a small
+// absolute tolerance everywhere a cue is looked up by number.
+bool sameCueNumber(double a, double b) { return std::abs(a - b) < 1e-6; }
+} // namespace
+
 MainWindow::MainWindow(QWidget *parent)
     : QMainWindow(parent)
 {
@@ -311,7 +318,10 @@ MainWindow::MainWindow(QWidget *parent)
     }
 
     // Offer recovery after the main window is on screen.
-    QTimer::singleShot(0, this, &MainWindow::recoverFromJournalIfPresent);
+    // Crash recovery is offered by main() once the window exists and BEFORE
+    // the Welcome dialog / a command-line show (it used to be scheduled from
+    // here, so it popped up over the Welcome dialog, and whatever was chosen
+    // there then silently replaced the recovered show).
 
     // Silent update check on startup. Three-second delay so it doesn't
     // contend with the cold-start path; the user-facing dialog only
@@ -735,7 +745,9 @@ void MainWindow::buildMenus()
     cueMenu->addAction(tr("New Devam&p"), this, &MainWindow::insertDevampCue);
     cueMenu->addAction(tr("New Gr&oup"), QKeySequence(QStringLiteral("Ctrl+G")),        this, &MainWindow::insertGroupCue);
     cueMenu->addAction(tr("New &MIDI"),  QKeySequence(QStringLiteral("Shift+M")),       this, &MainWindow::insertMidiCue);
-    cueMenu->addAction(tr("New M&SC"),   QKeySequence(QStringLiteral("Ctrl+Shift+M")),  this, &MainWindow::insertMscCue);
+    // Ctrl+Alt+M: Ctrl+Shift+M is View → Mix grid, and two actions on one key
+    // cancel each other out — neither used to work.
+    cueMenu->addAction(tr("New M&SC"),   QKeySequence(QStringLiteral("Ctrl+Alt+M")),    this, &MainWindow::insertMscCue);
     cueMenu->addSeparator();
     cueMenu->addAction(tr("Import from &URL…"),
                        QKeySequence(QStringLiteral("Ctrl+U")),
@@ -744,6 +756,19 @@ void MainWindow::buildMenus()
     cueMenu->addAction(tr("Toggle &Arm"), QKeySequence(Qt::Key_E),
                        this, &MainWindow::toggleArmSelectedCue);
     cueMenu->addAction(tr("&Delete"), QKeySequence::Delete, this, &MainWindow::deleteSelectedCue);
+
+    // The bare-letter cue keys (M, A, F, W, E…), Delete and friends act on the
+    // cue list, so they're live only while the cue list has focus. Window-wide,
+    // typing on the Mix or Soundboard page created cues in (or toggled arm on,
+    // or deleted rows from) the hidden set list, and Delete in the mix grid
+    // collided with the grid's own Delete so neither worked. The menu items
+    // themselves still work from anywhere with the mouse.
+    for (QAction *a : cueMenu->actions()) {
+        if (a->shortcut().isEmpty()) continue;
+        if (a->shortcut() == QKeySequence(QStringLiteral("Ctrl+U"))) continue;  // import: anywhere
+        a->setShortcutContext(Qt::WidgetWithChildrenShortcut);
+        m_cueListView->addAction(a);
+    }
 
     auto *helpMenu = menuBar()->addMenu(tr("&Help"));
     helpMenu->addAction(tr("&Keyboard shortcuts…"),
@@ -780,6 +805,7 @@ void MainWindow::resetWorkspace()
     // cues) are destroyed below — otherwise the GoEngine is left holding raw
     // Cue* pointers into freed memory until its next workspace is set.
     if (m_goEngine) m_goEngine->cancelAll(0.0);
+    closeDetachedWindows();
     // Link markers are keyed by cue id, and reopening a show brings the same
     // ids back — a stale one would swallow a real fire in the new session.
     m_pendingLinkFires.clear();
@@ -801,18 +827,30 @@ void MainWindow::resetWorkspace()
     if (m_activePanel) m_activePanel->setWorkspace(m_workspace.get());
     if (m_goEngine)    m_goEngine->setWorkspace(m_workspace.get());
     rebuildListTabs();
+    // Show the active set list (not whatever page the last show had up — a
+    // mix page used to stay up empty) and point the Inspector/NEXT at its
+    // selection; setWorkspace above had just cleared the Inspector while row
+    // 0 was highlighted.
+    selectListTab(m_workspace->activeCueList());
     connect(m_workspace->undoStack(), &QUndoStack::indexChanged,
             this, [this](int){ scheduleJournal(); });
+    // Edits that bypass the undo stack (soundboard, mix grid, channels, list
+    // tabs…) must reach the crash journal too — they never used to.
+    connect(m_workspace.get(), &core::Workspace::contentModified,
+            this, [this]{ scheduleJournal(); });
 
     if (m_actUndo) m_actUndo->disconnect();
     if (m_actRedo) m_actRedo->disconnect();
     auto *stack = m_workspace->undoStack();
     connect(m_actUndo, &QAction::triggered, stack, &QUndoStack::undo);
     connect(m_actRedo, &QAction::triggered, stack, &QUndoStack::redo);
-    m_actUndo->setEnabled(stack->canUndo());
-    m_actRedo->setEnabled(stack->canRedo());
-    connect(stack, &QUndoStack::canUndoChanged, m_actUndo, &QAction::setEnabled);
-    connect(stack, &QUndoStack::canRedoChanged, m_actRedo, &QAction::setEnabled);
+    m_actUndo->setEnabled(stack->canUndo() && !m_showMode);
+    m_actRedo->setEnabled(stack->canRedo() && !m_showMode);
+    // Undo/Redo stay locked in Show Mode even when the stack changes.
+    connect(stack, &QUndoStack::canUndoChanged, m_actUndo,
+            [this](bool can) { m_actUndo->setEnabled(can && !m_showMode); });
+    connect(stack, &QUndoStack::canRedoChanged, m_actRedo,
+            [this](bool can) { m_actRedo->setEnabled(can && !m_showMode); });
     connect(m_workspace.get(), &core::Workspace::dirtyChanged, this, &MainWindow::updateTitle);
     // Re-sync the tab strip when the cue-list ORDER changes (e.g. undoing a
     // drag-reorder). Queued so it never mutates the tab bar mid-signal.
@@ -881,6 +919,8 @@ bool MainWindow::loadShowFromPath(const QString &path)
     // Stop pending follows / trajectories / voices that point at the outgoing
     // workspace's cues before it's replaced (and freed) — see resetWorkspace().
     if (m_goEngine) m_goEngine->cancelAll(0.0);
+    closeDetachedWindows();
+    m_pendingLinkFires.clear();
     m_workspace = std::move(fresh);
     m_model = std::make_unique<core::CueListModel>();
     rebindModel();
@@ -891,18 +931,30 @@ bool MainWindow::loadShowFromPath(const QString &path)
     if (m_activePanel) m_activePanel->setWorkspace(m_workspace.get());
     if (m_goEngine)    m_goEngine->setWorkspace(m_workspace.get());
     rebuildListTabs();
+    // Show the active set list (not whatever page the last show had up — a
+    // mix page used to stay up empty) and point the Inspector/NEXT at its
+    // selection; setWorkspace above had just cleared the Inspector while row
+    // 0 was highlighted.
+    selectListTab(m_workspace->activeCueList());
     connect(m_workspace->undoStack(), &QUndoStack::indexChanged,
             this, [this](int){ scheduleJournal(); });
+    // Edits that bypass the undo stack (soundboard, mix grid, channels, list
+    // tabs…) must reach the crash journal too — they never used to.
+    connect(m_workspace.get(), &core::Workspace::contentModified,
+            this, [this]{ scheduleJournal(); });
 
     if (m_actUndo) m_actUndo->disconnect();
     if (m_actRedo) m_actRedo->disconnect();
     auto *stack = m_workspace->undoStack();
     connect(m_actUndo, &QAction::triggered, stack, &QUndoStack::undo);
     connect(m_actRedo, &QAction::triggered, stack, &QUndoStack::redo);
-    m_actUndo->setEnabled(stack->canUndo());
-    m_actRedo->setEnabled(stack->canRedo());
-    connect(stack, &QUndoStack::canUndoChanged, m_actUndo, &QAction::setEnabled);
-    connect(stack, &QUndoStack::canRedoChanged, m_actRedo, &QAction::setEnabled);
+    m_actUndo->setEnabled(stack->canUndo() && !m_showMode);
+    m_actRedo->setEnabled(stack->canRedo() && !m_showMode);
+    // Undo/Redo stay locked in Show Mode even when the stack changes.
+    connect(stack, &QUndoStack::canUndoChanged, m_actUndo,
+            [this](bool can) { m_actUndo->setEnabled(can && !m_showMode); });
+    connect(stack, &QUndoStack::canRedoChanged, m_actRedo,
+            [this](bool can) { m_actRedo->setEnabled(can && !m_showMode); });
     connect(m_workspace.get(), &core::Workspace::dirtyChanged, this, &MainWindow::updateTitle);
     // Re-sync the tab strip when the cue-list ORDER changes (e.g. undoing a
     // drag-reorder). Queued so it never mutates the tab bar mid-signal.
@@ -1565,6 +1617,9 @@ void MainWindow::scheduleJournal()
 void MainWindow::writeJournal()
 {
     if (!m_workspace || m_journalPath.isEmpty()) return;
+    // Nothing unsaved → nothing to recover. (Loading a show fires change
+    // signals before it's marked clean; don't journal a pristine show.)
+    if (!m_workspace->isDirty()) return;
     show::ShowFile::save(m_journalPath, *m_workspace);
 }
 
@@ -1577,13 +1632,13 @@ void MainWindow::clearJournal()
     }
 }
 
-void MainWindow::recoverFromJournalIfPresent()
+bool MainWindow::recoverFromJournalIfPresent()
 {
     const auto dir = QStandardPaths::writableLocation(QStandardPaths::AppDataLocation)
                         + QStringLiteral("/journals");
     QDir d(dir);
     const auto journals = d.entryList({QStringLiteral("*.journal")}, QDir::Files);
-    if (journals.isEmpty()) return;
+    if (journals.isEmpty()) return false;
 
     // Newest first.
     QStringList paths;
@@ -1599,17 +1654,41 @@ void MainWindow::recoverFromJournalIfPresent()
             .arg(paths.size()).arg(paths.size() == 1 ? QString() : QStringLiteral("s")),
         QMessageBox::Yes | QMessageBox::No);
 
+    bool recovered = false;
     if (answer == QMessageBox::Yes) {
-        if (loadShowFromPath(paths.first())) {
+        const QString journal = paths.first();
+        if (loadShowFromPath(journal)) {
+            recovered = true;
             m_currentPath.clear(); // force Save As; this isn't a real .quewi yet
+            // The load put the journal's path in Open Recent — it isn't a show.
+            forgetRecentFile(journal);
+            // It IS unsaved work. The loader marks every show clean, so a
+            // recovered show used to close without a save prompt — and the
+            // journal was already deleted, so the work was gone for good.
+            m_workspace->markModified();
+            // Keep journaling into the same file until it's properly saved,
+            // so a second crash before then still has it.
+            paths.removeFirst();
+            m_journalPath = journal;
+            writeJournal();
             updateTitle();
-            statusBar()->showMessage(tr("Recovered from journal"), 4000);
+            statusBar()->showMessage(tr("Recovered from journal — save it to keep it"), 6000);
         }
     }
 
-    // Whether they recovered or not, clean every leftover journal so we
-    // don't ask again. (User declined → they're fine losing it.)
+    // Clean the other leftover journals so we don't ask again. (Declined →
+    // they're fine losing it.)
     for (const auto &p : paths) QFile::remove(p);
+    return recovered;
+}
+
+void MainWindow::forgetRecentFile(const QString &path)
+{
+    QSettings s(QStringLiteral("ServeGaming"), QStringLiteral("quewi"));
+    auto list = s.value(QStringLiteral("ui/recentFiles")).toStringList();
+    list.removeAll(QFileInfo(path).absoluteFilePath());
+    s.setValue(QStringLiteral("ui/recentFiles"), list);
+    rebuildRecentMenu();
 }
 
 void MainWindow::showPreflight()
@@ -1836,12 +1915,46 @@ void MainWindow::applyShowMode()
     // routes by which the operator could accidentally clobber the
     // show while pressing GO. See CueListView::setShowModeLocked.
     if (m_cueListView) m_cueListView->setShowModeLocked(m_showMode);
+    if (m_mixView)     m_mixView->setShowModeLocked(m_showMode);
+    for (auto &v : m_detachedCueViews) if (v) v->setShowModeLocked(m_showMode);
 
-    // Disable Edit, Cue, List menus.
+    // Disable the File, Edit, Cue and List menus — AND every action inside
+    // them. Disabling only the menu headers left each inner action's shortcut
+    // live (Qt matches it through the menubar and never checks the header),
+    // and the command palette ran them too: Delete, Ctrl+Z, the new-cue keys,
+    // even Ctrl+W (close show → stops everything) all worked mid-show.
+    std::function<void(QMenu *, QList<QAction *> &)> collect =
+        [&collect](QMenu *menu, QList<QAction *> &out) {
+            for (QAction *a : menu->actions()) {
+                if (a->menu()) collect(a->menu(), out);
+                else if (!a->isSeparator()) out.append(a);
+            }
+        };
+    QList<QAction *> headers, inner;
     for (QAction *act : menuBar()->actions()) {
         const auto t = act->text().remove(QChar('&'));
         if (t == tr("Edit") || t == tr("Cue") || t == tr("List") || t == tr("File")) {
-            act->setEnabled(editable);
+            headers.append(act);
+            if (act->menu()) collect(act->menu(), inner);
+        }
+    }
+    for (QAction *h : headers) h->setEnabled(editable);
+    if (m_showMode) {
+        if (m_showModeLocked.isEmpty()) {
+            for (QAction *a : inner) {
+                if (a == m_actShowMode || a == m_actGo || a == m_actPanic) continue;
+                m_showModeLocked.append({QPointer<QAction>(a), a->isEnabled()});
+                a->setEnabled(false);
+            }
+        }
+    } else {
+        for (const auto &[a, wasEnabled] : m_showModeLocked)
+            if (a) a->setEnabled(wasEnabled);
+        m_showModeLocked.clear();
+        // Undo/Redo follow the stack, not the snapshot taken at lock time.
+        if (m_workspace) {
+            if (m_actUndo) m_actUndo->setEnabled(m_workspace->undoStack()->canUndo());
+            if (m_actRedo) m_actRedo->setEnabled(m_workspace->undoStack()->canRedo());
         }
     }
     if (m_actShowMode) m_actShowMode->setEnabled(true); // always allow toggle
@@ -1942,9 +2055,47 @@ void MainWindow::onTabSelected(int index)
             m_model->setCueList(list.get());
             if (m_model->rowCount() > 0)
                 m_cueListView->setCurrentIndex(m_model->index(0, 0));
+            // A model reset clears the current row WITHOUT a change signal,
+            // so switching to an empty list left the Inspector editing a cue
+            // from the previous list and NEXT showing a cue GO won't fire.
+            syncSelectionUi();
         }
         return;
     }
+}
+
+void MainWindow::syncSelectionUi()
+{
+    if (m_inspector) m_inspector->setCue(m_cueListView ? m_cueListView->currentCue() : nullptr);
+    onSelectionChanged();
+}
+
+void MainWindow::selectListTab(core::CueList *list)
+{
+    // Page, model and GO context move together: adding a list while the
+    // soundboard or mix page was up used to make the new list the GO target
+    // while the old page stayed on screen; removing the mix list left an
+    // empty grid up with a set-list tab highlighted.
+    if (!list || !m_listTabs) return;
+    for (int i = 0; i < m_listTabs->count(); ++i) {
+        if (m_listTabs->tabData(i).toUuid() != list->id()) continue;
+        if (m_listTabs->currentIndex() != i) {
+            QSignalBlocker block(m_listTabs);
+            m_listTabs->setCurrentIndex(i);
+        }
+        onTabSelected(i);
+        return;
+    }
+}
+
+void MainWindow::closeDetachedWindows()
+{
+    // They show the OUTGOING show's lists; after New/Open they'd sit there
+    // blank (or worse, editing freed data).
+    for (auto &w : m_detachedWindows) if (w) w->close();
+    m_detachedWindows.clear();
+    m_detachedModels.clear();
+    m_detachedCueViews.clear();
 }
 
 core::CueList *MainWindow::getOrCreateSoundboardList()
@@ -2022,6 +2173,7 @@ void MainWindow::detachCueListTab(int idx)
     // Floating top-level window mirroring this list. It shares the CueList, so
     // edits in either window stay in sync. Useful on a second monitor.
     auto *win = new QMainWindow(this);
+    m_detachedWindows.append(win);
     win->setAttribute(Qt::WA_DeleteOnClose);
     win->setWindowFlag(Qt::Window);
     win->setWindowTitle(tr("%1 — quewi").arg(list->name()));
@@ -2084,6 +2236,30 @@ void MainWindow::detachCueListTab(int idx)
         auto *view = new ui::CueListView(win);
         view->setWorkspace(m_workspace.get());
         view->setModel(model);
+        view->setShowModeLocked(m_showMode);
+        m_detachedCueViews.append(view);
+        // This window used to be half-wired: Space did nothing, selecting a
+        // cue didn't reach the Inspector, and dropped files were accepted then
+        // thrown away.
+        connect(view, &ui::CueListView::goRequested, this, [this, view, model] {
+            auto *cue = view->nextCue();
+            if (!cue || !m_goEngine) return;
+            m_goEngine->fire(cue);
+            // Advance THIS window's playhead the same way the main list does.
+            if (auto *target = m_goEngine->standbyAfter(cue)) {
+                for (int r = 0; r < model->rowCount(); ++r)
+                    if (model->cueAt(model->index(r, 0)) == target) {
+                        view->setCurrentIndex(model->index(r, 0));
+                        return;
+                    }
+            }
+            view->setPlayheadPastEnd();
+        });
+        connect(view, &ui::CueListView::currentCueChanged, m_inspector, &ui::Inspector::setCue);
+        connect(view, &ui::CueListView::filesDropped, this,
+                [this, list](const QList<QUrl> &urls, int row) {
+                    insertCuesFromUrls(urls, row, list);
+                });
         win->setCentralWidget(view);
         win->resize(540, 640);
         m_detachedModels.append(model);  // QPointer auto-nulls when the window closes
@@ -2108,7 +2284,7 @@ void MainWindow::addCueListTab()
     auto *raw = m_workspace->addCueList(std::move(list));
     m_workspace->setActiveCueList(raw);
     rebuildListTabs();
-    m_model->setCueList(raw);
+    selectListTab(raw);
 }
 
 void MainWindow::renameCueListTab()
@@ -2162,7 +2338,7 @@ void MainWindow::removeCueListAt(int idx)
     if (auto *stack = m_workspace->undoStack()) stack->clear();
     auto *active = m_workspace->activeCueList();
     rebuildListTabs();
-    if (active) m_model->setCueList(active);
+    if (active) selectListTab(active);
 }
 
 void MainWindow::onSelectionChanged()
@@ -2731,6 +2907,7 @@ void MainWindow::closeEvent(QCloseEvent *event)
 
 void MainWindow::resetLayout()
 {
+    if (m_inspector) m_inspector->dockAllSections();
     // Discard the persisted geometry/state and put the Inspector back
     // in its default position. Useful when the user has dragged a dock
     // off the visible desktop area on a monitor they no longer have.
@@ -3035,7 +3212,7 @@ void MainWindow::registerOscRemoteHandlers()
             auto *list = m_workspace ? m_workspace->activeCueList() : nullptr;
             if (!list) return;
             for (int row = 0; row < list->cueCount(); ++row) {
-                if (auto *c = list->cueAt(row); c && qFuzzyCompare(c->number(), num)) {
+                if (auto *c = list->cueAt(row); c && sameCueNumber(c->number(), num)) {
                     if (auto *ac = qobject_cast<audio::AudioCue *>(c); ac && ac->currentVoiceId()) {
                         m_audioEngine->stop(ac->currentVoiceId());
                     }
@@ -3202,7 +3379,7 @@ void MainWindow::registerOscRemoteHandlers()
         auto *list = activeOscList();
         if (!list) return;
         for (int r = 0; r < list->cueCount(); ++r) {
-            if (auto *c = list->cueAt(r); c && qFuzzyCompare(c->number(), num)) {
+            if (auto *c = list->cueAt(r); c && sameCueNumber(c->number(), num)) {
                 replyToSender(QStringLiteral("/quewi/reply/cue"),
                     { osc::Argument::s(cueToJsonString(c)) });
                 return;
@@ -3383,10 +3560,13 @@ void MainWindow::registerOscRemoteHandlers()
                     break;
                 }
             }
-            if (target) {
+            // Only a normal cue list can be the GO list — selecting the
+            // soundboard or a mix list here used to make pad / DCA cues the
+            // set list.
+            if (target && target->kind() == core::CueList::Kind::Normal) {
                 m_workspace->setActiveCueList(target);
-                rebindModel();
                 rebuildListTabs();
+                selectListTab(target);
             }
         }, Qt::QueuedConnection);
     });
@@ -3473,7 +3653,7 @@ void MainWindow::registerOscRemoteHandlers()
             auto *list = activeOscList();
             if (!list) return;
             for (int r = 0; r < list->cueCount(); ++r) {
-                if (auto *c = list->cueAt(r); c && qFuzzyCompare(c->number(), num)) {
+                if (auto *c = list->cueAt(r); c && sameCueNumber(c->number(), num)) {
                     const int clamped = std::clamp(newRow, 0, list->cueCount());
                     if (clamped == r) return;
                     const QString cueId = c->id().toString();
@@ -3561,7 +3741,7 @@ void MainWindow::registerOscRemoteHandlers()
             auto *list = activeOscList();
             if (!list) return;
             for (int r = 0; r < list->cueCount(); ++r) {
-                if (auto *c = list->cueAt(r); c && qFuzzyCompare(c->number(), num)) {
+                if (auto *c = list->cueAt(r); c && sameCueNumber(c->number(), num)) {
                     m_workspace->undoStack()->push(
                         new core::RemoveCueCommand(list, r));
                     return;
@@ -3632,8 +3812,15 @@ void MainWindow::registerOscRemoteHandlers()
             auto *list = activeOscList();
             if (!list) return;
             for (int r = 0; r < list->cueCount(); ++r) {
-                if (auto *c = list->cueAt(r); c && qFuzzyCompare(c->number(), num)) {
-                    c->setField(field, v);
+                if (auto *c = list->cueAt(r); c && sameCueNumber(c->number(), num)) {
+                    // Through the undo stack like any Inspector edit: it's
+                    // undoable, marks the show unsaved and reaches the crash
+                    // journal. (A direct setField did none of that, so remote
+                    // edits were silently lost on close.)
+                    const QVariant old = c->field(field);
+                    if (!old.isValid() || old == v) return;   // unknown field / no-op
+                    m_workspace->undoStack()->push(
+                        new core::EditCueFieldCommand(c, field, old, v));
                     return;
                 }
             }
@@ -3667,7 +3854,7 @@ void MainWindow::registerOscRemoteHandlers()
             if (!list) return;
             for (int r = 0; r < list->cueCount(); ++r) {
                 auto *ac = qobject_cast<audio::AudioCue *>(list->cueAt(r));
-                if (!ac || !qFuzzyCompare(ac->number(), num)) continue;
+                if (!ac || !sameCueNumber(ac->number(), num)) continue;
                 const auto vid = ac->currentVoiceId();
                 if (!vid) return;                     // not playing → no-op
                 if      (verb == QLatin1String("level")) m_audioEngine->setVoiceGain(vid, val);
@@ -3742,8 +3929,9 @@ void MainWindow::registerOscRemoteHandlers()
             if (!list) return;
             for (int r = 0; r < list->cueCount(); ++r) {
                 auto *ac = qobject_cast<audio::AudioCue *>(list->cueAt(r));
-                if (!ac || !qFuzzyCompare(ac->number(), num)) continue;
+                if (!ac || !sameCueNumber(ac->number(), num)) continue;
                 ac->setEffectParam(type, param, val);          // stored (next GO)
+                m_workspace->markModified();   // not undoable, but it IS unsaved
                 if (m_audioEngine)
                     if (const auto vid = ac->currentVoiceId())
                         m_audioEngine->setVoiceEffectParam(vid, type, param, val); // live
@@ -3766,7 +3954,7 @@ void MainWindow::registerOscRemoteHandlers()
         if (!list) return;
         for (int r = 0; r < list->cueCount(); ++r) {
             auto *ac = qobject_cast<audio::AudioCue *>(list->cueAt(r));
-            if (!ac || !qFuzzyCompare(ac->number(), num)) continue;
+            if (!ac || !sameCueNumber(ac->number(), num)) continue;
             replyToSender(QStringLiteral("/quewi/reply/cue/fx"),
                 { osc::Argument::s(QString::fromUtf8(
                     QJsonDocument(ac->effectChainSummary())
@@ -3911,11 +4099,32 @@ void MainWindow::wireOscNotifications()
     m_oscNotifyConnections.clear();
     if (!m_workspace) return;
 
-    auto *list = m_workspace->activeCueList();
+    wireOscListNotifications();
+
+    // Workspace-level: active list switched.
+    m_oscNotifyConnections.append(connect(m_workspace.get(),
+        &core::Workspace::activeCueListChanged, this, [this] {
+            // Follow the list remotes are now controlling — the row
+            // notifications used to stay on the list active at load.
+            wireOscListNotifications();
+            if (auto *l = m_workspace->activeCueList()) {
+                pushOscNotify(QStringLiteral("/quewi/notify/cueList/active"),
+                    { osc::Argument::s(l->id().toString()),
+                      osc::Argument::s(l->name()) });
+            }
+        }));
+    wireOscWorkspaceNotifications();
+}
+
+void MainWindow::wireOscListNotifications()
+{
+    for (auto &c : m_oscListConnections) QObject::disconnect(c);
+    m_oscListConnections.clear();
+    auto *list = m_workspace ? m_workspace->activeCueList() : nullptr;
     if (!list) return;
 
     // List-level: rows added, removed, changed.
-    m_oscNotifyConnections.append(connect(list, &core::CueList::cueInserted, this,
+    m_oscListConnections.append(connect(list, &core::CueList::cueInserted, this,
         [this, list](int row) {
             if (auto *c = list->cueAt(row)) {
                 // (cueId, row, cueNumber). The cue number went on
@@ -3933,7 +4142,7 @@ void MainWindow::wireOscNotifications()
                       osc::Argument::d(c->number()) });
             }
         }));
-    m_oscNotifyConnections.append(connect(list, &core::CueList::cueChanged, this,
+    m_oscListConnections.append(connect(list, &core::CueList::cueChanged, this,
         [this, list](int row) {
             auto *c = list->cueAt(row);
             if (!c) return;
@@ -3941,23 +4150,18 @@ void MainWindow::wireOscNotifications()
                 { osc::Argument::s(c->id().toString()),
                   osc::Argument::s(cueToJsonString(c)) });
         }));
-    m_oscNotifyConnections.append(connect(list, &core::CueList::aboutToRemoveCue, this,
+    m_oscListConnections.append(connect(list, &core::CueList::aboutToRemoveCue, this,
         [this, list](int row) {
             if (auto *c = list->cueAt(row)) {
                 pushOscNotify(QStringLiteral("/quewi/notify/cue/removed"),
                     { osc::Argument::s(c->id().toString()) });
             }
         }));
+}
 
-    // Workspace-level: active list switched.
-    m_oscNotifyConnections.append(connect(m_workspace.get(),
-        &core::Workspace::activeCueListChanged, this, [this] {
-            if (auto *l = m_workspace->activeCueList()) {
-                pushOscNotify(QStringLiteral("/quewi/notify/cueList/active"),
-                    { osc::Argument::s(l->id().toString()),
-                      osc::Argument::s(l->name()) });
-            }
-        }));
+void MainWindow::wireOscWorkspaceNotifications()
+{
+    if (!m_workspace) return;
 
     // Workspace-level: dirty-state transitions. Remotes use this to
     // show 'unsaved changes' badges without polling. Pushed both
@@ -4057,12 +4261,6 @@ void MainWindow::wireOscNotifications()
     // file loaded) so they can re-query.
     pushOscNotify(QStringLiteral("/quewi/notify/workspace/changed"), {});
 }
-
-namespace {
-// Cue numbers are user-typed decimals (1, 1.5, 12.25). qFuzzyCompare can't
-// compare against 0 and is relative, so use a small absolute tolerance.
-bool sameCueNumber(double a, double b) { return std::abs(a - b) < 1e-6; }
-} // namespace
 
 void MainWindow::selectCueByNumber(double number)
 {

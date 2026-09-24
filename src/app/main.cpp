@@ -201,10 +201,17 @@ int main(int argc, char *argv[])
     //   - the user disabled it via the "Show on launch" checkbox;
     //   - we're running --selftest (CI cold-start gate).
     const auto positional = parser.positionalArguments();
+    const bool selftest = parser.isSet(selftestOpt) || parser.isSet(selftestIdleOpt);
+
+    // Crash recovery first — before the Welcome dialog or a show passed on
+    // the command line, either of which would otherwise replace the
+    // recovered work. Never in selftest: a modal prompt would hang CI.
+    const bool recovered = !selftest && w.recoverFromJournalIfPresent();
+
     QString welcomeChosenPath;
-    if (positional.isEmpty()
-        && !parser.isSet(selftestOpt)
-        && !parser.isSet(selftestIdleOpt)
+    if (!recovered
+        && positional.isEmpty()
+        && !selftest
         && quewi::ui::WelcomeDialog::showOnLaunchEnabled())
     {
         quewi::ui::WelcomeDialog welcome;
@@ -247,7 +254,10 @@ int main(int argc, char *argv[])
         versionStore.setValue(QStringLiteral("lastSeenVersion"), thisVersion);
     }
 
-    if (!positional.isEmpty()) {
+    if (recovered) {
+        // The recovered show stays; a file passed on the command line is not
+        // opened over it (the operator just chose to recover).
+    } else if (!positional.isEmpty()) {
         QTimer::singleShot(0, &w, [&w, positional]{
             w.loadShowFromPath(positional.first());
         });

@@ -51,6 +51,9 @@ public:
     // `primary`'s console connection instead of opening its own.
     void setPrimary(MixView *primary);
 
+    // Show Mode: GO stays live, programming is refused.
+    void setShowModeLocked(bool locked);
+
     // ── State for the main transport bar's DCA GO button ──────────────
     // MixView owns the mix list + console link, so it answers whether a DCA
     // GO is possible and what the next cue is. The transport bar only shows
@@ -63,6 +66,9 @@ public:
     void addCue();
     // Delete the selected cue.
     void deleteSelectedCue();
+
+protected:
+    bool eventFilter(QObject *watched, QEvent *event) override;
 
 signals:
     void statusMessage(const QString &text);
@@ -120,6 +126,10 @@ private:
     QLabel      *m_warning  = nullptr;   // the Scene Safe / registration banner
     QSpinBox    *m_dcaCount = nullptr;
     QPushButton *m_go       = nullptr;
+    QPushButton *m_addBtn      = nullptr;
+    QPushButton *m_delBtn      = nullptr;
+    QPushButton *m_channelsBtn = nullptr;
+    bool         m_showLocked  = false;
 
     std::unique_ptr<mix::ConsoleLink> m_link;
 
