@@ -5,6 +5,8 @@
 #include "audio/SampleStore.h"
 
 #include <QDir>
+#include <QMediaDevices>
+#include <QSignalSpy>
 #include <QStandardPaths>
 
 #include <cmath>
@@ -210,6 +212,47 @@ private slots:
         QVERIFY(!dir.exists() || dir.entryList(QDir::Files).isEmpty());
     }
 
+    // "Mix in my microphone": captured frames reach the output at the set
+    // gain once ~20 ms has buffered, and a backlog (mic clock running fast)
+    // is skipped down to a small cushion instead of building up delay.
+    void liveInputIsMixedInAfterASmallCushion()
+    {
+        OfflineRenderer r(kSr, 2);
+        r.enableLiveInput(-6.0206);                     // ×0.5
+        // Less than the 20 ms cushion: nothing yet.
+        r.pushLiveInput(std::vector<float>(size_t(kSr / 100) * 2, 0.8f));   // 10 ms
+        auto out = r.render(64);
+        QVERIFY2(std::abs(L(out, 0)) < 1e-6f, "waits for the cushion");
+        // Now enough: plays at half level, both sides.
+        std::vector<float> st(size_t(kSr / 25) * 2);                          // 40 ms
+        for (size_t i = 0; i < st.size(); i += 2) { st[i] = 0.8f; st[i + 1] = -0.4f; }
+        r.pushLiveInput(st);
+        // Oldest first: the 10 ms block (0.8 both sides), then the new one.
+        out = r.render(kSr / 100 + 64);
+        QVERIFY(std::abs(L(out, 0) - 0.4f) < 1e-4f);
+        QVERIFY(std::abs(out[1] - 0.4f) < 1e-4f);
+        const int f = kSr / 100 + 10;               // into the second block
+        QVERIFY(std::abs(L(out, f) - 0.4f) < 1e-4f);
+        QVERIFY(std::abs(out[size_t(f) * 2 + 1] + 0.2f) < 1e-4f);
+    }
+
+    void liveInputBacklogIsSkippedNotDelayed()
+    {
+        OfflineRenderer r(kSr, 2);
+        r.enableLiveInput(0.0);
+        // 300 ms of a ramp: frame i carries value i. Far past the 80 ms limit.
+        const int n = kSr * 3 / 10;
+        std::vector<float> st(size_t(n) * 2);
+        for (int i = 0; i < n; ++i) st[size_t(i) * 2] = st[size_t(i) * 2 + 1] = float(i) / n;
+        r.pushLiveInput(st);
+        const auto out = r.render(16);
+        // Jumped to 20 ms before the newest frame, not the oldest.
+        const int expectFirst = n - kSr / 50;
+        QVERIFY2(std::abs(L(out, 0) - float(expectFirst) / n) < 1e-5f,
+                 qPrintable(QStringLiteral("played frame %1, want %2")
+                                .arg(L(out, 0) * n).arg(expectFirst)));
+    }
+
     void oneShotFinishesAtTrimOut()
     {
         OfflineRenderer r(kSr, 2);
@@ -220,6 +263,45 @@ private slots:
         QVERIFY(std::abs(L(out, 400) - 0.5f) < 1e-4f);
         QVERIFY(std::abs(L(out, 600)) < 1e-6f);
         QCOMPARE(r.activeCount(), 0);
+    }
+
+    // "Send to mic" mirrors a pad onto a second device. The mirror must be
+    // invisible (one voice as far as the UI knows) and must follow its main
+    // voice — a Stop that left the mic side playing would be the worst kind
+    // of bug on a stream. Needs two real output devices; skipped otherwise.
+    void mirrorVoiceFollowsItsMain()
+    {
+        const auto outs = QMediaDevices::audioOutputs();
+        if (outs.size() < 2) QSKIP("needs two audio output devices");
+        AudioEngine engine;
+        engine.setDefaultOutputDevice(outs.at(0));
+        auto silence = dc(5.0, 0.0f);                    // audible = none
+
+        VoiceParams p;
+        p.outputDeviceId = outs.at(0).id();
+        p.mirrorDeviceId = outs.at(1).id();
+        p.mirrorGainDb   = -6.0;
+        const VoiceId id = engine.fire(silence, p);
+        if (id == 0) QSKIP("couldn't open the first output device");
+        if (!engine.hasMirror(id)) QSKIP("couldn't open the second output device");
+        QCOMPARE(engine.activeVoices().size(), 1);        // mirror hidden
+        QCOMPARE(engine.activeVoiceCount(), 1);
+
+        // A mirror to a device that doesn't exist is simply skipped — never
+        // a second copy on the default device.
+        VoiceParams ghost = p;
+        ghost.mirrorDeviceId = QByteArrayLiteral("no-such-device");
+        const VoiceId g = engine.fire(silence, ghost);
+        QVERIFY(g != 0);
+        QVERIFY(!engine.hasMirror(g));
+
+        QSignalSpy finished(&engine, &AudioEngine::voiceFinished);
+        engine.stop(id, 0.01);
+        engine.stop(g, 0.01);
+        QTRY_VERIFY_WITH_TIMEOUT(!engine.hasMirror(id) && engine.activeVoiceCount() == 0, 3000);
+        QTest::qWait(200);
+        // Two voices were fired, so two finishes — none for the mirror.
+        QCOMPARE(finished.count(), 2);
     }
 };
 

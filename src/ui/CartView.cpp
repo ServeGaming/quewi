@@ -7,6 +7,8 @@
 #include "core/Workspace.h"
 #include "cues/Cue.h"
 #include "ui/GlobalHotkeys.h"
+#include "ui/MicRouting.h"
+#include "ui/MicRoutingDialog.h"
 #include "ui/Theme.h"
 
 #include <QAction>
@@ -603,6 +605,21 @@ CartView::CartView(QWidget *parent) : QWidget(parent)
                 m_outputCombo->currentData().toByteArray());
     });
     bar->addWidget(m_outputCombo);
+
+    // Send pad sounds into a virtual cable that other apps use as a mic
+    // (MicRouting — per computer). The label shows where they're going.
+    m_micBtn = new QPushButton(MicRoutingDialog::buttonText(), this);
+    m_micBtn->setCursor(Qt::PointingHandCursor);
+    m_micBtn->setToolTip(tr("Send pad sounds into your microphone for Discord, OBS or a game"));
+    connect(m_micBtn, &QPushButton::clicked, this, [this] {
+        MicRoutingDialog dlg(m_outputCombo ? m_outputCombo->currentData().toByteArray()
+                                           : QByteArray(), this);
+        dlg.exec();
+    });
+    connect(MicRouting::instance(), &MicRouting::changed, this, [this] {
+        m_micBtn->setText(MicRoutingDialog::buttonText());
+    });
+    bar->addWidget(m_micBtn);
 
     m_editBtn = new QPushButton(tr("Edit Layout"), this);
     m_editBtn->setCheckable(true);

@@ -13,6 +13,10 @@ add_library(quewi_ui STATIC
     DcaAssignDialog.cpp
     GlobalHotkeys.h
     GlobalHotkeys.cpp
+    MicRouting.h
+    MicRouting.cpp
+    MicRoutingDialog.h
+    MicRoutingDialog.cpp
     SmoothScroll.h
     SmoothScroll.cpp
     AnimatedButton.h

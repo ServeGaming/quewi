@@ -1,11 +1,13 @@
 #pragma once
 
 #include <QAudioDevice>
+#include <QAudioFormat>
 #include <QByteArray>
 #include <QHash>
 #include <QIODevice>
 #include <QList>
 #include <QObject>
+#include <QSet>
 #include <atomic>
 #include <functional>
 #include <memory>
@@ -13,6 +15,7 @@
 #include <vector>
 
 class QAudioSink;
+class QAudioSource;
 class QTimer;
 class QMediaDevices;
 
@@ -40,6 +43,16 @@ struct VoiceParams {
 
     // Empty = use the current default output device.
     QByteArray outputDeviceId;
+
+    // Also play this voice on a second device (e.g. a virtual cable that
+    // apps see as a microphone), mirrorGainDb louder/quieter than the main
+    // voice. The mirror is invisible to callers: stop/fade/pause/seek/gain on
+    // the returned VoiceId drive both, and only the main voice is reported
+    // in activeVoices()/voiceFinished. Skipped if the device isn't present
+    // (never falls back to the default — that would double the sound on the
+    // speakers) or is the same device as the main voice.
+    QByteArray mirrorDeviceId;
+    double     mirrorGainDb = 0.0;
 
     // Object-audio routing. When channelGains is non-empty, the mixer
     // ignores `pan` and writes each output channel scaled by the
@@ -172,6 +185,21 @@ public:
 
     QString lastError() const { return m_lastError; }
 
+    // True while `id` has a live mirror voice (see VoiceParams::mirrorDeviceId).
+    bool hasMirror(VoiceId id) const { return m_mirrors.contains(id); }
+
+    // ── Live input ("mix my microphone into the virtual mic") ──────────
+    // Capture `inputDeviceId` continuously and mix it into the output device
+    // `outputDeviceId`, gainDb up or down. That output device is run with a
+    // short buffer so the voice isn't noticeably delayed. Replaces any
+    // previous live input. Returns false (with lastError()) if either device
+    // is missing or won't open.
+    bool setLiveInput(const QByteArray &inputDeviceId,
+                      const QByteArray &outputDeviceId, double gainDb);
+    void setLiveInputGain(double gainDb);
+    void clearLiveInput();
+    bool liveInputActive() const { return m_liveSource != nullptr; }
+
 signals:
     void runningChanged(bool running);
     void voiceFinished(quewi::audio::VoiceId id);
@@ -230,6 +258,35 @@ private:
     void diskHousekeeping();
     QTimer                                     *m_diskTimer = nullptr;
     QHash<const SampleStore *, size_t>          m_diskReleased;   // samples released so far
+
+    // An output device by exact id, or a null device if it isn't present
+    // (unlike resolveDevice, never falls back to the default).
+    static QAudioDevice findOutputDevice(const QByteArray &deviceId);
+
+    // Mirror voices: main VoiceId → its mirror on the second device, plus the
+    // gain offset the mirror runs at. m_mirrorIds is the reverse set, so a
+    // mirror finishing is never reported as a voice of its own.
+    struct MirrorLink { VoiceId mirror = 0; double offsetDb = 0.0; };
+    QHash<VoiceId, MirrorLink>                  m_mirrors;
+    QSet<VoiceId>                               m_mirrorIds;
+    VoiceId mirrorOf(VoiceId id) const { return m_mirrors.value(id).mirror; }
+
+    // Live input. Captured on the GUI thread (QAudioSource push mode),
+    // converted to interleaved stereo float at the output's rate, and handed
+    // to that output mixer's lock-free ring.
+    void onLiveInputReady();
+    QSet<QByteArray>                            m_lowLatencyDevices;
+    std::unique_ptr<QAudioSource>               m_liveSource;
+    QIODevice                                  *m_liveIo = nullptr;
+    QByteArray                                  m_liveOutputId;
+    int                                         m_liveInChannels = 0;
+    int                                         m_liveInRate = 0;
+    QAudioFormat::SampleFormat                  m_liveInFormat = QAudioFormat::Float;
+    double                                      m_liveGainDb = 0.0;
+    double                                      m_liveResamplePos = 0.0;   // fractional read position
+    float                                       m_liveLastL = 0.f, m_liveLastR = 0.f;
+    std::vector<float>                          m_liveStereo;              // scratch (GUI thread)
+    std::vector<float>                          m_liveResampled;           // scratch (GUI thread)
 };
 
 // The real Mixer — the exact code the sound card pulls from — rendering into
@@ -249,6 +306,11 @@ public:
     bool resume(VoiceId id);
     int  activeCount() const;
     int  channels() const { return m_channels; }
+
+    // Live input path (the "mix my mic in" ring), without a capture device:
+    // push stereo frames as the capture side would, then render.
+    void enableLiveInput(double gainDb);
+    void pushLiveInput(const std::vector<float> &stereo);
 
 private:
     std::unique_ptr<AudioEngine>        m_engine;   // target of the mixer's finished callback

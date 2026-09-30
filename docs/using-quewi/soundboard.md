@@ -31,6 +31,35 @@ cue list if you want (e.g. a stream mix, or a second interface).
 
 ---
 
+## Sending sounds to your mic
+
+*New in 1.0.4.* Stream or voice chat? The **Mic** button in the soundboard's
+toolbar plays pad sounds into your microphone, so Discord, OBS or a game
+hears them. It works the same way as Voicemod's soundboard.
+
+It needs a **virtual cable**: a free driver such as
+[VB-Audio Virtual Cable](https://vb-audio.com/Cable/). A cable gives you two
+devices. Sound played into **CABLE Input** comes out of **CABLE Output**,
+which apps can use as a microphone.
+
+1. Install the cable, then open quewi's soundboard → **Mic**.
+2. **Send sounds to:** pick the cable (quewi lists virtual cables first).
+3. **Also play them on the soundboard's output** keeps playing them to your
+   speakers or headphones too, so you hear what you fire. Turn it off to
+   send them to the mic only.
+4. **Mix in my microphone:** tick it and pick your real mic. quewi then
+   sends your voice into the cable along with the sounds, with about 60 ms
+   of delay.
+5. In Discord, OBS or the game, set the microphone to **CABLE Output**. If
+   you mix your mic in, don't also select your real mic there, or you'll
+   be heard twice.
+
+**Sound level in mic** and **Voice level** balance the two. The settings
+belong to this computer, not the show. Keep quewi open while you talk,
+because your voice goes through it.
+
+---
+
 ## Customising a pad
 
 Right-click a pad → **Customise pad…** (or turn on **Edit Layout** and click

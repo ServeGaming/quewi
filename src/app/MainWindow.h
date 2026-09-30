@@ -106,6 +106,10 @@ private slots:
     void openRecent(const QString &path);
     void rebuildRecentMenu();
     void onMidiTrigger(quint8 status, const QByteArray &bytes);
+    // A soundboard pad fired: board output + "send to mic" routing.
+    void fireSoundboardCue(cues::Cue *c);
+    // Start / stop / retarget the live mic passthrough from MicRouting.
+    void applyMicPassthrough();
     // Returns the cue now on the pad (nullptr if the file couldn't be added).
     cues::Cue *onCartFileDropped(int row, int col, const QString &path);
     // Right-click an empty pad → Import from URL…: the Ctrl+U importer in

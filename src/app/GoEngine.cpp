@@ -205,7 +205,7 @@ void GoEngine::after(int ms, std::function<void()> fn)
     t->start(std::max(0, ms));
 }
 
-void GoEngine::fire(cues::Cue *cue, const QByteArray &outputDeviceOverride)
+void GoEngine::fire(cues::Cue *cue, const AudioRoute &route)
 {
     if (!cue || !cue->isArmed()) return;
 
@@ -216,8 +216,8 @@ void GoEngine::fire(cues::Cue *cue, const QByteArray &outputDeviceOverride)
     // loop still runs, but on a flat stack.
     if (m_fireDepth >= kMaxFireDepth) {
         QPointer<cues::Cue> guard(cue);
-        after(0, [this, guard, outputDeviceOverride] {
-            if (guard) fire(guard, outputDeviceOverride);
+        after(0, [this, guard, route] {
+            if (guard) fire(guard, route);
         });
         return;
     }
@@ -225,18 +225,18 @@ void GoEngine::fire(cues::Cue *cue, const QByteArray &outputDeviceOverride)
     const double preWait = cue->preWait();
     if (preWait > 0.0) {
         QPointer<cues::Cue> guard(cue);
-        after(static_cast<int>(preWait * 1000.0), [this, guard, outputDeviceOverride] {
-            if (guard) runFire(guard, outputDeviceOverride);
+        after(static_cast<int>(preWait * 1000.0), [this, guard, route] {
+            if (guard) runFire(guard, route);
         });
     } else {
-        runFire(cue, outputDeviceOverride);
+        runFire(cue, route);
     }
 }
 
-void GoEngine::runFire(cues::Cue *cue, const QByteArray &outputDeviceOverride)
+void GoEngine::runFire(cues::Cue *cue, const AudioRoute &route)
 {
     ++m_fireDepth;
-    doFire(cue, outputDeviceOverride);
+    doFire(cue, route);
     --m_fireDepth;
 }
 
@@ -256,7 +256,7 @@ void GoEngine::stopTarget(cues::Cue *target, int depth)
     }
 }
 
-void GoEngine::doFire(cues::Cue *cue, const QByteArray &outputDeviceOverride)
+void GoEngine::doFire(cues::Cue *cue, const AudioRoute &route)
 {
     if (!cue) return;
     using namespace quewi;
@@ -308,9 +308,12 @@ void GoEngine::doFire(cues::Cue *cue, const QByteArray &outputDeviceOverride)
                 // for this voice from the cue's saved editor rack. Empty =
                 // dry. Applied as a stereo insert in the mixer.
                 p.effects        = audioCue->buildEffectChain();
-                p.outputDeviceId = outputDeviceOverride.isEmpty()
+                p.outputDeviceId = route.outputDeviceId.isEmpty()
                                        ? audioCue->outputDeviceId()
-                                       : outputDeviceOverride;
+                                       : route.outputDeviceId;
+                p.gainDb        += route.gainOffsetDb;
+                p.mirrorDeviceId = route.mirrorDeviceId;
+                p.mirrorGainDb   = route.mirrorGainOffsetDb;
                 // Per-output sends (dB → linear). Object-audio cues
                 // don't use this path — channelGains owns routing.
                 if (!audioCue->objectAudioEnabled()

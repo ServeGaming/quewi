@@ -45,11 +45,16 @@ public:
     void setOscEngine(osc::OscEngine *e);
     void setMidiEngine(midi::MidiEngine *e);
 
-    // outputDeviceOverride: when non-empty, audio cues fired through this
-    // call route to that output device instead of their own — used by the
-    // soundboard to send its whole board to a chosen device (e.g. a virtual
-    // cable) without mutating the shared cue. Empty = use the cue's device.
-    void fire(cues::Cue *cue, const QByteArray &outputDeviceOverride = {});
+    // Where an audio cue fired through this call plays, without touching the
+    // shared cue — the soundboard's board output and "send to mic".
+    struct AudioRoute {
+        AudioRoute(const QByteArray &output = {}) : outputDeviceId(output) {}
+        QByteArray outputDeviceId;        // empty = the cue's own device
+        double     gainOffsetDb = 0.0;    // added to the cue's gain
+        QByteArray mirrorDeviceId;        // also play here (e.g. the virtual mic)
+        double     mirrorGainOffsetDb = 0.0;
+    };
+    void fire(cues::Cue *cue, const AudioRoute &route = {});
 
     // PANIC: cancel everything scheduled and stop every output now — audio
     // (short fade), video, and the lighting rig to black.
@@ -97,8 +102,8 @@ signals:
     void pausedChanged(bool paused);
 
 private:
-    void runFire(cues::Cue *cue, const QByteArray &outputDeviceOverride);
-    void doFire(cues::Cue *cue, const QByteArray &outputDeviceOverride = {});
+    void runFire(cues::Cue *cue, const AudioRoute &route);
+    void doFire(cues::Cue *cue, const AudioRoute &route = {});
     void scheduleContinue(cues::Cue *cue, double delaySeconds);
     cues::Cue *nextCueAfter(cues::Cue *cue) const;
     // Resolve a target id: the firing cue's OWN list first (a Fade in list A

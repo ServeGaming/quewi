@@ -43,6 +43,7 @@
 #include "ui/WhatsNewDialog.h"
 #include "ui/ActiveCuesPanel.h"
 #include "ui/CartView.h"
+#include "ui/MicRouting.h"
 #include "ui/MixView.h"
 #include "mix/MixCue.h"
 #include "ui/AudioEditorWindow.h"
@@ -456,15 +457,17 @@ void MainWindow::buildLayout()
     // data, so the same GO logic, undo stack, and inspector all work
     // in either mode.
     m_cartView = new ui::CartView(central);
-    connect(m_cartView, &ui::CartView::fireRequested, this,
-        [this](cues::Cue *c) {
-            if (!m_goEngine || !c) return;
-            // Soundboard pads route to the board's chosen output device
-            // (e.g. a virtual cable), overriding each cue's own device.
-            const QByteArray dev = (m_workspace && m_workspace->cart())
-                ? m_workspace->cart()->outputDeviceId() : QByteArray();
-            m_goEngine->fire(c, dev);
-        });
+    connect(m_cartView, &ui::CartView::fireRequested,
+            this, &MainWindow::fireSoundboardCue);
+    // "Send to mic": keep the live microphone passthrough in step with the
+    // soundboard's Mic settings (and start it now if it was left on).
+    connect(ui::MicRouting::instance(), &ui::MicRouting::inputChanged,
+            this, &MainWindow::applyMicPassthrough);
+    connect(ui::MicRouting::instance(), &ui::MicRouting::changed, this, [this] {
+        if (m_audioEngine && m_audioEngine->liveInputActive())
+            m_audioEngine->setLiveInputGain(ui::MicRouting::instance()->inputGainDb());
+    });
+    QTimer::singleShot(0, this, &MainWindow::applyMicPassthrough);
     connect(m_cartView, &ui::CartView::fileDropped,
             this, &MainWindow::onCartFileDropped);
     connect(m_cartView, &ui::CartView::importUrlRequested,
@@ -2228,13 +2231,8 @@ void MainWindow::detachCueListTab(int idx)
         view->setSecondary(true);
         view->setWorkspace(m_workspace.get());
         view->setGoEngine(m_goEngine.get());
-        connect(view, &ui::CartView::fireRequested, this,
-            [this](cues::Cue *c) {
-                if (!m_goEngine || !c) return;
-                const QByteArray dev = (m_workspace && m_workspace->cart())
-                    ? m_workspace->cart()->outputDeviceId() : QByteArray();
-                m_goEngine->fire(c, dev);
-            });
+        connect(view, &ui::CartView::fireRequested,
+                this, &MainWindow::fireSoundboardCue);
         connect(view, &ui::CartView::stopAllRequested,
                 this, &MainWindow::stopSoundboard);
         // The detached board used to ignore dropped files and "Open in audio
@@ -2605,6 +2603,45 @@ void MainWindow::importToPad(int row, int col)
     statusBar()->showMessage(tr("Imported %1 to %2")
         .arg(QFileInfo(path).fileName(), padName), 4000);
     if (dlg.openEditorAfter()) openAudioEditor(cue);
+}
+
+void MainWindow::fireSoundboardCue(cues::Cue *c)
+{
+    if (!m_goEngine || !c) return;
+    // Pads play on the board's chosen output (overriding each cue's own
+    // device) and, with "send to mic" on, into the virtual cable as well —
+    // or only into the cable if you've chosen not to hear them yourself.
+    GoEngine::AudioRoute route((m_workspace && m_workspace->cart())
+                                   ? m_workspace->cart()->outputDeviceId() : QByteArray());
+    const auto *mic = ui::MicRouting::instance();
+    if (mic->enabled() && mic->deviceId() != route.outputDeviceId) {
+        if (mic->monitor()) {
+            route.mirrorDeviceId     = mic->deviceId();
+            route.mirrorGainOffsetDb = mic->sfxGainDb();
+        } else {
+            route.outputDeviceId = mic->deviceId();
+            route.gainOffsetDb   = mic->sfxGainDb();
+        }
+    }
+    m_goEngine->fire(c, route);
+}
+
+void MainWindow::applyMicPassthrough()
+{
+    if (!m_audioEngine) return;
+    const auto *mic = ui::MicRouting::instance();
+    if (!mic->enabled() || !mic->passthrough() || mic->inputDeviceId().isEmpty()) {
+        if (m_audioEngine->liveInputActive()) {
+            m_audioEngine->clearLiveInput();
+            statusBar()->showMessage(tr("Microphone no longer mixed into the soundboard mic"), 3000);
+        }
+        return;
+    }
+    if (m_audioEngine->setLiveInput(mic->inputDeviceId(), mic->deviceId(), mic->inputGainDb()))
+        statusBar()->showMessage(tr("Your microphone is now mixed into the soundboard mic"), 3000);
+    else
+        statusBar()->showMessage(tr("Couldn't mix in the microphone: %1")
+                                     .arg(m_audioEngine->lastError()), 6000);
 }
 
 cues::Cue *MainWindow::onCartFileDropped(int row, int col, const QString &path)

@@ -189,6 +189,23 @@ V3/V4/V7–V10/V12–V14 (video), M11, and the low-severity audio/UI items.
 **Not yet driven by Matthew:** system-wide soundboard keys, draggable inspector
 sections, DCA picker, the long-file RAM fix inside the running app.
 
+**On main, untagged (for 1.0.4): soundboard "send to mic"** (Matthew, 2026-09-30).
+Engine: `VoiceParams::mirrorDeviceId/mirrorGainDb` plays a hidden linked copy
+of a voice on a second device (stop/fade/pause/seek/gain/fx follow it; it's
+filtered out of activeVoices/voiceFinished; missing device = no mirror, never
+a fallback to default). `AudioEngine::setLiveInput(in, out, gainDb)` captures a
+mic (QAudioSource, GUI thread) → SPSC ring in the output Mixer (20 ms cushion,
+jumps back to 20 ms past an 80 ms backlog, re-primes on underrun); that output
+runs with a 40 ms sink buffer (`m_lowLatencyDevices`). GoEngine takes an
+`AudioRoute` (output, gain offset, mirror, mirror gain) instead of a bare
+device override. UI: `ui/MicRouting` (QSettings `soundboard/mic/*`, per
+computer) + `MicRoutingDialog` behind a "Mic: …" button on the soundboard;
+`MainWindow::fireSoundboardCue` / `applyMicPassthrough`. Needs a virtual cable
+(VB-Audio CABLE) — Matthew's machine has none active (Voicemod driver present,
+endpoints inactive). Tests: live-input ring + backlog (test_mixer), mirror
+bookkeeping on real devices (skips with <2 outputs). **NOT driven**: Matthew
+declined UI control this time; real mic capture never exercised.
+
 **1.0.3 tagged 2026-09-24 — the updater, for real.** The 1.0.1→1.0.2 update
 "just closed quewi": `update-client.log` showed `launchInstaller(): path=`
 GARBAGE. Use-after-free — the downloadFinished lambda took `const QString&`

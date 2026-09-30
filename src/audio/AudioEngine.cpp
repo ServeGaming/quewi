@@ -6,6 +6,7 @@
 
 #include <QAudioFormat>
 #include <QAudioSink>
+#include <QAudioSource>
 #include <QHash>
 #include <QMediaDevices>
 #include <QTimer>
@@ -99,6 +100,49 @@ public:
         if (m_graveFiles.capacity() < need) m_graveFiles.reserve(need * 2);
         if (m_graveBufs.capacity()  < need) m_graveBufs.reserve(need * 2);
         return m_voices.back().id;
+    }
+
+    // ── Live input ring ────────────────────────────────────────────────
+    // A single-producer / single-consumer ring of interleaved stereo frames
+    // at this mixer's rate. Producer: the GUI thread (captured mic audio).
+    // Consumer: readData on the audio thread, which mixes it in. Enable and
+    // disable run on the GUI thread under m_mutex, so they can't race the
+    // consumer, and the producer IS the GUI thread, so they can't race it.
+    void enableLiveInput(double gainDb)
+    {
+        std::lock_guard<std::mutex> lock(m_mutex);
+        m_liveCap = size_t(std::max(1, m_outputSampleRate / 2));   // 500 ms
+        m_live.assign(m_liveCap * 2, 0.f);
+        m_liveW.store(0, std::memory_order_relaxed);
+        m_liveR.store(0, std::memory_order_relaxed);
+        m_livePrimed = false;
+        m_liveGain.store(float(dbToLinear(gainDb)), std::memory_order_relaxed);
+        m_liveOn.store(true, std::memory_order_release);
+    }
+    void disableLiveInput()
+    {
+        std::lock_guard<std::mutex> lock(m_mutex);
+        m_liveOn.store(false, std::memory_order_release);
+    }
+    void setLiveInputGain(double gainDb)
+    {
+        m_liveGain.store(float(dbToLinear(gainDb)), std::memory_order_relaxed);
+    }
+    bool liveInputEnabled() const { return m_liveOn.load(std::memory_order_acquire); }
+    int  sampleRate() const { return m_outputSampleRate; }
+    void pushLiveInput(const float *stereo, size_t frames)
+    {
+        if (!m_liveOn.load(std::memory_order_acquire) || m_liveCap == 0) return;
+        const size_t w = m_liveW.load(std::memory_order_relaxed);
+        const size_t r = m_liveR.load(std::memory_order_acquire);
+        const size_t room = m_liveCap - std::min(m_liveCap, w - r);
+        frames = std::min(frames, room);   // full (output stalled): drop, don't block
+        for (size_t i = 0; i < frames; ++i) {
+            const size_t idx = (w + i) % m_liveCap;
+            m_live[idx * 2]     = stereo[i * 2];
+            m_live[idx * 2 + 1] = stereo[i * 2 + 1];
+        }
+        m_liveW.store(w + frames, std::memory_order_release);
     }
 
     // GUI thread: drop a finished voice's effects chain so the AudioEffect
@@ -623,6 +667,16 @@ private:
     // thread (guarded by m_mutex; see reapFinished).
     std::vector<std::shared_ptr<const AudioFile>>           m_graveFiles;
     std::vector<std::shared_ptr<const AudioBufferSnapshot>> m_graveBufs;
+
+    // Live input ring (see enableLiveInput). Indices count frames forever
+    // (size_t wraps after ~10^13 years at 48 kHz); position = index % cap.
+    std::vector<float>  m_live;
+    size_t              m_liveCap = 0;
+    std::atomic<size_t> m_liveW{0};
+    std::atomic<size_t> m_liveR{0};
+    std::atomic<bool>   m_liveOn{false};
+    std::atomic<float>  m_liveGain{1.f};
+    bool                m_livePrimed = false;   // audio thread only
 };
 
 qint64 AudioEngine::Mixer::readData(char *data, qint64 maxlen)
@@ -996,6 +1050,33 @@ qint64 AudioEngine::Mixer::readData(char *data, qint64 maxlen)
             if (v.finished) finished.push_back({ v.id, !v.stopRequested });
         }
 
+        // Live input (a captured microphone) on channels 0/1. Two clocks
+        // are involved — the mic's and this device's — so keep a small
+        // cushion: wait for ~20 ms before playing, jump forward if more than
+        // ~80 ms piles up (the mic running fast), and re-prime after running
+        // dry (the mic running slow) instead of chopping every buffer.
+        if (m_liveOn.load(std::memory_order_acquire) && m_liveCap > 0) {
+            const size_t w = m_liveW.load(std::memory_order_acquire);
+            size_t r = m_liveR.load(std::memory_order_relaxed);
+            size_t avail = w - r;
+            const size_t cushion = size_t(m_outputSampleRate) / 50;    // 20 ms
+            const size_t maxLag  = size_t(m_outputSampleRate) * 2 / 25; // 80 ms
+            if (avail > maxLag) { r = w - cushion; avail = cushion; }
+            if (!m_livePrimed && avail >= cushion) m_livePrimed = true;
+            if (m_livePrimed) {
+                const size_t n = std::min<size_t>(avail, size_t(framesWanted));
+                const float g = m_liveGain.load(std::memory_order_relaxed);
+                for (size_t f = 0; f < n; ++f) {
+                    const size_t idx = (r + f) % m_liveCap;
+                    out[f * outChans] += m_live[idx * 2] * g;
+                    if (outChans > 1) out[f * outChans + 1] += m_live[idx * 2 + 1] * g;
+                }
+                r += n;
+                if (n < size_t(framesWanted)) m_livePrimed = false;
+            }
+            m_liveR.store(r, std::memory_order_release);
+        }
+
         if (!finished.empty()) {
             // Bury the file/PCM references (no allocation: addVoice reserved
             // the room) so they're released on the GUI thread, not here.
@@ -1168,7 +1249,18 @@ void AudioEngine::eraseContextsIf(const std::function<bool(const DeviceContext &
         std::remove_if(m_contexts.begin(), m_contexts.end(),
             [&](const std::unique_ptr<DeviceContext> &c) { return c && pred(*c); }),
         m_contexts.end());
-    for (const auto id : lost) emit voiceFinished(id);
+    for (const auto id : lost) {
+        if (m_mirrorIds.remove(id)) {          // a mirror's device went away:
+            for (auto it = m_mirrors.begin(); it != m_mirrors.end(); )   // main plays on
+                it = (it->mirror == id) ? m_mirrors.erase(it) : std::next(it);
+            continue;
+        }
+        if (const VoiceId m = mirrorOf(id))    // main's device went: stop its mirror
+            for (auto &ctx : m_contexts)
+                if (ctx->mixer && ctx->mixer->hasVoice(m)) { ctx->mixer->stopVoice(m, 0.05); break; }
+        m_mirrors.remove(id);
+        emit voiceFinished(id);
+    }
 }
 
 QAudioDevice AudioEngine::resolveDevice(const QByteArray &deviceId) const
@@ -1269,8 +1361,15 @@ AudioEngine::DeviceContext *AudioEngine::ensureContextForDevice(const QAudioDevi
     // starving the audio callback.
     {
         const int bytesPerFrame = fmt.channelCount() * int(sizeof(float));
-        const int targetFrames   = fmt.sampleRate() * 3 / 10;   // 300 ms
-        ctx->sink->setBufferSize(std::max(131072, targetFrames * bytesPerFrame));
+        if (m_lowLatencyDevices.contains(key)) {
+            // A live voice (the mic mix) goes through this device: 300 ms
+            // would make you hear yourself a third of a second late. 40 ms
+            // is comfortably above WASAPI's shared-mode period.
+            ctx->sink->setBufferSize(fmt.sampleRate() * 4 / 100 * bytesPerFrame);
+        } else {
+            const int targetFrames   = fmt.sampleRate() * 3 / 10;   // 300 ms
+            ctx->sink->setBufferSize(std::max(131072, targetFrames * bytesPerFrame));
+        }
     }
 
     auto *ctxPtr = ctx.get();
@@ -1342,6 +1441,7 @@ bool AudioEngine::ensureRunning()
 
 void AudioEngine::shutdown()
 {
+    clearLiveInput();
     for (auto &ctx : m_contexts) {
         if (ctx->sink) ctx->sink->stop();
         ctx->sink.reset();
@@ -1392,15 +1492,211 @@ VoiceId AudioEngine::fire(const std::shared_ptr<const AudioFile> &file,
     }
 
     const VoiceId id = ++s_globalNextVoiceId;
-    return ctx->mixer->addVoice(id, file, params, dev.id());
+    if (!ctx->mixer->addVoice(id, file, params, dev.id())) return 0;
+
+    // Mirror onto a second device (the soundboard's "send to mic"). Exact
+    // device only — resolveDevice would fall back to the default, which
+    // would just play the sound twice on the speakers.
+    if (!params.mirrorDeviceId.isEmpty()) {
+        const QAudioDevice mdev = findOutputDevice(params.mirrorDeviceId);
+        if (!mdev.isNull() && mdev.id() != dev.id()) {
+            if (auto *mctx = ensureContextForDevice(mdev)) {
+                VoiceParams mp = params;
+                mp.outputDeviceId = mdev.id();
+                mp.mirrorDeviceId.clear();
+                mp.gainDb += params.mirrorGainDb;
+                mp.channelGains.clear();   // speaker routing is the main device's
+                mp.outputGains.clear();
+                // Effects hold per-voice state (delay lines, envelopes), so the
+                // mirror gets its own copies with the same settings.
+                mp.effects.clear();
+                for (const auto &fx : params.effects)
+                    if (fx)
+                        if (auto copy = AudioEffect::fromJson(fx->toJson()))
+                            mp.effects.push_back(std::shared_ptr<AudioEffect>(std::move(copy)));
+                const VoiceId mid = ++s_globalNextVoiceId;
+                if (mctx->mixer->addVoice(mid, file, mp, mdev.id())) {
+                    m_mirrors.insert(id, MirrorLink{ mid, params.mirrorGainDb });
+                    m_mirrorIds.insert(mid);
+                }
+            }
+        }
+    }
+    return id;
 }
+
+bool AudioEngine::setLiveInput(const QByteArray &inputDeviceId,
+                               const QByteArray &outputDeviceId, double gainDb)
+{
+    clearLiveInput();
+    m_lastError.clear();
+
+    QAudioDevice in;
+    for (const auto &dev : QMediaDevices::audioInputs())
+        if (dev.id() == inputDeviceId) { in = dev; break; }
+    const QAudioDevice out = findOutputDevice(outputDeviceId);
+    if (in.isNull() || out.isNull()) {
+        m_lastError = in.isNull() ? tr("Microphone not found") : tr("Mic output device not found");
+        emit engineError(m_lastError);
+        return false;
+    }
+
+    // The output runs with a short buffer from now on. If it's already open
+    // with the long one, reopen it (only the mic device; nothing else).
+    m_lowLatencyDevices.insert(out.id());
+    if (contextForDeviceId(out.id()))
+        eraseContextsIf([&](const DeviceContext &c) { return c.device.id() == out.id(); });
+    auto *ctx = ensureContextForDevice(out);
+    if (!ctx) return false;
+
+    // Capture format: float if the mic will do it, else its own format
+    // (converted in onLiveInputReady). Ask for the output's rate so usually
+    // no resampling is needed.
+    QAudioFormat fmt = in.preferredFormat();
+    QAudioFormat want = fmt;
+    want.setSampleFormat(QAudioFormat::Float);
+    want.setSampleRate(ctx->sampleRate);
+    if (in.isFormatSupported(want)) fmt = want;
+    else {
+        want.setSampleRate(fmt.sampleRate());
+        if (in.isFormatSupported(want)) fmt = want;
+    }
+    if (fmt.channelCount() < 1 || fmt.sampleRate() <= 0) {
+        m_lastError = tr("Microphone reports no usable format");
+        emit engineError(m_lastError);
+        return false;
+    }
+
+    m_liveSource = std::make_unique<QAudioSource>(in, fmt, this);
+    // Small capture buffer: every millisecond here is heard as delay.
+    m_liveSource->setBufferSize(fmt.bytesForDuration(20'000));
+    m_liveOutputId    = out.id();
+    m_liveInChannels  = fmt.channelCount();
+    m_liveInRate      = fmt.sampleRate();
+    m_liveInFormat    = fmt.sampleFormat();
+    m_liveGainDb      = gainDb;
+    m_liveResamplePos = 0.0;
+    m_liveLastL = m_liveLastR = 0.f;
+    ctx->mixer->enableLiveInput(gainDb);
+
+    m_liveIo = m_liveSource->start();
+    if (!m_liveIo || m_liveSource->error() != QAudio::NoError) {
+        m_lastError = tr("Couldn't open the microphone '%1' (error %2)")
+                          .arg(in.description()).arg(int(m_liveSource->error()));
+        clearLiveInput();
+        emit engineError(m_lastError);
+        return false;
+    }
+    connect(m_liveIo, &QIODevice::readyRead, this, &AudioEngine::onLiveInputReady);
+    return true;
+}
+
+void AudioEngine::setLiveInputGain(double gainDb)
+{
+    m_liveGainDb = gainDb;
+    if (auto *ctx = contextForDeviceId(m_liveOutputId); ctx && ctx->mixer)
+        ctx->mixer->setLiveInputGain(gainDb);
+}
+
+void AudioEngine::clearLiveInput()
+{
+    if (m_liveSource) {
+        if (m_liveIo) disconnect(m_liveIo, nullptr, this, nullptr);
+        m_liveSource->stop();
+        m_liveSource.reset();
+    }
+    m_liveIo = nullptr;
+    if (auto *ctx = contextForDeviceId(m_liveOutputId); ctx && ctx->mixer)
+        ctx->mixer->disableLiveInput();
+    m_liveOutputId.clear();
+}
+
+void AudioEngine::onLiveInputReady()
+{
+    if (!m_liveIo) return;
+    const QByteArray bytes = m_liveIo->readAll();
+    auto *ctx = contextForDeviceId(m_liveOutputId);
+    if (!ctx || !ctx->mixer) {
+        // The output was rebuilt (device glitch): bring it back, same buffer.
+        if (const QAudioDevice out = findOutputDevice(m_liveOutputId); !out.isNull())
+            ctx = ensureContextForDevice(out);
+        if (!ctx || !ctx->mixer) return;
+    }
+    if (!ctx->mixer->liveInputEnabled()) ctx->mixer->enableLiveInput(m_liveGainDb);
+
+    // → interleaved stereo float at the capture rate.
+    const int ch = std::max(1, m_liveInChannels);
+    size_t bytesPerSample = 4;
+    if (m_liveInFormat == QAudioFormat::Int16) bytesPerSample = 2;
+    else if (m_liveInFormat == QAudioFormat::UInt8) bytesPerSample = 1;
+    const size_t frames = size_t(bytes.size()) / (bytesPerSample * size_t(ch));
+    if (frames == 0) return;
+    m_liveStereo.resize(frames * 2);
+    auto sampleAt = [&](size_t i) -> float {
+        const char *p = bytes.constData() + i * bytesPerSample;
+        switch (m_liveInFormat) {
+        case QAudioFormat::Float: { float f; std::memcpy(&f, p, 4); return f; }
+        case QAudioFormat::Int32: { qint32 s; std::memcpy(&s, p, 4); return float(s) / 2147483648.f; }
+        case QAudioFormat::Int16: { qint16 s; std::memcpy(&s, p, 2); return float(s) / 32768.f; }
+        case QAudioFormat::UInt8: return (float(quint8(*p)) - 128.f) / 128.f;
+        default: return 0.f;
+        }
+    };
+    for (size_t f = 0; f < frames; ++f) {
+        const float l = sampleAt(f * size_t(ch));
+        const float r = ch > 1 ? sampleAt(f * size_t(ch) + 1) : l;   // mono mic → both sides
+        m_liveStereo[f * 2] = l;
+        m_liveStereo[f * 2 + 1] = r;
+    }
+
+    // → the output's rate (linear interpolation; a mic is forgiving).
+    const int outRate = ctx->mixer->sampleRate();
+    if (m_liveInRate == outRate || m_liveInRate <= 0) {
+        ctx->mixer->pushLiveInput(m_liveStereo.data(), frames);
+        return;
+    }
+    const double step = double(m_liveInRate) / double(outRate);
+    m_liveResampled.clear();
+    // Position is relative to this block; -1 means "the last frame of the
+    // previous block" (m_liveLast*), so blocks join without a seam.
+    double pos = m_liveResamplePos;
+    while (pos < double(frames) - 1.0) {
+        const long i0 = long(std::floor(pos));
+        const float t = float(pos - double(i0));
+        const float l0 = i0 < 0 ? m_liveLastL : m_liveStereo[size_t(i0) * 2];
+        const float r0 = i0 < 0 ? m_liveLastR : m_liveStereo[size_t(i0) * 2 + 1];
+        const float l1 = m_liveStereo[size_t(i0 + 1) * 2];
+        const float r1 = m_liveStereo[size_t(i0 + 1) * 2 + 1];
+        m_liveResampled.push_back(l0 + (l1 - l0) * t);
+        m_liveResampled.push_back(r0 + (r1 - r0) * t);
+        pos += step;
+    }
+    m_liveResamplePos = pos - double(frames);
+    m_liveLastL = m_liveStereo[(frames - 1) * 2];
+    m_liveLastR = m_liveStereo[(frames - 1) * 2 + 1];
+    ctx->mixer->pushLiveInput(m_liveResampled.data(), m_liveResampled.size() / 2);
+}
+
+QAudioDevice AudioEngine::findOutputDevice(const QByteArray &deviceId)
+{
+    if (deviceId.isEmpty()) return {};
+    for (const auto &dev : QMediaDevices::audioOutputs())
+        if (dev.id() == deviceId) return dev;
+    return {};
+}
+
+// Every per-voice control below acts on the voice AND its mirror (if any),
+// so a mirrored pad stops, fades, pauses and seeks as one sound.
 
 void AudioEngine::stop(VoiceId id, double fadeOutSeconds)
 {
-    for (auto &ctx : m_contexts) {
-        if (ctx->mixer && ctx->mixer->hasVoice(id)) {
-            ctx->mixer->stopVoice(id, fadeOutSeconds);
-            return;
+    for (const VoiceId v : { id, mirrorOf(id) }) {
+        if (!v) continue;
+        for (auto &ctx : m_contexts) {
+            if (ctx->mixer && ctx->mixer->hasVoice(v)) {
+                ctx->mixer->stopVoice(v, fadeOutSeconds);
+                break;
+            }
         }
     }
 }
@@ -1414,32 +1710,45 @@ void AudioEngine::stopAll(double fadeOutSeconds)
 
 void AudioEngine::fadeGain(VoiceId id, double targetDb, double durationSeconds)
 {
-    for (auto &ctx : m_contexts) {
-        if (ctx->mixer && ctx->mixer->hasVoice(id)) {
-            ctx->mixer->fadeGain(id, targetDb, durationSeconds);
-            return;
+    const MirrorLink m = m_mirrors.value(id);
+    for (const auto &[v, db] : { std::pair{ id, targetDb },
+                                 std::pair{ m.mirror, targetDb + m.offsetDb } }) {
+        if (!v) continue;
+        for (auto &ctx : m_contexts) {
+            if (ctx->mixer && ctx->mixer->hasVoice(v)) {
+                ctx->mixer->fadeGain(v, db, durationSeconds);
+                break;
+            }
         }
     }
 }
 
 void AudioEngine::setVoiceGain(VoiceId id, double gainDb)
 {
-    for (auto &ctx : m_contexts) {
-        if (ctx->mixer && ctx->mixer->setVoiceGain(id, gainDb)) return;
+    const MirrorLink m = m_mirrors.value(id);
+    for (const auto &[v, db] : { std::pair{ id, gainDb },
+                                 std::pair{ m.mirror, gainDb + m.offsetDb } }) {
+        if (!v) continue;
+        for (auto &ctx : m_contexts)
+            if (ctx->mixer && ctx->mixer->setVoiceGain(v, db)) break;
     }
 }
 
 void AudioEngine::setVoicePan(VoiceId id, double pan)
 {
-    for (auto &ctx : m_contexts) {
-        if (ctx->mixer && ctx->mixer->setVoicePan(id, pan)) return;
+    for (const VoiceId v : { id, mirrorOf(id) }) {
+        if (!v) continue;
+        for (auto &ctx : m_contexts)
+            if (ctx->mixer && ctx->mixer->setVoicePan(v, pan)) break;
     }
 }
 
 void AudioEngine::setVoiceLoop(VoiceId id, bool loop)
 {
-    for (auto &ctx : m_contexts) {
-        if (ctx->mixer && ctx->mixer->setVoiceLoop(id, loop)) return;
+    for (const VoiceId v : { id, mirrorOf(id) }) {
+        if (!v) continue;
+        for (auto &ctx : m_contexts)
+            if (ctx->mixer && ctx->mixer->setVoiceLoop(v, loop)) break;
     }
 }
 
@@ -1453,11 +1762,16 @@ void AudioEngine::setVoiceChannelGains(VoiceId id, const QList<float> &gains)
 bool AudioEngine::setVoiceEffectParam(VoiceId id, const QString &typeKey,
                                       const QString &paramId, float value)
 {
-    for (auto &ctx : m_contexts) {
-        if (ctx->mixer && ctx->mixer->setVoiceEffectParam(id, typeKey, paramId, value))
-            return true;
+    bool found = false;
+    for (const VoiceId v : { id, mirrorOf(id) }) {
+        if (!v) continue;
+        for (auto &ctx : m_contexts)
+            if (ctx->mixer && ctx->mixer->setVoiceEffectParam(v, typeKey, paramId, value)) {
+                if (v == id) found = true;
+                break;
+            }
     }
-    return false;
+    return found;
 }
 
 QList<ActiveVoice> AudioEngine::activeVoices() const
@@ -1466,6 +1780,9 @@ QList<ActiveVoice> AudioEngine::activeVoices() const
     for (const auto &ctx : m_contexts) {
         if (ctx->mixer) ctx->mixer->appendActiveVoices(out);
     }
+    // Mirrors are an implementation detail of their main voice.
+    if (!m_mirrorIds.isEmpty())
+        out.removeIf([this](const ActiveVoice &v) { return m_mirrorIds.contains(v.id); });
     return out;
 }
 
@@ -1473,6 +1790,10 @@ int AudioEngine::activeVoiceCount() const
 {
     int n = 0;
     for (const auto &ctx : m_contexts) if (ctx->mixer) n += ctx->mixer->activeCount();
+    for (const auto &ctx : m_contexts)
+        if (ctx->mixer)
+            for (const VoiceId v : ctx->mixer->voiceIds())
+                if (m_mirrorIds.contains(v)) --n;
     return n;
 }
 
@@ -1485,6 +1806,9 @@ int AudioEngine::outputChannelCount(const QByteArray &outputDeviceId)
 
 bool AudioEngine::pause(VoiceId id)
 {
+    if (const VoiceId m = mirrorOf(id))
+        for (auto &ctx : m_contexts)
+            if (ctx->mixer && ctx->mixer->pauseVoice(m)) break;
     for (auto &ctx : m_contexts) {
         if (ctx->mixer && ctx->mixer->pauseVoice(id)) return true;
     }
@@ -1493,6 +1817,9 @@ bool AudioEngine::pause(VoiceId id)
 
 bool AudioEngine::resume(VoiceId id)
 {
+    if (const VoiceId m = mirrorOf(id))
+        for (auto &ctx : m_contexts)
+            if (ctx->mixer && ctx->mixer->resumeVoice(m)) break;
     for (auto &ctx : m_contexts) {
         if (ctx->mixer && ctx->mixer->resumeVoice(id)) return true;
     }
@@ -1509,6 +1836,9 @@ bool AudioEngine::isPaused(VoiceId id) const
 
 bool AudioEngine::seek(VoiceId id, double seconds)
 {
+    if (const VoiceId m = mirrorOf(id))
+        for (auto &ctx : m_contexts)
+            if (ctx->mixer && ctx->mixer->seekVoice(m, seconds)) break;
     for (auto &ctx : m_contexts) {
         if (ctx->mixer && ctx->mixer->seekVoice(id, seconds)) return true;
     }
@@ -1528,6 +1858,13 @@ OfflineRenderer::OfflineRenderer(int sampleRate, int channels)
 }
 
 OfflineRenderer::~OfflineRenderer() = default;
+
+void OfflineRenderer::enableLiveInput(double gainDb) { m_mixer->enableLiveInput(gainDb); }
+
+void OfflineRenderer::pushLiveInput(const std::vector<float> &stereo)
+{
+    m_mixer->pushLiveInput(stereo.data(), stereo.size() / 2);
+}
 
 VoiceId OfflineRenderer::fire(const std::shared_ptr<const AudioFile> &file,
                               const VoiceParams &params)
@@ -1562,6 +1899,18 @@ void AudioEngine::onMixerVoiceFinished(VoiceId id, bool natural)
         ctx->mixer->reapEffects(id);
         ctx->mixer->reapFinished();
     }
+    // A mirror ending is its main voice's business — never reported.
+    if (m_mirrorIds.remove(id)) {
+        for (auto it = m_mirrors.begin(); it != m_mirrors.end(); )
+            it = (it->mirror == id) ? m_mirrors.erase(it) : std::next(it);
+        return;
+    }
+    // The main voice ended. On a natural end its mirror ends by itself a
+    // moment later; otherwise (evicted, device lost) take the mirror too.
+    if (const VoiceId m = mirrorOf(id); m && !natural)
+        for (auto &ctx : m_contexts)
+            if (ctx->mixer && ctx->mixer->hasVoice(m)) { ctx->mixer->stopVoice(m, 0.05); break; }
+    m_mirrors.remove(id);
     emit voiceFinished(id);
     // Auto-follow hook: only a true EOF advances the cue list.
     if (natural) emit voiceFinishedNatural(id);

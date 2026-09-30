@@ -119,6 +119,7 @@ private:
     QWidget           *m_gridHost = nullptr;
     QPushButton       *m_editBtn = nullptr;
     QComboBox         *m_outputCombo = nullptr;
+    QPushButton       *m_micBtn = nullptr;
     QTabBar           *m_layerTabs = nullptr;
     bool               m_syncingLayers = false;
     QList<CartPad *>   m_pads;
