@@ -27,6 +27,8 @@ quewi_add_test(mixer        Qt6::Test Qt6::Multimedia quewi_audio)
 quewi_add_test(video_sound  Qt6::Test Qt6::Multimedia quewi_video quewi_audio)
 # The effects rack: every effect type, the presets, and effect-edit saving.
 quewi_add_test(effects      Qt6::Test Qt6::Multimedia quewi_audio)
+# Lighting triggers: model, saving, and when a playing song sends each one.
+quewi_add_test(light_triggers Qt6::Test Qt6::Multimedia quewi_audio)
 # Manual RAM benchmark for long files; skips unless QUEWI_MEM_PROBE_FILE is set.
 quewi_add_test(long_file_memory Qt6::Test Qt6::Multimedia quewi_audio)
 if(WIN32)

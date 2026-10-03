@@ -51,4 +51,9 @@ private:
     QString m_rawArgs;
 };
 
+// An OSC cue's argument text as typed arguments: comma-separated, each
+// auto-typed (true/false/nil/inf, int, float, "quoted" or bare string).
+// Lighting triggers use the same syntax.
+std::vector<Argument> parseArgs(const QString &raw);
+
 } // namespace quewi::osc

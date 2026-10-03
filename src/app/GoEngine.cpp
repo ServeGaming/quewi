@@ -25,6 +25,7 @@
 #include "video/VideoEngine.h"
 
 #include <QRandomGenerator>
+#include <QSettings>
 #include <QTimer>
 
 #include <algorithm>
@@ -56,6 +57,7 @@ GoEngine::GoEngine(QObject *parent) : QObject(parent)
     // Instant/duration cues (memo, wait, fade, light-fade, …) advertise their
     // completion via cueFinished; route that into the auto-follow check.
     connect(this, &GoEngine::cueFinished, this, &GoEngine::onCueFinishedFollow);
+    m_triggersArmed = QSettings().value(QStringLiteral("triggers/armed"), true).toBool();
 }
 GoEngine::~GoEngine() { cancelAll(0.0); }
 
@@ -349,6 +351,8 @@ quint64 GoEngine::fireSound(audio::AudioCue *audioCue, const AudioRoute &route,
 
         vid = m_audio->fire(file, p);
         audioCue->setCurrentVoiceId(vid);
+        if (vid != 0 && !audioCue->lightTriggers().empty())
+            startTriggers(audioCue, owner, vid, 0);
         if (vid != 0
             && audioCue->objectAudioEnabled()
             && !audioCue->trajectory().isEmpty()
@@ -452,6 +456,9 @@ void GoEngine::doFire(cues::Cue *cue, const AudioRoute &route)
         // video player itself is muted).
         if (auto *vc = qobject_cast<video::VideoCue *>(cue); vc && vc->soundEnabled())
             fireSound(vc->sound(), route, cue);
+        else if (vc && m_video && vc->currentVoiceId() != 0 && !vc->sound()->lightTriggers().empty())
+            // Silent video: its triggers follow the picture's clock instead.
+            startTriggers(vc->sound(), cue, 0, vc->currentVoiceId());
     } else if (auto *fadeCue = qobject_cast<cues::FadeCue *>(cue)) {
         auto *targetCue   = findCue(fadeCue->targetId(), cue);
         // A gain fade on a video cue fades its soundtrack.
@@ -787,6 +794,9 @@ void GoEngine::cancelAll(double fadeOutSeconds)
     if (m_video)    m_video->stopAll();
     m_trajectories.clear();
     if (m_trajectoryTimer) m_trajectoryTimer->stop();
+    // Panic sends nothing more to the lighting desk, not even range exits.
+    m_triggerRuns.clear();
+    if (m_triggerTimer) m_triggerTimer->stop();
 }
 
 void GoEngine::fadeAll(double seconds)
@@ -910,6 +920,169 @@ QSet<quint64> GoEngine::activeAudioVoiceIds() const
     ids.reserve(voices.size());
     for (const auto &v : voices) ids.insert(v.id);
     return ids;
+}
+
+// ── Lighting triggers ─────────────────────────────────────────────────────
+
+void GoEngine::setTriggersArmed(bool armed)
+{
+    if (m_triggersArmed == armed) return;
+    m_triggersArmed = armed;
+    QSettings().setValue(QStringLiteral("triggers/armed"), armed);
+    emit statusMessage(armed ? tr("Lighting triggers armed") : tr("Lighting triggers disarmed"));
+    emit triggersArmedChanged(armed);
+}
+
+void GoEngine::startTriggers(audio::AudioCue *sound, cues::Cue *owner,
+                             quint64 audioVoice, quint64 videoVoice)
+{
+    TriggerRun run;
+    run.sound = sound;
+    run.owner = owner;
+    run.audioVoice = audioVoice;
+    run.videoVoice = videoVoice;
+    // The voice starts at the trim-in (audio) or the top (video): anything
+    // sitting right there goes out with the GO.
+    const double startPos = audioVoice != 0 ? sound->trimInSeconds() : 0.0;
+    const auto events = run.tracker.begin(sound->lightTriggers(), startPos);
+    run.wall.start();
+    m_triggerRuns.push_back(std::move(run));
+    sendTriggerEvents(m_triggerRuns.back(), events);
+
+    if (!m_triggerTimer) {
+        m_triggerTimer = new QTimer(this);
+        m_triggerTimer->setTimerType(Qt::PreciseTimer);
+        m_triggerTimer->setInterval(10);
+        connect(m_triggerTimer, &QTimer::timeout, this, &GoEngine::onTriggerTick);
+    }
+    if (!m_triggerTimer->isActive()) m_triggerTimer->start();
+}
+
+void GoEngine::onTriggerTick()
+{
+    QHash<quint64, audio::ActiveVoice> voices;
+    if (m_audio) {
+        for (const auto &av : m_audio->activeVoices()) voices.insert(av.id, av);
+    }
+
+    // Index loop: sending can fire cues, which can start new runs (and
+    // reallocate the vector), so nothing holds a reference across a send.
+    for (size_t i = 0; i < m_triggerRuns.size(); ) {
+        auto &run = m_triggerRuns[i];
+        if (!run.sound) {
+            m_triggerRuns.erase(m_triggerRuns.begin() + std::ptrdiff_t(i));
+            continue;
+        }
+        bool alive = false, paused = false;
+        double pos = 0.0, loopStart = 0.0, loopEnd = -1.0;
+        if (run.audioVoice != 0) {
+            const auto it = voices.constFind(run.audioVoice);
+            if (it != voices.constEnd()) {
+                alive  = true;
+                pos    = it->positionSeconds;
+                paused = m_audio->isPaused(run.audioVoice);
+                if (it->loop) {
+                    loopStart = run.sound->trimInSeconds();
+                    loopEnd   = it->durationSeconds;
+                }
+            }
+        } else if (m_video) {
+            const auto t = m_video->transport(run.videoVoice);
+            if (t.valid) {
+                alive  = true;
+                pos    = t.posMs / 1000.0;
+                paused = t.paused;
+                if (t.looping && t.durMs > 0) loopEnd = t.durMs / 1000.0;
+            }
+        }
+
+        if (!alive) {
+            auto finished = std::move(m_triggerRuns[i]);
+            m_triggerRuns.erase(m_triggerRuns.begin() + std::ptrdiff_t(i));
+            sendTriggerEvents(finished, finished.tracker.stop(finished.sound->lightTriggers()));
+            continue;
+        }
+        const double wall = run.wall.restart() / 1000.0;
+        if (!paused) {
+            const auto events = run.tracker.advance(run.sound->lightTriggers(),
+                                                    pos, loopStart, loopEnd, wall);
+            sendTriggerEvents(run, events);
+        }
+        ++i;
+    }
+
+    if (m_triggerRuns.empty() && m_triggerTimer) m_triggerTimer->stop();
+}
+
+void GoEngine::sendTriggerEvents(TriggerRun &run, const std::vector<audio::TriggerEvent> &events)
+{
+    if (events.empty() || !run.sound) return;
+    // Copy what we need first: sending can fire cues that start new runs
+    // and reallocate m_triggerRuns (which may hold `run`).
+    const audio::LightTriggers triggers = run.sound->lightTriggers();
+    const QPointer<cues::Cue> owner = run.owner;
+    for (const auto &e : events) {
+        if (e.index < 0 || e.index >= int(triggers.size())) continue;
+        const auto &t = triggers[size_t(e.index)];
+        const auto &action = e.exit ? t.exit : t.enter;
+        if (!m_triggersArmed || action.isNone()) continue;
+        sendTriggerAction(action, owner.data());
+        emit triggerFired(owner.data(), t.id, t.name, e.exit);
+    }
+}
+
+bool GoEngine::sendTriggerAction(const audio::TriggerAction &a, const cues::Cue *context)
+{
+    using Kind = audio::TriggerAction::Kind;
+    auto status = [&](const QString &m) { emit statusMessage(m); };
+    switch (a.kind) {
+    case Kind::None:
+        return false;
+    case Kind::Osc: {
+        if (!m_osc || a.address.isEmpty()) return false;
+        osc::Message m;
+        m.address = a.address;
+        m.args = osc::parseArgs(a.args);
+        const osc::Destination dest{QStringLiteral("light-trigger"), tr("Lighting trigger"),
+                                    a.host, quint16(a.port),
+                                    static_cast<osc::Destination::Transport>(a.transport)};
+        const bool ok = m_osc->send(dest, m);
+        status(ok ? tr("Trigger → %1").arg(a.summary())
+                  : tr("Trigger: OSC send to %1:%2 failed").arg(a.host).arg(a.port));
+        return ok;
+    }
+    case Kind::Midi: {
+        if (!m_midi) return false;
+        const QByteArray bytes = a.midiBytes();
+        if (bytes.isEmpty()) { status(tr("Trigger: bad MIDI bytes")); return false; }
+        const bool ok = m_midi->sendRaw(a.midiPort, bytes);
+        status(ok ? tr("Trigger → %1").arg(a.summary())
+                  : tr("Trigger: MIDI %1").arg(m_midi->lastError()));
+        return ok;
+    }
+    case Kind::Msc: {
+        if (!m_midi) return false;
+        const bool ok = m_midi->sendMsc(a.midiPort, quint8(a.deviceId), quint8(a.commandFormat),
+                                        quint8(a.command), a.mscPayload());
+        status(ok ? tr("Trigger → %1").arg(a.summary())
+                  : tr("Trigger: MSC %1").arg(m_midi->lastError()));
+        return ok;
+    }
+    case Kind::FireCue: {
+        auto *target = findCue(a.cueId, context);
+        if (!target) { status(tr("Trigger: cue to fire not found")); return false; }
+        // A trigger firing its own song would restart it, which fires the
+        // trigger again, and again.
+        const auto *ownSound = video::VideoCue::audioOf(const_cast<cues::Cue *>(context));
+        if (target == context || (ownSound && target == ownSound)) {
+            status(tr("Trigger: a song's trigger can't fire the song itself"));
+            return false;
+        }
+        fire(target);
+        return true;
+    }
+    }
+    return false;
 }
 
 } // namespace quewi

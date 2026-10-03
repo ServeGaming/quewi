@@ -30,6 +30,7 @@ QVariant AudioCue::field(const QString &key) const
     if (key == QLatin1String("objAzimuth"))     return m_objAzimuth;
     if (key == QLatin1String("objElevation"))   return m_objElevation;
     if (key == QLatin1String("objSpread"))      return m_objSpread;
+    if (key == QLatin1String("lightTriggers"))  return triggersToJson(m_lightTriggers);
     return cues::Cue::field(key);
 }
 
@@ -84,6 +85,14 @@ void AudioCue::setField(const QString &key, const QVariant &value)
     if (key == QLatin1String("objAzimuth"))   { setDouble(m_objAzimuth);   return; }
     if (key == QLatin1String("objElevation")) { setDouble(m_objElevation); return; }
     if (key == QLatin1String("objSpread"))    { setDouble(m_objSpread);    return; }
+    if (key == QLatin1String("lightTriggers")) {
+        bool ok = false;
+        auto next = triggersFromVariant(value, &ok);
+        if (!ok || next == m_lightTriggers) return;
+        m_lightTriggers = std::move(next);
+        emitChanged();
+        return;
+    }
     cues::Cue::setField(key, value);
 }
 
@@ -131,6 +140,8 @@ QJsonObject AudioCue::toPayload() const
     }
     if (!m_videoOrigin.isEmpty())
         o.insert(QStringLiteral("videoOrigin"), m_videoOrigin);
+    if (!m_lightTriggers.empty())
+        o.insert(QStringLiteral("lightTriggers"), triggersToJson(m_lightTriggers));
     return o;
 }
 
@@ -164,6 +175,7 @@ void AudioCue::fromPayload(const QJsonObject &payload)
     }
     m_editorModelJson = payload.value(QStringLiteral("editorModel")).toObject();
     m_videoOrigin     = payload.value(QStringLiteral("videoOrigin")).toObject();
+    m_lightTriggers   = triggersFromJson(payload.value(QStringLiteral("lightTriggers")).toArray());
     m_file.reset();
 }
 

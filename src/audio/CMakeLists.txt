@@ -9,6 +9,8 @@ add_library(quewi_audio STATIC
     AudioCue.cpp
     AudioTrajectory.h
     AudioTrajectory.cpp
+    LightTrigger.h
+    LightTrigger.cpp
     Vbap.h
     Vbap.cpp
     SpeakerPatch.h

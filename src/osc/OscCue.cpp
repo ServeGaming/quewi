@@ -110,11 +110,18 @@ Message OscCue::buildMessage() const
     m.address = m_address;
     if (m_rawArgs.isEmpty()) return m;
 
+    m.args = parseArgs(m_rawArgs);
+    return m;
+}
+
+std::vector<Argument> parseArgs(const QString &raw)
+{
     // Naive split on commas. Quoted strings with embedded commas would
     // need a smarter tokenizer; revisit when the typed-arg editor lands.
-    const auto tokens = m_rawArgs.split(QChar(','), Qt::SkipEmptyParts);
-    for (const auto &t : tokens) m.args.push_back(parseToken(t));
-    return m;
+    std::vector<Argument> out;
+    const auto tokens = raw.split(QChar(','), Qt::SkipEmptyParts);
+    for (const auto &t : tokens) out.push_back(parseToken(t));
+    return out;
 }
 
 OscCue::DestinationView OscCue::destination() const

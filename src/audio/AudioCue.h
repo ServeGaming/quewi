@@ -2,6 +2,7 @@
 
 #include "audio/AudioFile.h"
 #include "audio/AudioTrajectory.h"
+#include "audio/LightTrigger.h"
 #include "cues/Cue.h"
 
 #include <QUuid>
@@ -90,6 +91,11 @@ public:
     const QJsonObject &videoOrigin() const { return m_videoOrigin; }
     void setVideoOrigin(const QJsonObject &o) { m_videoOrigin = o; }
 
+    // Lighting triggers on this song (see LightTrigger.h). Edited as the
+    // undoable field "lightTriggers" (a QJsonArray, or a JSON string from a
+    // remote); kept sorted by start time.
+    const LightTriggers &lightTriggers() const { return m_lightTriggers; }
+
     const QJsonObject &editorModelJson() const { return m_editorModelJson; }
     void setEditorModelJson(const QJsonObject &j) { m_editorModelJson = j; emitChanged(); }
 
@@ -158,6 +164,7 @@ private:
     // until the operator opens the editor and makes an edit.
     QJsonObject m_editorModelJson;
     QJsonObject m_videoOrigin;
+    LightTriggers m_lightTriggers;
 
     std::shared_ptr<AudioFile> m_file;
     quint64                    m_currentVoiceId = 0;

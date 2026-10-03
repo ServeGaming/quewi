@@ -1,9 +1,11 @@
 #pragma once
 
+#include "audio/LightTrigger.h"
 #include "audio/Vbap.h"
 #include "core/Workspace.h"
 
 #include <QByteArray>
+#include <QElapsedTimer>
 #include <QHash>
 #include <QList>
 #include <QObject>
@@ -86,6 +88,17 @@ public:
     // currentVoiceId() is in this set). Cheap; safe to call at a few Hz.
     QSet<quint64> activeAudioVoiceIds() const;
 
+    // Lighting triggers (audio::LightTrigger). While armed, a playing song
+    // sends its triggers as the playhead passes them; disarmed, songs still
+    // play and keep their place, they just don't send. Per computer
+    // (QSettings "triggers/armed"), on by default.
+    void setTriggersArmed(bool armed);
+    bool triggersArmed() const { return m_triggersArmed; }
+    // Send one action now — the editor's Test buttons and the OSC "test"
+    // verb. `context` is the cue whose trigger it is (it finds "fire cue"
+    // targets in its own list first, and a trigger can't fire its own cue).
+    bool sendTriggerAction(const audio::TriggerAction &action, const cues::Cue *context);
+
 signals:
     void cueFired(quewi::cues::Cue *cue);
     // Emitted when a cue's primary effect has completed:
@@ -102,6 +115,11 @@ signals:
     void statusMessage(const QString &msg);
     void gotoRequested(quewi::core::CueId targetId);
     void pausedChanged(bool paused);
+    // A playing song sent one of its triggers. owner is the cue that was
+    // fired (the video cue for a video's soundtrack); exit = a range's end.
+    void triggerFired(quewi::cues::Cue *owner, const QUuid &triggerId,
+                      const QString &triggerName, bool exit);
+    void triggersArmedChanged(bool armed);
 
 private:
     void runFire(cues::Cue *cue, const AudioRoute &route);
@@ -178,6 +196,25 @@ private:
     QHash<quint64, TrajectoryEntry> m_trajectories;   // keyed by VoiceId
     QTimer                          *m_trajectoryTimer = nullptr;
     void onTrajectoryTick();
+
+    // Lighting-trigger runs: one per playing voice of a song that has
+    // triggers. Follows the soundtrack's audio voice, or — for a video
+    // playing silent — the video player's position.
+    struct TriggerRun {
+        QPointer<audio::AudioCue> sound;   // whose triggers
+        QPointer<cues::Cue>       owner;   // what was fired
+        quint64                   audioVoice = 0;
+        quint64                   videoVoice = 0;
+        audio::TriggerTracker     tracker;
+        QElapsedTimer             wall;
+    };
+    std::vector<TriggerRun> m_triggerRuns;
+    QTimer *m_triggerTimer = nullptr;
+    bool    m_triggersArmed = true;
+    void startTriggers(audio::AudioCue *sound, cues::Cue *owner,
+                       quint64 audioVoice, quint64 videoVoice);
+    void onTriggerTick();
+    void sendTriggerEvents(TriggerRun &run, const std::vector<audio::TriggerEvent> &events);
 };
 
 } // namespace quewi
