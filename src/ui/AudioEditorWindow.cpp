@@ -8,6 +8,8 @@
 #include <QAction>
 #include <QActionGroup>
 #include <QAudioDevice>
+#include <QAbstractSpinBox>
+#include <QApplication>
 #include <QAudioFormat>
 #include <QBuffer>
 #include <QCloseEvent>
@@ -26,7 +28,11 @@
 #include <QPainterPath>
 #include <QProgressDialog>
 #include <QPushButton>
+#include <QPlainTextEdit>
 #include <QScrollBar>
+#include <QShortcut>
+#include <QTextEdit>
+#include <QLineEdit>
 #include <QSplitter>
 #include <QStatusBar>
 #include <QTabWidget>
@@ -559,6 +565,43 @@ void AudioEditorWindow::buildBottomPanel() {
     connect(m_triggersPanel, &LightTriggersPanel::deskSettingsRequested,
             this, &AudioEditorWindow::lightingDeskSettingsRequested);
     m_triggersPanel->setCursorSeconds(double(m_timeline->editCursorFrame()) * secondsPerFrame());
+
+    // Beat grid: snap follows the panel's checkbox; Tap reads the preview's
+    // playhead; Detect analyses the dry mix (the one the preview plays).
+    m_timeline->setSnapToBeats(m_triggersPanel->snapToBeats());
+    connect(m_triggersPanel, &LightTriggersPanel::snapToBeatsChanged,
+            m_timeline, &TimelineCanvas::setSnapToBeats);
+    m_triggersPanel->setPlayheadProvider([this] {
+        const qint64 f = currentPlayFrame();
+        return f < 0 ? -1.0 : double(f) * secondsPerFrame();
+    });
+    m_triggersPanel->setDetectSource([this](std::vector<float> &stereo, int &rate) {
+        rate = m_model->sampleRate();
+        if (m_isPlaying && !m_renderedPcm.empty()) {   // already rendered, and current
+            stereo = m_renderedPcm;
+            return true;
+        }
+        QApplication::setOverrideCursor(Qt::WaitCursor);
+        const bool ok = m_renderer->render(stereo, /*applyEffects=*/false);
+        QApplication::restoreOverrideCursor();
+        statusBar()->clearMessage();
+        return ok;
+    });
+    // T taps the tempo anywhere in the editor except while typing. A widget
+    // that takes text claims the key first (ShortcutOverride), so this only
+    // fires when T isn't text.
+    auto *tapKey = new QShortcut(QKeySequence(Qt::Key_T), this);
+    tapKey->setContext(Qt::WindowShortcut);
+    auto doTap = [this] {
+        QWidget *fw = QApplication::focusWidget();
+        if (qobject_cast<QLineEdit *>(fw) || qobject_cast<QAbstractSpinBox *>(fw)
+            || qobject_cast<QTextEdit *>(fw) || qobject_cast<QPlainTextEdit *>(fw))
+            return;
+        m_triggersPanel->tap();
+    };
+    connect(tapKey, &QShortcut::activated, this, doTap);
+    connect(tapKey, &QShortcut::activatedAmbiguously, this, doTap);
+
     if (m_cue)
         connect(m_cue, &cues::Cue::changed, this, &AudioEditorWindow::syncTriggersToCanvas);
     syncTriggersToCanvas();
@@ -581,6 +624,7 @@ void AudioEditorWindow::buildBottomPanel() {
     // Removing the active track nulls m_activeTrack (and the rack's track);
     // fall back to the first track so Play and the rack have one again.
     connect(m_model.get(), &audio::AudioEditorModel::tracksChanged, this, [this] {
+        syncTriggersToCanvas();             // the song length may have changed
         if (m_activeTrack || m_model->trackCount() == 0) return;
         m_activeTrack = m_model->track(0);
         m_effectsRack->setTrack(m_activeTrack);
@@ -593,6 +637,11 @@ void AudioEditorWindow::setTriggerSupport(core::Workspace *ws, QUndoStack *undo,
     m_triggersPanel->setWorkspace(ws);
     m_triggersPanel->setUndoStack(undo);
     m_triggersPanel->setMidiPortsProvider(std::move(midiPorts));
+}
+
+void AudioEditorWindow::refreshLightingDesk()
+{
+    if (m_triggersPanel) m_triggersPanel->refreshDesk();
 }
 
 void AudioEditorWindow::showLightingTab()
@@ -611,11 +660,20 @@ double AudioEditorWindow::secondsPerFrame() const
     return 1.0 / double(std::max(1, m_model->sampleRate()));
 }
 
+qint64 AudioEditorWindow::currentPlayFrame() const
+{
+    if (!m_isPlaying || !m_sink) return -1;
+    return m_sinkStartFrame + m_sink->processedUSecs() * m_model->sampleRate() / 1000000;
+}
+
 void AudioEditorWindow::syncTriggersToCanvas()
 {
     if (!m_timeline) return;
     m_timeline->setTriggers(m_cue ? m_cue->lightTriggers() : audio::LightTriggers{},
                             double(m_model->sampleRate()));
+    m_timeline->setBeatGrid(m_cue ? m_cue->beatGrid() : audio::BeatGrid{});
+    if (m_triggersPanel)
+        m_triggersPanel->setSongLength(double(m_model->totalDurationSamples()) * secondsPerFrame());
 }
 
 // ── Preview triggers ("Send while previewing") ───────────────────────────────

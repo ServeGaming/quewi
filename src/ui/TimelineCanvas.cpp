@@ -168,6 +168,58 @@ void TimelineCanvas::flashTrigger(const QUuid &id) {
     });
 }
 
+void TimelineCanvas::setBeatGrid(const audio::BeatGrid &g) {
+    if (g == m_grid) return;
+    m_grid = g;
+    update();
+}
+
+double TimelineCanvas::snapSeconds(double s, bool noSnap) const {
+    if (!m_snap || noSnap || !m_grid.isSet()) return s;
+    return m_grid.snap(s);
+}
+
+void TimelineCanvas::drawBeatLines(QPainter &p, int top, int h, bool lane) {
+    if (!m_grid.isSet() || h <= 0) return;
+    const double pxPerBeat = m_grid.beatLength() * m_triggerRate / m_framesPerPixel;
+    const int bpb = std::max(1, m_grid.beatsPerBar);
+    const double pxPerBar = pxPerBeat * bpb;
+    const bool beats = lane && pxPerBeat >= 4.0;    // else bars only
+    if (pxPerBar < (lane ? 4.0 : 8.0)) return;      // too dense to mean anything
+    const long long step = beats ? 1 : bpb;
+
+    const double s0 = xToSeconds(kHeaderWidth), s1 = xToSeconds(width());
+    auto floorTo = [](long long v, long long n) { return (v >= 0 ? v / n : -((-v + n - 1) / n)) * n; };
+    const long long b0 = floorTo(static_cast<long long>(std::floor(m_grid.beatAt(s0))) - 1, step);
+    const long long b1 = static_cast<long long>(std::ceil(m_grid.beatAt(s1))) + 1;
+    if ((b1 - b0) / step > 20000) return;
+
+    // Neutral ink, kept faint: the amber accent belongs to the markers.
+    const auto &tk = Theme::tokens();
+    QColor barCol = tk.ink100, beatCol = tk.ink100;
+    barCol.setAlpha(lane ? 70 : 20);
+    beatCol.setAlpha(26);
+    QFont nf = font();
+    nf.setPointSizeF(6.5);
+    const bool numbers = lane && pxPerBar >= 28.0;
+    if (numbers) p.setFont(nf);
+
+    for (long long b = b0; b <= b1; b += step) {
+        const double t = m_grid.timeOfBeat(double(b));
+        if (t < 0.0) continue;
+        const int x = int(secondsToX(t));
+        if (x < kHeaderWidth || x >= width()) continue;
+        const bool bar = m_grid.isBarLine(b);
+        if (!lane && !bar) continue;
+        p.fillRect(x, top, 1, h, bar ? barCol : beatCol);
+        if (numbers && bar && b >= 0) {
+            p.setPen(tk.ink40);
+            p.drawText(QRect(x + 2, top, 40, h), Qt::AlignLeft | Qt::AlignTop,
+                       QString::number(b / bpb + 1));
+        }
+    }
+}
+
 double TimelineCanvas::secondsToX(double s) const {
     return kHeaderWidth + s * m_triggerRate / m_framesPerPixel - m_scrollX;
 }
@@ -261,6 +313,7 @@ void TimelineCanvas::drawTriggerLane(QPainter &p) {
 
     p.save();
     p.setClipRect(kHeaderWidth, top, width() - kHeaderWidth, h - 1);
+    drawBeatLines(p, top, h - 1, true);
     p.setRenderHint(QPainter::Antialiasing, true);
     QFont nf = font();
     nf.setPointSizeF(8.0);
@@ -380,6 +433,12 @@ void TimelineCanvas::paintEvent(QPaintEvent *) {
             drawRegion(p, region, ti, trackRect);
     }
 
+    if (m_grid.isSet()) {
+        p.save();
+        p.setClipRect(kHeaderWidth, tracksTop(), width() - kHeaderWidth, height() - tracksTop());
+        drawBeatLines(p, tracksTop(), height() - tracksTop(), false);
+        p.restore();
+    }
     drawTriggerGuides(p);
 
     // Track headers (drawn after regions so they stay on top)
@@ -683,6 +742,8 @@ void TimelineCanvas::mousePressEvent(QMouseEvent *e) {
             m_tdrag = TriggerDrag{};
             m_tdrag.pressPos = e->pos();
             m_tdrag.pressSec = xToSeconds(x);
+            m_tdrag.noSnap = e->modifiers() & Qt::AltModifier;
+            m_tdrag.pressSnapped = snapSeconds(m_tdrag.pressSec, m_tdrag.noSnap);
             TriggerPart part = TriggerPart::Body;
             const int ti = triggerAt(x, &part);
             if (ti >= 0) {
@@ -697,7 +758,7 @@ void TimelineCanvas::mousePressEvent(QMouseEvent *e) {
                                                               : TriggerDrag::Move;
             } else {
                 m_tdrag.mode = TriggerDrag::Create;
-                m_tdrag.curStart = m_tdrag.pressSec;
+                m_tdrag.curStart = m_tdrag.pressSnapped;
             }
         }
         update();
@@ -751,26 +812,31 @@ void TimelineCanvas::mouseMoveEvent(QMouseEvent *e) {
         }
         const double sec   = xToSeconds(x);
         const double delta = sec - m_tdrag.pressSec;
+        // Alt at the press or now: this gesture goes where the mouse is.
+        const bool noSnap = m_tdrag.noSnap || (e->modifiers() & Qt::AltModifier);
+        auto snap = [this, noSnap](double s) { return snapSeconds(s, noSnap); };
         // Shortest range a drag can leave: a few pixels, so it stays grabbable.
         const double minLen = std::max(0.001, 4.0 * m_framesPerPixel / m_triggerRate);
         switch (m_tdrag.mode) {
-        case TriggerDrag::Create:
-            m_tdrag.curStart = std::min(m_tdrag.pressSec, sec);
-            m_tdrag.curEnd   = std::max(m_tdrag.pressSec, sec);
+        case TriggerDrag::Create: {
+            const double a = snap(m_tdrag.pressSec), b = snap(sec);
+            m_tdrag.curStart = std::min(a, b);
+            m_tdrag.curEnd   = std::max(a, b);
             break;
+        }
         case TriggerDrag::Move: {
             const double len = m_tdrag.origEnd > m_tdrag.origStart
                                    ? m_tdrag.origEnd - m_tdrag.origStart : 0.0;
-            m_tdrag.curStart = std::max(0.0, m_tdrag.origStart + delta);
+            m_tdrag.curStart = std::max(0.0, snap(m_tdrag.origStart + delta));
             m_tdrag.curEnd   = len > 0.0 ? m_tdrag.curStart + len : -1.0;
             setCursor(Qt::ClosedHandCursor);
             break;
         }
         case TriggerDrag::ResizeStart:
-            m_tdrag.curStart = std::clamp(sec, 0.0, m_tdrag.origEnd - minLen);
+            m_tdrag.curStart = std::clamp(snap(sec), 0.0, m_tdrag.origEnd - minLen);
             break;
         case TriggerDrag::ResizeEnd:
-            m_tdrag.curEnd = std::max(sec, m_tdrag.origStart + minLen);
+            m_tdrag.curEnd = std::max(snap(sec), m_tdrag.origStart + minLen);
             break;
         case TriggerDrag::None:
             break;
@@ -851,7 +917,7 @@ void TimelineCanvas::mouseReleaseEvent(QMouseEvent *) {
     m_tdrag = TriggerDrag{};
     if (d.mode == TriggerDrag::Create) {
         if (d.moved && d.curEnd > d.curStart) emit triggerAdded(d.curStart, d.curEnd);
-        else                                  emit triggerAdded(d.pressSec, -1.0);
+        else                                  emit triggerAdded(d.pressSnapped, -1.0);
     } else if (d.moved) {
         emit triggerMoved(d.id, d.curStart, d.curEnd);
     }
@@ -923,7 +989,7 @@ void TimelineCanvas::contextMenuEvent(QContextMenuEvent *e) {
         const int ti = triggerAt(x);
         if (ti < 0) {
             auto *addAct = menu.addAction(tr("Add Trigger Here"));
-            const double sec = xToSeconds(x);
+            const double sec = snapSeconds(xToSeconds(x), e->modifiers() & Qt::AltModifier);
             if (menu.exec(e->globalPos()) == addAct) emit triggerAdded(sec, -1.0);
             return;
         }

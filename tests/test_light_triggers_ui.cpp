@@ -10,11 +10,17 @@
 #include <QSettings>
 #include <QSignalSpy>
 #include <QSpinBox>
+#include <QDialogButtonBox>
+#include <QRandomGenerator>
 #include <QUndoStack>
+
+#include <cmath>
 
 #include "audio/AudioCue.h"
 #include "audio/AudioEditorModel.h"
 #include "core/LightingDesk.h"
+#include "ui/AudioEditorWindow.h"
+#include "ui/FillBeatsDialog.h"
 #include "ui/Inspector.h"
 #include "ui/LightTriggersPanel.h"
 #include "ui/TimelineCanvas.h"
@@ -43,6 +49,7 @@ class LightTriggersUiTests : public QObject {
     // QSettings here is the user's real quewi settings: the desk tests change
     // lighting/desk/*, so it's saved first and put back afterwards.
     QVariantMap m_savedDesk;
+    QVariant    m_savedSnap;                      // triggers/snapToBeats
 
     static void setDesk(core::LightingDesk::Type type)
     {
@@ -71,6 +78,7 @@ private slots:
         s.beginGroup(QStringLiteral("lighting/desk"));
         for (const auto &k : s.childKeys()) m_savedDesk.insert(k, s.value(k));
         s.endGroup();
+        m_savedSnap = s.value(QStringLiteral("triggers/snapToBeats"));
         setDesk(core::LightingDesk::Type::Eos);   // the tests below assume Eos
     }
 
@@ -82,6 +90,8 @@ private slots:
         for (auto it = m_savedDesk.cbegin(); it != m_savedDesk.cend(); ++it)
             s.setValue(it.key(), it.value());
         s.endGroup();
+        if (m_savedSnap.isValid()) s.setValue(QStringLiteral("triggers/snapToBeats"), m_savedSnap);
+        else                       s.remove(QStringLiteral("triggers/snapToBeats"));
         s.sync();
     }
 
@@ -414,6 +424,296 @@ private slots:
                           QPoint(x0 + 300, ui::TimelineCanvas::kRulerHeight
                                            + ui::TimelineCanvas::kMarkerLaneHeight + 30));
         QCOMPARE(added.count(), 2);
+    }
+
+    // ── Beat grid ────────────────────────────────────────────────────────
+
+    void gridStripCommitsAndUndoes()
+    {
+        audio::AudioCue cue;
+        QUndoStack undo;
+        ui::LightTriggersPanel panel;
+        panel.setCue(&cue);
+        panel.setUndoStack(&undo);
+        auto *bpm = named<QDoubleSpinBox>(panel, "ltBpm");
+        auto *first = named<QDoubleSpinBox>(panel, "ltFirstBeat");
+        auto *bpb = named<QSpinBox>(panel, "ltBeatsPerBar");
+        auto *setFirst = named<QPushButton>(panel, "ltSetFirstBeat");
+        QVERIFY(bpm && first && bpb && setFirst);
+        QCOMPARE(bpm->text(), QStringLiteral("Off"));
+
+        bpm->setValue(120.0);
+        first->setValue(0.5);
+        bpb->setValue(3);
+        QCOMPARE(cue.beatGrid().bpm, 120.0);
+        QCOMPARE(cue.beatGrid().firstBeat, 0.5);
+        QCOMPARE(cue.beatGrid().beatsPerBar, 3);
+        QCOMPARE(undo.count(), 1);                // spin edits merge
+
+        panel.setCursorSeconds(1.25);
+        setFirst->click();                        // its own step
+        QCOMPARE(cue.beatGrid().firstBeat, 1.25);
+        QCOMPARE(first->value(), 1.25);
+        QCOMPARE(undo.count(), 2);
+
+        undo.undo();
+        QCOMPARE(cue.beatGrid().firstBeat, 0.5);
+        QCOMPARE(first->value(), 0.5);            // the strip followed
+        undo.undo();
+        QVERIFY(!cue.beatGrid().isSet());
+        QCOMPARE(bpm->value(), 0.0);
+        QCOMPARE(bpb->value(), 4);
+    }
+
+    void tapSetsTempoAndFirstBeat()
+    {
+        audio::AudioCue cue;
+        QUndoStack undo;
+        ui::LightTriggersPanel panel;
+        panel.setCue(&cue);
+        panel.setUndoStack(&undo);
+
+        panel.tapAt(10.0);
+        QVERIFY(!cue.beatGrid().isSet());         // one tap isn't a tempo
+        panel.tapAt(10.5);
+        QCOMPARE(cue.beatGrid().bpm, 120.0);
+        panel.tapAt(11.0);
+        panel.tapAt(11.5);
+        QCOMPARE(cue.beatGrid().bpm, 120.0);
+        QCOMPARE(cue.beatGrid().firstBeat, 0.0);  // not playing: first beat untouched
+        QCOMPARE(undo.count(), 1);                // one tap run, one step
+        QCOMPARE(named<QDoubleSpinBox>(panel, "ltBpm")->value(), 120.0);
+
+        // A new run (after a pause) while the preview plays: 100 BPM, and the
+        // first beat lands on the tap, wound back to the earliest beat >= 0.
+        panel.tapAt(20.0, 6.9);
+        panel.tapAt(20.6, 7.5);
+        QCOMPARE(cue.beatGrid().bpm, 100.0);
+        QVERIFY(std::abs(cue.beatGrid().firstBeat - 0.3) < 1e-9);   // 7.5 - 12 × 0.6
+        QCOMPARE(undo.count(), 2);
+        undo.undo();
+        QCOMPARE(cue.beatGrid().bpm, 120.0);
+
+        // The button taps too (real clock).
+        auto *tapBtn = named<QPushButton>(panel, "ltTap");
+        QVERIFY(tapBtn);
+        tapBtn->click();
+    }
+
+    void fillWithBeatsAddsOneUndoStep()
+    {
+        audio::AudioCue cue;
+        QUndoStack undo;
+        ui::LightTriggersPanel panel;
+        panel.setCue(&cue);
+        panel.setUndoStack(&undo);
+        audio::BeatGrid g;
+        g.bpm = 120.0;
+        panel.setBeatGrid(g);
+        panel.addTrigger(0.25);                   // something already there
+        const QUuid kept = panel.selectedTrigger();
+        const int before = undo.count();
+
+        audio::TriggerAction bump;
+        bump.kind = audio::TriggerAction::Kind::Desk;
+        bump.deskDo = audio::TriggerAction::DeskDo::SubBump;
+        bump.number = QStringLiteral("3");
+        bump.hold = 0.2;
+        QCOMPARE(panel.fillWithBeats(2.0, 4.0, 1, bump, QStringLiteral("Beat")), 4);
+        const auto &t = cue.lightTriggers();
+        QCOMPARE(t.size(), size_t(5));
+        const double want[] = {2.0, 2.5, 3.0, 3.5};
+        for (int i = 0; i < 4; ++i) {
+            QCOMPARE(t[size_t(i + 1)].start, want[i]);
+            QVERIFY(!t[size_t(i + 1)].isRange());
+            QCOMPARE(t[size_t(i + 1)].enter.deskDo, audio::TriggerAction::DeskDo::SubBump);
+            QCOMPARE(t[size_t(i + 1)].enter.number, QStringLiteral("3"));
+        }
+        QCOMPARE(t[1].name, QStringLiteral("Beat 1"));
+        QCOMPARE(undo.count(), before + 1);
+        QCOMPARE(panel.selectedTrigger(), kept);  // selection left alone
+        undo.undo();
+        QCOMPARE(cue.lightTriggers().size(), size_t(1));
+    }
+
+    void fillDialogCountsAndDefaults()
+    {
+        audio::BeatGrid g;
+        g.bpm = 120.0;
+        ui::FillBeatsDialog dlg(g, 2.1, 60.0, std::nullopt);
+        auto *selected = named<QWidget>(dlg, "ltFillSelected");
+        QVERIFY(selected && !selected->isEnabled());   // no range selected
+        dlg.setBars(1);                                // from the beat at the cursor (2.0), 1 bar
+        QCOMPARE(dlg.range(), ui::FillBeatsDialog::Range::FromCursor);
+        QCOMPARE(dlg.from(), 2.0);
+        QCOMPARE(dlg.to(), 4.0);
+        QCOMPARE(dlg.count(), 4);
+        QCOMPARE(named<QLabel>(dlg, "ltFillCount")->text(), QStringLiteral("Adds 4 bumps"));
+        const auto a = dlg.action();
+        QCOMPARE(a.kind, audio::TriggerAction::Kind::Desk);
+        QCOMPARE(a.deskDo, audio::TriggerAction::DeskDo::SubBump);
+        QCOMPARE(a.number, QStringLiteral("1"));
+        QCOMPARE(a.hold, 0.2);                         // 40% of a 0.5 s beat
+        dlg.setEvery(4);                               // every bar
+        QCOMPARE(dlg.count(), 1);
+        dlg.setRange(ui::FillBeatsDialog::Range::WholeSong);
+        QCOMPARE(dlg.count(), 30);
+        QCOMPARE(dlg.triggers().size(), size_t(30));
+
+        // A selected range fills its span.
+        ui::FillBeatsDialog sel(g, 0.0, 60.0, std::make_pair(10.0, 12.0));
+        QCOMPARE(sel.range(), ui::FillBeatsDialog::Range::Selected);
+        QCOMPARE(sel.count(), 4);
+
+        // No grid: nothing to add, and it says why.
+        ui::FillBeatsDialog none(audio::BeatGrid{}, 0.0, 60.0, std::nullopt);
+        QCOMPARE(none.count(), 0);
+        QVERIFY(!named<QLabel>(none, "ltFillHint")->isHidden());
+        auto *box = none.findChild<QDialogButtonBox *>();
+        QVERIFY(box && !box->button(QDialogButtonBox::Ok)->isEnabled());
+    }
+
+    void laneSnapsToBeatsUnlessAlt()
+    {
+        audio::AudioEditorModel model;
+        model.addTrack(QStringLiteral("T"));
+        ui::TimelineCanvas canvas(&model);
+        canvas.resize(900, 300);
+        canvas.show();
+        QVERIFY(QTest::qWaitForWindowExposed(&canvas));
+        const double rate = 48000.0;
+        canvas.setFramesPerPixel(rate / 100.0);          // 100 px per second
+        canvas.setTriggers({}, rate);
+        audio::BeatGrid g;
+        g.bpm = 120.0;
+        g.firstBeat = 0.1;                               // beats at 0.1, 0.6, … 2.1, 2.6
+        canvas.setBeatGrid(g);
+        canvas.setSnapToBeats(true);
+
+        QSignalSpy added(&canvas, &ui::TimelineCanvas::triggerAdded);
+        const int laneY = ui::TimelineCanvas::kRulerHeight + ui::TimelineCanvas::kMarkerLaneHeight / 2;
+        const int x0 = ui::TimelineCanvas::kHeaderWidth;
+        QTest::mouseClick(&canvas, Qt::LeftButton, {}, QPoint(x0 + 237, laneY));
+        QCOMPARE(added.count(), 1);
+        QVERIFY(std::abs(added[0][0].toDouble() - 2.6) < 1e-9);
+
+        QTest::mouseClick(&canvas, Qt::LeftButton, Qt::AltModifier, QPoint(x0 + 237, laneY));
+        QCOMPARE(added.count(), 2);
+        QVERIFY(std::abs(added[1][0].toDouble() - 2.37) < 1e-6);
+
+        // A drag makes a range from beat to beat.
+        QTest::mousePress(&canvas, Qt::LeftButton, {}, QPoint(x0 + 405, laneY));
+        QTest::mouseMove(&canvas, QPoint(x0 + 500, laneY));
+        QTest::mouseMove(&canvas, QPoint(x0 + 640, laneY));
+        QTest::mouseRelease(&canvas, Qt::LeftButton, {}, QPoint(x0 + 640, laneY));
+        QCOMPARE(added.count(), 3);
+        QVERIFY(std::abs(added[2][0].toDouble() - 4.1) < 1e-9);
+        QVERIFY(std::abs(added[2][1].toDouble() - 6.6) < 1e-9);
+
+        // Snap off: where the mouse is.
+        canvas.setSnapToBeats(false);
+        QTest::mouseClick(&canvas, Qt::LeftButton, {}, QPoint(x0 + 237, laneY));
+        QVERIFY(std::abs(added[3][0].toDouble() - 2.37) < 1e-6);
+    }
+
+    void pointAtCursorSnaps()
+    {
+        audio::AudioCue cue;
+        ui::LightTriggersPanel panel;
+        panel.setCue(&cue);
+        audio::BeatGrid g;
+        g.bpm = 120.0;
+        panel.setBeatGrid(g);
+        panel.setSnapToBeats(true);
+        panel.setCursorSeconds(3.2);
+        button(panel, QStringLiteral("+ Point at cursor"))->click();
+        QCOMPARE(cue.lightTriggers()[0].start, 3.0);
+        panel.setSnapToBeats(false);
+        button(panel, QStringLiteral("+ Point at cursor"))->click();
+        QCOMPARE(cue.lightTriggers()[1].start, 3.2);
+    }
+
+    void detectFindsTheClickTrackTempo()
+    {
+        const int sr = 22050;
+        const double bpm = 128.0, firstBeat = 0.37, seconds = 30.0;
+        // Stereo click track: a kick-like click on every beat over quiet noise.
+        std::vector<float> pcm(size_t(seconds * sr) * 2);
+        auto *rng = QRandomGenerator::global();
+        for (auto &x : pcm) x = float((rng->generateDouble() - 0.5) * 0.02);
+        for (double t = firstBeat; t < seconds; t += 60.0 / bpm) {
+            const auto start = size_t(t * sr);
+            for (size_t i = 0; i < size_t(0.06 * sr) && (start + i) * 2 + 1 < pcm.size(); ++i) {
+                const double env = std::exp(-double(i) / (0.012 * sr));
+                const float v = float(0.8 * env * std::sin(2.0 * 3.14159265358979323846 * 60.0 * double(i) / sr));
+                pcm[(start + i) * 2] += v;
+                pcm[(start + i) * 2 + 1] += v;
+            }
+        }
+
+        audio::AudioCue cue;
+        QUndoStack undo;
+        ui::LightTriggersPanel panel;
+        panel.setCue(&cue);
+        panel.setUndoStack(&undo);
+        QSignalSpy done(&panel, &ui::LightTriggersPanel::tempoDetected);
+        auto *detect = named<QPushButton>(panel, "ltDetect");
+        panel.detectFromPcm(std::move(pcm), sr, 2);
+        QVERIFY(panel.isDetecting());
+        QVERIFY(!detect->isEnabled());                  // busy while it listens
+        QTRY_VERIFY_WITH_TIMEOUT(!panel.isDetecting(), 60000);
+        QCOMPARE(done.count(), 1);
+        QVERIFY2(std::abs(cue.beatGrid().bpm - 128.0) < 0.1,
+                 qPrintable(QString::number(cue.beatGrid().bpm)));
+        const double beat = 60.0 / bpm;
+        double off = std::fmod(std::abs(cue.beatGrid().firstBeat - firstBeat), beat);
+        QVERIFY(std::min(off, beat - off) < 0.02);
+        QVERIFY(detect->isEnabled());
+        QCOMPARE(undo.count(), 1);
+        QVERIFY(named<QLabel>(panel, "ltGridStatus")->text().startsWith(QStringLiteral("Detected 128.")));
+        undo.undo();
+        QVERIFY(!cue.beatGrid().isSet());
+
+        // Without a detect source (no editor), the button says so instead.
+        detect->click();
+        QVERIFY(!panel.isDetecting());
+    }
+
+    void editorWindowTapsOnT()
+    {
+        audio::AudioCue cue;
+        auto *win = new ui::AudioEditorWindow(&cue);
+        win->setAttribute(Qt::WA_DeleteOnClose, false);
+        win->resize(1280, 720);
+        win->show();
+        QVERIFY(QTest::qWaitForWindowActive(win));
+        win->showLightingTab();
+        win->refreshLightingDesk();
+        auto *panel = win->findChild<ui::LightTriggersPanel *>();
+        QVERIFY(panel);
+        auto *canvas = win->findChild<ui::TimelineCanvas *>();
+        QVERIFY(canvas);
+        canvas->setFocus();
+        QTest::keyClick(canvas, Qt::Key_T);
+        QTest::qWait(400);
+        QTest::keyClick(canvas, Qt::Key_T);
+        QVERIFY(cue.beatGrid().isSet());              // two taps: a tempo
+        QVERIFY(std::abs(cue.beatGrid().bpm - 150.0) < 40.0);
+        // The canvas follows the cue's grid.
+        QCOMPARE(canvas->beatGrid().bpm, cue.beatGrid().bpm);
+
+        // Typing a T into a text field is just a T.
+        audio::BeatGrid g;
+        cue.setField(QStringLiteral("beatGrid"), g.toJson());
+        auto *name = named<QLineEdit>(*panel, "ltName");
+        panel->addTrigger(1.0);
+        name->setFocus();
+        QTest::keyClick(name, Qt::Key_T);
+        QTest::qWait(300);
+        QTest::keyClick(name, Qt::Key_T);
+        QVERIFY(!cue.beatGrid().isSet());
+        win->close();
+        delete win;
     }
 
     void inspectorOpensLightTriggers()

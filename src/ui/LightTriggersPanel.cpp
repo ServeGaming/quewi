@@ -22,6 +22,11 @@
 #include <QAbstractItemView>
 #include <QMetaObject>
 #include <QScrollArea>
+#include <QSettings>
+#include <QFutureWatcher>
+#include <QtConcurrentRun>
+#include <QPointer>
+#include "ui/FillBeatsDialog.h"
 #include <QShowEvent>
 #include <QSignalBlocker>
 #include <QSlider>
@@ -33,6 +38,7 @@
 #include <QVBoxLayout>
 
 #include <algorithm>
+#include <cmath>
 #include <iterator>
 
 namespace quewi::ui {
@@ -52,17 +58,28 @@ constexpr int    kFlashMs = 450;
 class TriggersEditCommand : public core::EditCueFieldCommand {
 public:
     TriggersEditCommand(cues::Cue *cue, QVariant oldValue, QVariant newValue, bool mergeable)
-        : core::EditCueFieldCommand(cue, QStringLiteral("lightTriggers"),
-                                    std::move(oldValue), std::move(newValue))
-        , m_mergeable(mergeable)
+        : TriggersEditCommand(cue, QStringLiteral("lightTriggers"), std::move(oldValue),
+                              std::move(newValue), mergeable ? kMergeFieldEdits : -1)
     {
         setText(QObject::tr("Edit lighting triggers"));
     }
-    int id() const override { return m_mergeable ? core::EditCueFieldCommand::id() : -1; }
+    // mergeId: kMergeFieldEdits folds into the previous edit of the same field;
+    // -1 never merges; anything else merges only with the same id (one tap run).
+    TriggersEditCommand(cues::Cue *cue, const QString &field, QVariant oldValue,
+                        QVariant newValue, int mergeId)
+        : core::EditCueFieldCommand(cue, field, std::move(oldValue), std::move(newValue))
+        , m_id(mergeId)
+    {
+    }
+    int id() const override { return m_id; }
+
+    static constexpr int kMergeFieldEdits = 1;   // core::EditCueFieldCommand::id()
 
 private:
-    bool m_mergeable;
+    int m_id;
 };
+
+constexpr int kTapMergeBase = 0x7A900;           // + tap run (mod 4096)
 
 QString secondsText(double s) { return QString::number(s, 'f', 3); }
 
@@ -880,11 +897,11 @@ LightTriggersPanel::LightTriggersPanel(QWidget *parent) : QWidget(parent)
     const auto &tk = Theme::tokens();
     setStyleSheet(QStringLiteral(
         "QFrame#ltCard { background:%1; border:none; border-radius:4px; }"
-        "QPushButton#ltButton { background:%2; color:%3; border:none; border-radius:3px;"
-        "  padding:5px 12px; font-size:12px; font-weight:600; }"
-        "QPushButton#ltButton:hover   { background:%4; }"
-        "QPushButton#ltButton:pressed { background:%5; }"
-        "QPushButton#ltButton:disabled { color:%6; }"
+        "QPushButton#ltButton, QPushButton[ltButton=\"true\"] { background:%2; color:%3;"
+        "  border:none; border-radius:3px; padding:5px 12px; font-size:12px; font-weight:600; }"
+        "QPushButton#ltButton:hover, QPushButton[ltButton=\"true\"]:hover { background:%4; }"
+        "QPushButton#ltButton:pressed, QPushButton[ltButton=\"true\"]:pressed { background:%5; }"
+        "QPushButton#ltButton:disabled, QPushButton[ltButton=\"true\"]:disabled { color:%6; }"
         "QTableWidget#ltTable { background:%1; border:none; border-radius:4px; }")
         .arg(tk.bgPanel.name(),                    // %1 card
              tk.bgInteractive.name(),              // %2 button
@@ -913,6 +930,116 @@ LightTriggersPanel::LightTriggersPanel(QWidget *parent) : QWidget(parent)
     deskRow->addStretch(1);
     page->addLayout(deskRow);
     connect(changeDesk, &QPushButton::clicked, this, &LightTriggersPanel::deskSettingsRequested);
+
+    // ── Beat grid: the song's tempo, for snapping and "Fill with beats…" ──
+    // TEMPO [Off ▴▾] BPM  Tap  Detect │ First beat [0.000 s] Set to cursor │
+    // Beats/bar [4]  ☑ Snap │ Fill with beats…   Detected 128.00 BPM
+    auto *gridRow = new QHBoxLayout();
+    gridRow->setSpacing(6);
+    gridRow->addWidget(capsLabel(tr("TEMPO"), this));
+    m_bpm = new QDoubleSpinBox(this);
+    m_bpm->setObjectName(QStringLiteral("ltBpm"));
+    m_bpm->setRange(0.0, 300.0);
+    m_bpm->setDecimals(2);
+    m_bpm->setSingleStep(1.0);
+    m_bpm->setSpecialValueText(tr("Off"));
+    m_bpm->setSuffix(tr(" BPM"));
+    m_bpm->setKeyboardTracking(false);
+    m_bpm->setToolTip(tr("The song's tempo. 0 = no beat grid"));
+    m_tapBtn = new QPushButton(tr("Tap"), this);
+    m_tapBtn->setObjectName(QStringLiteral("ltTap"));
+    m_tapBtn->setToolTip(tr("Tap along to the beat (or press T). While the preview plays, "
+                            "the taps also place the first beat"));
+    m_detectBtn = new QPushButton(tr("Detect"), this);
+    m_detectBtn->setObjectName(QStringLiteral("ltDetect"));
+    m_detectBtn->setToolTip(tr("Listen to the song and find its tempo and first beat"));
+    auto *firstLabel = new QLabel(tr("First beat"), this);
+    m_firstBeat = new QDoubleSpinBox(this);
+    m_firstBeat->setObjectName(QStringLiteral("ltFirstBeat"));
+    m_firstBeat->setRange(0.0, 86400.0);
+    m_firstBeat->setDecimals(3);
+    m_firstBeat->setSingleStep(0.01);
+    m_firstBeat->setSuffix(QStringLiteral(" s"));
+    m_firstBeat->setKeyboardTracking(false);
+    m_firstBeat->setToolTip(tr("Where beat 1 of bar 1 falls in the song"));
+    auto *setFirst = new QPushButton(tr("Set to cursor"), this);
+    setFirst->setObjectName(QStringLiteral("ltSetFirstBeat"));
+    setFirst->setToolTip(tr("Beat 1 of bar 1 is at the edit cursor"));
+    auto *bpbLabel = new QLabel(tr("Beats/bar"), this);
+    m_beatsPerBar = spin(1, 16, this);
+    m_beatsPerBar->setObjectName(QStringLiteral("ltBeatsPerBar"));
+    m_beatsPerBar->setValue(4);
+    m_snap = new QCheckBox(tr("Snap"), this);
+    m_snap->setObjectName(QStringLiteral("ltSnap"));
+    m_snap->setToolTip(tr("Markers you place or drag in the lighting lane land on the beat "
+                          "(hold Alt to place freely)"));
+    {
+        QSettings s(QStringLiteral("ServeGaming"), QStringLiteral("quewi"));
+        m_snap->setChecked(s.value(QStringLiteral("triggers/snapToBeats"), true).toBool());
+    }
+    m_fillBtn = new QPushButton(tr("Fill with beats…"), this);
+    m_fillBtn->setObjectName(QStringLiteral("ltFill"));
+    m_fillBtn->setToolTip(tr("Add a marker on every beat (or bar) of a section — "
+                             "e.g. bump a sub on each beat of the chorus"));
+    m_gridStatus = new QLabel(this);
+    m_gridStatus->setObjectName(QStringLiteral("ltGridStatus"));
+    m_gridStatus->setStyleSheet(QStringLiteral("color:%1; font-size:11px;").arg(tk.ink60.name()));
+    for (auto *l : {firstLabel, bpbLabel})
+        l->setStyleSheet(QStringLiteral("color:%1; font-size:12px;").arg(tk.ink60.name()));
+    for (auto *b : {m_tapBtn, m_detectBtn, setFirst, m_fillBtn}) {
+        b->setProperty("ltButton", true);      // the ltButton look, keeping its own name
+        b->setCursor(Qt::PointingHandCursor);
+    }
+    gridRow->addWidget(m_bpm);
+    gridRow->addWidget(m_tapBtn);
+    gridRow->addWidget(m_detectBtn);
+    gridRow->addSpacing(10);
+    gridRow->addWidget(firstLabel);
+    gridRow->addWidget(m_firstBeat);
+    gridRow->addWidget(setFirst);
+    gridRow->addSpacing(10);
+    gridRow->addWidget(bpbLabel);
+    gridRow->addWidget(m_beatsPerBar);
+    gridRow->addWidget(m_snap);
+    gridRow->addSpacing(10);
+    gridRow->addWidget(m_fillBtn);
+    gridRow->addWidget(m_gridStatus, 1);
+    page->addLayout(gridRow);
+    m_tapClock.start();
+
+    connect(m_bpm, &QDoubleSpinBox::valueChanged, this, [this](double v) {
+        if (m_loading || !m_cue) return;
+        auto g = m_cue->beatGrid();
+        g.bpm = v;
+        setBeatGrid(g, true);
+    });
+    connect(m_firstBeat, &QDoubleSpinBox::valueChanged, this, [this](double v) {
+        if (m_loading || !m_cue) return;
+        auto g = m_cue->beatGrid();
+        g.firstBeat = v;
+        setBeatGrid(g, true);
+    });
+    connect(m_beatsPerBar, &QSpinBox::valueChanged, this, [this](int v) {
+        if (m_loading || !m_cue) return;
+        auto g = m_cue->beatGrid();
+        g.beatsPerBar = v;
+        setBeatGrid(g, true);
+    });
+    // On press, not release: the tap is when the finger lands.
+    connect(m_tapBtn, &QPushButton::pressed, this, [this] { tap(); });
+    connect(m_detectBtn, &QPushButton::clicked, this, [this] { detectTempo(); });
+    connect(setFirst, &QPushButton::clicked, this, [this] {
+        if (!m_cue) return;
+        auto g = m_cue->beatGrid();
+        g.firstBeat = m_cursor;
+        setBeatGrid(g, false);
+    });
+    connect(m_snap, &QCheckBox::toggled, this, [this](bool on) {
+        QSettings s(QStringLiteral("ServeGaming"), QStringLiteral("quewi"));
+        s.setValue(QStringLiteral("triggers/snapToBeats"), on);
+        emit snapToBeatsChanged(on);
+    });
+    connect(m_fillBtn, &QPushButton::clicked, this, [this] { openFillDialog(); });
 
     auto *outer = new QHBoxLayout();
     outer->setSpacing(14);
@@ -1035,9 +1162,14 @@ LightTriggersPanel::LightTriggersPanel(QWidget *parent) : QWidget(parent)
     outer->addWidget(m_editorStack, 2);
 
     // ── Wiring ─────────────────────────────────────────────────────────
-    connect(addPoint, &QPushButton::clicked, this, [this] { addTrigger(m_cursor); });
-    connect(addRange, &QPushButton::clicked, this, [this] {
-        addTrigger(m_cursor, m_cursor + kDefaultRangeSeconds);
+    // With Snap on, the buttons place on the beat at the cursor too.
+    auto atCursor = [this] {
+        return m_cue && snapToBeats() ? m_cue->beatGrid().snap(m_cursor) : m_cursor;
+    };
+    connect(addPoint, &QPushButton::clicked, this, [this, atCursor] { addTrigger(atCursor()); });
+    connect(addRange, &QPushButton::clicked, this, [this, atCursor] {
+        const double s = atCursor();
+        addTrigger(s, s + kDefaultRangeSeconds);
     });
     connect(m_duplicateBtn, &QPushButton::clicked, this, [this] {
         const int i = indexOf(m_selectedId);
@@ -1152,6 +1284,7 @@ void LightTriggersPanel::setWorkspace(core::Workspace *ws)
 
 void LightTriggersPanel::setMidiPortsProvider(std::function<QStringList()> f)
 {
+    m_midiPorts = f;
     m_enter->setMidiPortsProvider(f);
     m_exit->setMidiPortsProvider(std::move(f));
 }
@@ -1369,6 +1502,7 @@ void LightTriggersPanel::refresh()
     }
     m_duplicateBtn->setEnabled(selRow >= 0);
     m_deleteBtn->setEnabled(selRow >= 0);
+    loadGrid();
     m_loading = false;
     loadEditor();
     if (lostSelection) emit selectionChanged(QUuid());
@@ -1403,6 +1537,191 @@ void LightTriggersPanel::loadEditor()
     m_duplicateBtn->setEnabled(true);
     m_deleteBtn->setEnabled(true);
     m_loading = wasLoading;
+}
+
+// ── Beat grid ────────────────────────────────────────────────────────────────
+
+void LightTriggersPanel::loadGrid()
+{
+    const auto g = m_cue ? m_cue->beatGrid() : audio::BeatGrid{};
+    const QSignalBlocker b1(m_bpm), b2(m_firstBeat), b3(m_beatsPerBar);
+    // Don't fight a spin box being typed into or stepped.
+    if (!m_bpm->hasFocus() || m_bpm->value() != g.bpm) m_bpm->setValue(g.bpm);
+    if (!m_firstBeat->hasFocus() || m_firstBeat->value() != g.firstBeat) m_firstBeat->setValue(g.firstBeat);
+    m_beatsPerBar->setValue(std::clamp(g.beatsPerBar, 1, 16));
+    const bool on = m_cue != nullptr;
+    for (QWidget *w : std::initializer_list<QWidget *>{m_bpm, m_tapBtn, m_firstBeat, m_beatsPerBar, m_fillBtn})
+        w->setEnabled(on);
+    m_detectBtn->setEnabled(on && !m_detecting);
+    if (!g.isSet() && !m_detecting) m_gridStatus->clear();   // cleared (undo, remote)
+}
+
+void LightTriggersPanel::commitGrid(const audio::BeatGrid &g, int mergeId)
+{
+    if (!m_cue) return;
+    const QJsonObject oldJson = m_cue->beatGrid().toJson();
+    const QJsonObject newJson = audio::BeatGrid::fromJson(g.toJson()).toJson();
+    if (oldJson == newJson) return;
+    if (m_undo) {
+        auto *cmd = new TriggersEditCommand(m_cue, QStringLiteral("beatGrid"), QVariant(oldJson),
+                                            QVariant(newJson), mergeId);
+        cmd->setText(tr("Edit beat grid"));
+        m_undo->push(cmd);
+    } else {
+        m_cue->setField(QStringLiteral("beatGrid"), QVariant(newJson));
+    }
+    loadGrid();
+}
+
+void LightTriggersPanel::setBeatGrid(const audio::BeatGrid &g, bool mergeable)
+{
+    commitGrid(g, mergeable ? TriggersEditCommand::kMergeFieldEdits : -1);
+}
+
+void LightTriggersPanel::setPlayheadProvider(std::function<double()> f) { m_playhead = std::move(f); }
+
+void LightTriggersPanel::setDetectSource(std::function<bool(std::vector<float> &, int &)> f)
+{
+    m_detectSource = std::move(f);
+}
+
+void LightTriggersPanel::setSongLength(double seconds) { m_songLength = std::max(0.0, seconds); }
+
+bool LightTriggersPanel::snapToBeats() const { return m_snap->isChecked(); }
+
+void LightTriggersPanel::setSnapToBeats(bool on) { m_snap->setChecked(on); }
+
+void LightTriggersPanel::tap()
+{
+    tapAt(double(m_tapClock.nsecsElapsed()) / 1e9, m_playhead ? m_playhead() : -1.0);
+}
+
+void LightTriggersPanel::tapAt(double seconds, double playheadSeconds)
+{
+    if (!m_cue) return;
+    // TapTempo starts a new count after a 2 s pause; so does the undo step.
+    if (!m_hadTap || seconds - m_tapTempo.lastTap() > 2.0 || seconds <= m_tapTempo.lastTap())
+        ++m_tapRun;
+    m_hadTap = true;
+    const double bpm = m_tapTempo.tap(seconds);
+    if (bpm <= 0.0) {
+        m_gridStatus->setText(tr("Tap…"));
+        return;
+    }
+    auto g = m_cue->beatGrid();
+    g.bpm = std::clamp(std::round(bpm * 100.0) / 100.0, 1.0, 300.0);
+    if (playheadSeconds >= 0.0) {
+        // The tap is on a beat: the first beat is that one, wound back by
+        // whole beats to the earliest at or after 0.
+        g.firstBeat = std::fmod(playheadSeconds, g.beatLength());
+    }
+    m_gridStatus->setText(tr("Tapped %1 BPM").arg(g.bpm, 0, 'f', 2));
+    commitGrid(g, kTapMergeBase + (m_tapRun & 0xFFF));
+}
+
+void LightTriggersPanel::detectTempo()
+{
+    if (!m_cue || m_detecting) return;
+    if (!m_detectSource) {
+        m_gridStatus->setText(tr("Detect needs the audio editor"));
+        return;
+    }
+    m_gridStatus->setText(tr("Rendering the song…"));
+    std::vector<float> pcm;
+    int rate = 0;
+    if (!m_detectSource(pcm, rate) || pcm.empty() || rate <= 0) {
+        m_gridStatus->setText(tr("Couldn't read the song to detect its tempo"));
+        return;
+    }
+    detectFromPcm(std::move(pcm), rate, 2);
+}
+
+void LightTriggersPanel::detectFromPcm(std::vector<float> interleaved, int sampleRate, int channels)
+{
+    if (!m_cue || m_detecting) return;
+    m_detecting = true;
+    m_detectBtn->setEnabled(false);
+    m_detectBtn->setText(tr("Detecting…"));
+    m_gridStatus->setText(tr("Listening for the beat…"));
+
+    QPointer<audio::AudioCue> forCue = m_cue.data();
+    auto *watcher = new QFutureWatcher<audio::TempoEstimate>(this);
+    connect(watcher, &QFutureWatcher<audio::TempoEstimate>::finished, this, [this, watcher, forCue] {
+        const auto est = watcher->result();
+        watcher->deleteLater();
+        finishDetect(est, forCue.data());
+    });
+    const int ch = std::max(1, channels);
+    watcher->setFuture(QtConcurrent::run([pcm = std::move(interleaved), sampleRate, ch] {
+        const size_t frames = pcm.size() / size_t(ch);
+        std::vector<float> mono(frames);
+        for (size_t i = 0; i < frames; ++i) {
+            float s = 0.0f;
+            for (int c = 0; c < ch; ++c) s += pcm[i * size_t(ch) + size_t(c)];
+            mono[i] = s / float(ch);
+        }
+        return audio::estimateTempo(mono.data(), mono.size(), sampleRate);
+    }));
+}
+
+void LightTriggersPanel::finishDetect(const audio::TempoEstimate &est, audio::AudioCue *forCue)
+{
+    m_detecting = false;
+    m_detectBtn->setText(tr("Detect"));
+    m_detectBtn->setEnabled(m_cue != nullptr);
+    emit tempoDetected(est.bpm, est.firstBeat, est.confidence);
+    if (!forCue || forCue != m_cue) {          // the editor moved on to another cue
+        m_gridStatus->clear();
+        return;
+    }
+    if (est.bpm <= 0.0) {
+        m_gridStatus->setText(tr("Couldn't find a steady beat — try Tap"));
+        return;
+    }
+    auto g = m_cue->beatGrid();
+    g.bpm = std::clamp(est.bpm, 1.0, 300.0);
+    g.firstBeat = std::max(0.0, est.firstBeat);
+    QString msg = tr("Detected %1 BPM").arg(est.bpm, 0, 'f', 2);
+    if (est.confidence < 0.35) msg += tr(" — low confidence, try Tap");
+    m_gridStatus->setText(msg);
+    commitGrid(g, -1);
+}
+
+int LightTriggersPanel::fillWithBeats(double from, double to, int every,
+                                      const TriggerAction &action, const QString &namePrefix)
+{
+    if (!m_cue) return 0;
+    const auto added = audio::fillWithBeats(m_cue->beatGrid(), from, to, every, action, namePrefix);
+    if (added.empty()) return 0;
+    LightTriggers next = m_cue->lightTriggers();
+    next.insert(next.end(), added.begin(), added.end());
+    commit(next, false);        // one step; the selection stays where it was
+    return int(added.size());
+}
+
+void LightTriggersPanel::openFillDialog()
+{
+    if (!m_cue) return;
+    std::optional<std::pair<double, double>> sel;
+    if (const int i = indexOf(m_selectedId); i >= 0) {
+        const auto &t = m_cue->lightTriggers()[size_t(i)];
+        if (t.isRange()) sel = std::make_pair(t.start, t.end);
+    }
+    const double song = std::max(m_songLength, [this] {
+        double last = 0.0;      // no length known yet: at least cover the markers
+        for (const auto &t : m_cue->lightTriggers()) last = std::max(last, t.isRange() ? t.end : t.start);
+        return last;
+    }());
+    FillBeatsDialog dlg(m_cue->beatGrid(), m_cursor, song, sel, this);
+    dlg.setWorkspace(m_workspace);
+    if (m_midiPorts) dlg.setMidiPortsProvider(m_midiPorts);
+    connect(&dlg, &FillBeatsDialog::testRequested, this, &LightTriggersPanel::testRequested);
+    if (dlg.exec() != QDialog::Accepted || !m_cue) return;
+    const auto added = dlg.triggers();
+    if (added.empty()) return;
+    LightTriggers next = m_cue->lightTriggers();
+    next.insert(next.end(), added.begin(), added.end());
+    commit(next, false);
 }
 
 void LightTriggersPanel::flashTrigger(const QUuid &id)

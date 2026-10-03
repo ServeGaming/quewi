@@ -54,6 +54,8 @@ public:
     void setTriggerSupport(core::Workspace *ws, QUndoStack *undo,
                            std::function<QStringList()> midiPorts);
     void showLightingTab();
+    // Re-reads the lighting desk in Preferences (after Preferences closes).
+    void refreshLightingDesk();
 
 signals:
     // Test buttons, and — with "Send while previewing" on — every trigger the
@@ -105,6 +107,8 @@ private:
     // Lighting triggers → the marker lane (on cue changes and rate changes).
     void syncTriggersToCanvas();
     double secondsPerFrame() const;
+    // The preview's heard position (timeline frame), or -1 when stopped.
+    qint64 currentPlayFrame() const;
     // Preview tracker: sends what the preview crosses while the toggle is on.
     void beginPreviewTriggers(qint64 frame);
     void endPreviewTriggers();
