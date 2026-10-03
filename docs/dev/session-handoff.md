@@ -50,7 +50,52 @@ site (MkDocs, `docs/`) deploys to GitHub Pages on every push to `main`
 
 ## Current state — on `main`, not yet released (→ 1.0.4)
 
-All committed and pushed. **24/24 ctest suites green, selftest exits 0.**
+All committed and pushed. **27/27 ctest suites green, selftest exits 0.**
+
+### 0. Lighting triggers + OSC v5 for HeliOSC (2026-10-03) — Matthew's ask
+"A lighting tab where I select portions of a song that send OSC or MIDI to
+lighting when they're hit", targets **ETC Eos/Nomad and grandMA**, plus
+"HeliOSC should control as much of the new stuff as possible".
+- Model `audio/LightTrigger.*`: points or ranges (enter + exit actions) in
+  **seconds of the song file**; actions = OSC / MIDI (note, CC, program, raw)
+  / MSC / fire a cue. On `AudioCue` as undoable field `lightTriggers` (video
+  cues: `sound.lightTriggers`). `TriggerTracker` is the pure timing logic
+  (seeks skip points but catch ranges up, loops replay, stop sends exits,
+  wall-clock aware so a UI stall isn't mistaken for a seek) — `test_light_triggers`.
+- `GoEngine` runs a tracker per playing voice on a 10 ms precise timer;
+  silent videos follow the picture clock; master arm `triggers/armed`
+  (QSettings, Tools → Lighting Triggers Armed); Panic sends nothing more;
+  a trigger can't fire its own song.
+- UI (built by a subagent, merged): audio editor **Lighting** tab
+  (`LightTriggersPanel`, presets for Eos/MA, Test buttons, "Send while
+  previewing"), a lighting lane on the timeline (click = point, drag = range),
+  Inspector "Lighting triggers…" (audio + video Sound section).
+- OSC v5 (`app/MainWindowOscV5.cpp`): triggers list/set/add/clear,
+  trigger/<ref>/set|remove|test, triggers/armed, notify/trigger/fired;
+  cue/<n>/convert; soundboard/mic/* + query.
+- Bugs found while driving it over UDP, all fixed: **default OSC
+  subscriptions (`/quewi/notify/*`) never matched any two-level notify
+  address** (since v0.9.20 — HeliOSC may never have received cue/state or
+  playback unless it used its own pattern); `set/filePath` over OSC didn't
+  decode, so the remote's first GO was silent; level/pan/seek/fx ignored
+  video cues; trigger edits merged into one undo step.
+- **Driven**: scripted UDP client (`tools/osc_triggers_drive.py`,
+  `tools/osc_triggers_video.py`) against a `--selftest-idle` test copy on port 53000:
+  marks at 0.5/1.0/2.0 s reached a fake desk at 0.45/0.96/1.95 s (sends lead
+  the heard sound by ~50 ms — engine read position), enter/exit notifies,
+  disarm, test, undo, mic query, video soundtrack, silent video, convert
+  round trip. GUI: lane click/drag, Eos GO preset + Test, GO, and Send while
+  previewing all reached a fake Eos on :8000.
+- **Not done / limits**: nothing sent to a real Eos or MA yet (Matthew);
+  MIDI/MSC paths unit-tested only (no MIDI port here); first play of a freshly
+  loaded video was ~0.3 s late once; editor lane assumes the single region
+  starts at 0 (moving/trimming regions shifts marks vs the file); the
+  Inspector's Lighting button sits off-screen in a narrow Inspector.
+- Docs (lighting-triggers page, OSC reference v5, `docs/dev/helios-v5-recap.md`
+  for the HeliOSC session) — see the docs commit.
+- `/quewi/workspace/new` **does** prompt Save/Discard when the show is dirty
+  (the OSC reference used to say it didn't); kept the prompt (safer), fixed
+  the doc.
 
 ### 1. Video cues play their sound + convert to/from audio cues (2026-10-03)
 Matthew's show has every song mix as .mov / .mp4 video cues, which played
@@ -117,17 +162,26 @@ Voicemod-style: pads play into a virtual cable apps use as a microphone.
   **Not driven**: no virtual cable on his PC (Voicemod driver present but its
   endpoints inactive). He needs to install VB-Audio Virtual Cable and try it.
 
+### 4. Audit A7 closed (2026-10-03)
+The audio-thread UAF was already fixed in 0.9.91; what remained: removing the
+active track while stopped left `m_activeTrack` and the effects rack on the
+freed track (next Play crashed). Now QPointers + fallback to track 1; open
+EQ/Compressor editors close with their effect. `test_audio_editor`; driven.
+
 ### Next steps
-1. Matthew tries Send-to-mic (with VB-Cable) and the video-sound features on
-   his real show → then **cut 1.0.4** (release checklist below; docs already say
-   "new in 1.0.4"). 1.0.4 will be the first release installable purely through
-   the in-app updater.
-2. Open audit items: A7 (audio-editor track-removal crash), A12 (output matrix
-   sliders), A5 (waveform handles), V3/V4/V7–V10/V12–V14 (video), M11, and
-   low-severity audio/UI items.
-3. Queued idea: Freesound.org as a second sound-effects source (CC-licensed;
+1. Matthew: try lighting triggers against his Eos/MA, Send-to-mic (with
+   VB-Cable), video sound on the real show (he reported video→audio convert
+   "working perfectly" 2026-10-03; double-click into the editor for a
+   converted video takes a couple of seconds to draw the waveform — decode,
+   expected). Then **cut 1.0.4** (release checklist below). First release
+   installable purely through the in-app updater.
+2. Open bug (task chip offered): a second quewi instance offers to "recover"
+   — and on No deletes — the first instance's live journal.
+3. Open audit items: A12 (output matrix sliders), A5 (waveform handles),
+   V3/V4/V7–V10/V12–V14 (video), M11, and low-severity audio/UI items.
+4. Queued idea: Freesound.org as a second sound-effects source (CC-licensed;
    needs an API key — decide how quewi gets/stores one).
-4. Mix (TheatreMix) phases 3–8; DM7 hardware probe (see below).
+5. Mix (TheatreMix) phases 3–8; DM7 hardware probe (see below).
 
 ---
 
@@ -185,6 +239,7 @@ At `C:/Users/matth/Documents/Apps/X32-Behringer`. Build with Qt's MinGW:
 commented out). Run `X32.exe -i 127.0.0.1` → UDP 10023.
 
 ## Blocked on Matthew
+- Try lighting triggers on a real Eos/Nomad or grandMA (OSC UDP 8000 / MIDI).
 - Try Send-to-mic with a virtual cable; try video sound on the real show.
 - Get on the DM7 → `tools/dm7_probe.py <IP>` (settles `prminfo`, PEQ gain
   scaling 1/10/100, mute-group polarity, dynamics on current firmware).
@@ -228,6 +283,11 @@ dark palettes share `quewi-dark.qss`, light is tokenised to match.
   copy shares Matthew's QSettings and recovery journals: afterwards remove the
   journals it left (`%APPDATA%\ServeGaming\quewi\journals`) and reset
   `lastSeenVersion` / `ui\whatsNewVersion` if they moved.
+  **Careful:** a second copy finds *his* live journal and asks to recover
+  it — "No" deletes it. Back up the journals folder first and restore it.
+  **Headless-ish**: `quewi.exe --selftest-idle` skips recovery + Welcome and
+  stays open; with his copy on 53535 it binds OSC on **53000** — script it
+  with a UDP client (`tools/osc_triggers_drive.py`, `tools/osc_triggers_video.py`).
 - Commit messages with quotes: write them to a file and `git commit -F` (inline
   PowerShell here-strings with `"` break argument passing).
 - moc gotcha: `\"` inside a raw string in a `Q_OBJECT` file → empty `.moc`.
