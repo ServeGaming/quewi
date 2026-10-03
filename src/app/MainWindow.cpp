@@ -1801,7 +1801,10 @@ ui::AudioEditorWindow *MainWindow::openAudioEditor(cues::Cue *cue)
                 if (m_goEngine) m_goEngine->sendTriggerAction(a, ownerPtr.data());
             });
     connect(editor, &ui::AudioEditorWindow::lightingDeskSettingsRequested, this,
-            [this] { showPreferencesPage(QStringLiteral("Lighting")); });
+            [this, editor] {
+                showPreferencesPage(QStringLiteral("Lighting"));
+                editor->refreshLightingDesk();   // the desk may have changed
+            });
     connect(m_goEngine.get(), &GoEngine::triggerFired, editor,
             [editor, ownerPtr](cues::Cue *firedOwner, const QUuid &id, const QString &, bool) {
                 if (firedOwner && firedOwner == ownerPtr) editor->flashTrigger(id);
