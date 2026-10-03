@@ -1,6 +1,9 @@
 #include "video/VideoCue.h"
 
+#include "audio/AudioCue.h"
+
 #include <QJsonObject>
+#include <QSignalBlocker>
 
 namespace quewi::video {
 
@@ -64,13 +67,29 @@ void VisualCue::visualFromPayload(const QJsonObject &payload)
 
 // ---------------- VideoCue ----------------
 
-VideoCue::VideoCue(QObject *parent) : VisualCue(parent) {}
+VideoCue::VideoCue(QObject *parent)
+    : VisualCue(parent)
+    , m_sound(new audio::AudioCue(this))
+{
+    // Any change to the sound (level, effects, the editor) is a change to
+    // this cue: it marks the show unsaved and refreshes the row.
+    connect(m_sound, &cues::Cue::changed, this, [this] { emitChanged(); });
+}
 VideoCue::~VideoCue() = default;
+
+audio::AudioCue *VideoCue::audioOf(cues::Cue *cue)
+{
+    if (auto *ac = qobject_cast<audio::AudioCue *>(cue)) return ac;
+    if (auto *vc = qobject_cast<VideoCue *>(cue); vc && vc->soundEnabled()) return vc->sound();
+    return nullptr;
+}
 
 QVariant VideoCue::field(const QString &key) const
 {
-    if (key == QLatin1String("filePath")) return m_filePath;
-    if (key == QLatin1String("loop"))     return m_loop;
+    if (key == QLatin1String("filePath"))     return m_filePath;
+    if (key == QLatin1String("loop"))         return m_loop;
+    if (key == QLatin1String("soundEnabled")) return m_soundEnabled;
+    if (key.startsWith(QLatin1String("sound."))) return m_sound->field(key.mid(6));
     return VisualCue::field(key);
 }
 
@@ -79,13 +98,26 @@ void VideoCue::setField(const QString &key, const QVariant &value)
     if (key == QLatin1String("filePath")) {
         if (m_filePath == value.toString()) return;
         m_filePath = value.toString();
+        // The soundtrack is the video's own audio, so it follows the file.
+        m_sound->setField(QStringLiteral("filePath"), m_filePath);
         emitChanged();
         return;
     }
     if (key == QLatin1String("loop")) {
         if (m_loop == value.toBool()) return;
         m_loop = value.toBool();
+        m_sound->setField(QStringLiteral("loop"), m_loop);
         emitChanged();
+        return;
+    }
+    if (key == QLatin1String("soundEnabled")) {
+        if (m_soundEnabled == value.toBool()) return;
+        m_soundEnabled = value.toBool();
+        emitChanged();
+        return;
+    }
+    if (key.startsWith(QLatin1String("sound."))) {
+        m_sound->setField(key.mid(6), value);   // its changed() re-emits ours
         return;
     }
     VisualCue::setField(key, value);
@@ -96,6 +128,8 @@ QJsonObject VideoCue::toPayload() const
     auto o = visualToPayload();
     o.insert(QStringLiteral("filePath"), m_filePath);
     o.insert(QStringLiteral("loop"), m_loop);
+    o.insert(QStringLiteral("soundEnabled"), m_soundEnabled);
+    o.insert(QStringLiteral("sound"), m_sound->toPayload());
     return o;
 }
 
@@ -104,6 +138,14 @@ void VideoCue::fromPayload(const QJsonObject &payload)
     visualFromPayload(payload);
     m_filePath = payload.value(QStringLiteral("filePath")).toString();
     m_loop     = payload.value(QStringLiteral("loop")).toBool();
+    // Missing = a show from before video sound existed: keep it silent.
+    m_soundEnabled = payload.value(QStringLiteral("soundEnabled")).toBool(false);
+    const QSignalBlocker block(m_sound);
+    if (payload.contains(QStringLiteral("sound")))
+        m_sound->fromPayload(payload.value(QStringLiteral("sound")).toObject());
+    if (m_sound->filePath().isEmpty())
+        m_sound->setField(QStringLiteral("filePath"), m_filePath);
+    m_sound->setField(QStringLiteral("loop"), m_loop);
 }
 
 // ---------------- ImageCue ----------------

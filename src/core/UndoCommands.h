@@ -37,6 +37,22 @@ private:
     std::unique_ptr<cues::Cue> m_storage;
 };
 
+// Swap the cue at `row` for another cue (e.g. a video cue converted to an
+// audio cue). Undo puts the original object back.
+class ReplaceCueCommand : public QUndoCommand {
+public:
+    ReplaceCueCommand(CueList *list, int row, std::unique_ptr<cues::Cue> replacement,
+                      const QString &text, QUndoCommand *parent = nullptr);
+    void undo() override;
+    void redo() override;
+
+private:
+    void swap();
+    CueList *m_list;
+    int m_row;
+    std::unique_ptr<cues::Cue> m_other;   // whichever cue is NOT in the list
+};
+
 // Generic field edit. The setter is invoked via cue->setField(name, value).
 class EditCueFieldCommand : public QUndoCommand {
 public:

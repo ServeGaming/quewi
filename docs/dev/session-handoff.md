@@ -2,448 +2,249 @@
 
 **Read this first if you are a Claude Code session picking up this repo.**
 It is the running state of the collaboration between Matthew and Claude, so a
-session on any computer can continue with no gaps.
+session on any computer (or a fresh conversation) continues with no gaps.
 
 > **⚠️ YOUR JOB, EVERY SESSION:** keep this file current and push it. When you
 > finish a meaningful chunk of work — a feature, a fix, a decision, a shift in
 > plan — update the relevant section below, commit it, and push. Do it at
-> checkpoints, not every message (constant tiny edits are noise), but often
-> enough that if the session ended right now, the next one would lose nothing.
-> The last section, *Update protocol*, tells you exactly how.
+> checkpoints, not every message, but often enough that if the session ended
+> right now, the next one would lose nothing. *Update protocol* (last section)
+> says how.
 
-Last updated: **2026-09-24**. 1.0.0 shipped 2026-07-17; **1.0.1 tagged
-2026-09-24** (soundboard keybinds incl. system-wide, a whole-app bug audit, a
-RAM fix for long files — see "1.0.1" below). Update the date whenever you touch this file.
+Last updated: **2026-10-03**. Installed on Matthew's PC: **1.0.3**. Latest
+release: **v1.0.3**. `main` is ahead of it with the 1.0.4 work below (not
+tagged — see "Next steps").
 
 ---
+
+## Matthew, and how he wants to work
+
+- Owner/user, GitHub `ServeGaming` (git author `ServeGaming`). Runs shows
+  (theatre, and streams — OBS/Twitch, Discord; he uses the soundboard live).
+- **Ship each change as a version bump**, committed and pushed to `main` (no
+  branches needed). His standing OK covers patch releases; still tell him what's
+  going out. Releases also update the docs site — see the release checklist.
+- **Be honest about state**: what's tested, what's only compiled, what's
+  "built but not driven". Verify by driving the real app, not just compiling.
+- All `ctest` suites must stay green and `quewi.exe --selftest` must exit 0.
+- Design/theme work goes to Fable (Agent tool, `model: fable`) as a background
+  task with strict file boundaries. Don't propose reskins — the warm-dark,
+  amber-accent aesthetic is deliberate.
+- Secrets go straight to GitHub Secrets, never shown. The signing cert is fine
+  and is **not** being rotated — don't raise it.
+- **Never `Stop-Process` every quewi.** He keeps his own running; only stop the
+  test copies you launched (match on their folder path). Killing his looked to
+  him like a crash.
+- Driving the GUI: he grants computer-use per test-copy exe when asked (he
+  declined once, granted later). Ask; if he declines, say what's undriven.
 
 ## What quewi is
 
 A Qt 6 / C++23 theatre cueing app (AGPL-3.0, github.com/ServeGaming/quewi),
-aiming at QLab + TheatreMix parity. Cross-platform: Windows MSI, macOS DMG
-(universal), Linux AppImage, all built from a `v*` git tag by
-`.github/workflows/release.yml`. The operator fires sound/video/lighting cues
-live during a show, often in a dark booth under time pressure.
+aiming at QLab + TheatreMix parity. Windows MSI + portable zip, macOS DMG, Linux
+AppImage, all built from a `v*` tag by `.github/workflows/release.yml`. Docs
+site (MkDocs, `docs/`) deploys to GitHub Pages on every push to `main`
+(`.github/workflows/docs.yml`); `mkdocs build --strict` must pass.
 
-Owner/user: **Matthew** (GitHub `ServeGaming`, git author `ServeGaming`).
-Working style he's asked for: ship each change as a version bump,
-committed/pushed; "use it to the fullest"; don't worry about usage limits, he'll
-say continue. Secrets go to GitHub Secrets directly, never shown here; the
-signing cert is not compromised and is not being rotated — don't push on that.
+---
 
-## The current big thread: quewi Mix (a TheatreMix duplicate)
+## Current state — on `main`, not yet released (→ 1.0.4)
 
-Matthew asked to build a **TheatreMix clone inside quewi** — live DCA mixing that
-shares one cue list with playback, so nobody has to bolt two apps together.
-This is the active work. Full design: `docs/dev/quewi-mix-spec.md`. Console
-protocol details (X32 + Yamaha DM7): `docs/dev/console-protocols.md`.
+All committed and pushed. **24/24 ctest suites green, selftest exits 0.**
 
-**The one principle that must not erode:** quewi Mix assigns and labels DCAs but
-**never recalls DCA fader levels.** The software does the bookkeeping (which mics
-are on which faders this scene, everything else muted); the human owns the mix.
-That restraint is the whole product.
+### 1. Video cues play their sound + convert to/from audio cues (2026-10-03)
+Matthew's show has every song mix as .mov / .mp4 video cues, which played
+**silent** — `VideoLayer` hard-muted the player and the "route through the
+AudioEngine" plan was never built.
+- `VideoCue` now owns an embedded `audio::AudioCue` (`sound()`), parented to
+  it, never in a list. Its file and loop follow the video's. Edited via
+  `setField("sound.<field>")` (undoable like any field) and `"soundEnabled"`.
+  **New video cues: sound on. Shows saved before this: sound off** (payload
+  without `soundEnabled`), so old shows play exactly as before.
+  `VideoCue::audioOf(cue)` = the AudioCue a cue plays through (AudioCue itself
+  or an enabled video's sound) — used by every voice→cue lookup (GoEngine,
+  ActiveCuesPanel, MainWindow OSC notifications, prewarm).
+- GoEngine: audio firing extracted to `fireSound(audioCue, route, owner)`; the
+  video branch fires the picture then `fireSound(vc->sound())`. Stop / Pause
+  cue / Start-resume / Fade (param "gainDb" on a video target) / the
+  Inspector scrubber's seek & play-pause all drive both.
+- Inspector: a **Sound** section on video cues (play-sound checkbox, Level,
+  Pan, Fade in/out, Output, **Edit sound…** → audio editor on the embedded
+  cue, **Convert to audio cue**). Audio section gets **Convert (back) to video
+  cue** when `CueConvert::canConvertToVideo`.
+- `video/CueConvert` — `videoToAudio` / `audioToVideo`: keep the cue id (so
+  Fade/Start/Stop targets and links still resolve) and identity fields; the
+  audio cue stores the whole video payload in `AudioCue::videoOrigin` so going
+  back restores screen/geometry/opacity; sound edits made as audio carry back.
+  Any audio cue whose file is a video container can convert too.
+  `core::ReplaceCueCommand` swaps the cue in place (undoable).
+  `MainWindow::convertCue` stops the cue first, then pushes the command; also
+  **Cue → Convert Video ↔ Audio**.
+- Video soundtracks are prewarmed (decoded ahead) like audio cues — without it
+  the first GO was silent ("audio still decoding"). Found by driving.
+- **Driven in the real app** (test copy, synthetic `test-song.mp4` made with
+  Matthew's ffmpeg at `c:\users\matth\videos\ffmpeg\bin`): video cue plays its
+  sound at the set level (ACTIVE strip showed it at −20 dB), convert → audio →
+  video round trip kept the level and Opacity 0.50. `test_video_sound` covers
+  the model, conversion, undo, and decoding AAC out of .mp4/.mov (that case
+  needs `QUEWI_TEST_VIDEO_FILE`; skips in CI).
+- Known limits: picture and sound start together but run on separate clocks
+  (fine for song mixes; a long take may drift for lip-sync). One unexplained
+  moment while driving: an Opacity edit typed then Tab'd away didn't save
+  before the first convert; couldn't reproduce (Return worked). Watch for it.
 
-**Console targets:** Behringer X32 / Midas M32 (OSC/UDP, develops against
-pmaillot's emulator with no hardware) and **Yamaha DM7** (RCP/TCP, Matthew has
-one with regular access). The two protocols are opposites — that's deliberate,
-it's what proves the abstraction.
+### 2. Double-click the Inspector's divider → fit to content (2026-10-03)
+`MainWindow::event` catches the double-click on QMainWindow's dock separator
+(it's not a widget) within 8 px of the dock edge and `resizeDocks` to
+`Inspector::contentWidthHint()` (cue list keeps ≥ 360 px). **Driven: works**
+(the clipped Browse / Color… / Reset buttons all came into view). Same pass
+fixed a stray "Text size" label showing on video cues (`m_visualForm`
+`setRowVisible`).
 
-### What's built and working (all tested, most driven in the real app)
+### 3. Soundboard "Send to mic" (2026-09-30) — needs Matthew to try
+Voicemod-style: pads play into a virtual cable apps use as a microphone.
+- Engine: `VoiceParams::mirrorDeviceId/mirrorGainDb` → a hidden linked copy of
+  a voice on a second device (stop/fade/pause/seek/gain/pan/loop/fx follow it;
+  not reported in activeVoices/voiceFinished; a missing device = no mirror,
+  never a fallback to default). `AudioEngine::setLiveInput(in, out, dB)` mixes a
+  captured mic into that output via an SPSC ring in its Mixer (20 ms cushion,
+  skip past 80 ms backlog, re-prime on underrun); that device runs a 40 ms sink
+  buffer. GoEngine takes `AudioRoute` (output, gain offset, mirror, mirror gain).
+- UI: `ui/MicRouting` (QSettings `soundboard/mic/*`, per computer) +
+  `MicRoutingDialog` behind a "Mic: …" soundboard button;
+  `MainWindow::fireSoundboardCue` / `applyMicPassthrough`.
+- Tests: live-input ring (test_mixer); mirror bookkeeping on two real devices.
+  **Not driven**: no virtual cable on his PC (Voicemod driver present but its
+  endpoints inactive). He needs to install VB-Audio Virtual Cable and try it.
 
-- `src/mix/X32Value`, `src/mix/Dm7Value` — pure value codecs. The traps live
-  here (DCA1=bit0, inverted EQ Q, `f=0`=−∞, 27 legal DM7 pans, dB scaling).
-- `src/mix/ConsoleLink` — protocol-agnostic base. Owns the assignment cache and
-  hands subclasses `(previous, next)` so one call drives a bitmask (X32) and a
-  per-pair boolean (DM7). `applyCue()` mutes every channel the cue doesn't name.
-- `src/mix/X32Link` — X32/M32 over UDP. Two-socket confirmation, `/xremote`
-  keepalive + loss detection, Scene Safe bit 5, channel links, scene-recall
-  resync.
-- `src/mix/Dm7Link` — DM7 over TCP/RCP. Diff-based pair writes, split mode,
-  `OK` vs `NOTIFY`, keepalive, model-gated capabilities.
-- `src/mix/MixShow` (compiled into `quewi_core`, like `cues/`) — channels,
-  actors, backups, ensembles, DCA count. `src/mix/MixCue` — per-cue DCA
-  assignments, stored DCA-first, ensembles resolved at fire time.
-- Persistence: `mix_json` + `mix_list_ids` meta keys, `"mix"` in the cue
-  registry. Round-trips through real SQLite.
-- `src/ui/MixGridModel` + `src/ui/MixView` — the DCA cue grid, reachable via
-  View → Mix (DCA) grid (Ctrl+Shift+M). Change-highlighting (arrival outranks
-  departure), live-cue marker, warm-grey selection (not Fusion blue).
-- `src/ui/ChannelEditorDialog` — the channels + ensembles editor, reached from
-  the mix view's "Channels & ensembles…" button. **This is what makes the grid
-  usable** — without a named channel, `resolve()` drops the strip and the grid's
-  highlighting stays inert.
+### Next steps
+1. Matthew tries Send-to-mic (with VB-Cable) and the video-sound features on
+   his real show → then **cut 1.0.4** (release checklist below; docs already say
+   "new in 1.0.4"). 1.0.4 will be the first release installable purely through
+   the in-app updater.
+2. Open audit items: A7 (audio-editor track-removal crash), A12 (output matrix
+   sliders), A5 (waveform handles), V3/V4/V7–V10/V12–V14 (video), M11, and
+   low-severity audio/UI items.
+3. Queued idea: Freesound.org as a second sound-effects source (CC-licensed;
+   needs an API key — decide how quewi gets/stores one).
+4. Mix (TheatreMix) phases 3–8; DM7 hardware probe (see below).
 
-### Post-1.0 mix-workflow features (built 2026-07-18)
+---
 
-Three features Matthew asked for after 1.0. All **compile clean, 19/19 tests
-green, selftest exits 0**, and the logic is reasoned through — but **none has
-been screen-driven yet** (see the driving blocker at the end of this section).
-"Built + unit-verified, view layer not yet driven" — the same honest state the
-mix grid is in.
+## Release history (what each shipped)
 
-- **DCA GO button in the main transport bar** (commit `7f0438d`). A second GO,
-  left of the playback GO, that fires the Mix (DCA) list at the console from
-  anywhere in the app. Dusty "console" blue on dark / filled blue chip on
-  light, shorter than the hero GO so they're never confused. `MixView` reports
-  `canFireNext()` + a tooltip and emits `mixStateChanged()`; the transport bar
-  paints the result (disabled + explanatory tooltip until a console is live on a
-  Mix list). Wiring in `MainWindow::buildLayout` (the transport-connect block).
-- **Bidirectional cue links** (commit `437faf7`). `Cue::linkedCueId` (persisted,
-  single-sided) pairs a cue with one other — the point is pairing a sound cue
-  with a DCA cue so one GO fires both. Firing resolves the forward link **and**
-  any cue that links back, so it works from either end. `MainWindow` is the
-  coordinator (only object owning both the GoEngine and the console link): it
-  hooks `GoEngine::cueFired` + `MixView::mixCueFired`, and a `m_pendingLinkFires`
-  marker set breaks the A→B→A bounce **even across a pre-wait** (async fire).
-  UI: a "Linked DCA cue" picker in the Inspector's common header, shown only
-  when the show has mix cues. `MixView::fireCueAtConsole()` applies a specific
-  cue without advancing. **This is the one most worth driving** — confirm a
-  linked pair fires both ways against the emulator and does NOT loop/hang.
-- **Pop-out inspector sections** (commit `7e4a704`). Each type section (Audio,
-  Object Audio, Fade, Light, Visual, OSC, MIDI, MSC, Group, Wait, target) has a
-  ↗ corner button that floats it into its own always-on-top window; ↙ docks it
-  back to the exact spot. Qt::Window-on-a-child trick (keeps QObject parent → no
-  leak). Object Audio (nested in the audio group) is included per Matthew's ask.
-  Interaction note to verify: `rebuild()` still toggles group visibility per cue
-  type, so a floated section hides when you select a cue that doesn't use it and
-  reappears when you select one that does — intended, but eyeball it.
+- **1.0.0** (2026-07-17) — shipped "as is, patch as we go" (Matthew's call),
+  with the updater and a live console run knowingly unverified.
+- **1.0.1** (2026-09-24) — soundboard keybinds incl. system-wide
+  (`GlobalHotkeys`, Windows `WH_KEYBOARD_LL`, scope Board/App/System in
+  QSettings `soundboard/keyScope`); DCA GO, cue links, tear-off Inspector
+  sections, DCA picker, Coffee theme; a whole-app audit (GoEngine rewrite,
+  mixer fixes pinned by `test_mixer`, mix only touches the show's strips, Show
+  Mode really locks, recovery before Welcome, **MSC = Ctrl+Alt+M**); long files
+  decode to a memory-mapped cache (`SampleStore`; 3-h MP3: 4.1 GB → 45 MB).
+- **1.0.2** (2026-09-24) — effects presets (28 chains, `audio/EffectPresets`,
+  user presets in `effects/userPresets`); Distortion / Lo-Fi / Pitch Shift /
+  Tremolo on a `SimpleEffect` base; effect-only edits now save (audit A8);
+  rendered cues no longer double their effects (`bouncedPath`); "Update Render"
+  rewrites in place; right-click empty pad → Import from URL (yt-dlp) + trim.
+- **1.0.3** (2026-09-24) — the updater, fixed and proven (below).
 
-**Driving blocker (why none is screen-driven yet):** computer-use only allows
-the **installed** binary (`c:\program files\quewi\bin\quewi.exe` = 1.0.0),
-which doesn't have these changes; the dev build at `build/windows-release/`
-isn't in the allowlist and can't be granted by path. Overwriting the Program
-Files install needs admin/UAC, which the desktop tools can't drive. So the
-verification path is: **Matthew runs the next build/patch** (or OKs a temporary
-binary swap), then eyeball the three above. The emulator on `127.0.0.1:10023`
-was up this session (the `x32_emulator` suite ran live, not skipped), so the
-link-fire test is ready the moment the new binary is running.
+## The updater — PROVEN on both paths (gate 3 closed)
+- MSI path: Matthew's 1.0.2 → 1.0.3 in-app update worked end to end on
+  2026-10-03 (UAC, quewi quit itself, msiexec OK, relaunched).
+- Portable path: driven end to end with a test copy + the dev hook
+  `QUEWI_UPDATE_PRETEND_VERSION=1.0.1` against the real release.
+- Bugs that were behind years of "it just closes": the update prompt fired
+  inside the Welcome dialog before `app.exec()` (Qt 6 `quit()` no-op) → now
+  `MainWindow::runStartupChecks()` after Welcome + `quitForUpdate()` with a
+  15 s `_Exit` watchdog; a **use-after-free** — the downloadFinished handler
+  held the installer's path by reference while `deleteLater` ran in the confirm
+  dialog's nested loop → by value + scope-guarded deletion; the portable swap
+  helper was launched with `\"title\"`-mangled args and never ran →
+  `setNativeArguments` + CREATE_NO_WINDOW, step-logged.
+- Logs: `%APPDATA%\ServeGaming\quewi\update-{client,helper,install}.log`.
 
-### What's NOT done on the mix feature
+## The quewi Mix thread (TheatreMix inside quewi)
+Design: `docs/dev/quewi-mix-spec.md`; protocols: `docs/dev/console-protocols.md`.
+**Principle that must not erode:** quewi Mix assigns and labels DCAs but
+**never recalls DCA fader levels**. Targets: Behringer X32/M32 (OSC/UDP) and
+Yamaha DM7 (RCP/TCP; Matthew has one).
+- Built: `X32Value`/`Dm7Value` codecs, `ConsoleLink` base, `X32Link`,
+  `Dm7Link`, `MixShow`/`MixCue`, persistence, `MixGridModel`/`MixView`
+  (View → Mix (DCA) grid, Ctrl+Shift+M), `ChannelEditorDialog`, DCA GO, links.
+- `x32_emulator` test drives the real `X32Link` against pmaillot's emulator
+  (independent implementation) — the wire is proven. The GUI view layer
+  (live-cue marker, Scene Safe banner) hasn't been screen-confirmed.
+- Not done: spec phases 3–8 (channel processing, positions, FX, level offsets,
+  fader surface, OSC surface). **DM7 EQ blocked** on a hardware probe.
 
-- **Screen-confirm the grid "lights up" with a real channel assigned.**
-  Structurally certain (once the channel editor registers a strip, `resolve()`
-  keeps it → `changeFor()` returns non-empty → the cell paints green/Assigned;
-  the earlier "inert" behaviour was *only* because zero channels were
-  registered). Driving it on screen kept getting blocked by Windows
-  `textinputhost` stealing foreground, so it wasn't visually confirmed. Low
-  risk, but eyeball it: mix grid → Channels & ensembles → add "Elphaba" strip 1
-  → type "Elphaba" (or "1") into a DCA cell → the cell should light up.
-- ~~**No end-to-end console run.**~~ **Gate 4 closed.** `tests/test_x32_emulator.cpp`
-  (suite `x32_emulator`, commit `ec9eda5`) drives the real production `X32Link`
-  against pmaillot's emulator — an *independent* protocol implementation, so it
-  can't rubber-stamp our own reading like the FakeX32 does. Confirms the connect
-  handshake, the DCA bitmask (0b101→2→0, i.e. DCA1=bit0 verified against foreign
-  iron), inverted mute polarity, and the full `applyCue` fire. Skips cleanly
-  (exit 0) when nothing answers on `127.0.0.1:10023`, so CI stays green; runs for
-  real when `X32.exe -i 127.0.0.1` is up (or `QUEWI_X32_HOST`). What's still
-  *not* screen-confirmed is the **view layer** — the live-cue marker painting and
-  the Scene Safe banner — because the protocol path is now proven but the GUI
-  wasn't driven end-to-end (window z-order + `textinputhost` kept stealing
-  focus). Lower priority than it was; the risky part (the wire) is verified.
-- Phases 3–8 of the spec: channel processing (profiles/backup/floating spare),
-  positions, FX assignments, level offsets, the fader surface, the OSC surface.
-  DM7 EQ is **blocked** on a hardware test (PEQ gain scaling: 3 sources disagree
-  1 vs 10 vs 100).
+### X32 emulator (for testing)
+At `C:/Users/matth/Documents/Apps/X32-Behringer`. Build with Qt's MinGW:
+`C:/Qt/Tools/mingw1310_64/bin/gcc.exe -O2 -I X32lib -o X32.exe X32.c X32lib/Xsprint.c X32lib/Xdump.c -lws2_32`
+(the clone has one local patch: X32.c's manual `getaddrinfo` prototype is
+commented out). Run `X32.exe -i 127.0.0.1` → UDP 10023.
 
-## 1.0.1 — tagged 2026-09-24 (commit `edb0df0`)
+## Blocked on Matthew
+- Try Send-to-mic with a virtual cable; try video sound on the real show.
+- Get on the DM7 → `tools/dm7_probe.py <IP>` (settles `prminfo`, PEQ gain
+  scaling 1/10/100, mute-group polarity, dynamics on current firmware).
 
-Matthew OK'd the release. Tag `v1.0.1` pushed; the docs site now has Release
-notes, Soundboard and quewi Mix pages, and the shortcuts page was re-audited
-against the code. The GitHub release body is set by hand with `gh release edit`
-(the workflow leaves it empty). **Next: Matthew clicks File → Check for
-updates… from 1.0.0 — this is the updater's live test; if it fails, read
-`%APPDATA%/quewi/update-client.log` and fix in 1.0.2.**
+## Design / theme
+Fable's review (`docs/dev/design-review.md`) + the Fusion fall-through fix
+(global `QPalette` from `Theme::tokens()`). Audio editor retheme done
+(`5fea82e`). Warm dark greys, creamy ink, one amber accent, 3/4 px radii; five
+dark palettes share `quewi-dark.qss`, light is tokenised to match.
 
-What went into it:
+---
 
-**22/22 ctest suites green, `--selftest` exits 0** at the tag. Matthew has been running dev builds copied to a scratch folder;
-**never `Stop-Process` every quewi** — only the dev-build path (killing his
-copy looked to him like a crash).
+## Release checklist (every `v*` tag)
+1. Version in the top `CMakeLists.txt` (`project(quewi VERSION x.y.z)`).
+2. `src/ui/WhatsNewDialog.cpp` highlights (keep the previous release's below,
+   for people skipping a version).
+3. `docs/about/release-notes.md` + any changed feature page; change
+   "new in x.y.z" markers as needed; `mkdocs build --strict`.
+4. Build, `ctest`, `--selftest`; commit, push, `git tag -a vX.Y.Z`, push tag.
+5. Watch the release run (macOS DMG's `hdiutil detach` sometimes flakes —
+   `gh run rerun <id> --failed`), then `gh release edit vX.Y.Z --title
+   "quewi X.Y.Z" --notes-file …` (the workflow leaves the body empty).
 
-- **Soundboard keybinds** (`CartView`, new `GlobalHotkeys`): per-pad key via
-  right-click → "Set key…", conflict warnings, plus a scope combo:
-  Board / App / **System** (Windows `WH_KEYBOARD_LL` pass-through hook; fires
-  only while quewi is *not* foreground, so no double-fire). Setting persists in
-  QSettings `soundboard/keyScope`. System scope is Windows-only; other OSes fall
-  back to App. The add-layer button is now a real "+" add button.
-- **Whole-app audit** (`fix(playback)`, `fix(audio)`, `fix(mix)`, `fix(ui)`
-  commits): GoEngine rewrite (auto-continue honours post-wait, playhead skips
-  the chain, Pause/Fade All/panic, group modes, recursion guard); mixer fixes
-  (fades hold, paused voices stop, loops wrap to trim-in, Fade Out applied) —
-  pinned by `test_mixer` rendering the real mixer offline; mix only touches the
-  show's strips, X32 initial-sync race fixed, DM7 writes full rows when unknown,
-  ensemble renames follow; Show Mode really locks, crash recovery runs before
-  Welcome, cue shortcuts no longer collide (**MSC moved to Ctrl+Alt+M**),
-  workspace dirty-tracking covers soundboard/mix/patch edits.
-- **RAM** (`b720b2f`): files whose decoded audio > 96 MB decode into a
-  memory-mapped cache (`SampleStore`, under the app cache dir, swept at start).
-  Measured on a 179-min MP3: **peak working set 45 MB, was 4.1 GB**; decode
-  ~47× realtime. Also fixed `QAudioDecoder::duration()` being read as µs (it's
-  ms) — the pre-reserve was 1000× too small for every file.
-  `test_long_file_memory` is the manual benchmark (env `QUEWI_MEM_PROBE_FILE`).
-
-**Audit items still open:** A7 (audio-editor track-removal crash), A8 (editor
-effects not saved), A12 (output matrix sliders), A5 (waveform handles),
-V3/V4/V7–V10/V12–V14 (video), M11, and the low-severity audio/UI items.
-
-**Not yet driven by Matthew:** system-wide soundboard keys, draggable inspector
-sections, DCA picker, the long-file RAM fix inside the running app.
-
-**On main, untagged (for 1.0.4): soundboard "send to mic"** (Matthew, 2026-09-30).
-Engine: `VoiceParams::mirrorDeviceId/mirrorGainDb` plays a hidden linked copy
-of a voice on a second device (stop/fade/pause/seek/gain/fx follow it; it's
-filtered out of activeVoices/voiceFinished; missing device = no mirror, never
-a fallback to default). `AudioEngine::setLiveInput(in, out, gainDb)` captures a
-mic (QAudioSource, GUI thread) → SPSC ring in the output Mixer (20 ms cushion,
-jumps back to 20 ms past an 80 ms backlog, re-primes on underrun); that output
-runs with a 40 ms sink buffer (`m_lowLatencyDevices`). GoEngine takes an
-`AudioRoute` (output, gain offset, mirror, mirror gain) instead of a bare
-device override. UI: `ui/MicRouting` (QSettings `soundboard/mic/*`, per
-computer) + `MicRoutingDialog` behind a "Mic: …" button on the soundboard;
-`MainWindow::fireSoundboardCue` / `applyMicPassthrough`. Needs a virtual cable
-(VB-Audio CABLE) — Matthew's machine has none active (Voicemod driver present,
-endpoints inactive). Tests: live-input ring + backlog (test_mixer), mirror
-bookkeeping on real devices (skips with <2 outputs). **NOT driven**: Matthew
-declined UI control this time; real mic capture never exercised.
-
-**Updater VERIFIED on the MSI path (2026-10-03):** Matthew's in-app update
-1.0.2 → 1.0.3 worked end to end — UAC accepted, quewi quit by itself 3 s later
-(1.0.2's quitForUpdate), msiexec install OK in 26 s, relaunched, no failure
-flag; 1.0.3 is what's installed. (1.0.2 still had the path use-after-free; it
-just didn't bite that time — from 1.0.3 it can't.) With the portable-path
-drive below, both update routes are now proven. Gate 3 is closed.
-
-**1.0.3 tagged 2026-09-24 — the updater, for real.** The 1.0.1→1.0.2 update
-"just closed quewi": `update-client.log` showed `launchInstaller(): path=`
-GARBAGE. Use-after-free — the downloadFinished lambda took `const QString&`
-to the installer's own `m_localPath`, then `installer->deleteLater()` ran
-inside the confirm dialog's nested loop (Qt 6 semantics). Fixed by value +
-scope-guarded deletion + the installer emitting a copy. Also the PORTABLE
-path had never worked: `cmd /c start "title" /min swap.bat` via QProcess arg
-list escaped the quotes as `\"title\"`; now `setNativeArguments` +
-CREATE_NO_WINDOW, and swap.bat step-logs to `update-helper.log`. **Driven end
-to end** with a dev build in `scratchpad/upd-test` (windeployqt'd) and the
-new dev hook `QUEWI_UPDATE_PRETEND_VERSION=1.0.1` against the real v1.0.2
-release: download → quitForUpdate → swap → relaunch → cleanup, all logged
-OK. MSI path: client side is the same fixed code; the elevated helper
-already worked in 1.0.0→1.0.1. **Everyone on ≤1.0.2 must install 1.0.3 by
-hand** (their old updater has the UAF). Driving tip: test-copy windows open
-on the 2nd monitor (DELL S2719HS); `scratchpad/front.ps1 -Title "..."` fronts
-a window; computer-use needs `request_access(["quewi.exe"])` for the
-test-folder exe. The test copy shares Matthew's QSettings — reset
-`lastSeenVersion` / `ui\whatsNewVersion` afterwards.
-
-**1.0.2 tagged 2026-09-24** (Matthew: "get it to the release"). Contents below.
-The 1.0.1 → 1.0.2 update still runs 1.0.1's buggy quit, so Matthew may have
-to close quewi by hand once; 1.0.2 → 1.0.3 is the real test of the quit fix
-(check `update-client.log` for the new `quitForUpdate:` lines).
-**In 1.0.2:** the updater quit fix (see "Updater"
-below); right-click an empty soundboard pad → Choose sound file… / Import
-from URL… (the Ctrl+U yt-dlp importer in pad mode: audio only, "Download to
-pad", queued signal → `MainWindow::importToPad`); an "open in the audio
-editor afterwards to trim" checkbox in the importer (default on for pads,
-off for the cue list, remembered separately); the importer's docs page is
-now in the site nav (docs now say "new in 1.0.2"). Menu + signal covered by `test_cart_view`; the download itself
-was NOT driven (it hits YouTube) — Matthew to try it.
-Also for 1.0.2: effects rack **presets** (`audio/EffectPresets` — 28 built-in
-chains in Voice/Space/Character/Mix groups + user presets in QSettings
-`effects/userPresets`), four new effects on a table-driven `SimpleEffect`
-base (Distortion, Lo-Fi, Pitch Shift [two-tap delay-line], Tremolo), and three
-editor bugs fixed: effect-only edits were never saved (A8 — now
-`effectsEdited`/`effectsDirty`, synced to the cue 300 ms after each change);
-effects played twice after a render (the render bakes the rack; the session
-now stores `bouncedPath` and `AudioCue::buildEffectChain` skips the rack
-while the cue plays it); re-rendering asked for a file every time (now
-"Update Render" rewrites the same file via temp+swap; "Render As…" for a new
-one). `AudioFile` now frees its decoder after loading so Windows lets the
-render be replaced. Beware `QFileInfo::operator==`: it calls two missing
-files equal — use `AudioCue::sameFile`. `test_effects` covers the DSP,
-presets, dirty tracking and the bake rule. **Not driven in the GUI yet.**
-**Next feature idea queued:** Freesound.org as a second source (CC-licensed
-SFX; needs an API key — work out how quewi gets/stores one).
-
-**Release checklist for every future `v*` tag** (Matthew asked explicitly):
-version bump in the top `CMakeLists.txt`; WhatsNewDialog highlights; add the
-release to `docs/about/release-notes.md` and update any feature page that
-changed (the docs workflow deploys GitHub Pages on push to main); tag; then
-`gh release edit vX.Y.Z --notes-file …` once the release workflow has made it.
-
-## 1.0 shipped — and what that decision was
-
-**v1.0.0 was tagged 2026-07-17 on Matthew's explicit call: "release it as is
-and have patches as we go along."** Two of the four gates in
-`docs/dev/release-1.0-plan.md` were open at ship time, knowingly:
-
-- **The Windows updater is UNVERIFIED** since the 0.9.103 "download bar then
-  nothing installs" report. Consequence accepted: **the first patch release
-  (1.0.1) doubles as the updater's live test.** If it fails, users grab the MSI
-  manually and the updater fix becomes the next patch. When cutting 1.0.1,
-  watch `%APPDATA%/quewi/update-client.log` — the step-logging is already in.
-- **No full quewi-against-console run at ship** — since closed at the protocol
-  layer by the `x32_emulator` integration test (see the mix "NOT done" section).
-  The remaining unverified sliver is the GUI view layer (marker/banner), not the
-  wire.
-
-Still explicitly deferred: code signing (paid certs; `release-signing.md`),
-DM7 EQ (blocked on the hardware probe), the fader surface, and the **audio-editor
-retheme** — design-review finding 3 (TimelineCanvas + ParametricEqDialog still
-paint a private cool-blue palette; ~52 hardcoded colours). Handed to Fable 5 but
-its run **failed on a session/usage limit before committing anything** — the tree
-is clean, the retheme simply didn't happen. Purely cosmetic (the audio editor is
-its own window); pick it back up when usage resets. WaveformWidget was already
-retokenised in the earlier Fusion pass; CompressorDialog is the "good" reference.
-
-## Updater (1.0.1 gate 3) — review conclusion, do NOT edit blind
-
-Read `src/app/UpdateInstaller.cpp` in full. **It looks correct and has had
-serious fix work** since the 0.9.103 report: the Windows MSI path writes an
-elevated helper batch that quits quewi *first*, then runs `msiexec /i /qb!`
-(basic UI — a progress bar AND visible error dialogs, unlike the old silent
-`/passive` that made a failed install vanish), relaunches through Explorer at
-medium integrity, and self-deletes. macOS/Linux have analogous quit-first
-in-place swaps with the failure modes commented at each step. Step-logging to
-`%APPDATA%/quewi/{update-client,update-helper,update-install}.log` is in.
-
-**1.0.0 → 1.0.1 live test (2026-09-24), what the logs showed:** the install
-half WORKS — once quewi had exited, the elevated helper ran msiexec, the MSI
-major-upgraded 1.0.0 → 1.0.1 (only 1.0.1 left in Apps & Features) and quewi
-relaunched. The bug was **quewi not closing itself**: Matthew had to close it
-by hand. Root cause: the silent startup check was scheduled from the
-MainWindow constructor, so its "Update available" prompt fired inside the
-Welcome dialog's `exec()` — before `app.exec()` — and in Qt 6
-`QCoreApplication::quit()` is a no-op until the main loop runs. The helper
-then waited for a PID that never exited. Second hole: the save prompt only
-came from `closeEvent` *after* the installer launched, so Cancel stranded it.
-
-Fixed on main after the 1.0.1 tag (so it takes effect for updates *starting
-from* the next release; 1.0.0/1.0.1 users updating still need to close quewi
-by hand if it stays open — the helper waits ~10 min for them):
-`MainWindow::runStartupChecks()` is called by main() after the Welcome dialog;
-the save question is asked before launching; `quitForUpdate()` rejects open
-dialogs, quits, skips the close prompt, and a 15 s detached-thread watchdog
-`_Exit`s if anything still holds the process; main() returns if an update was
-started before `app.exec()`. **Unexplained:** the first 1.0.0 attempt's log
-stops right after "confirm answer=Yes" with no `launchInstaller()` line (the
-July 0.9.120 attempt shows the same). The new code logs more steps; check
-`update-client.log` after the next update.
-
-## X32 emulator — set up and verified on this machine
-
-pmaillot's emulator lives at `C:/Users/matth/Documents/Apps/X32-Behringer`
-(sibling of the repo; cloned from github.com/pmaillot/X32-Behringer with
-Matthew's approval). Build recipe that works — Qt's MinGW, **not MSVC** (the
-source guards on `__WIN32__`, which MSVC doesn't define):
-
-```
-C:/Qt/Tools/mingw1310_64/bin/gcc.exe -O2 -I X32lib -o X32.exe X32.c X32lib/Xsprint.c X32lib/Xdump.c -lws2_32
-```
-
-One local patch was needed (already applied in the clone): X32.c's manual
-`getaddrinfo` prototype (~line 864) conflicts with modern ws2tcpip.h and is
-commented out.
-
-Run: `X32.exe -i 127.0.0.1` → binds UDP 10023. **Verified working:** `/info`
-answers `X32 Emulator / X32 / 4.06`, and a `/ch/03/grp/dca ,i 5` set/get
-round-trips correctly — the first confirmation of quewi Mix's core operation
-against an independent implementation of the protocol (our DCA1=bit0 mask
-semantics held).
-
-**Job now mostly done** by the `x32_emulator` integration test (`ec9eda5`),
-which drives the production `X32Link` against this emulator. What's left is only
-the GUI *view* layer: launch quewi → mix grid → connect to `127.0.0.1` → fire a
-cue → confirm the live-cue marker paints amber and the Scene Safe banner shows.
-Nice-to-have, not a gate — the protocol path is proven. Note the emulator holds
-up to 4 `/xremote` clients, so a driving session can coexist with the test.
-
-## Blocked on Matthew (things Claude cannot do)
-
-- Updater diagnosis (softened by the ship decision — 1.0.1 will test it live,
-  but a manual run of an old installed version's updater is still the fastest
-  diagnosis if that fails; the log lands at `%APPDATA%/quewi/update-client.log`).
-- Get on the DM7 → run `tools/dm7_probe.py <IP>`. Settles `prminfo`
-  self-description (retires the stale-table error class), PEQ gain scaling,
-  **mute-group polarity** (undocumented; a wrong guess mutes the cast mid-show),
-  and whether dynamics exist on current firmware.
-
-## Design / theme state
-
-Fable 5 (the design-focused model) did a full review (`docs/dev/design-review.md`)
-and a "Fusion fall-through" fix pass. Verdict: **the design is fundamentally
-sound**; the theme's discipline had stopped at the QSS boundary and everything
-past it drifted. Now fixed:
-
-- The whole *class* of "beveled / Fusion-blue / foreign" bugs traced to one root
-  cause: native Qt controls and `QPainter` widgets bypassing the QSS. Closed by
-  a global `QPalette` built from `Theme::tokens()` (applied in `Theme::load()`),
-  plus QSS rules for the gaps (radio buttons, scrollbar corner, dock title,
-  table corner button). A painted widget that reads `palette()` now inherits the
-  theme automatically.
-- ~~**Still open:** the audio editor's cool-blue palette (finding 3).~~
-  **Closed 2026-07-18** (commit `5fea82e`, Fable). TimelineCanvas,
-  ParametricEqDialog and the AudioEditorWindow chrome now draw every colour
-  from `Theme::tokens()` — playhead on `accent`, the blue edit cursor kept on
-  `info` (deliberately cool, distinct from the playhead). Colours only, verified
-  no literals remain. The audio editor is now on-theme.
-
-The theme direction is deliberate and liked: warm dark greys, creamy off-white
-ink, one amber accent, restrained pastels, no purple/neon/glow, 3px control /
-4px panel radii. Five dark palettes share `quewi-dark.qss` and swap tokens;
-`quewi-light.qss` is now tokenised to match. **Don't propose reskins** — critique
-within the aesthetic.
-
-## Other docs worth reading
-
-- `docs/dev/work-plan.md` — the granular running to-do, with fixes/findings.
-- `docs/dev/quewi-mix-spec.md` — the mix design + phase sequencing.
-- `docs/dev/console-protocols.md` — X32 + DM7 protocol reference (well-sourced;
-  the DM7 half has ⚠️ items pending hardware).
-- `docs/dev/release-1.0-plan.md`, `docs/dev/release-signing.md`.
-- `docs/dev/design-review.md` — Fable's findings (+ the Fusion pass appendix).
-- `docs/dev/show-nodes-idea.md` — Matthew's idea for distributed show nodes
-  (host owns the show file, other machines join as role-specific nodes). Idea
-  only, not scheduled.
-
-## Build / test / environment notes (save the next session an hour)
-
-- **Local Qt: `C:\Qt\6.11.0\msvc2022_64`.** CI uses Qt 6.8.3. Min is 6.7.
-- **Build (needs vcvars):** in PowerShell —
+## Build / test / environment notes
+- **Qt `C:\Qt\6.11.0\msvc2022_64`** (CI uses 6.8.3, min 6.7).
+- **Build** (PowerShell — run from the repo root or the preset isn't found):
   ```powershell
   $vs = & "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe" -latest -property installationPath
-  cmd /c "`"$vs\VC\Auxiliary\Build\vcvars64.bat`" >nul 2>&1 && cmake --build --preset windows-release 2>&1"
+  cmd /c "`"$vs\VC\Auxiliary\Build\vcvars64.bat`" >nul 2>&1 && cd /d C:\Users\matth\Documents\Apps\Qd && cmake --build --preset windows-release 2>&1"
   ```
-- **Tests (needs Qt on PATH):** in Bash —
-  ```
-  cd build/windows-release && export PATH="/c/Qt/6.11.0/msvc2022_64/bin:$PATH" && ctest
-  ```
-  Plus `./build/windows-release/quewi.exe --selftest` should exit 0.
-- **Running the app for a visual check:** the desktop window z-order fights the
-  app; use `SetWindowPos`/`SetForegroundWindow` via PowerShell to front it, and
-  the welcome dialog blocks until dismissed. If a build link fails with "cannot
-  open file 'quewi.exe'", the app is running — `Get-Process quewi | Stop-Process
-  -Force` first.
-- **moc gotcha (documented in `tests/test_dm7_value.cpp`):** moc treats `\"` as
-  an escape *inside* a raw string literal, emits an empty `.moc`, and the only
-  symptom is unresolved `metaObject` symbols. Don't put `R"(...\"...)"` in a
-  `Q_OBJECT` file — use escaped literals.
-- **CI:** macOS is pinned to `macos-14` (not `macos-latest`, which rolled to
-  macOS 26 and drops the AGL framework Qt 6.8.3 links). If a macOS CI build fails
-  with `ld: framework 'AGL' not found`, that's the runner image, not the code.
-- **Working with Fable 5:** design/theme work is handed to Fable via the Agent
-  tool (`model: fable`) as a background task with **strict file boundaries** so
-  it never collides with concurrent Claude edits. Stage only your own files when
-  both are working the tree.
+  After adding source files: `cmake --preset windows-release` first.
+- **Tests** (Bash): `cd build/windows-release && export PATH="/c/Qt/6.11.0/msvc2022_64/bin:$PATH" && ctest`.
+  Qt test exes are GUI-subsystem: run one with `-o out.txt,txt` to see output.
+  **Selftest**: `Start-Process quewi.exe -ArgumentList --selftest -Wait -PassThru`
+  (PowerShell's `&` doesn't wait for GUI apps; `$LASTEXITCODE` lies).
+- **Driving a test copy**: copy `quewi.exe` into a fresh scratchpad folder, run
+  `windeployqt --release --no-translations` on it, launch it from there,
+  `request_access(["quewi.exe"])` (grant is per exe path). Its windows open on
+  the 2nd monitor (DELL S2719HS) → `switch_display`. Front windows with
+  `scratchpad/front.ps1 -Title "<window title>" -Folder <folder>`. The test
+  copy shares Matthew's QSettings and recovery journals: afterwards remove the
+  journals it left (`%APPDATA%\ServeGaming\quewi\journals`) and reset
+  `lastSeenVersion` / `ui\whatsNewVersion` if they moved.
+- Commit messages with quotes: write them to a file and `git commit -F` (inline
+  PowerShell here-strings with `"` break argument passing).
+- moc gotcha: `\"` inside a raw string in a `Q_OBJECT` file → empty `.moc`.
+- CI macOS pinned to `macos-14` (newer images drop AGL).
+- Beware `QFileInfo::operator==` (two missing files compare equal) — use
+  `AudioCue::sameFile`.
 
-## Update protocol — how to keep this current
+## Other docs
+`docs/dev/work-plan.md`, `quewi-mix-spec.md`, `console-protocols.md`,
+`release-1.0-plan.md`, `release-signing.md`, `design-review.md`,
+`show-nodes-idea.md` (idea only).
 
-1. When you finish a meaningful unit of work, edit the affected section(s) above.
-   Move things from "not done" to "done", record decisions and their reasons,
-   note anything newly blocked.
-2. Update the "Last updated" date near the top.
-3. Commit with a clear message and **push** (`git push origin main`) so it's on
-   GitHub for the next machine. If you're holding a push for a reason (e.g. a
-   background agent mid-edit), say so here and push as soon as you can.
-4. Keep it honest. This document is only worth anything if it tells the truth
-   about what works, what doesn't, and what's untested. "Built but not driven"
-   is a real and important state — say it.
-5. Don't let it sprawl. When a section goes stale or a thread closes, prune it.
-   A tight, current doc beats an exhaustive rotting one.
+## Update protocol
+1. After a meaningful unit of work, edit the affected section(s); move things
+   from "not done" to "done"; record decisions and why; note new blockers.
+2. Update "Last updated" and the installed/released versions at the top.
+3. Commit and **push** (`git push origin main`).
+4. Keep it honest — "built but not driven" is a real state; say it.
+5. Prune: when a thread closes, condense it. A tight, current doc beats an
+   exhaustive rotting one.

@@ -6,6 +6,7 @@
 #include "core/CueList.h"
 #include "core/Workspace.h"
 #include "cues/Cue.h"
+#include "video/VideoCue.h"
 
 #include <QHBoxLayout>
 #include <QLabel>
@@ -383,11 +384,13 @@ QString ActiveCuesPanel::cueLabelForVoice(quint64 voiceId) const
     auto *list = m_workspace->activeCueList();
     if (!list) return tr("Voice %1").arg(voiceId);
     for (int row = 0; row < list->cueCount(); ++row) {
-        if (auto *ac = qobject_cast<audio::AudioCue *>(list->cueAt(row))) {
+        // An audio cue, or a video cue whose soundtrack this is.
+        auto *c = list->cueAt(row);
+        if (auto *ac = video::VideoCue::audioOf(c)) {
             if (ac->currentVoiceId() == voiceId) {
-                const auto name = ac->name().isEmpty() ? ac->typeName() : ac->name();
+                const auto name = c->name().isEmpty() ? c->typeName() : c->name();
                 return QStringLiteral("%1  %2")
-                    .arg(QString::number(ac->number(), 'f', 2), name);
+                    .arg(QString::number(c->number(), 'f', 2), name);
             }
         }
     }
@@ -428,10 +431,11 @@ void ActiveCuesPanel::refresh()
             auto *list = m_workspace->activeCueList();
             if (list) {
                 for (int i = 0; i < list->cueCount(); ++i) {
-                    if (auto *ac = qobject_cast<audio::AudioCue *>(list->cueAt(i))) {
+                    auto *c = list->cueAt(i);
+                    if (auto *ac = video::VideoCue::audioOf(c)) {
                         if (ac->currentVoiceId() == v.id) {
-                            runningCueIds.insert(ac->id());
-                            peakByCue.insert(ac->id(),
+                            runningCueIds.insert(c->id());
+                            peakByCue.insert(c->id(),
                                              { v.peakLeft, v.peakRight });
                             break;
                         }

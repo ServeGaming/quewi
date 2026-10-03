@@ -84,6 +84,12 @@ public:
     // opaque JSON (AudioEditorModel::toJson) so regions/tracks/gains/fades
     // survive reopening the editor and a show save/load. The cue still
     // *plays* its filePath; this only restores the editor's working state.
+    // Set when this cue was converted from a video cue: that video cue's
+    // full payload, so "Convert back to video cue" restores its picture
+    // settings (screen, geometry, opacity…). Empty otherwise.
+    const QJsonObject &videoOrigin() const { return m_videoOrigin; }
+    void setVideoOrigin(const QJsonObject &o) { m_videoOrigin = o; }
+
     const QJsonObject &editorModelJson() const { return m_editorModelJson; }
     void setEditorModelJson(const QJsonObject &j) { m_editorModelJson = j; emitChanged(); }
 
@@ -151,6 +157,7 @@ private:
     // Editable audio-editor session (multitrack regions/effects). Empty
     // until the operator opens the editor and makes an edit.
     QJsonObject m_editorModelJson;
+    QJsonObject m_videoOrigin;
 
     std::shared_ptr<AudioFile> m_file;
     quint64                    m_currentVoiceId = 0;

@@ -46,6 +46,8 @@ public:
 
 protected:
     void closeEvent(QCloseEvent *event) override;
+    // Double-click on the Inspector's divider → fit it to its content.
+    bool event(QEvent *event) override;
     void dragEnterEvent(QDragEnterEvent *event) override;
     void dragMoveEvent(QDragMoveEvent *event) override;
     void dropEvent(QDropEvent *event) override;
@@ -106,6 +108,8 @@ private slots:
     void openRecent(const QString &path);
     void rebuildRecentMenu();
     void onMidiTrigger(quint8 status, const QByteArray &bytes);
+    // Video cue ↔ audio cue, undoably, keeping the cue's identity.
+    void convertCue(cues::Cue *cue);
     // A soundboard pad fired: board output + "send to mic" routing.
     void fireSoundboardCue(cues::Cue *c);
     // Start / stop / retarget the live mic passthrough from MicRouting.
@@ -215,7 +219,9 @@ private:
     // Find the AudioCue in `list` that currently owns voice `id`, or
     // nullptr. Centralises the voice→cue lookup duplicated across the
     // OSC playback handlers.
-    static audio::AudioCue *audioCueForVoice(core::CueList *list,
+    // The cue a playing audio voice belongs to: an audio cue, or the video
+    // cue whose soundtrack it is.
+    static cues::Cue *audioCueForVoice(core::CueList *list,
                                              quint64 voiceId);
 
     void registerOscRemoteHandlers();

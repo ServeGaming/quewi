@@ -37,6 +37,7 @@
 #include "osc/OscEngine.h"
 #include "osc/OscPattern.h"
 #include "show/ShowFile.h"
+#include "video/CueConvert.h"
 #include "video/VideoCue.h"
 #include "video/VideoEngine.h"
 #include "ui/AboutDialog.h"
@@ -556,6 +557,11 @@ void MainWindow::buildLayout()
             m_inspector,   &ui::Inspector::setCue);
     connect(m_cueListView, &ui::CueListView::currentCueChanged,
             this, [this](cues::Cue *) { onSelectionChanged(); });
+    // Video cue soundtrack: "Edit sound…" and video ↔ audio conversion.
+    connect(m_inspector, &ui::Inspector::editSoundRequested,
+            this, [this](audio::AudioCue *sound) { openAudioEditor(sound); });
+    connect(m_inspector, &ui::Inspector::convertCueRequested,
+            this, &MainWindow::convertCue, Qt::QueuedConnection);   // off the Inspector's stack
     connect(m_cueListView, &ui::CueListView::goRequested,
             this, &MainWindow::onGoRequested);
     connect(m_cueListView, &ui::CueListView::filesDropped, this,
@@ -762,6 +768,9 @@ void MainWindow::buildMenus()
     // cancel each other out — neither used to work.
     cueMenu->addAction(tr("New M&SC"),   QKeySequence(QStringLiteral("Ctrl+Alt+M")),    this, &MainWindow::insertMscCue);
     cueMenu->addSeparator();
+    cueMenu->addAction(tr("Con&vert Video ↔ Audio"), this, [this] {
+        convertCue(m_cueListView ? m_cueListView->currentCue() : nullptr);
+    });
     cueMenu->addAction(tr("Import from &URL…"),
                        QKeySequence(QStringLiteral("Ctrl+U")),
                        this, &MainWindow::showMediaImport);
@@ -1045,7 +1054,9 @@ void MainWindow::prewarmAudioCues()
         if (!list) continue;
         const int n = list->cueCount();
         for (int i = 0; i < n; ++i) {
-            auto *ac = qobject_cast<audio::AudioCue *>(list->cueAt(i));
+            // Audio cues, and video cues' soundtracks (else the first GO of a
+            // video plays silently while its sound is still decoding).
+            auto *ac = video::VideoCue::audioOf(list->cueAt(i));
             if (!ac) continue;
             // Estimate residency cheaply from file size on disk. Real
             // bytesUsed is 4× int16 / 2× int24 (decoded float32), but
@@ -1059,8 +1070,10 @@ void MainWindow::prewarmAudioCues()
                 const QFileInfo fi(p);
                 if (fi.exists()) {
                     // Compressed (mp3/aac/ogg) decompresses ~10×; PCM ~1×.
-                    // Pick a generous 8× to err on the safe side.
-                    estimate = fi.size() * 8;
+                    // Pick a generous 8× to err on the safe side. A video
+                    // file is mostly picture, so its size alone already
+                    // over-estimates the decoded soundtrack.
+                    estimate = video::CueConvert::isVideoFile(p) ? fi.size() : fi.size() * 8;
                 }
             }
             if (used + estimate > budget) {
@@ -2605,6 +2618,74 @@ void MainWindow::importToPad(int row, int col)
     if (dlg.openEditorAfter()) openAudioEditor(cue);
 }
 
+bool MainWindow::event(QEvent *e)
+{
+    // The dock divider isn't a widget of its own — QMainWindow draws it and
+    // gets its mouse events — so a double-click on it lands here. Size the
+    // Inspector to show the selected cue's controls in full (within reason:
+    // the cue list keeps at least 360 px).
+    if (e->type() == QEvent::MouseButtonDblClick && m_inspectorDock && m_inspector
+        && m_inspectorDock->isVisible() && !m_inspectorDock->isFloating()) {
+        const QPoint p = static_cast<QMouseEvent *>(e)->position().toPoint();
+        const QRect dock = m_inspectorDock->geometry();
+        const bool onDivider = (std::abs(p.x() - dock.left()) <= 8
+                                || std::abs(p.x() - dock.right()) <= 8)
+                               && p.y() >= dock.top() && p.y() <= dock.bottom();
+        if (onDivider) {
+            const int chrome = m_inspectorDock->width() - m_inspector->width();
+            const int want = m_inspector->contentWidthHint() + std::max(0, chrome);
+            const int maxW = std::max(m_inspectorDock->minimumWidth(), width() - 360);
+            resizeDocks({ m_inspectorDock }, { std::clamp(want, 240, maxW) }, Qt::Horizontal);
+            return true;
+        }
+    }
+    return QMainWindow::event(e);
+}
+
+void MainWindow::convertCue(cues::Cue *cue)
+{
+    if (!m_workspace || !cue) return;
+    if (m_showMode) {
+        statusBar()->showMessage(tr("Show Mode is on — unlock to convert cues."), 4000);
+        return;
+    }
+    core::CueList *list = nullptr;
+    int row = -1;
+    for (const auto &l : m_workspace->cueLists())
+        if (const int r = l->rowOf(cue); r >= 0) { list = l.get(); row = r; break; }
+    if (!list) return;
+
+    std::unique_ptr<cues::Cue> replacement;
+    QString what;
+    if (auto *vc = qobject_cast<video::VideoCue *>(cue)) {
+        replacement = video::CueConvert::videoToAudio(*vc);
+        what = tr("Convert to audio cue");
+    } else if (auto *ac = qobject_cast<audio::AudioCue *>(cue);
+               ac && video::CueConvert::canConvertToVideo(*ac)) {
+        replacement = video::CueConvert::audioToVideo(*ac);
+        what = tr("Convert to video cue");
+    } else {
+        statusBar()->showMessage(tr("Only video cues, and audio cues playing a video "
+                                    "file, can be converted."), 4000);
+        return;
+    }
+    // Whatever it's playing would be orphaned (no cue left to stop it).
+    if (m_goEngine) m_goEngine->stopCue(cue);
+
+    m_workspace->undoStack()->push(
+        new core::ReplaceCueCommand(list, row, std::move(replacement), what));
+    auto *now = list->cueAt(row);
+    // Decode the sound now: waveform in the Inspector, and ready for GO.
+    if (auto *snd = video::VideoCue::audioOf(now)) snd->prepare();
+    if (list == m_workspace->activeCueList() && m_model && m_model->rowCount() > row)
+        m_cueListView->setCurrentIndex(m_model->index(row, 0));
+    if (m_inspector) m_inspector->setCue(now);
+    const QString num = now ? QString::number(now->number(), 'f', 2) : QString();
+    statusBar()->showMessage(qobject_cast<audio::AudioCue *>(now)
+        ? tr("%1 is now an audio cue — Undo, or Convert again, turns it back").arg(num)
+        : tr("%1 is a video cue again").arg(num), 5000);
+}
+
 void MainWindow::fireSoundboardCue(cues::Cue *c)
 {
     if (!m_goEngine || !c) return;
@@ -3259,14 +3340,14 @@ QString MainWindow::cueToJsonString(const cues::Cue *c)
     return QString::fromUtf8(QJsonDocument(o).toJson(QJsonDocument::Compact));
 }
 
-audio::AudioCue *MainWindow::audioCueForVoice(core::CueList *list,
-                                              quint64 voiceId)
+cues::Cue *MainWindow::audioCueForVoice(core::CueList *list, quint64 voiceId)
 {
     if (!list || voiceId == 0) return nullptr;
     for (int r = 0; r < list->cueCount(); ++r) {
-        if (auto *ac = qobject_cast<audio::AudioCue *>(list->cueAt(r));
+        // An audio cue, or a video cue whose soundtrack this is.
+        if (auto *ac = video::VideoCue::audioOf(list->cueAt(r));
             ac && ac->currentVoiceId() == voiceId) {
-            return ac;
+            return list->cueAt(r);
         }
     }
     return nullptr;

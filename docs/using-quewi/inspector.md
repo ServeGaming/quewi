@@ -24,13 +24,15 @@ Top to bottom:
    And so on.
 
 If the Inspector feels cramped on a smaller screen, drag the
-splitter between it and the cue list. The Inspector is also
-dockable — drag its title bar out to float it on a second monitor.
+splitter between it and the cue list, or **double-click the
+splitter** *(new in 1.0.4)* to size the Inspector so everything in
+it fits. The Inspector is also dockable — drag its title bar out to
+float it on a second monitor.
 
 ### Tearing off a section
 
-Each type-specific section (Audio, Object Audio, Fade, Light, Visual, OSC,
-MIDI, MSC, Group, Wait…) can be pulled out on its own. **Grab the section's
+Each type-specific section (Audio, Object Audio, Fade, Light, Visual, a
+video's Sound, OSC, MIDI, MSC, Group, Wait…) can be pulled out on its own. **Grab the section's
 title and drag it out.** It becomes a floating window you can drop anywhere,
 including another monitor. Close that window and the section docks back
 into exactly the spot it came from.

@@ -28,6 +28,39 @@ Fields:
 | Size w, h | 0..1 | Normalised to chosen screen |
 | Opacity | 0..1 | Window opacity |
 
+#### The video's sound *(new in 1.0.4)*
+
+A video cue plays its file's soundtrack through quewi's audio engine, the
+same one audio cues use. Its **Sound** section in the Inspector has:
+
+- **Play the video's sound:** on for new video cues. Shows saved before
+  1.0.4 load with it **off**, so they play exactly as they used to. Tick it
+  to hear their soundtracks.
+- **Level, Pan, Fade in, Fade out, Output:** the same controls as an
+  audio cue.
+- **Edit sound…** opens the soundtrack in the audio editor, with effects,
+  presets, EQ and trims.
+
+The sound follows the picture. GO, Stop, Pause, Start (resume) and the
+Inspector's scrubber drive both, and a Fade cue with **Gain** as its
+parameter fades the soundtrack, while **Opacity** fades the picture.
+
+#### Turning a video cue into an audio cue
+
+**Convert to audio cue** (in the Sound section, or **Cue → Convert
+Video ↔ Audio**) drops the picture and keeps the sound as an ordinary audio
+cue. Use it when a song mix is a .mov or .mp4 but tonight you only need the
+audio. The cue keeps its number, name, notes, waits and colour. Fade, Start
+and Stop cues that target it still find it.
+
+The audio cue remembers the video settings. **Convert back to video cue**
+(in its Audio section, or the same menu item) restores the screen,
+position, size and opacity. Any sound changes you made while it was an
+audio cue are kept. Undo works for both directions.
+
+Any audio cue whose file is a video (.mp4, .mov, .mkv…) can be turned into
+a video cue the same way.
+
 ### Image cue (`image`)
 
 Static image (PNG, JPG, GIF, BMP, TIFF, WebP). Same screen / position
@@ -69,9 +102,10 @@ These come later:
 - **Edge blending / corner pin / mesh warp** — projection mapping
   features for dome / curved-surface rigs. Big rabbit hole; deferred
   past 1.0.
-- **Audio routing** for video files. The cue's own audio plays through
-  the system default; the audio engine's matrix mixer doesn't see it
-  yet. Phase 6 wires this up.
+- **Frame-locked sync** between picture and sound. They start together
+  and pause, seek and stop together, but run on separate clocks, so a
+  long video can drift slightly. That's fine for song mixes with visuals,
+  but not for lip-sync over long takes.
 - **Geometry fade** — the FadeCue parameter set will grow to include
   `posX/posY/posW/posH/opacity` when video lands fully. Until then,
   fades only target audio cue gain.

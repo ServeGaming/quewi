@@ -4,6 +4,8 @@
 
 #include <QColor>
 
+namespace quewi::audio { class AudioCue; }
+
 namespace quewi::video {
 
 // Common base for the three visual cue types. Holds the geometry,
@@ -56,6 +58,19 @@ public:
     QString filePath() const { return m_filePath; }
     bool    loop()     const { return m_loop; }
 
+    // ── The video's soundtrack ─────────────────────────────────────────
+    // Played through the AudioEngine (the video player itself stays muted)
+    // with full audio-cue settings: level, fades, pan, output, effects and
+    // the audio editor. Held as an embedded AudioCue that never sits in a
+    // list — its file follows the video's, its loop follows the video's.
+    // Editable through setField as "sound.<audio field>" (undoable like any
+    // field) and "soundEnabled".
+    audio::AudioCue *sound() const { return m_sound; }
+    bool soundEnabled() const { return m_soundEnabled; }
+    // The audio cue a voice-carrying cue plays through: an AudioCue itself,
+    // or a VideoCue's sound (when it's on). nullptr otherwise.
+    static audio::AudioCue *audioOf(cues::Cue *cue);
+
     QVariant field(const QString &key) const override;
     void     setField(const QString &key, const QVariant &value) override;
 
@@ -65,6 +80,10 @@ public:
 private:
     QString m_filePath;
     bool    m_loop = false;
+    audio::AudioCue *m_sound = nullptr;   // child; never null
+    // New video cues play their sound. A show saved before video sound
+    // existed loads with it OFF, so it plays exactly as it always did.
+    bool    m_soundEnabled = true;
 };
 
 class ImageCue : public VisualCue {

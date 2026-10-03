@@ -129,6 +129,8 @@ QJsonObject AudioCue::toPayload() const
     if (!m_editorModelJson.isEmpty()) {
         o.insert(QStringLiteral("editorModel"), m_editorModelJson);
     }
+    if (!m_videoOrigin.isEmpty())
+        o.insert(QStringLiteral("videoOrigin"), m_videoOrigin);
     return o;
 }
 
@@ -161,6 +163,7 @@ void AudioCue::fromPayload(const QJsonObject &payload)
         m_trajectory = AudioTrajectory{};
     }
     m_editorModelJson = payload.value(QStringLiteral("editorModel")).toObject();
+    m_videoOrigin     = payload.value(QStringLiteral("videoOrigin")).toObject();
     m_file.reset();
 }
 

@@ -24,6 +24,7 @@
 #include "ui/VideoScrubber.h"
 #include "audio/SpeakerPatch.h"
 #include "core/PatchManager.h"
+#include "video/CueConvert.h"
 #include "video/VideoCue.h"
 #include "video/VideoEngine.h"
 
@@ -628,6 +629,11 @@ Inspector::Inspector(QWidget *parent)
     }
     audioForm->addRow(tr("Output"), m_audioOutputDevice);
 
+    // Shown only for an audio cue that was a video cue, or plays a video
+    // file (CueConvert::canConvertToVideo).
+    m_audioToVideoBtn = new QPushButton(tr("Convert to video cue"), m_audioGroup);
+    audioForm->addRow(QString(), m_audioToVideoBtn);
+
     auto *quickRow = new QHBoxLayout();
     m_audioNormalize = new QPushButton(tr("Normalize"), m_audioGroup);
     m_audioReverse   = new QPushButton(tr("Reverse"),   m_audioGroup);
@@ -847,6 +853,7 @@ Inspector::Inspector(QWidget *parent)
     visualOuter->addWidget(m_textString);
 
     auto *visualForm = new QFormLayout();
+    m_visualForm = visualForm;
     visualForm->setHorizontalSpacing(12);
     visualForm->setVerticalSpacing(8);
     visualForm->setLabelAlignment(Qt::AlignRight | Qt::AlignVCenter);
@@ -945,6 +952,58 @@ Inspector::Inspector(QWidget *parent)
 
     visualOuter->addLayout(visualForm);
     outer->addWidget(m_visualGroup);
+
+    // ---------------- Video soundtrack ----------------
+    // A video file's audio, played through the audio engine with the same
+    // controls an audio cue has. Everything edits VideoCue's embedded sound
+    // through "sound.<field>", so it's undoable like any other field.
+    m_videoSoundGroup = new QGroupBox(tr("Sound"), this);
+    {
+        auto *vsOuter = new QVBoxLayout(m_videoSoundGroup);
+        m_vsEnabled = new QCheckBox(tr("Play the video's sound"), m_videoSoundGroup);
+        m_vsEnabled->setToolTip(tr("Off: the video plays silently (shows saved before "
+                                   "quewi 1.0.4 load with this off)."));
+        vsOuter->addWidget(m_vsEnabled);
+        auto *vsForm = new QFormLayout();
+        vsForm->setHorizontalSpacing(12);
+        vsForm->setVerticalSpacing(8);
+        vsForm->setLabelAlignment(Qt::AlignRight | Qt::AlignVCenter);
+        auto spin = [this](double lo, double hi, double step, int dec, const QString &suffix) {
+            auto *s = new QDoubleSpinBox(m_videoSoundGroup);
+            s->setRange(lo, hi); s->setSingleStep(step); s->setDecimals(dec);
+            s->setSuffix(suffix);
+            return s;
+        };
+        m_vsGain    = spin(-60.0, 12.0, 0.5, 1, tr(" dB"));
+        m_vsPan     = spin(-1.0, 1.0, 0.05, 2, QString());
+        m_vsFadeIn  = spin(0.0, 600.0, 0.5, 2, tr(" s"));
+        m_vsFadeOut = spin(0.0, 600.0, 0.5, 2, tr(" s"));
+        m_vsPan->setToolTip(tr("-1 = left, 0 = centre, +1 = right"));
+        vsForm->addRow(tr("Level"), m_vsGain);
+        vsForm->addRow(tr("Pan"), m_vsPan);
+        vsForm->addRow(tr("Fade in"), m_vsFadeIn);
+        vsForm->addRow(tr("Fade out"), m_vsFadeOut);
+        m_vsOutput = new QComboBox(m_videoSoundGroup);
+        m_vsOutput->addItem(tr("(default)"), QByteArray());
+        for (const auto &dev : QMediaDevices::audioOutputs())
+            m_vsOutput->addItem(dev.description(), dev.id());
+        vsForm->addRow(tr("Output"), m_vsOutput);
+        vsOuter->addLayout(vsForm);
+
+        auto *btnRow = new QHBoxLayout();
+        m_vsEditBtn = new QPushButton(tr("Edit sound…"), m_videoSoundGroup);
+        m_vsEditBtn->setToolTip(tr("Open the soundtrack in the audio editor: effects, "
+                                   "presets, EQ, trims"));
+        m_videoToAudioBtn = new QPushButton(tr("Convert to audio cue"), m_videoSoundGroup);
+        m_videoToAudioBtn->setToolTip(tr(
+            "Drop the picture and keep just the sound, as an audio cue. You can "
+            "convert it back to a video cue later; its screen and position are kept."));
+        btnRow->addWidget(m_vsEditBtn);
+        btnRow->addWidget(m_videoToAudioBtn);
+        btnRow->addStretch(1);
+        vsOuter->addLayout(btnRow);
+    }
+    outer->addWidget(m_videoSoundGroup);
 
     outer->addStretch(1);
 
@@ -1086,15 +1145,22 @@ Inspector::Inspector(QWidget *parent)
     // Video scrubber → live transport on the playing voice. Resolve the
     // selected cue to its VideoVoiceId and drive the engine; no-op if the
     // cue isn't currently playing.
+    // The soundtrack follows the picture: seek and pause/resume drive both.
+    auto soundVoice = [this](video::VideoCue *vc) -> quint64 {
+        return (vc && vc->soundEnabled() && m_audioEngine) ? vc->sound()->currentVoiceId() : 0;
+    };
     connect(m_videoScrubber, &VideoScrubber::seekRequested, this,
-            [this](qint64 ms) {
+            [this, soundVoice](qint64 ms) {
                 if (!m_videoEngine) return;
                 if (auto *vc = qobject_cast<video::VideoCue *>(m_cue.data()))
-                    if (auto vid = vc->currentVoiceId())
+                    if (auto vid = vc->currentVoiceId()) {
                         m_videoEngine->seek(vid, ms);
+                        if (const auto sv = soundVoice(vc))
+                            m_audioEngine->seek(sv, double(ms) / 1000.0);
+                    }
             });
     connect(m_videoScrubber, &VideoScrubber::playPauseRequested, this,
-            [this]() {
+            [this, soundVoice]() {
                 if (!m_videoEngine) return;
                 auto *vc = qobject_cast<video::VideoCue *>(m_cue.data());
                 if (!vc) return;
@@ -1102,9 +1168,41 @@ Inspector::Inspector(QWidget *parent)
                 if (!vid) return;
                 const auto t = m_videoEngine->transport(vid);
                 if (!t.valid) return;
-                if (t.paused) m_videoEngine->resume(vid);
-                else          m_videoEngine->pause(vid);
+                const auto sv = soundVoice(vc);
+                if (t.paused) { m_videoEngine->resume(vid); if (sv) m_audioEngine->resume(sv); }
+                else          { m_videoEngine->pause(vid);  if (sv) m_audioEngine->pause(sv); }
             });
+
+    // Video soundtrack fields.
+    connect(m_vsEnabled, &QCheckBox::toggled, this, [this](bool on) {
+        if (m_loading) return;
+        pushFieldEdit(QStringLiteral("soundEnabled"), on);
+        if (auto *vc = qobject_cast<video::VideoCue *>(m_cue.data()); vc && on)
+            vc->sound()->prepare();   // ready for the next GO
+    });
+    auto commitSpin = [this](QDoubleSpinBox *s, const QString &field) {
+        connect(s, &QDoubleSpinBox::editingFinished, this, [this, s, field] {
+            if (!m_loading) pushFieldEdit(field, s->value());
+        });
+    };
+    commitSpin(m_vsGain,    QStringLiteral("sound.gainDb"));
+    commitSpin(m_vsPan,     QStringLiteral("sound.pan"));
+    commitSpin(m_vsFadeIn,  QStringLiteral("sound.fadeInSeconds"));
+    commitSpin(m_vsFadeOut, QStringLiteral("sound.fadeOutSeconds"));
+    connect(m_vsOutput, &QComboBox::currentIndexChanged, this, [this](int) {
+        if (!m_loading)
+            pushFieldEdit(QStringLiteral("sound.outputDeviceId"), m_vsOutput->currentData().toByteArray());
+    });
+    connect(m_vsEditBtn, &QPushButton::clicked, this, [this] {
+        if (auto *vc = qobject_cast<video::VideoCue *>(m_cue.data()))
+            emit editSoundRequested(vc->sound());
+    });
+    connect(m_videoToAudioBtn, &QPushButton::clicked, this, [this] {
+        if (m_cue) emit convertCueRequested(m_cue.data());
+    });
+    connect(m_audioToVideoBtn, &QPushButton::clicked, this, [this] {
+        if (m_cue) emit convertCueRequested(m_cue.data());
+    });
 
     // ~30 Hz follow of the selected video cue's live position. Started only
     // while a video cue is selected (see rebuild()), so the Inspector stays
@@ -1127,7 +1225,7 @@ Inspector::Inspector(QWidget *parent)
     for (QGroupBox *box : { m_waitGroup, m_targetGroup, m_groupGroup,
                             m_midiGroup, m_mscGroup, m_oscGroup, m_audioGroup,
                             m_objAudioGroup, m_fadeGroup, m_lightGroup,
-                            m_lightFadeGroup, m_visualGroup }) {
+                            m_lightFadeGroup, m_visualGroup, m_videoSoundGroup }) {
         if (box) makeDraggable(box);
     }
 
@@ -1351,6 +1449,7 @@ void Inspector::rebuild()
         m_lightGroup->setVisible(false);
         m_lightFadeGroup->setVisible(false);
         m_visualGroup->setVisible(false);
+        m_videoSoundGroup->setVisible(false);
         m_waitGroup->setVisible(false);
         m_targetGroup->setVisible(false);
         m_groupGroup->setVisible(false);
@@ -1421,6 +1520,15 @@ void Inspector::rebuild()
     m_lightGroup->setVisible(lightCue != nullptr);
     m_lightFadeGroup->setVisible(lfadeCue != nullptr);
     m_visualGroup->setVisible(visualCue != nullptr);
+    m_videoSoundGroup->setVisible(videoCue != nullptr);
+    if (videoCue) populateVideoSound(videoCue);
+    if (audioCue) {
+        const bool canVideo = video::CueConvert::canConvertToVideo(*audioCue);
+        m_audioToVideoBtn->setVisible(canVideo);
+        m_audioToVideoBtn->setText(audioCue->videoOrigin().isEmpty()
+                                       ? tr("Convert to video cue")
+                                       : tr("Convert back to video cue"));
+    }
     // Follow live playback position only while a video cue is selected;
     // stay idle (no timer) for every other cue type.
     if (m_videoPollTimer) {
@@ -1558,8 +1666,9 @@ void Inspector::rebuild()
         m_textString->setVisible(textCue != nullptr);
         m_videoLoop->setVisible(videoCue != nullptr);
         m_videoScrubber->setVisible(videoCue != nullptr);
-        m_textSize->setVisible(textCue != nullptr);
-        m_textColorBtn->setVisible(textCue != nullptr);
+        // Whole rows, so the "Text size" label doesn't linger on video cues.
+        m_visualForm->setRowVisible(m_textSize, textCue != nullptr);
+        m_visualForm->setRowVisible(m_textColorBtn, textCue != nullptr);
 
         if (videoCue) {
             m_visualPath->setText(videoCue->filePath());
@@ -1800,6 +1909,31 @@ void Inspector::rebuildFadeTargets()
                      c->name().isEmpty() ? c->typeName() : c->name()),
             QVariant::fromValue(c->id()));
     }
+}
+
+int Inspector::contentWidthHint() const
+{
+    auto *sa = findChild<QScrollArea *>(QStringLiteral("inspectorScroll"));
+    if (!sa || !sa->widget()) return sizeHint().width();
+    int w = sa->widget()->sizeHint().width();
+    if (auto *bar = sa->verticalScrollBar()) w += bar->sizeHint().width();
+    return w + 2 * sa->frameWidth() + 4;
+}
+
+void Inspector::populateVideoSound(video::VideoCue *vc)
+{
+    // Called from rebuild() with m_loading set, so nothing here re-commits.
+    auto *s = vc->sound();
+    m_vsEnabled->setChecked(vc->soundEnabled());
+    m_vsGain->setValue(s->gainDb());
+    m_vsPan->setValue(s->pan());
+    m_vsFadeIn->setValue(s->fadeInSeconds());
+    m_vsFadeOut->setValue(s->fadeOutSeconds());
+    const int idx = m_vsOutput->findData(s->outputDeviceId());
+    m_vsOutput->setCurrentIndex(idx >= 0 ? idx : 0);
+    for (QWidget *w : std::initializer_list<QWidget *>{ m_vsGain, m_vsPan, m_vsFadeIn,
+                                                        m_vsFadeOut, m_vsOutput, m_vsEditBtn })
+        w->setEnabled(vc->soundEnabled());
 }
 
 void Inspector::pushFieldEdit(const QString &field, const QVariant &newValue)
@@ -2464,6 +2598,9 @@ void Inspector::browseVisualFile()
     if (path.isEmpty()) return;
     m_visualPath->setText(path);
     pushFieldEdit(QStringLiteral("filePath"), path);
+    // Start decoding the soundtrack now, so the first GO isn't silent.
+    if (auto *vc = qobject_cast<video::VideoCue *>(m_cue.data()); vc && vc->soundEnabled())
+        vc->sound()->prepare();
 }
 
 void Inspector::commitVisualScreen()

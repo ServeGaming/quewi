@@ -3,6 +3,8 @@ add_library(quewi_video STATIC
     VideoEngine.cpp
     VideoCue.h
     VideoCue.cpp
+    CueConvert.h
+    CueConvert.cpp
     Compositor.h
     Compositor.cpp
     CompositorWindow.h
@@ -24,4 +26,5 @@ target_link_libraries(quewi_video PUBLIC
     Qt6::Widgets
     Qt6::Multimedia
     quewi_core
+    quewi_audio   # a VideoCue's soundtrack is an embedded AudioCue
 )

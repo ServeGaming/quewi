@@ -249,11 +249,130 @@ void GoEngine::stopTarget(cues::Cue *target, int depth)
         if (m_audio && ac->currentVoiceId() != 0) m_audio->stop(ac->currentVoiceId(), 0.1);
     } else if (auto *vc = qobject_cast<video::VisualCue *>(target)) {
         if (m_video && vc->currentVoiceId() != 0) m_video->stop(vc->currentVoiceId());
+        if (auto *snd = video::VideoCue::audioOf(vc); snd && m_audio && snd->currentVoiceId() != 0)
+            m_audio->stop(snd->currentVoiceId(), 0.1);
     } else if (auto *g = qobject_cast<cues::GroupCue *>(target)) {
         m_groupRemaining.remove(g->id());
         for (const auto &id : g->childIds())
             stopTarget(findCue(id, g), depth + 1);
     }
+}
+
+// Fire an audio cue's sound — an AudioCue, or a VideoCue's soundtrack (owner
+// is then the video cue, for status text). Returns the voice id, 0 if nothing
+// played. The cue's currentVoiceId is set either way.
+quint64 GoEngine::fireSound(audio::AudioCue *audioCue, const AudioRoute &route,
+                            cues::Cue *owner)
+{
+    if (!m_audio || !audioCue) return 0;
+    auto status = [&](const QString &m) { emit statusMessage(m); };
+    quint64 vid = 0;
+    audioCue->prepare();
+    auto file = audioCue->audioFile();
+    if (!file) {
+        status(tr("GO: no file selected"));
+    } else if (file->state() == audio::AudioFile::State::Failed) {
+        status(tr("GO: decode failed — %1").arg(file->errorString()));
+    } else if (file->state() == audio::AudioFile::State::Empty
+               || !file->snapshot()) {
+        // No published snapshot yet — the QAudioDecoder hasn't
+        // delivered the first buffer. This is brief (< 200 ms
+        // typically) and only happens if GO arrives faster
+        // than the first decoded chunk. With progressive
+        // snapshots from v0.9.4 onward, Loading-with-snapshot
+        // is now a valid play state.
+        status(tr("GO: audio still decoding"));
+    } else {
+        audio::VoiceParams p;
+        p.gainDb         = audioCue->gainDb();
+        p.fadeInSeconds  = audioCue->fadeInSeconds();
+        p.fadeOutSeconds = audioCue->fadeOutSeconds();
+        p.trimInSeconds  = audioCue->trimInSeconds();
+        p.trimOutSeconds = audioCue->trimOutSeconds();
+        p.pan            = audioCue->pan();
+        p.loop           = audioCue->loop();
+        // Per-cue effects chain (EQ/comp/reverb/delay) built fresh
+        // for this voice from the cue's saved editor rack. Empty =
+        // dry. Applied as a stereo insert in the mixer.
+        p.effects        = audioCue->buildEffectChain();
+        p.outputDeviceId = route.outputDeviceId.isEmpty()
+                               ? audioCue->outputDeviceId()
+                               : route.outputDeviceId;
+        p.gainDb        += route.gainOffsetDb;
+        p.mirrorDeviceId = route.mirrorDeviceId;
+        p.mirrorGainDb   = route.mirrorGainOffsetDb;
+        // Per-output sends (dB → linear). Object-audio cues
+        // don't use this path — channelGains owns routing.
+        if (!audioCue->objectAudioEnabled()
+            && !audioCue->outputGainsDb().isEmpty())
+        {
+            QList<float> linear;
+            linear.reserve(audioCue->outputGainsDb().size());
+            for (double db : audioCue->outputGainsDb()) {
+                linear.append(float(audio::dbToLinear(db)));
+            }
+            p.outputGains = std::move(linear);
+        }
+
+        // Object Audio: convert (azimuth, elevation, spread) +
+        // speaker patch into per-channel gains. If the patch is
+        // missing or empty, fall back to legacy stereo pan so
+        // the cue still plays — better than silence.
+        QList<audio::Speaker> trajSpeakers;
+        int                   trajOutChans = 0;
+        if (audioCue->objectAudioEnabled() && m_workspace) {
+            const auto speakers = audio::readSpeakers(
+                m_workspace->patches(), audioCue->speakerPatchId());
+            const int outChans = m_audio->outputChannelCount(p.outputDeviceId);
+            if (!speakers.isEmpty() && outChans > 0) {
+                // Initial gains: keyframe @ t=0 if a trajectory
+                // exists, otherwise the static cue position.
+                double az = audioCue->objectAzimuthDeg();
+                double el = audioCue->objectElevationDeg();
+                double sp = audioCue->objectSpread();
+                if (!audioCue->trajectory().isEmpty()) {
+                    const auto s = audioCue->trajectory().sampleAt(0.0);
+                    az = s.azimuthDeg;
+                    el = s.elevationDeg;
+                    sp = s.spread;
+                }
+                audio::Vbap v(speakers);
+                p.channelGains = v.gains(
+                    static_cast<float>(az),
+                    static_cast<float>(el),
+                    static_cast<float>(sp),
+                    outChans);
+                trajSpeakers = speakers;
+                trajOutChans = outChans;
+            }
+        }
+
+        vid = m_audio->fire(file, p);
+        audioCue->setCurrentVoiceId(vid);
+        if (vid != 0
+            && audioCue->objectAudioEnabled()
+            && !audioCue->trajectory().isEmpty()
+            && !trajSpeakers.isEmpty()
+            && trajOutChans > 0)
+        {
+            TrajectoryEntry rec;
+            rec.cue         = audioCue;
+            rec.speakers    = std::move(trajSpeakers);
+            rec.outChannels = trajOutChans;
+            m_trajectories.insert(vid, std::move(rec));
+            if (!m_trajectoryTimer) {
+                m_trajectoryTimer = new QTimer(this);
+                m_trajectoryTimer->setInterval(33);   // ~30 Hz
+                connect(m_trajectoryTimer, &QTimer::timeout,
+                        this, &GoEngine::onTrajectoryTick);
+            }
+            if (!m_trajectoryTimer->isActive()) m_trajectoryTimer->start();
+        }
+        if (vid == 0) status(tr("GO: audio engine failed — %1")
+            .arg(m_audio->lastError()));
+        else status(tr("GO: ▶ %1").arg(nameOf(owner)));
+    }
+    return vid;
 }
 
 void GoEngine::doFire(cues::Cue *cue, const AudioRoute &route)
@@ -279,113 +398,7 @@ void GoEngine::doFire(cues::Cue *cue, const AudioRoute &route)
             }
         }
     } else if (auto *audioCue = qobject_cast<audio::AudioCue *>(cue)) {
-        if (m_audio) {
-            audioCue->prepare();
-            auto file = audioCue->audioFile();
-            if (!file) {
-                status(tr("GO: no file selected"));
-            } else if (file->state() == audio::AudioFile::State::Failed) {
-                status(tr("GO: decode failed — %1").arg(file->errorString()));
-            } else if (file->state() == audio::AudioFile::State::Empty
-                       || !file->snapshot()) {
-                // No published snapshot yet — the QAudioDecoder hasn't
-                // delivered the first buffer. This is brief (< 200 ms
-                // typically) and only happens if GO arrives faster
-                // than the first decoded chunk. With progressive
-                // snapshots from v0.9.4 onward, Loading-with-snapshot
-                // is now a valid play state.
-                status(tr("GO: audio still decoding"));
-            } else {
-                audio::VoiceParams p;
-                p.gainDb         = audioCue->gainDb();
-                p.fadeInSeconds  = audioCue->fadeInSeconds();
-                p.fadeOutSeconds = audioCue->fadeOutSeconds();
-                p.trimInSeconds  = audioCue->trimInSeconds();
-                p.trimOutSeconds = audioCue->trimOutSeconds();
-                p.pan            = audioCue->pan();
-                p.loop           = audioCue->loop();
-                // Per-cue effects chain (EQ/comp/reverb/delay) built fresh
-                // for this voice from the cue's saved editor rack. Empty =
-                // dry. Applied as a stereo insert in the mixer.
-                p.effects        = audioCue->buildEffectChain();
-                p.outputDeviceId = route.outputDeviceId.isEmpty()
-                                       ? audioCue->outputDeviceId()
-                                       : route.outputDeviceId;
-                p.gainDb        += route.gainOffsetDb;
-                p.mirrorDeviceId = route.mirrorDeviceId;
-                p.mirrorGainDb   = route.mirrorGainOffsetDb;
-                // Per-output sends (dB → linear). Object-audio cues
-                // don't use this path — channelGains owns routing.
-                if (!audioCue->objectAudioEnabled()
-                    && !audioCue->outputGainsDb().isEmpty())
-                {
-                    QList<float> linear;
-                    linear.reserve(audioCue->outputGainsDb().size());
-                    for (double db : audioCue->outputGainsDb()) {
-                        linear.append(float(audio::dbToLinear(db)));
-                    }
-                    p.outputGains = std::move(linear);
-                }
-
-                // Object Audio: convert (azimuth, elevation, spread) +
-                // speaker patch into per-channel gains. If the patch is
-                // missing or empty, fall back to legacy stereo pan so
-                // the cue still plays — better than silence.
-                QList<audio::Speaker> trajSpeakers;
-                int                   trajOutChans = 0;
-                if (audioCue->objectAudioEnabled() && m_workspace) {
-                    const auto speakers = audio::readSpeakers(
-                        m_workspace->patches(), audioCue->speakerPatchId());
-                    const int outChans = m_audio->outputChannelCount(p.outputDeviceId);
-                    if (!speakers.isEmpty() && outChans > 0) {
-                        // Initial gains: keyframe @ t=0 if a trajectory
-                        // exists, otherwise the static cue position.
-                        double az = audioCue->objectAzimuthDeg();
-                        double el = audioCue->objectElevationDeg();
-                        double sp = audioCue->objectSpread();
-                        if (!audioCue->trajectory().isEmpty()) {
-                            const auto s = audioCue->trajectory().sampleAt(0.0);
-                            az = s.azimuthDeg;
-                            el = s.elevationDeg;
-                            sp = s.spread;
-                        }
-                        audio::Vbap v(speakers);
-                        p.channelGains = v.gains(
-                            static_cast<float>(az),
-                            static_cast<float>(el),
-                            static_cast<float>(sp),
-                            outChans);
-                        trajSpeakers = speakers;
-                        trajOutChans = outChans;
-                    }
-                }
-
-                const auto vid = m_audio->fire(file, p);
-                audioCue->setCurrentVoiceId(vid);
-                if (vid != 0
-                    && audioCue->objectAudioEnabled()
-                    && !audioCue->trajectory().isEmpty()
-                    && !trajSpeakers.isEmpty()
-                    && trajOutChans > 0)
-                {
-                    TrajectoryEntry rec;
-                    rec.cue         = audioCue;
-                    rec.speakers    = std::move(trajSpeakers);
-                    rec.outChannels = trajOutChans;
-                    m_trajectories.insert(vid, std::move(rec));
-                    if (!m_trajectoryTimer) {
-                        m_trajectoryTimer = new QTimer(this);
-                        m_trajectoryTimer->setInterval(33);   // ~30 Hz
-                        connect(m_trajectoryTimer, &QTimer::timeout,
-                                this, &GoEngine::onTrajectoryTick);
-                    }
-                    if (!m_trajectoryTimer->isActive()) m_trajectoryTimer->start();
-                }
-                if (vid == 0) status(tr("GO: audio engine failed — %1")
-                    .arg(m_audio->lastError()));
-                else status(tr("GO: ▶ %1").arg(nameOf(cue)));
-            }
-        }
+        fireSound(audioCue, route, cue);
     } else if (auto *lightCue = qobject_cast<lighting::LightCue *>(cue)) {
         if (m_lighting) {
             QHash<int, int> values;
@@ -435,9 +448,14 @@ void GoEngine::doFire(cues::Cue *cue, const AudioRoute &route)
                 .arg(nameOf(cue))
                 .arg(visualCue->screenIndex()));
         }
+        // The soundtrack, through the audio engine like any audio cue (the
+        // video player itself is muted).
+        if (auto *vc = qobject_cast<video::VideoCue *>(cue); vc && vc->soundEnabled())
+            fireSound(vc->sound(), route, cue);
     } else if (auto *fadeCue = qobject_cast<cues::FadeCue *>(cue)) {
         auto *targetCue   = findCue(fadeCue->targetId(), cue);
-        auto *audioTarget = qobject_cast<audio::AudioCue *>(targetCue);
+        // A gain fade on a video cue fades its soundtrack.
+        auto *audioTarget = video::VideoCue::audioOf(targetCue);
         auto *videoTarget = qobject_cast<video::VisualCue *>(targetCue);
         if (m_audio && audioTarget && audioTarget->currentVoiceId() != 0
             && fadeCue->parameter() == QLatin1String("gainDb")) {
@@ -475,6 +493,11 @@ void GoEngine::doFire(cues::Cue *cue, const AudioRoute &route)
                        && m_video->transport(vc->currentVoiceId()).paused) {
                 m_video->resume(vc->currentVoiceId());
                 m_pausedVideo.removeAll(vc->currentVoiceId());
+                if (auto *snd = video::VideoCue::audioOf(vc); snd && m_audio
+                    && snd->currentVoiceId() != 0 && m_audio->isPaused(snd->currentVoiceId())) {
+                    m_audio->resume(snd->currentVoiceId());
+                    m_pausedAudio.removeAll(snd->currentVoiceId());
+                }
                 status(tr("Start (resume) → %1").arg(nameOf(vc)));
             } else {
                 status(tr("Start → %1").arg(nameOf(target)));
@@ -511,6 +534,8 @@ void GoEngine::doFire(cues::Cue *cue, const AudioRoute &route)
         } else if (auto *vc = qobject_cast<video::VisualCue *>(target)) {
             if (m_video && vc->currentVoiceId() != 0) {
                 m_video->pause(vc->currentVoiceId());
+                if (auto *snd = video::VideoCue::audioOf(vc); snd && m_audio && snd->currentVoiceId() != 0)
+                    m_audio->pause(snd->currentVoiceId());
                 status(tr("Pause → %1").arg(nameOf(vc)));
             } else {
                 status(tr("Pause: target not playing"));

@@ -54,6 +54,16 @@ public:
     void setMidiEngine(midi::MidiEngine *engine);
     // Dock every torn-off section back (View → Reset panel layout).
     void dockAllSections();
+    // Width that shows the current cue's controls without squashing or
+    // clipping them (content + vertical scrollbar). Double-clicking the
+    // Inspector's divider sizes the dock to this.
+    int contentWidthHint() const;
+
+signals:
+    // "Edit sound…" on a video cue: open the audio editor on its soundtrack.
+    void editSoundRequested(quewi::audio::AudioCue *sound);
+    // "Convert to audio cue" / "Convert to video cue".
+    void convertCueRequested(quewi::cues::Cue *cue);
 
 public slots:
     void setCue(quewi::cues::Cue *cue);
@@ -331,6 +341,19 @@ private:
     QDoubleSpinBox *m_visualOpacity     = nullptr;
     QCheckBox      *m_videoLoop         = nullptr;
     VideoScrubber  *m_videoScrubber     = nullptr;
+    QFormLayout    *m_visualForm        = nullptr;
+    // A video cue's soundtrack (VideoCue::sound), edited as "sound.*" fields.
+    QGroupBox      *m_videoSoundGroup   = nullptr;
+    QCheckBox      *m_vsEnabled         = nullptr;
+    QDoubleSpinBox *m_vsGain            = nullptr;
+    QDoubleSpinBox *m_vsPan             = nullptr;
+    QDoubleSpinBox *m_vsFadeIn          = nullptr;
+    QDoubleSpinBox *m_vsFadeOut         = nullptr;
+    QComboBox      *m_vsOutput          = nullptr;
+    QPushButton    *m_vsEditBtn         = nullptr;
+    QPushButton    *m_videoToAudioBtn   = nullptr;
+    QPushButton    *m_audioToVideoBtn   = nullptr;
+    void populateVideoSound(video::VideoCue *vc);
     QLineEdit      *m_textString        = nullptr;
     QSpinBox       *m_textSize          = nullptr;
     QPushButton    *m_textColorBtn      = nullptr;

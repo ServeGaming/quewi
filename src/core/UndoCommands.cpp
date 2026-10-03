@@ -46,6 +46,28 @@ void RemoveCueCommand::undo()
     m_list->insertCue(m_row, std::move(m_storage));
 }
 
+ReplaceCueCommand::ReplaceCueCommand(CueList *list, int row,
+                                     std::unique_ptr<cues::Cue> replacement,
+                                     const QString &text, QUndoCommand *parent)
+    : QUndoCommand(parent)
+    , m_list(list)
+    , m_row(row)
+    , m_other(std::move(replacement))
+{
+    setText(text);
+}
+
+void ReplaceCueCommand::swap()
+{
+    if (!m_list || !m_other || m_row < 0 || m_row >= m_list->cueCount()) return;
+    auto out = m_list->takeCue(m_row);
+    m_list->insertCue(m_row, std::move(m_other));
+    m_other = std::move(out);
+}
+
+void ReplaceCueCommand::redo() { swap(); }
+void ReplaceCueCommand::undo() { swap(); }
+
 EditCueFieldCommand::EditCueFieldCommand(cues::Cue *cue, QString field,
                                          QVariant oldValue, QVariant newValue,
                                          QUndoCommand *parent)

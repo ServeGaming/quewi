@@ -55,6 +55,8 @@ public:
         double     mirrorGainOffsetDb = 0.0;
     };
     void fire(cues::Cue *cue, const AudioRoute &route = {});
+    // Stop one cue's output (audio, video + its soundtrack, or a group).
+    void stopCue(cues::Cue *cue) { stopTarget(cue); }
 
     // PANIC: cancel everything scheduled and stop every output now — audio
     // (short fade), video, and the lighting rig to black.
@@ -103,6 +105,9 @@ signals:
 
 private:
     void runFire(cues::Cue *cue, const AudioRoute &route);
+    // Play an audio cue's sound (an AudioCue, or a VideoCue's soundtrack;
+    // owner is the cue named in the status line). Returns the voice id.
+    quint64 fireSound(audio::AudioCue *audioCue, const AudioRoute &route, cues::Cue *owner);
     void doFire(cues::Cue *cue, const AudioRoute &route = {});
     void scheduleContinue(cues::Cue *cue, double delaySeconds);
     cues::Cue *nextCueAfter(cues::Cue *cue) const;
