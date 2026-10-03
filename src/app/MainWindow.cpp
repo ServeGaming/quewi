@@ -1800,6 +1800,8 @@ ui::AudioEditorWindow *MainWindow::openAudioEditor(cues::Cue *cue)
             [this, ownerPtr](const audio::TriggerAction &a) {
                 if (m_goEngine) m_goEngine->sendTriggerAction(a, ownerPtr.data());
             });
+    connect(editor, &ui::AudioEditorWindow::lightingDeskSettingsRequested, this,
+            [this] { showPreferencesPage(QStringLiteral("Lighting")); });
     connect(m_goEngine.get(), &GoEngine::triggerFired, editor,
             [editor, ownerPtr](cues::Cue *firedOwner, const QUuid &id, const QString &, bool) {
                 if (firedOwner && firedOwner == ownerPtr) editor->flashTrigger(id);
