@@ -83,6 +83,12 @@ target_sources(test_light_triggers_ui PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/../src/app/GoEngine.cpp
 )
 
+# The Lighting Desk setup dialog (Tools → Lighting Desk…). Same GoEngine trick.
+quewi_add_test(lighting_desk_dialog Qt6::Test Qt6::Widgets quewi_ui)
+target_sources(test_lighting_desk_dialog PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/../src/app/GoEngine.cpp
+)
+
 # On Windows, Qt's DLLs need to be reachable via PATH at test runtime.
 if(WIN32)
     foreach(name ${_quewi_test_names})
