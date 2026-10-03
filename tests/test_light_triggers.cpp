@@ -235,8 +235,11 @@ private slots:
         auto cmd = desk(D::Command);
         cmd.text = QStringLiteral("Chan 1 At Full");
         QCOMPARE(wire(audio::deskSends(eos, cmd)), QStringList{"/eos/newcmd Chan 1 At Full Enter"});
-        QCOMPARE(wire(audio::deskSends(eos, desk(D::GoList, {}, 2))),
-                 QStringList{"/eos/newcmd Go_CueList 2 Enter"});
+        // Another cue list = its fader's GO button (fader 3, page 2).
+        QCOMPARE(wire(audio::deskSends(eos, desk(D::GoList, "3", 2))),
+                 (QStringList{"/eos/fader/9/config/2/10", "/eos/fader/9/3/fire 1",
+                              "/eos/fader/9/3/fire 0 @50"}));
+        QVERIFY(audio::deskSends(eos, desk(D::GoList, {}, 2)).empty());   // needs the fader
         cmd.text = QStringLiteral("Sub 2 At 50#");
         QCOMPARE(wire(audio::deskSends(eos, cmd)), QStringList{"/eos/newcmd Sub 2 At 50#"});
 

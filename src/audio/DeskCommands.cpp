@@ -79,12 +79,18 @@ std::vector<DeskSend> eos(const core::LightingDesk &desk, const TriggerAction &a
     case Do::Macro:
         press(out, QStringLiteral("/eos/macro/%1/fire").arg(n), kKeyReleaseMs);
         break;
-    case Do::GoList:
-        // There's no OSC address for "GO on list N" in ETC's dictionary; the
-        // command line's Go_CueList does it (what Eos macros use).
-        out.push_back(osc(QStringLiteral("/eos/newcmd"),
-                          {QStringLiteral("Go_CueList %1 Enter").arg(list)}));
+    case Do::GoList: {
+        // Eos has no "GO on list N" — not over OSC, and the command line's
+        // Go_CueList (seen in macros) just leaves the number behind (it
+        // selected channel 2 on a Nomad). ETC's way: press the GO button of
+        // the playback fader the list is loaded on.
+        const int count = std::max(10, n.toInt());
+        out.push_back(osc(QStringLiteral("/eos/fader/%1/config/%2/%3")
+                              .arg(desk.eosFaderBank).arg(list).arg(count)));
+        press(out, QStringLiteral("/eos/fader/%1/%2/fire").arg(desk.eosFaderBank).arg(n),
+              kKeyReleaseMs);
         break;
+    }
     case Do::Command: {
         // newcmd clears whatever is half-typed on the desk first, so our
         // command can't be glued onto it.
@@ -163,6 +169,12 @@ bool deskSupports(Type type, Do what)
 
 std::vector<DeskSend> deskSends(const core::LightingDesk &desk, const TriggerAction &a, QString *error)
 {
+    // On Eos, "another cue list" means a fader: it needs the fader number.
+    if (a.kind == TriggerAction::Kind::Desk && a.deskDo == Do::GoList
+        && desk.type == Type::Eos && a.number.trimmed().isEmpty()) {
+        if (error) *error = tr("pick the fader that cue list is loaded on");
+        return {};
+    }
     auto fail = [&](const QString &why) {
         if (error) *error = why;
         return std::vector<DeskSend>{};

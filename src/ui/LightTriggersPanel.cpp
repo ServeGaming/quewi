@@ -698,7 +698,15 @@ void TriggerActionEditor::updateSimpleRows()
             break;
         case DeskDo::GoList:
             list = true;
-            listLabel = type == core::LightingDesk::Type::Ma3 ? tr("Sequence") : tr("Cue list");
+            if (type == core::LightingDesk::Type::Ma3) {
+                listLabel = tr("Sequence");
+            } else {
+                // Eos can only GO another list through the fader it's on.
+                number = true;
+                numberLabel = tr("Fader");
+                numberHint = tr("the fader the cue list is on");
+                listLabel = tr("Fader page");
+            }
             break;
         case DeskDo::GoToCue:
             number = list = true;
