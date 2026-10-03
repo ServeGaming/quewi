@@ -206,6 +206,13 @@ endpoints inactive). Tests: live-input ring + backlog (test_mixer), mirror
 bookkeeping on real devices (skips with <2 outputs). **NOT driven**: Matthew
 declined UI control this time; real mic capture never exercised.
 
+**Updater VERIFIED on the MSI path (2026-10-03):** Matthew's in-app update
+1.0.2 → 1.0.3 worked end to end — UAC accepted, quewi quit by itself 3 s later
+(1.0.2's quitForUpdate), msiexec install OK in 26 s, relaunched, no failure
+flag; 1.0.3 is what's installed. (1.0.2 still had the path use-after-free; it
+just didn't bite that time — from 1.0.3 it can't.) With the portable-path
+drive below, both update routes are now proven. Gate 3 is closed.
+
 **1.0.3 tagged 2026-09-24 — the updater, for real.** The 1.0.1→1.0.2 update
 "just closed quewi": `update-client.log` showed `launchInstaller(): path=`
 GARBAGE. Use-after-free — the downloadFinished lambda took `const QString&`
