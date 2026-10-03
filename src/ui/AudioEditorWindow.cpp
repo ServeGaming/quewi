@@ -1,5 +1,6 @@
 #include "ui/AudioEditorWindow.h"
 
+#include "ui/LightTriggersPanel.h"
 #include "ui/LiveAudioScope.h"
 #include "ui/LiveEffectDevice.h"
 #include "ui/Theme.h"
@@ -208,6 +209,7 @@ AudioEditorWindow::AudioEditorWindow(audio::AudioCue *cue, QWidget *parent)
                     m_model->setSampleRate(file->sampleRate());
                     statusBar()->showMessage(QFileInfo(file->path()).fileName());
                     updateHeader();
+                    syncTriggersToCanvas();   // markers are in seconds
                     // The decode is async — when it finishes (typically well
                     // after the 150 ms zoom-fit timer below has already
                     // no-op'd on a zero-length model), fit the view to the
@@ -291,6 +293,22 @@ void AudioEditorWindow::buildToolbar() {
     loopBtn->setCheckable(true);
     connect(loopBtn, &QToolButton::toggled, this, &AudioEditorWindow::onLoopToggled);
     tb->addWidget(loopBtn);
+
+    // Lighting triggers during the preview. Off by default: previewing a song
+    // shouldn't drive the rig unless the operator is programming against it.
+    m_sendTriggersBtn = new QToolButton(tb);
+    m_sendTriggersBtn->setText(tr("Send while previewing"));
+    m_sendTriggersBtn->setCheckable(true);
+    m_sendTriggersBtn->setToolTip(tr("Send this song's lighting triggers as the editor's "
+                                     "preview plays past them, so you can program the desk "
+                                     "against the music"));
+    connect(m_sendTriggersBtn, &QToolButton::toggled, this, [this](bool on) {
+        if (!on) { endPreviewTriggers(); return; }
+        if (m_isPlaying && m_sink)
+            beginPreviewTriggers(m_sinkStartFrame
+                                 + m_sink->processedUSecs() * m_model->sampleRate() / 1000000);
+    });
+    tb->addWidget(m_sendTriggersBtn);
 
     tb->addWidget(toolbarDivider(tb));
 
@@ -488,10 +506,9 @@ void AudioEditorWindow::buildCentral() {
 }
 
 void AudioEditorWindow::buildBottomPanel() {
-    // Bottom panel is now the effects rack only — the spectrogram moved
-    // into the timeline (the View toggle), so there's no tab strip to
-    // hide it behind. The rack is embedded directly on a flush dark
-    // surface with a single thin top border.
+    // Bottom panel: two tabs on a flush dark surface with a single thin top
+    // border — the effects rack, and the song's lighting triggers. (The
+    // spectrogram lives in the timeline, via the View toggle.)
     const auto &tkB = Theme::tokens();
     auto *bottom = new QWidget(this);
     bottom->setObjectName(QStringLiteral("editorBottomPanel"));
@@ -506,8 +523,43 @@ void AudioEditorWindow::buildBottomPanel() {
     bvl->setContentsMargins(0, 0, 0, 0);
     bvl->setSpacing(0);
 
-    m_effectsRack = new EffectsRackWidget(bottom);
-    bvl->addWidget(m_effectsRack);
+    m_bottomTabs = new QTabWidget(bottom);
+    m_bottomTabs->setDocumentMode(true);
+    m_effectsRack = new EffectsRackWidget(m_bottomTabs);
+    m_bottomTabs->addTab(m_effectsRack, tr("Effects"));
+    m_triggersPanel = new LightTriggersPanel(m_bottomTabs);
+    m_triggersPanel->setCue(m_cue);
+    m_bottomTabs->addTab(m_triggersPanel, tr("Lighting"));
+    bvl->addWidget(m_bottomTabs);
+
+    // Lighting: panel <-> marker lane. Every edit goes through the panel's
+    // commit; the lane follows the cue (so undo and remotes show up too).
+    connect(m_timeline, &TimelineCanvas::triggerAdded, this, [this](double s, double e) {
+        showLightingTab();
+        m_triggersPanel->addTrigger(s, e);
+    });
+    connect(m_timeline, &TimelineCanvas::triggerMoved, this, [this](QUuid id, double s, double e) {
+        m_triggersPanel->moveTrigger(id, s, e);
+    });
+    connect(m_timeline, &TimelineCanvas::triggerSelected, this, [this](QUuid id) {
+        showLightingTab();
+        m_triggersPanel->selectTrigger(id);
+    });
+    connect(m_timeline, &TimelineCanvas::triggerContextAction, this, [this](QUuid id, QString action) {
+        showLightingTab();
+        m_triggersPanel->applyTriggerAction(id, action);
+    });
+    connect(m_timeline, &TimelineCanvas::editCursorMoved, this, [this](qint64 frame) {
+        m_triggersPanel->setCursorSeconds(double(frame) * secondsPerFrame());
+    });
+    connect(m_triggersPanel, &LightTriggersPanel::selectionChanged,
+            m_timeline, &TimelineCanvas::setSelectedTrigger);
+    connect(m_triggersPanel, &LightTriggersPanel::testRequested,
+            this, &AudioEditorWindow::testTriggerRequested);
+    m_triggersPanel->setCursorSeconds(double(m_timeline->editCursorFrame()) * secondsPerFrame());
+    if (m_cue)
+        connect(m_cue, &cues::Cue::changed, this, &AudioEditorWindow::syncTriggersToCanvas);
+    syncTriggersToCanvas();
 
     // The live analyzer is owned here and handed to the rack so any editor
     // it opens (EQ / Compressor) can subscribe to it.
@@ -531,6 +583,71 @@ void AudioEditorWindow::buildBottomPanel() {
         m_activeTrack = m_model->track(0);
         m_effectsRack->setTrack(m_activeTrack);
     });
+}
+
+void AudioEditorWindow::setTriggerSupport(core::Workspace *ws, QUndoStack *undo,
+                                          std::function<QStringList()> midiPorts)
+{
+    m_triggersPanel->setWorkspace(ws);
+    m_triggersPanel->setUndoStack(undo);
+    m_triggersPanel->setMidiPortsProvider(std::move(midiPorts));
+}
+
+void AudioEditorWindow::showLightingTab()
+{
+    if (m_bottomTabs) m_bottomTabs->setCurrentWidget(m_triggersPanel);
+}
+
+void AudioEditorWindow::flashTrigger(const QUuid &id)
+{
+    m_triggersPanel->flashTrigger(id);
+    m_timeline->flashTrigger(id);
+}
+
+double AudioEditorWindow::secondsPerFrame() const
+{
+    return 1.0 / double(std::max(1, m_model->sampleRate()));
+}
+
+void AudioEditorWindow::syncTriggersToCanvas()
+{
+    if (!m_timeline) return;
+    m_timeline->setTriggers(m_cue ? m_cue->lightTriggers() : audio::LightTriggers{},
+                            double(m_model->sampleRate()));
+}
+
+// ── Preview triggers ("Send while previewing") ───────────────────────────────
+// The preview plays the editor's mix from timeline frame 0, so its position in
+// seconds is frame / sampleRate — the same clock as the markers in the lane.
+
+void AudioEditorWindow::beginPreviewTriggers(qint64 frame)
+{
+    endPreviewTriggers();
+    if (!m_cue || m_cue->lightTriggers().empty()) return;
+    m_previewTracker = audio::TriggerTracker{};
+    m_previewTracking = true;
+    m_previewClock.start();
+    sendPreviewEvents(m_previewTracker.begin(m_cue->lightTriggers(), double(frame) * secondsPerFrame()));
+}
+
+void AudioEditorWindow::endPreviewTriggers()
+{
+    if (!m_previewTracking) return;
+    m_previewTracking = false;
+    if (m_cue) sendPreviewEvents(m_previewTracker.stop(m_cue->lightTriggers()));
+}
+
+void AudioEditorWindow::sendPreviewEvents(const std::vector<audio::TriggerEvent> &events)
+{
+    if (!m_cue) return;
+    const auto &triggers = m_cue->lightTriggers();
+    for (const auto &ev : events) {
+        if (ev.index < 0 || ev.index >= int(triggers.size())) continue;
+        const auto &t = triggers[size_t(ev.index)];
+        const auto &action = ev.exit ? t.exit : t.enter;
+        if (!action.isNone()) emit testTriggerRequested(action);
+        flashTrigger(t.id);
+    }
 }
 
 void AudioEditorWindow::updateHeader() {
@@ -615,12 +732,14 @@ void AudioEditorWindow::startPlayback() {
 
     m_sinkStartFrame  = startFrame;
     m_isPlaying       = true;
+    if (m_sendTriggersBtn && m_sendTriggersBtn->isChecked()) beginPreviewTriggers(startFrame);
     m_playTimer.start(33); // ~30 Hz — smooth playhead + live analyzer
     statusBar()->showMessage(tr("Playing…"));
 }
 
 void AudioEditorWindow::stopPlayback() {
     m_playTimer.stop();
+    endPreviewTriggers();   // ranges we were inside send their exit
     if (m_sink) { m_sink->stop(); m_sink.reset(); }
     if (m_liveDevice) { m_liveDevice->close(); m_liveDevice.reset(); }
     m_isPlaying = false;
@@ -649,6 +768,12 @@ void AudioEditorWindow::onPlaybackTick() {
     }
 
     m_timeline->setPlayheadFrame(frame);
+    if (m_previewTracking && m_cue) {
+        const double wall = double(m_previewClock.restart()) / 1000.0;
+        sendPreviewEvents(m_previewTracker.advance(m_cue->lightTriggers(),
+                                                   double(frame) * secondsPerFrame(),
+                                                   0.0, -1.0, wall));
+    }
     // Feed the live analyzer the window at the current playback position so
     // any open EQ / Compressor editor shows the program in real time.
     if (m_scope) m_scope->analyze(m_renderedPcm, frame, m_model->sampleRate());

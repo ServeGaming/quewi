@@ -12,6 +12,7 @@
 #include <QMouseEvent>
 #include <QPainter>
 #include <QScrollBar>
+#include <QTimer>
 #include <QWheelEvent>
 #include <QtConcurrentRun>
 #include <algorithm>
@@ -74,12 +75,12 @@ void TimelineCanvas::ensureSpectrogram(const std::shared_ptr<audio::AudioFile> &
 // ── Geometry ──────────────────────────────────────────────────────────────────
 
 int TimelineCanvas::trackY(int idx) const {
-    return kRulerHeight + idx * m_trackHeight - m_scrollY;
+    return tracksTop() + idx * m_trackHeight - m_scrollY;
 }
 
 int TimelineCanvas::contentHeight() const {
-    if (!m_model) return kRulerHeight;
-    return kRulerHeight + m_model->trackCount() * m_trackHeight;
+    if (!m_model) return tracksTop();
+    return tracksTop() + m_model->trackCount() * m_trackHeight;
 }
 
 double TimelineCanvas::framesToX(qint64 frames) const {
@@ -91,7 +92,8 @@ qint64 TimelineCanvas::xToFrames(int x) const {
 }
 
 int TimelineCanvas::trackAtY(int y) const {
-    int idx = (y - kRulerHeight + m_scrollY) / m_trackHeight;
+    if (y < tracksTop()) return -1;
+    int idx = (y - tracksTop() + m_scrollY) / m_trackHeight;
     if (idx < 0 || !m_model || idx >= m_model->trackCount()) return -1;
     return idx;
 }
@@ -117,7 +119,7 @@ void TimelineCanvas::updateScrollBars() {
     int contentH = contentHeight();
     if (m_vbar) {
         m_vbar->setRange(0, std::max(0, contentH - height()));
-        m_vbar->setPageStep(height() - kRulerHeight);
+        m_vbar->setPageStep(height() - tracksTop());
         m_vbar->setSingleStep(m_trackHeight);
     }
 }
@@ -137,10 +139,198 @@ void TimelineCanvas::setEditCursorFrame(qint64 f) {
     update();
 }
 
+// ── Lighting triggers ─────────────────────────────────────────────────────────
+
+void TimelineCanvas::setTriggers(const audio::LightTriggers &t, double sampleRate) {
+    m_triggers = t;
+    if (sampleRate > 0.0) m_triggerRate = sampleRate;
+    // The trigger being dragged went away (undo, remote): drop the drag.
+    if (m_tdrag.mode != TriggerDrag::None && !m_tdrag.id.isNull()
+        && std::none_of(m_triggers.begin(), m_triggers.end(),
+                        [this](const audio::LightTrigger &x) { return x.id == m_tdrag.id; }))
+        m_tdrag = TriggerDrag{};
+    update();
+}
+
+void TimelineCanvas::setSelectedTrigger(const QUuid &id) {
+    if (m_selectedTrigger == id) return;
+    m_selectedTrigger = id;
+    update();
+}
+
+void TimelineCanvas::flashTrigger(const QUuid &id) {
+    m_flashTrigger = id;
+    update();
+    QTimer::singleShot(450, this, [this, id] {
+        if (m_flashTrigger != id) return;
+        m_flashTrigger = QUuid();
+        update();
+    });
+}
+
+double TimelineCanvas::secondsToX(double s) const {
+    return kHeaderWidth + s * m_triggerRate / m_framesPerPixel - m_scrollX;
+}
+
+double TimelineCanvas::xToSeconds(int x) const {
+    return std::max(0.0, (double(x - kHeaderWidth) + m_scrollX) * m_framesPerPixel / m_triggerRate);
+}
+
+void TimelineCanvas::shownSpan(const audio::LightTrigger &t, double &start, double &end) const {
+    if (m_tdrag.moved && t.id == m_tdrag.id) {
+        start = m_tdrag.curStart;
+        end   = m_tdrag.curEnd;
+    } else {
+        start = t.start;
+        end   = t.isRange() ? t.end : -1.0;
+    }
+}
+
+int TimelineCanvas::triggerAt(int x, TriggerPart *part) const {
+    constexpr int kPointHit = 6;
+    // Points sit on top of ranges, so they win.
+    for (int i = int(m_triggers.size()) - 1; i >= 0; --i) {
+        const auto &t = m_triggers[size_t(i)];
+        if (t.isRange()) continue;
+        if (std::abs(secondsToX(t.start) - x) <= kPointHit) {
+            if (part) *part = TriggerPart::Body;
+            return i;
+        }
+    }
+    for (int i = int(m_triggers.size()) - 1; i >= 0; --i) {
+        const auto &t = m_triggers[size_t(i)];
+        if (!t.isRange()) continue;
+        const double x1 = secondsToX(t.start), x2 = secondsToX(t.end);
+        if (x < x1 - kEdgeTolerance || x > x2 + kEdgeTolerance) continue;
+        // A range too narrow for three zones is all body: moving beats
+        // resizing something you can barely see.
+        TriggerPart pt = TriggerPart::Body;
+        if (x2 - x1 > 3 * kEdgeTolerance) {
+            if (std::abs(x - x1) <= kEdgeTolerance)      pt = TriggerPart::StartEdge;
+            else if (std::abs(x - x2) <= kEdgeTolerance) pt = TriggerPart::EndEdge;
+        }
+        if (part) *part = pt;
+        return i;
+    }
+    return -1;
+}
+
+void TimelineCanvas::drawTriggerGuides(QPainter &p) {
+    if (m_triggers.empty()) return;
+    const auto &tk = Theme::tokens();
+    p.save();
+    p.setClipRect(kHeaderWidth, tracksTop(), width() - kHeaderWidth, height() - tracksTop());
+    for (const auto &t : m_triggers) {
+        double s = 0, e = 0;
+        shownSpan(t, s, e);
+        const bool sel = t.id == m_selectedTrigger || t.id == m_flashTrigger;
+        QColor line = tk.accent;
+        line.setAlpha(!t.enabled ? 22 : sel ? 120 : 55);
+        const int x1 = int(secondsToX(s));
+        if (e > s) {
+            // A range also tints the tracks very faintly, so the section reads.
+            const int x2 = int(secondsToX(e));
+            if (x2 < kHeaderWidth || x1 > width()) continue;
+            QColor wash = tk.accent;
+            wash.setAlpha(t.enabled ? (sel ? 22 : 12) : 6);
+            p.fillRect(QRect(x1, tracksTop(), x2 - x1, height() - tracksTop()), wash);
+            p.fillRect(x2, tracksTop(), 1, height() - tracksTop(), line);
+        }
+        p.fillRect(x1, tracksTop(), 1, height() - tracksTop(), line);
+    }
+    p.restore();
+}
+
+void TimelineCanvas::drawTriggerLane(QPainter &p) {
+    const auto &tk = Theme::tokens();
+    const int top = kRulerHeight, h = kMarkerLaneHeight;
+    p.fillRect(0, top, width(), h, tk.bgRowAlt);
+    p.fillRect(0, top + h - 1, width(), 1, tk.divider);
+
+    // Header cell, matching the track headers below it.
+    p.fillRect(0, top, kHeaderWidth, h - 1, tk.bgInteractive);
+    p.fillRect(kHeaderWidth - 1, top, 1, h, tk.bgDeep);
+    QFont cap = font();
+    cap.setPointSizeF(7.5);
+    cap.setBold(true);
+    cap.setLetterSpacing(QFont::PercentageSpacing, 115);
+    p.setFont(cap);
+    p.setPen(tk.ink40);
+    p.drawText(QRect(8, top, kHeaderWidth - 12, h - 1), Qt::AlignLeft | Qt::AlignVCenter,
+               tr("LIGHTING"));
+
+    p.save();
+    p.setClipRect(kHeaderWidth, top, width() - kHeaderWidth, h - 1);
+    p.setRenderHint(QPainter::Antialiasing, true);
+    QFont nf = font();
+    nf.setPointSizeF(8.0);
+    p.setFont(nf);
+    const QFontMetrics fm(nf);
+    const double midY = top + (h - 1) / 2.0;
+
+    // Ranges first, under the points.
+    for (const auto &t : m_triggers) {
+        double s = 0, e = 0;
+        shownSpan(t, s, e);
+        if (e <= s) continue;
+        const double x1 = secondsToX(s), x2 = secondsToX(e);
+        if (x2 < kHeaderWidth || x1 > width()) continue;
+        const bool sel = t.id == m_selectedTrigger;
+        const bool hot = sel || t.id == m_flashTrigger;
+        QColor fill = tk.accent;
+        fill.setAlpha(!t.enabled ? 26 : hot ? 125 : 70);
+        const QColor edge = !t.enabled ? tk.ink40 : sel ? tk.accentHover : tk.accent;
+        const QRectF r(x1 + 0.5, top + 3.5, std::max(2.0, x2 - x1 - 1.0), h - 8.0);
+        p.setPen(QPen(edge, sel ? 1.5 : 1.0));
+        p.setBrush(fill);
+        p.drawRoundedRect(r, 3, 3);
+        if (!t.name.isEmpty() && r.width() > 24) {
+            p.setPen(t.enabled ? tk.ink100 : tk.ink40);
+            p.drawText(r.adjusted(5, 0, -4, 0), Qt::AlignLeft | Qt::AlignVCenter,
+                       fm.elidedText(t.name, Qt::ElideRight, int(r.width()) - 9));
+        }
+    }
+
+    // Points: a small diamond flag, name beside it.
+    for (const auto &t : m_triggers) {
+        double s = 0, e = 0;
+        shownSpan(t, s, e);
+        if (e > s) continue;
+        const double x = secondsToX(s);
+        if (x < kHeaderWidth - 8 || x > width() + 8) continue;
+        const bool sel = t.id == m_selectedTrigger;
+        const bool hot = sel || t.id == m_flashTrigger;
+        const double r = sel ? 6.0 : 5.0;
+        QPolygonF d;
+        d << QPointF(x, midY - r) << QPointF(x + r, midY) << QPointF(x, midY + r) << QPointF(x - r, midY);
+        QColor fill = !t.enabled ? tk.ink40 : hot ? tk.accentHover : tk.accent;
+        if (!t.enabled) fill.setAlpha(150);
+        p.setPen(sel ? QPen(tk.ink100, 1.0) : Qt::NoPen);
+        p.setBrush(fill);
+        p.drawPolygon(d);
+        if (!t.name.isEmpty()) {
+            p.setPen(t.enabled ? (sel ? tk.ink100 : tk.ink60) : tk.ink40);
+            p.drawText(QRectF(x + r + 4, top, 160, h - 1), Qt::AlignLeft | Qt::AlignVCenter,
+                       fm.elidedText(t.name, Qt::ElideRight, 156));
+        }
+    }
+
+    // A range being drawn: dashed outline until release.
+    if (m_tdrag.mode == TriggerDrag::Create && m_tdrag.moved && m_tdrag.curEnd > m_tdrag.curStart) {
+        const double x1 = secondsToX(m_tdrag.curStart), x2 = secondsToX(m_tdrag.curEnd);
+        QColor fill = tk.accent;
+        fill.setAlpha(40);
+        p.setPen(QPen(tk.accent, 1.0, Qt::DashLine));
+        p.setBrush(fill);
+        p.drawRoundedRect(QRectF(x1 + 0.5, top + 3.5, std::max(2.0, x2 - x1 - 1.0), h - 8.0), 3, 3);
+    }
+    p.restore();
+}
+
 // ── Hit test ──────────────────────────────────────────────────────────────────
 
 std::optional<TimelineCanvas::Hit> TimelineCanvas::hitTest(int x, int y) const {
-    if (!m_model || x < kHeaderWidth || y < kRulerHeight) return std::nullopt;
+    if (!m_model || x < kHeaderWidth || y < tracksTop()) return std::nullopt;
     int ti = trackAtY(y);
     if (ti < 0) return std::nullopt;
     auto *track = m_model->track(ti);
@@ -190,13 +380,17 @@ void TimelineCanvas::paintEvent(QPaintEvent *) {
             drawRegion(p, region, ti, trackRect);
     }
 
+    drawTriggerGuides(p);
+
     // Track headers (drawn after regions so they stay on top)
     for (int ti = 0; ti < m_model->trackCount(); ++ti) {
         int y = trackY(ti);
         drawTrackHeader(p, ti, QRect(0, y, kHeaderWidth, m_trackHeight));
     }
 
+    // Ruler and lane last-but-cursors: tracks scrolled up pass under them.
     drawRuler(p);
+    drawTriggerLane(p);
     drawEditCursor(p);
     drawPlayhead(p);
 }
@@ -451,8 +645,11 @@ void TimelineCanvas::mousePressEvent(QMouseEvent *e) {
     if (!m_model) return;
     int x = e->pos().x(), y = e->pos().y();
 
+    // The lighting lane's header cell is just a label.
+    if (x < kHeaderWidth && inTriggerLane(y)) return;
+
     // Click on track header mute/solo buttons
-    if (x < kHeaderWidth && y >= kRulerHeight) {
+    if (x < kHeaderWidth && y >= tracksTop()) {
         int ti = trackAtY(y);
         if (ti >= 0) {
             auto *track = m_model->track(ti);
@@ -477,6 +674,35 @@ void TimelineCanvas::mousePressEvent(QMouseEvent *e) {
 
     // Clicks in the ruler only move the cursor — no region interaction.
     if (y < kRulerHeight) { update(); return; }
+
+    // Lighting lane: select / start moving or resizing a trigger, or start
+    // making a new one (a click makes a point, a drag a range — decided on
+    // release). Left button only: a right press is the context menu's.
+    if (inTriggerLane(y)) {
+        if (e->button() == Qt::LeftButton) {
+            m_tdrag = TriggerDrag{};
+            m_tdrag.pressPos = e->pos();
+            m_tdrag.pressSec = xToSeconds(x);
+            TriggerPart part = TriggerPart::Body;
+            const int ti = triggerAt(x, &part);
+            if (ti >= 0) {
+                const auto &t = m_triggers[size_t(ti)];
+                m_selectedTrigger = t.id;
+                emit triggerSelected(t.id);
+                m_tdrag.id = t.id;
+                m_tdrag.origStart = m_tdrag.curStart = t.start;
+                m_tdrag.origEnd   = m_tdrag.curEnd   = t.isRange() ? t.end : -1.0;
+                m_tdrag.mode = part == TriggerPart::StartEdge ? TriggerDrag::ResizeStart
+                             : part == TriggerPart::EndEdge   ? TriggerDrag::ResizeEnd
+                                                              : TriggerDrag::Move;
+            } else {
+                m_tdrag.mode = TriggerDrag::Create;
+                m_tdrag.curStart = m_tdrag.pressSec;
+            }
+        }
+        update();
+        return;
+    }
 
     auto hit = hitTest(x, y);
 
@@ -516,6 +742,50 @@ void TimelineCanvas::mousePressEvent(QMouseEvent *e) {
 
 void TimelineCanvas::mouseMoveEvent(QMouseEvent *e) {
     int x = e->pos().x(), y = e->pos().y();
+
+    // ── Lighting lane drag ─────────────────────────────────────────────
+    if (m_tdrag.mode != TriggerDrag::None) {
+        if (!m_tdrag.moved) {
+            if (std::abs(x - m_tdrag.pressPos.x()) < kDragThreshold) return;
+            m_tdrag.moved = true;
+        }
+        const double sec   = xToSeconds(x);
+        const double delta = sec - m_tdrag.pressSec;
+        // Shortest range a drag can leave: a few pixels, so it stays grabbable.
+        const double minLen = std::max(0.001, 4.0 * m_framesPerPixel / m_triggerRate);
+        switch (m_tdrag.mode) {
+        case TriggerDrag::Create:
+            m_tdrag.curStart = std::min(m_tdrag.pressSec, sec);
+            m_tdrag.curEnd   = std::max(m_tdrag.pressSec, sec);
+            break;
+        case TriggerDrag::Move: {
+            const double len = m_tdrag.origEnd > m_tdrag.origStart
+                                   ? m_tdrag.origEnd - m_tdrag.origStart : 0.0;
+            m_tdrag.curStart = std::max(0.0, m_tdrag.origStart + delta);
+            m_tdrag.curEnd   = len > 0.0 ? m_tdrag.curStart + len : -1.0;
+            setCursor(Qt::ClosedHandCursor);
+            break;
+        }
+        case TriggerDrag::ResizeStart:
+            m_tdrag.curStart = std::clamp(sec, 0.0, m_tdrag.origEnd - minLen);
+            break;
+        case TriggerDrag::ResizeEnd:
+            m_tdrag.curEnd = std::max(sec, m_tdrag.origStart + minLen);
+            break;
+        case TriggerDrag::None:
+            break;
+        }
+        update();
+        return;
+    }
+    if (inTriggerLane(y) && x >= kHeaderWidth && !m_drag.active) {
+        TriggerPart part = TriggerPart::Body;
+        const int ti = triggerAt(x, &part);
+        setCursor(ti >= 0 && part != TriggerPart::Body ? Qt::SizeHorCursor
+                  : ti >= 0                            ? Qt::OpenHandCursor
+                                                       : Qt::ArrowCursor);
+        return;
+    }
 
     // Hover cursor (only while not mid-drag, so an active trim/move keeps
     // its own cursor). A region body shows the normal arrow — only the
@@ -574,11 +844,32 @@ void TimelineCanvas::mouseReleaseEvent(QMouseEvent *) {
     m_drag.active = false;
     m_drag.moved  = false;
     setCursor(Qt::ArrowCursor);
+
+    if (m_tdrag.mode == TriggerDrag::None) return;
+    // Reset first: the signals below come straight back as setTriggers().
+    const TriggerDrag d = m_tdrag;
+    m_tdrag = TriggerDrag{};
+    if (d.mode == TriggerDrag::Create) {
+        if (d.moved && d.curEnd > d.curStart) emit triggerAdded(d.curStart, d.curEnd);
+        else                                  emit triggerAdded(d.pressSec, -1.0);
+    } else if (d.moved) {
+        emit triggerMoved(d.id, d.curStart, d.curEnd);
+    }
+    update();
 }
 
 void TimelineCanvas::mouseDoubleClickEvent(QMouseEvent *e) {
-    // Double-click on track header: rename (future work)
-    Q_UNUSED(e)
+    // Double-click a trigger in the lighting lane: select + rename. (Track
+    // header rename is future work.)
+    const int x = e->pos().x();
+    if (x < kHeaderWidth || !inTriggerLane(e->pos().y())) return;
+    const int ti = triggerAt(x);
+    if (ti < 0) return;
+    const QUuid id = m_triggers[size_t(ti)].id;
+    m_tdrag = TriggerDrag{};
+    m_selectedTrigger = id;
+    emit triggerSelected(id);
+    emit triggerContextAction(id, QStringLiteral("rename"));
 }
 
 void TimelineCanvas::wheelEvent(QWheelEvent *e) {
@@ -626,8 +917,37 @@ void TimelineCanvas::contextMenuEvent(QContextMenuEvent *e) {
     const int x = e->pos().x();
     const int y = e->pos().y();
 
+    // Right-click in the lighting lane: trigger-scoped actions.
+    if (inTriggerLane(y)) {
+        if (x < kHeaderWidth) return;
+        const int ti = triggerAt(x);
+        if (ti < 0) {
+            auto *addAct = menu.addAction(tr("Add Trigger Here"));
+            const double sec = xToSeconds(x);
+            if (menu.exec(e->globalPos()) == addAct) emit triggerAdded(sec, -1.0);
+            return;
+        }
+        const auto t = m_triggers[size_t(ti)];
+        m_selectedTrigger = t.id;
+        emit triggerSelected(t.id);
+        update();
+        auto *renameAct = menu.addAction(tr("Rename…"));
+        auto *rangeAct  = menu.addAction(t.isRange() ? tr("Make a Point") : tr("Make a Range"));
+        auto *enableAct = menu.addAction(t.enabled ? tr("Disable") : tr("Enable"));
+        menu.addSeparator();
+        auto *deleteAct = menu.addAction(tr("Delete"));
+        QAction *chosen = menu.exec(e->globalPos());
+        QString action;
+        if      (chosen == renameAct) action = QStringLiteral("rename");
+        else if (chosen == rangeAct)  action = QStringLiteral("toggleRange");
+        else if (chosen == enableAct) action = QStringLiteral("toggleEnabled");
+        else if (chosen == deleteAct) action = QStringLiteral("delete");
+        if (!action.isEmpty()) emit triggerContextAction(t.id, action);
+        return;
+    }
+
     // Right-click on the track-header strip (left side): track-scoped actions.
-    if (x < kHeaderWidth && y >= kRulerHeight) {
+    if (x < kHeaderWidth && y >= tracksTop()) {
         const int ti = trackAtY(y);
         if (ti < 0) {
             // Empty header area below the last track — just offer Add Track.

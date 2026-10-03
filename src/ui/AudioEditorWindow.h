@@ -3,21 +3,30 @@
 #include "audio/AudioCue.h"
 #include "audio/AudioEditorModel.h"
 #include "audio/AudioEditorRenderer.h"
+#include "audio/LightTrigger.h"
 #include "ui/TimelineCanvas.h"
 #include "ui/EffectsRackWidget.h"
 
 #include <QMainWindow>
 #include <QAudioSink>
+#include <QElapsedTimer>
 #include <QBuffer>
 #include <QLabel>
 #include <QPointer>
 #include <QPushButton>
 #include <QTimer>
+#include <functional>
 #include <memory>
 #include <vector>
 
+class QTabWidget;
+class QToolButton;
+class QUndoStack;
+namespace quewi::core { class Workspace; }
+
 namespace quewi::ui {
 
+class LightTriggersPanel;
 class LiveAudioScope;
 class LiveEffectDevice;
 
@@ -30,13 +39,30 @@ class LiveEffectDevice;
 //  • FFT spectrogram view (tab alongside effects rack)
 //  • Preview playback with transport controls
 //  • Render / bounce to 24-bit WAV (updates the cue's file path)
-//  • Separate undo stack from the main show undo
+//  • Separate undo stack from the main show undo (lighting-trigger edits
+//    use the show's, via setTriggerSupport — they're cue fields)
+//  • Lighting tab + marker lane: triggers that cue the desk from the song
 //  • State persisted in the cue's editorModel payload key
 class AudioEditorWindow : public QMainWindow {
     Q_OBJECT
 public:
     explicit AudioEditorWindow(audio::AudioCue *cue, QWidget *parent = nullptr);
     ~AudioEditorWindow() override;
+
+    // Lighting triggers. ws feeds the Fire-cue picker, undo takes the edits
+    // (null = edit the cue directly), midiPorts fills the MIDI / MSC port lists.
+    void setTriggerSupport(core::Workspace *ws, QUndoStack *undo,
+                           std::function<QStringList()> midiPorts);
+    void showLightingTab();
+
+signals:
+    // Test buttons, and — with "Send while previewing" on — every trigger the
+    // editor's own preview crosses. The owner sends it (GoEngine).
+    void testTriggerRequested(const quewi::audio::TriggerAction &action);
+
+public slots:
+    // A trigger fired (live show or preview): flash its row and marker.
+    void flashTrigger(const QUuid &id);
 
 protected:
     void closeEvent(QCloseEvent *) override;
@@ -73,7 +99,13 @@ private:
     void updateRenderButton();
     // Write the session (tracks, regions, effects rack) into the cue.
     void syncSessionToCue();
-
+    // Lighting triggers → the marker lane (on cue changes and rate changes).
+    void syncTriggersToCanvas();
+    double secondsPerFrame() const;
+    // Preview tracker: sends what the preview crosses while the toggle is on.
+    void beginPreviewTriggers(qint64 frame);
+    void endPreviewTriggers();
+    void sendPreviewEvents(const std::vector<audio::TriggerEvent> &events);
     QPushButton *m_renderBtn = nullptr;
     // Effect edits reach the cue shortly after you make them, so firing the
     // cue from the main window with the editor still open plays the new rack.
@@ -95,7 +127,12 @@ private:
 
     // Bottom panel
     EffectsRackWidget *m_effectsRack = nullptr;
-
+    QTabWidget        *m_bottomTabs  = nullptr;
+    LightTriggersPanel *m_triggersPanel = nullptr;
+    QToolButton       *m_sendTriggersBtn = nullptr;   // "Send while previewing"
+    audio::TriggerTracker m_previewTracker;
+    bool               m_previewTracking = false;
+    QElapsedTimer      m_previewClock;                 // wall time between ticks
     // Real-time analyzer fed from the preview playback; the open EQ /
     // Compressor editors read it to draw a live spectrum / level.
     LiveAudioScope    *m_scope = nullptr;
