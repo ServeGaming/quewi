@@ -45,6 +45,14 @@ The sound follows the picture. GO, Stop, Pause, Start (resume) and the
 Inspector's scrubber drive both, and a Fade cue with **Gain** as its
 parameter fades the soundtrack, while **Opacity** fades the picture.
 
+#### Lighting triggers on a video
+
+*New in 1.0.4.* A video cue can cue the lighting desk from marks on its
+soundtrack. Press **Lighting triggers…** in the Sound section. If the
+video's sound is off, the triggers still run, following the picture's
+clock. Converting to an audio cue and back keeps them. See
+[Lighting triggers](../using-quewi/lighting-triggers.md#video-cues).
+
 #### Turning a video cue into an audio cue
 
 **Convert to audio cue** (in the Sound section, or **Cue → Convert

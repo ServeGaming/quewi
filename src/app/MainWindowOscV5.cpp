@@ -179,7 +179,7 @@ QJsonObject MainWindow::triggersReplyJson(cues::Cue *c) const
     }
     return QJsonObject{
         {QStringLiteral("cue"),      c->number()},
-        {QStringLiteral("id"),       c->id().toString(QUuid::WithoutBraces)},
+        {QStringLiteral("id"),       c->id().toString()},   // braced, like every other cue id
         {QStringLiteral("type"),     c->typeKey()},
         {QStringLiteral("armed"),    m_goEngine && m_goEngine->triggersArmed()},
         {QStringLiteral("triggers"), arr},
@@ -373,7 +373,7 @@ void MainWindow::registerOscApiV5()
     connect(m_goEngine.get(), &GoEngine::triggerFired, this,
             [this](cues::Cue *owner, const QUuid &id, const QString &name, bool exit) {
                 pushOscNotify(QStringLiteral("/quewi/notify/trigger/fired"),
-                    { osc::Argument::s(owner ? owner->id().toString(QUuid::WithoutBraces) : QString()),
+                    { osc::Argument::s(owner ? owner->id().toString() : QString()),
                       osc::Argument::d(owner ? owner->number() : 0.0),
                       osc::Argument::s(id.toString(QUuid::WithoutBraces)),
                       osc::Argument::s(name),

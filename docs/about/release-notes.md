@@ -1,5 +1,70 @@
 # Release notes
 
+## 1.0.4 (unreleased)
+
+Songs that cue the lights, video cues that play their sound, and a
+soundboard you can talk through.
+
+### New
+
+- **Lighting triggers.** Mark points and ranges on a song and quewi cues
+  the lighting desk as the playhead passes them: an OSC message (ETC Eos,
+  grandMA3…), a MIDI note, control change or program change, an MSC GO,
+  or another cue in the show. Ranges send one thing on the way in and
+  another on the way out. Make them in the audio editor's new **Lighting**
+  tab or straight on the timeline's lighting lane (click for a point, drag
+  for a range). Presets fill in common Eos and grandMA messages, **Test**
+  sends one now, and **Send while previewing** lets you program the desk
+  against the editor's playback. **Tools → Lighting Triggers Armed** is the
+  master switch.
+  [Lighting triggers →](../using-quewi/lighting-triggers.md)
+- **Video cues play their sound.** A video cue's soundtrack now goes
+  through quewi's audio engine, with level, pan, fades, output and the
+  full audio editor (**Edit sound…**). New video cues play their sound;
+  shows saved before 1.0.4 open with it off, so they play exactly as
+  before until you turn it on.
+  [Video cues →](../cue-types/video.md#the-videos-sound-new-in-104)
+- **Convert video ↔ audio cues.** **Convert to audio cue** keeps just the
+  sound; **Convert back to video cue** restores the screen, position, size
+  and opacity. The cue keeps its number and identity, so Fade, Start and
+  Stop cues still find it, and sound edits and lighting triggers carry
+  over. Also under **Cue → Convert Video ↔ Audio**. Undoable.
+- **Send soundboard sounds to your mic.** Pads can play into a virtual
+  cable (such as VB-Audio CABLE) that Discord, OBS or a game uses as its
+  microphone, with your real voice mixed in.
+  [Soundboard →](../using-quewi/soundboard.md#sending-sounds-to-your-mic)
+- **Fit the Inspector.** Double-click the divider between the cue list and
+  the Inspector to size the Inspector to its content.
+  [Inspector →](../using-quewi/inspector.md#layout)
+- **OSC remote API v5** (for HeliOSC and other remotes): lighting triggers
+  (list, add, edit, remove, test, arm, and a `trigger/fired`
+  notification), video ↔ audio conversion, and the soundboard → mic
+  settings.
+  [Address reference →](../osc-control/reference.md#lighting-triggers-v5)
+
+### Fixed
+
+- **OSC notifications never arrived for default subscribers.** Subscribing
+  with the default pattern `/quewi/notify/*` matched none of the
+  notification addresses, so remotes that relied on it received nothing.
+  A pattern ending in `/*` now covers every level below it.
+  [Subscriptions →](../osc-control/reference.md#subscribe-unsubscribe)
+- **Setting a cue's file over OSC.** The file now starts decoding straight
+  away, so the next GO plays it. Before, the first GO after a remote
+  `set/filePath` found it still decoding and played nothing.
+- **OSC `level`, `pan`, `seek` and `fx` on video cues** did nothing. They
+  now drive the video's soundtrack, and `seek` moves the picture too.
+- **OSC `/quewi/workspace/open <path>` lost unsaved changes.** It loaded
+  straight over the current show; it now asks Save / Discard / Cancel on the
+  quewi machine first, like New and Open….
+- **Audio editor crash after removing a track.** Removing the active track
+  while stopped left the editor and its effects rack pointing at the
+  deleted track, so the next Play could crash. The editor now falls back
+  to track 1 and closes any open EQ or compressor window for that track.
+- The video cue Inspector no longer shows a stray "Text size" label.
+
+---
+
 ## 1.0.3 (September 2026)
 
 A fix release for in-app updates.

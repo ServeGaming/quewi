@@ -48,6 +48,27 @@ Open the address reference for the full per-cue-type tables:
 - [Targeting cues (`"start"`, `"stop"`, `"goto"`, etc.)](reference.md#targeting-cues-type-start-stop-goto-pause-load-reset-devamp)
 - [Memo cue (`"memo"`)](reference.md#memocue-type-memo)
 
+### New in 1.0.4
+
+**Audio cues**
+
+| Field | Type | Meaning |
+|---|---|---|
+| `lightTriggers` | `s` (JSON array) | The cue's [lighting triggers](../using-quewi/lighting-triggers.md). `/set/lightTriggers` takes the whole array as one JSON string (`""` or `[]` clears them). In the cue JSON it's a real array, and it's left out when there are none. Shape: [Trigger JSON](reference.md#trigger-json). For per-trigger edits use the [trigger addresses](reference.md#lighting-triggers-v5). |
+| `videoOrigin` | JSON object | Read-only. Only on an audio cue converted from a video cue: the video's settings, used when it's converted back. |
+
+**Video cues**
+
+| Field | Type | Meaning |
+|---|---|---|
+| `soundEnabled` | `T` / `F` | Play the video's soundtrack through the audio engine. On for new video cues; off for shows saved before 1.0.4 |
+| `sound.<field>` | as the audio field | Any audio cue field of the soundtrack, e.g. `sound.gainDb`, `sound.pan`, `sound.fadeInSeconds`, `sound.fadeOutSeconds`, `sound.trimInSeconds`, `sound.trimOutSeconds`, `sound.outputDeviceId` |
+| `sound.lightTriggers` | `s` (JSON array) | The soundtrack's lighting triggers, as `lightTriggers` above. They run whether or not `soundEnabled` is on |
+
+The soundtrack's `filePath` and `loop` follow the video cue's own `filePath`
+and `loop`, so set those on the video. In the cue JSON the soundtrack is a
+nested `"sound"` object.
+
 ---
 
 ## Type tag legend
@@ -86,6 +107,10 @@ Other fields only take effect on the next fire:
 - Anything that's a file path, decoder setting, fade-in time,
   loop flag — these are read at fire time and don't update mid-
   playback.
+
+`lightTriggers` is in between: edits reach a playing cue straight
+away if it already had triggers when it started, but a cue that
+started with none picks them up on its next GO.
 
 This matches the [Inspector's behaviour](../using-quewi/inspector.md#live-applied-vs-on-fire).
 A controller dragging a fader during a show updates gain in

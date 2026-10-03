@@ -127,6 +127,7 @@ nav:
       - Pre-flight: using-quewi/preflight.md
       - Keyboard shortcuts: using-quewi/shortcuts.md
       - Inspector & editing: using-quewi/inspector.md
+      - Lighting triggers: using-quewi/lighting-triggers.md
 
   - Cue type reference:
       - Audio cue: cue-types/audio.md

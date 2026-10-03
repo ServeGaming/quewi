@@ -4023,7 +4023,9 @@ void MainWindow::registerOscRemoteHandlers()
             path = std::get<QString>(m.args.front().value);
         QMetaObject::invokeMethod(this, [this, path]{
             if (path.isEmpty()) openShow();
-            else                loadShowFromPath(path);
+            // Same unsaved-changes prompt as New / Open… — it used to load
+            // straight over the current show and lose its edits.
+            else if (maybeSaveChanges()) loadShowFromPath(path);
         }, Qt::QueuedConnection);
     });
     sub("/quewi/workspace/save", [this](const osc::Message &) {

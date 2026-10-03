@@ -34,6 +34,14 @@ Every Audio cue has these fields, all undoable and persisted:
 | Loop | bool | Repeat from trim-in when reaching trim-out |
 | Cue colour | colour or none | Tints the row in the cue list |
 
+## Lighting triggers
+
+*New in 1.0.4.* An audio cue can cue the lighting desk from points and
+ranges on its song: an OSC message to an ETC Eos or grandMA, a MIDI note,
+an MSC GO, or firing another cue, sent as the playhead passes each mark.
+Open them with **Lighting triggers…** in the Inspector's Audio section.
+See [Lighting triggers](../using-quewi/lighting-triggers.md).
+
 ## Quick actions in the inspector
 
 - **Normalize** — scans the decoded buffer for the absolute peak and

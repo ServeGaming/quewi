@@ -213,7 +213,9 @@ import json
 from pythonosc.udp_client import SimpleUDPClient
 client = SimpleUDPClient("127.0.0.1", 53535)
 
-# Start fresh
+# Start fresh. If the open show has unsaved changes, quewi asks
+# Save / Discard / Cancel on its own screen first, so save it before
+# running this unattended.
 client.send_message("/quewi/workspace/new", [])
 
 # Build 50 cues from a playlist

@@ -52,6 +52,24 @@ Legend: ✅ implemented · 🚧 in progress · ⬜ planned
 | Learn mode (capture → bind to cue) | ⬜ |
 | Dictionary import/export | ⬜ |
 
+## quewi remote API (1.0.4 additions)
+
+What quewi itself answers on its OSC port. The full list is the
+[address reference](../osc-control/reference.md).
+
+| Feature | Status |
+|---|---|
+| Subscription patterns ending in `/*` match deeper notify addresses (the default `/quewi/notify/*` now receives every notification) | ✅ fixed in 1.0.4 |
+| Lighting triggers: list / set / add / clear, per-trigger edit / remove / test | ✅ |
+| Lighting triggers: master arm switch + query | ✅ |
+| Lighting triggers: `notify/trigger/fired`, `notify/triggers/armed` | ✅ |
+| Video ↔ audio cue conversion (`/cue/<num>/convert`) | ✅ |
+| Video cue soundtrack fields (`soundEnabled`, `sound.<field>`) | ✅ |
+| Live `level` / `pan` / `seek` and `fx` verbs on video cues | ✅ |
+| `set/filePath` decodes immediately (next GO plays) | ✅ fixed in 1.0.4 |
+| Soundboard → mic settings, query and change notification | ✅ |
+| Answering the "Save changes?" prompt remotely (`/workspace/new`) | ⬜ |
+
 ## Architecture
 
 The codec (`OscCodec`) is pure functions. The engine (`OscEngine`) owns
