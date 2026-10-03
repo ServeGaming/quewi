@@ -69,6 +69,15 @@ private slots:
         auto owner = lockJournal(live);
         QVERIFY(owner);
         touch(live);
+#ifdef Q_OS_WIN
+        // The owner's QLockFile keeps the lock file open with no sharing, so
+        // nothing else can even open it to back-date it — a live lock on
+        // Windows can't be aged (or removed) from outside at all.
+        QFile probe(journalLockPath(live));
+        QVERIFY(!probe.open(QIODevice::ReadWrite));
+        QVERIFY(claimOrphanedJournals(dir.path()).empty());
+        QSKIP("can't back-date a lock file its owner holds open (Windows)");
+#endif
         QFile lockFile(journalLockPath(live));
         QVERIFY(lockFile.open(QIODevice::ReadWrite));
         QVERIFY(lockFile.setFileTime(QDateTime::currentDateTime().addDays(-2),
