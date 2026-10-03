@@ -1,8 +1,10 @@
 #pragma once
 
 #include "audio/AudioCue.h"
+#include "audio/BeatGrid.h"
 #include "audio/LightTrigger.h"
 
+#include <QElapsedTimer>
 #include <QFrame>
 #include <QPointer>
 #include <QSet>
@@ -10,6 +12,7 @@
 #include <QWidget>
 
 #include <functional>
+#include <vector>
 
 class QCheckBox;
 class QComboBox;
@@ -164,6 +167,40 @@ public:
     // editors' simple mode offers. Also done whenever the panel is shown.
     void refreshDesk();
 
+    // ── Beat grid (the strip under the desk line) ─────────────────────────
+    // Every grid edit goes to the cue's "beatGrid" field through the undo
+    // stack. Spin edits merge; a tap run, a Detect and Set-to-cursor are each
+    // their own step.
+    void setBeatGrid(const audio::BeatGrid &g, bool mergeable = false);
+    // Where the editor's preview is (seconds), or < 0 when it isn't playing.
+    void setPlayheadProvider(std::function<double()> f);
+    // Renders the song for Detect: interleaved stereo float + its rate. Runs on
+    // the UI thread; the analysis itself runs on a worker.
+    void setDetectSource(std::function<bool(std::vector<float> &stereo, int &sampleRate)> f);
+    void setSongLength(double seconds);          // for Fill's "Whole song"
+
+    // Tap (button / T key). `seconds` is any monotonic clock; from the second
+    // tap it sets the BPM. With playheadSeconds >= 0 (preview playing) the first
+    // beat moves onto the tap, reduced by whole beats to the earliest >= 0.
+    void tap();
+    void tapAt(double seconds, double playheadSeconds = -1.0);
+    // Detect: renders through the detect source, then detectFromPcm.
+    void detectTempo();
+    // Analyses interleaved PCM off the UI thread, then sets bpm + first beat in
+    // one undo step. Emits tempoDetected when done (bpm 0 = nothing found).
+    void detectFromPcm(std::vector<float> interleaved, int sampleRate, int channels = 2);
+    bool isDetecting() const { return m_detecting; }
+
+    bool snapToBeats() const;
+    void setSnapToBeats(bool on);                // also saved in QSettings
+
+    // Adds point triggers on every `every`-th beat in [from, to) sending
+    // `action`, in one undo step. Returns how many.
+    int  fillWithBeats(double from, double to, int every,
+                       const audio::TriggerAction &action, const QString &namePrefix);
+    // "Fill with beats…": the dialog, then fillWithBeats.
+    void openFillDialog();
+
 public slots:
     void flashTrigger(const QUuid &id);                // briefly highlight a row (amber) when it fires live
 
@@ -172,6 +209,8 @@ signals:
     void triggersEdited();                             // after a commit
     void selectionChanged(const QUuid &id);
     void deskSettingsRequested();                      // "Change…" next to the desk line
+    void snapToBeatsChanged(bool on);
+    void tempoDetected(double bpm, double firstBeat, double confidence);
 
 protected:
     void showEvent(QShowEvent *e) override;
@@ -189,6 +228,9 @@ private:
     QString actionText(const audio::TriggerAction &a) const;
     int indexOf(const QUuid &id) const;      // in the cue's vector, -1 if none
     QString nextName() const;
+    void commitGrid(const audio::BeatGrid &g, int mergeId);   // -1 = own step
+    void loadGrid();                         // cue → strip widgets
+    void finishDetect(const audio::TempoEstimate &est, audio::AudioCue *forCue);
 
     QPointer<audio::AudioCue>  m_cue;
     QPointer<QUndoStack>       m_undo;
@@ -201,6 +243,25 @@ private:
     QList<QUuid> m_rowIds;                   // table row → trigger id
 
     QLabel       *m_deskLabel = nullptr;
+
+    // Beat grid strip
+    QDoubleSpinBox *m_bpm = nullptr;
+    QPushButton    *m_tapBtn = nullptr;
+    QPushButton    *m_detectBtn = nullptr;
+    QDoubleSpinBox *m_firstBeat = nullptr;
+    QSpinBox       *m_beatsPerBar = nullptr;
+    QCheckBox      *m_snap = nullptr;
+    QPushButton    *m_fillBtn = nullptr;
+    QLabel         *m_gridStatus = nullptr;
+    audio::TapTempo m_tapTempo;
+    QElapsedTimer   m_tapClock;
+    bool            m_hadTap = false;
+    int             m_tapRun = 0;
+    bool            m_detecting = false;
+    double          m_songLength = 0.0;
+    std::function<double()> m_playhead;
+    std::function<bool(std::vector<float> &, int &)> m_detectSource;
+    std::function<QStringList()> m_midiPorts;
     QTableWidget *m_table = nullptr;
     QLabel       *m_cursorLabel = nullptr;
     QPushButton  *m_duplicateBtn = nullptr;

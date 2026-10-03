@@ -1,6 +1,7 @@
 #pragma once
 
 #include "audio/AudioEditorModel.h"
+#include "audio/BeatGrid.h"
 #include "audio/LightTrigger.h"
 
 #include <QHash>
@@ -74,6 +75,15 @@ public:
     // Brief highlight of a trigger that just fired.
     void flashTrigger(const QUuid &id);
 
+    // The song's beat grid: beat / bar lines in the lighting lane, faint bar
+    // lines through the tracks. With snap on, lane clicks, drags, moves and
+    // resizes land on the nearest beat; holding Alt turns that off for the
+    // gesture.
+    void setBeatGrid(const audio::BeatGrid &g);
+    const audio::BeatGrid &beatGrid() const { return m_grid; }
+    void setSnapToBeats(bool on) { m_snap = on; }
+    bool snapToBeats() const { return m_snap; }
+
 signals:
     void regionSelected(QUuid regionId);
     void trackSelected(int trackIndex);
@@ -140,10 +150,17 @@ private:
     void drawPlayhead(QPainter &p);
     void drawTriggerGuides(QPainter &p);   // faint lines down through the tracks
     void drawTriggerLane(QPainter &p);
+    // Beat / bar lines. lane = the lighting lane (beats + bars + numbers);
+    // otherwise faint bar lines only, for the tracks.
+    void drawBeatLines(QPainter &p, int top, int h, bool lane);
 
     // ── Lighting triggers ─────────────────────────────────────────────────
     double secondsToX(double s) const;
     double xToSeconds(int x) const;        // clamped >= 0
+    // s on the nearest beat when snapping is on and the grid is set.
+    double snapSeconds(double s, bool noSnap) const;
+    audio::BeatGrid m_grid;
+    bool   m_snap = false;
     enum class TriggerPart { Body, StartEdge, EndEdge };
     // Index into m_triggers of the trigger under x in the lane, or -1.
     int    triggerAt(int x, TriggerPart *part = nullptr) const;
@@ -159,9 +176,12 @@ private:
         bool   moved = false;
         QPoint pressPos;
         double pressSec = 0.0;
+        double pressSnapped = 0.0;   // pressSec on the grid (a click's point)
+        bool   noSnap = false;       // Alt held at the press
         double origStart = 0.0, origEnd = -1.0;
         double curStart = 0.0, curEnd = -1.0;
-    } m_tdrag;    void updateScrollBars();
+    } m_tdrag;
+    void updateScrollBars();
 
     // ── Spectrogram cache (Spectrogram view mode) ─────────────────────────
     // One heat-map image per distinct source file, built once on a worker
