@@ -60,7 +60,9 @@ private slots:
     void openShow();
     bool saveShow();
     bool saveShowAs();
-    void showPreferences();
+    void showPreferences() { showPreferencesPage({}); }
+    // Preferences opened on a page ("Lighting" for the lighting desk).
+    void showPreferencesPage(const QString &page);
     void showOscMonitor();
     void showScriptWindow();
     void insertMemoCue();

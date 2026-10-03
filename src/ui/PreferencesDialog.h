@@ -17,6 +17,9 @@ public:
                                QWidget *parent = nullptr);
     ~PreferencesDialog() override;
 
+    // Open on a page by its sidebar name ("Lighting", "OSC", …).
+    void showPage(const QString &name);
+
 signals:
     // Emitted when the user toggles cue-list column visibility, so the
     // owning window can refresh its open list views without a restart.

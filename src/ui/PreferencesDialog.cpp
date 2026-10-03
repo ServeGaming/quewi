@@ -918,6 +918,7 @@ PreferencesDialog::PreferencesDialog(audio::AudioEngine *audioEngine,
         pages->addWidget(p.widget);
     }
     categories->setCurrentRow(0);   // open on General — most-edited page
+    categories->setObjectName(QStringLiteral("preferencesCategories"));
 
     splitter->addWidget(categories);
     splitter->addWidget(pages);
@@ -935,5 +936,16 @@ PreferencesDialog::PreferencesDialog(audio::AudioEngine *audioEngine,
 }
 
 PreferencesDialog::~PreferencesDialog() = default;
+
+void PreferencesDialog::showPage(const QString &name)
+{
+    auto *categories = findChild<QListWidget *>(QStringLiteral("preferencesCategories"));
+    if (!categories) return;
+    for (int i = 0; i < categories->count(); ++i)
+        if (categories->item(i)->text().compare(name, Qt::CaseInsensitive) == 0) {
+            categories->setCurrentRow(i);
+            return;
+        }
+}
 
 } // namespace quewi::ui

@@ -688,6 +688,8 @@ void MainWindow::buildMenus()
     // Master switch for lighting triggers (per computer). Off = songs play
     // and keep their place but send nothing to the desk — for rehearsing
     // without the rig.
+    toolsMenu->addAction(tr("Lighting &Desk…"), this,
+                         [this] { showPreferencesPage(QStringLiteral("Lighting")); });
     auto *armTriggers = toolsMenu->addAction(tr("Lighting &Triggers Armed"));
     armTriggers->setCheckable(true);
     armTriggers->setChecked(m_goEngine->triggersArmed());
@@ -1254,9 +1256,10 @@ void MainWindow::revealShowInFolder()
     QDesktopServices::openUrl(QUrl::fromLocalFile(dir));
 }
 
-void MainWindow::showPreferences()
+void MainWindow::showPreferencesPage(const QString &page)
 {
     ui::PreferencesDialog dlg(m_audioEngine.get(), m_midiInput.get(), this);
+    if (!page.isEmpty()) dlg.showPage(page);
     connect(&dlg, &ui::PreferencesDialog::themeChanged,
             this, &MainWindow::applyTheme);
     connect(&dlg, &ui::PreferencesDialog::rowDensityChanged, this,

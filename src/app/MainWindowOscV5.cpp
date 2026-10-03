@@ -15,6 +15,10 @@
 //       <ref> = 0-based index, trigger id, or trigger name
 //   /quewi/triggers/armed [<T/F | i>]                (no arg: just reply)
 //   /quewi/query/triggers/armed                      → /quewi/reply/triggers/armed <T/F>
+//   /quewi/query/lightingDesk                        → /quewi/reply/lightingDesk <json s>
+//   /quewi/lightingDesk/set <json s>                  merge fields into the desk
+//   /quewi/lightingDesk/<field> <value>               type (eos|ma3|ma2msc), host, port,
+//                                   ma3Prefix, midiPort, mscDeviceId, eosFaderBank
 //   /quewi/cue/<num>/convert                          video ↔ audio cue (undoable)
 //   /quewi/soundboard/mic/{device,input} <s>          name or id; "" = off
 //   /quewi/soundboard/mic/{gain,inputGain} <dB f>
@@ -28,6 +32,8 @@
 
 #include "GoEngine.h"
 #include "audio/AudioCue.h"
+#include "audio/DeskCommands.h"
+#include "core/LightingDesk.h"
 #include "core/CueList.h"
 #include "core/UndoCommands.h"
 #include "core/Workspace.h"
@@ -382,6 +388,53 @@ void MainWindow::registerOscApiV5()
     connect(m_goEngine.get(), &GoEngine::triggersArmedChanged, this, [this](bool on) {
         pushOscNotify(QStringLiteral("/quewi/notify/triggers/armed"),
                       { on ? osc::Argument::T() : osc::Argument::F() });
+    });
+
+    // ── Lighting desk (Preferences → Lighting) ──────────────────────────
+    auto deskJson = [] {
+        const auto desk = core::LightingDesk::load();
+        QJsonObject o = desk.toJson();
+        o.insert(QStringLiteral("name"), desk.typeName());
+        o.insert(QStringLiteral("summary"), desk.summary());
+        QJsonArray can;
+        for (const auto d : {audio::TriggerAction::DeskDo::Go, audio::TriggerAction::DeskDo::Stop,
+                             audio::TriggerAction::DeskDo::Back, audio::TriggerAction::DeskDo::GoToCue,
+                             audio::TriggerAction::DeskDo::SubLevel, audio::TriggerAction::DeskDo::SubBump,
+                             audio::TriggerAction::DeskDo::FaderLevel, audio::TriggerAction::DeskDo::FaderBump,
+                             audio::TriggerAction::DeskDo::Macro, audio::TriggerAction::DeskDo::Command})
+            if (audio::deskSupports(desk.type, d))
+                can.append(QJsonObject{{QStringLiteral("do"), audio::TriggerAction::deskDoKey(d)},
+                                       {QStringLiteral("name"), audio::TriggerAction::deskDoName(d)}});
+        o.insert(QStringLiteral("actions"), can);   // what simple-mode triggers can do here
+        return o;
+    };
+    sub("/quewi/query/lightingDesk", [=](const osc::Message &) {
+        reply(sender(), QStringLiteral("/quewi/reply/lightingDesk"),
+              { osc::Argument::s(compact(deskJson())) });
+    });
+    sub("/quewi/lightingDesk/set", [=](const osc::Message &m) {
+        const auto json = stringArg(m);
+        if (!json) return;
+        const auto doc = QJsonDocument::fromJson(json->toUtf8());
+        if (!doc.isObject()) return;
+        QMetaObject::invokeMethod(this, [=] {
+            QJsonObject o = core::LightingDesk::load().toJson();
+            const auto in = doc.object();
+            for (auto it = in.begin(); it != in.end(); ++it) o.insert(it.key(), it.value());
+            core::LightingDesk::fromJson(o).save();
+        }, Qt::QueuedConnection);
+    });
+    sub("/quewi/lightingDesk/*", [=](const osc::Message &m) {
+        const QString field = m.address.section(QLatin1Char('/'), -1);
+        if (field == QLatin1String("set") || m.args.empty()) return;
+        const QVariant v = variantArg(m.args.front());
+        if (!v.isValid()) return;
+        QMetaObject::invokeMethod(this, [=] {
+            QJsonObject o = core::LightingDesk::load().toJson();
+            if (!o.contains(field)) return;                      // unknown field
+            o.insert(field, QJsonValue::fromVariant(v));
+            core::LightingDesk::fromJson(o).save();
+        }, Qt::QueuedConnection);
     });
 
     // ── Video ↔ audio conversion ────────────────────────────────────────
