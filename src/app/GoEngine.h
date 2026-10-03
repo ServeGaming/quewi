@@ -215,6 +215,8 @@ private:
                        quint64 audioVoice, quint64 videoVoice);
     void onTriggerTick();
     void sendTriggerEvents(TriggerRun &run, const std::vector<audio::TriggerEvent> &events);
+    // A simple-mode action, sent to the lighting desk in Preferences.
+    bool sendDeskAction(const audio::TriggerAction &action);
 };
 
 } // namespace quewi

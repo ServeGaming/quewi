@@ -1,12 +1,14 @@
 #include "GoEngine.h"
 
 #include "audio/AudioCue.h"
+#include "audio/DeskCommands.h"
 #include "audio/AudioEngine.h"
 #include "audio/Db.h"
 #include "audio/AudioTrajectory.h"
 #include "audio/SpeakerPatch.h"
 #include "audio/Vbap.h"
 #include "core/CueList.h"
+#include "core/LightingDesk.h"
 #include "core/PatchManager.h"
 #include "core/Workspace.h"
 #include "cues/Cue.h"
@@ -1031,6 +1033,43 @@ void GoEngine::sendTriggerEvents(TriggerRun &run, const std::vector<audio::Trigg
     }
 }
 
+bool GoEngine::sendDeskAction(const audio::TriggerAction &a)
+{
+    const auto desk = core::LightingDesk::load();
+    QString why;
+    const auto sends = audio::deskSends(desk, a, &why);
+    if (sends.empty()) {
+        emit statusMessage(tr("Trigger: %1").arg(why));
+        return false;
+    }
+    const osc::Destination dest{QStringLiteral("lighting-desk"), desk.typeName(),
+                                desk.host, quint16(desk.port), osc::Destination::Udp};
+    // One send, now or later. Delayed ones are bump releases: a plain timer,
+    // not after(), so a Panic can't cancel a release and leave a sub stuck on.
+    auto sendOne = [this, dest, desk](const audio::DeskSend &x) {
+        if (x.type == audio::DeskSend::Type::Msc) {
+            if (m_midi) m_midi->sendMsc(desk.midiPort, quint8(desk.mscDeviceId), 0x01,
+                                        quint8(x.mscCommand), x.mscPayload);
+            return;
+        }
+        if (!m_osc) return;
+        osc::Message m;
+        m.address = x.address;
+        for (const auto &v : x.args) {
+            if (v.typeId() == QMetaType::QString) m.args.push_back(osc::Argument::s(v.toString()));
+            else if (v.typeId() == QMetaType::Int) m.args.push_back(osc::Argument::i(v.toInt()));
+            else m.args.push_back(osc::Argument::f(v.toFloat()));
+        }
+        m_osc->send(dest, m);
+    };
+    for (const auto &x : sends) {
+        if (x.delayMs <= 0) sendOne(x);
+        else QTimer::singleShot(x.delayMs, this, [sendOne, x] { sendOne(x); });
+    }
+    emit statusMessage(tr("Trigger → %1 (%2)").arg(a.summary(), desk.summary()));
+    return true;
+}
+
 bool GoEngine::sendTriggerAction(const audio::TriggerAction &a, const cues::Cue *context)
 {
     using Kind = audio::TriggerAction::Kind;
@@ -1043,14 +1082,20 @@ bool GoEngine::sendTriggerAction(const audio::TriggerAction &a, const cues::Cue 
         osc::Message m;
         m.address = a.address;
         m.args = osc::parseArgs(a.args);
+        // No address of its own = the lighting desk set in Preferences.
+        const auto desk = core::LightingDesk::load();
+        const QString host = a.host.isEmpty() ? desk.host : a.host;
+        const int     port = a.port > 0 ? a.port : desk.port;
         const osc::Destination dest{QStringLiteral("light-trigger"), tr("Lighting trigger"),
-                                    a.host, quint16(a.port),
+                                    host, quint16(port),
                                     static_cast<osc::Destination::Transport>(a.transport)};
         const bool ok = m_osc->send(dest, m);
         status(ok ? tr("Trigger → %1").arg(a.summary())
-                  : tr("Trigger: OSC send to %1:%2 failed").arg(a.host).arg(a.port));
+                  : tr("Trigger: OSC send to %1:%2 failed").arg(host).arg(port));
         return ok;
     }
+    case Kind::Desk:
+        return sendDeskAction(a);
     case Kind::Midi: {
         if (!m_midi) return false;
         const QByteArray bytes = a.midiBytes();

@@ -7,6 +7,8 @@ add_library(quewi_core STATIC
     CueListModel.cpp
     UndoCommands.h
     UndoCommands.cpp
+    LightingDesk.h
+    LightingDesk.cpp
     PatchManager.h
     PatchManager.cpp
     ScriptModel.h

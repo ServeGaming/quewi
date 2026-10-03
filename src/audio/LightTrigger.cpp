@@ -49,6 +49,7 @@ QString TriggerAction::kindKey(Kind k)
     case Kind::Midi:    return QStringLiteral("midi");
     case Kind::Msc:     return QStringLiteral("msc");
     case Kind::FireCue: return QStringLiteral("cue");
+    case Kind::Desk:    return QStringLiteral("desk");
     case Kind::None:    break;
     }
     return QStringLiteral("none");
@@ -61,7 +62,43 @@ TriggerAction::Kind TriggerAction::kindFromKey(const QString &key)
     if (k == QLatin1String("midi")) return Kind::Midi;
     if (k == QLatin1String("msc"))  return Kind::Msc;
     if (k == QLatin1String("cue") || k == QLatin1String("firecue")) return Kind::FireCue;
+    if (k == QLatin1String("desk")) return Kind::Desk;
     return Kind::None;
+}
+
+namespace {
+struct DeskDoInfo { TriggerAction::DeskDo d; const char *key; const char *name; };
+const DeskDoInfo kDeskDo[] = {
+    {TriggerAction::DeskDo::Go,         "go",         QT_TRANSLATE_NOOP("LightTrigger", "GO (next cue)")},
+    {TriggerAction::DeskDo::Stop,       "stop",       QT_TRANSLATE_NOOP("LightTrigger", "Stop")},
+    {TriggerAction::DeskDo::Back,       "back",       QT_TRANSLATE_NOOP("LightTrigger", "Back")},
+    {TriggerAction::DeskDo::GoToCue,    "cue",        QT_TRANSLATE_NOOP("LightTrigger", "Go to cue")},
+    {TriggerAction::DeskDo::SubLevel,   "subLevel",   QT_TRANSLATE_NOOP("LightTrigger", "Set sub level")},
+    {TriggerAction::DeskDo::SubBump,    "subBump",    QT_TRANSLATE_NOOP("LightTrigger", "Bump sub")},
+    {TriggerAction::DeskDo::FaderLevel, "faderLevel", QT_TRANSLATE_NOOP("LightTrigger", "Set fader level")},
+    {TriggerAction::DeskDo::FaderBump,  "faderBump",  QT_TRANSLATE_NOOP("LightTrigger", "Bump fader")},
+    {TriggerAction::DeskDo::Macro,      "macro",      QT_TRANSLATE_NOOP("LightTrigger", "Fire macro")},
+    {TriggerAction::DeskDo::Command,    "command",    QT_TRANSLATE_NOOP("LightTrigger", "Desk command")},
+};
+} // namespace
+
+QString TriggerAction::deskDoKey(DeskDo d)
+{
+    for (const auto &i : kDeskDo) if (i.d == d) return QString::fromLatin1(i.key);
+    return QStringLiteral("go");
+}
+
+TriggerAction::DeskDo TriggerAction::deskDoFromKey(const QString &key)
+{
+    for (const auto &i : kDeskDo)
+        if (key.compare(QLatin1String(i.key), Qt::CaseInsensitive) == 0) return i.d;
+    return DeskDo::Go;
+}
+
+QString TriggerAction::deskDoName(DeskDo d)
+{
+    for (const auto &i : kDeskDo) if (i.d == d) return tr(i.name);
+    return {};
 }
 
 QString TriggerAction::midiTypeKey(MidiType t)
@@ -134,7 +171,9 @@ QString TriggerAction::summary() const
     case Kind::Osc: {
         QString s = QStringLiteral("OSC %1").arg(address.isEmpty() ? tr("(no address)") : address);
         if (!args.trimmed().isEmpty()) s += QLatin1Char(' ') + args.trimmed();
-        return s + QStringLiteral(" → %1:%2").arg(host).arg(port);
+        if (host.isEmpty() && port <= 0) return s + tr(" → lighting desk");
+        return s + QStringLiteral(" → %1:%2").arg(host.isEmpty() ? tr("desk") : host)
+                                             .arg(port > 0 ? QString::number(port) : tr("desk port"));
     }
     case Kind::Midi:
         switch (midiType) {
@@ -158,6 +197,22 @@ QString TriggerAction::summary() const
     }
     case Kind::FireCue:
         return tr("fire cue");
+    case Kind::Desk: {
+        const QString n = number.isEmpty() ? QStringLiteral("?") : number;
+        switch (deskDo) {
+        case DeskDo::Go:         return tr("Desk: GO");
+        case DeskDo::Stop:       return tr("Desk: Stop");
+        case DeskDo::Back:       return tr("Desk: Back");
+        case DeskDo::GoToCue:    return tr("Desk: go to cue %1 (list %2)").arg(n).arg(list);
+        case DeskDo::SubLevel:   return tr("Desk: sub %1 to %2%").arg(n).arg(level);
+        case DeskDo::SubBump:    return tr("Desk: bump sub %1").arg(n);
+        case DeskDo::FaderLevel: return tr("Desk: fader %1/%2 to %3%").arg(list).arg(n).arg(level);
+        case DeskDo::FaderBump:  return tr("Desk: bump fader %1/%2").arg(list).arg(n);
+        case DeskDo::Macro:      return tr("Desk: macro %1").arg(n);
+        case DeskDo::Command:    return tr("Desk: \"%1\"").arg(text.trimmed());
+        }
+        break;
+    }
     }
     return {};
 }
@@ -194,6 +249,26 @@ QJsonObject TriggerAction::toJson() const
     case Kind::FireCue:
         o.insert(QStringLiteral("cueId"), cueId.toString(QUuid::WithoutBraces));
         break;
+    case Kind::Desk:
+        o.insert(QStringLiteral("do"), deskDoKey(deskDo));
+        switch (deskDo) {
+        case DeskDo::Go: case DeskDo::Stop: case DeskDo::Back:
+            break;
+        case DeskDo::Command:
+            o.insert(QStringLiteral("text"), text);
+            break;
+        default:
+            o.insert(QStringLiteral("number"), number);
+            if (deskDo == DeskDo::GoToCue || deskDo == DeskDo::FaderLevel
+                || deskDo == DeskDo::FaderBump)
+                o.insert(QStringLiteral("list"), list);
+            if (deskDo == DeskDo::SubLevel || deskDo == DeskDo::FaderLevel)
+                o.insert(QStringLiteral("level"), level);
+            if (deskDo == DeskDo::SubBump || deskDo == DeskDo::FaderBump)
+                o.insert(QStringLiteral("hold"), hold);
+            break;
+        }
+        break;
     }
     return o;
 }
@@ -226,6 +301,12 @@ QVariant TriggerAction::field(const QString &key) const
     if (key == QLatin1String("qNumber"))       return qNumber;
     if (key == QLatin1String("qList"))         return qList;
     if (key == QLatin1String("cueId"))         return cueId.toString(QUuid::WithoutBraces);
+    if (key == QLatin1String("do"))            return deskDoKey(deskDo);
+    if (key == QLatin1String("number"))        return number;
+    if (key == QLatin1String("list"))          return list;
+    if (key == QLatin1String("level"))         return level;
+    if (key == QLatin1String("hold"))          return hold;
+    if (key == QLatin1String("text"))          return text;
     return {};
 }
 
@@ -238,7 +319,7 @@ bool TriggerAction::setField(const QString &key, const QVariant &v)
     };
     if (key == QLatin1String("kind"))      { kind = kindFromKey(v.toString()); return true; }
     if (key == QLatin1String("host"))      { host = v.toString().trimmed(); return true; }
-    if (key == QLatin1String("port"))      return toInt(port, 1, 65535);
+    if (key == QLatin1String("port"))      return toInt(port, 0, 65535);
     if (key == QLatin1String("transport")) return toInt(transport, 0, 2);
     if (key == QLatin1String("address"))   { address = v.toString().trimmed(); return true; }
     if (key == QLatin1String("args"))      { args = v.toString(); return true; }
@@ -253,6 +334,20 @@ bool TriggerAction::setField(const QString &key, const QVariant &v)
     if (key == QLatin1String("command"))   return toInt(command, 0, 0x7F);
     if (key == QLatin1String("qNumber"))   { qNumber = v.toString().trimmed(); return true; }
     if (key == QLatin1String("qList"))     { qList = v.toString().trimmed(); return true; }
+    if (key == QLatin1String("do"))        { deskDo = deskDoFromKey(v.toString()); return true; }
+    if (key == QLatin1String("number")) {
+        // Cue numbers can be decimal ("1.5"): keep what was typed, trimmed.
+        number = v.toString().trimmed();
+        return true;
+    }
+    if (key == QLatin1String("list"))      return toInt(list, 1, 9999);
+    if (key == QLatin1String("level"))     return toInt(level, 0, 100);
+    if (key == QLatin1String("hold")) {
+        if (!numberOk(v)) return false;
+        hold = std::clamp(v.toDouble(), 0.02, 30.0);
+        return true;
+    }
+    if (key == QLatin1String("text"))      { text = v.toString(); return true; }
     if (key == QLatin1String("cueId")) {
         const QUuid id = QUuid::fromString(v.toString());
         if (id.isNull() && !v.toString().isEmpty()) return false;

@@ -22,15 +22,30 @@ namespace quewi::audio {
 
 // What one edge of a trigger sends.
 struct TriggerAction {
-    enum class Kind { None, Osc, Midi, Msc, FireCue };
+    // Desk = "do this on the show's lighting desk" (core::LightingDesk):
+    // the simple mode; audio/DeskCommands turns it into the desk's own OSC
+    // or MSC. Osc / Midi / Msc are the expert ("custom") modes.
+    enum class Kind { None, Osc, Midi, Msc, FireCue, Desk };
+    enum class DeskDo {
+        Go,          // GO on the main playback (Eos GO / MA Go+ / MSC GO)
+        Stop,        // Eos Stop, MSC STOP
+        Back,        // Eos Back, MA Go-
+        GoToCue,     // fire cue `number` in list/sequence `list`
+        SubLevel,    // Eos: sub `number` to `level` %
+        SubBump,     // Eos: press sub `number`'s bump, release after `hold` s
+        FaderLevel,  // Eos: fader `number` on page `list` to `level` %
+        FaderBump,   // Eos: press fader `number` (page `list`)'s button for `hold` s
+        Macro,       // Eos: fire macro `number`
+        Command,     // type `text` on the desk's command line (Eos, MA3)
+    };
     enum class MidiType { NoteOn, NoteOff, ControlChange, ProgramChange, Raw };
 
     Kind kind = Kind::None;
 
     // OSC — same arg syntax as an OSC cue: comma-separated, auto-typed
     // (42 → int, 1.5 → float, "text" / text → string, true/false).
-    QString host = QStringLiteral("127.0.0.1");
-    int     port = 8000;          // Eos's default OSC UDP RX port
+    QString host;                 // empty = the lighting desk in Preferences
+    int     port = 0;             // 0 = the desk's port
     int     transport = 0;        // 0 UDP, 1 TCP/SLIP, 2 WebSocket
     QString address;
     QString args;
@@ -53,6 +68,14 @@ struct TriggerAction {
     // Fire a cue in the show
     QUuid cueId;
 
+    // Desk (simple mode)
+    DeskDo  deskDo = DeskDo::Go;
+    QString number;               // cue / sub / fader / macro number ("5", "1.5")
+    int     list  = 1;            // cue list / sequence / fader page
+    int     level = 100;          // 0..100 %
+    double  hold  = 0.25;         // seconds a bump stays pressed
+    QString text;                 // command line text
+
     bool isNone() const { return kind == Kind::None; }
     QByteArray midiBytes() const;   // NoteOn/Off, CC, PC, or parsed raw hex
     QByteArray mscPayload() const;  // Q_number [00 Q_list]
@@ -62,12 +85,17 @@ struct TriggerAction {
     static TriggerAction fromJson(const QJsonObject &o);
 
     // Dotted-field access for remotes ("address", "port", "kind"…). kind is
-    // a key string: none / osc / midi / msc / cue.
+    // a key string: none / osc / midi / msc / cue / desk. Desk fields: do
+    // (go, stop, back, cue, subLevel, subBump, faderLevel, faderBump, macro,
+    // command), number, list, level, hold, text.
     QVariant field(const QString &key) const;
     bool     setField(const QString &key, const QVariant &value);
 
     static QString kindKey(Kind k);
     static Kind    kindFromKey(const QString &key);
+    static QString deskDoKey(DeskDo d);
+    static DeskDo  deskDoFromKey(const QString &key);
+    static QString deskDoName(DeskDo d);   // "GO (next cue)", "Bump sub", ...
     static QString midiTypeKey(MidiType t);
     static MidiType midiTypeFromKey(const QString &key);
 
