@@ -81,6 +81,7 @@
 #include <QHBoxLayout>
 #include <QLabel>
 #include <QMediaDevices>
+#include <QPointer>
 #include <QItemSelectionModel>
 #include <QSet>
 #include <QCheckBox>
@@ -561,6 +562,10 @@ void MainWindow::buildLayout()
     // Video cue soundtrack: "Edit sound…" and video ↔ audio conversion.
     connect(m_inspector, &ui::Inspector::editSoundRequested,
             this, [this](audio::AudioCue *sound) { openAudioEditor(sound); });
+    connect(m_inspector, &ui::Inspector::editLightTriggersRequested, this,
+            [this](audio::AudioCue *sound) {
+                if (auto *editor = openAudioEditor(sound)) editor->showLightingTab();
+            });
     connect(m_inspector, &ui::Inspector::convertCueRequested,
             this, &MainWindow::convertCue, Qt::QueuedConnection);   // off the Inspector's stack
     connect(m_cueListView, &ui::CueListView::goRequested,
@@ -574,13 +579,7 @@ void MainWindow::buildLayout()
                 }
             });
     connect(m_cueListView, &ui::CueListView::cueDoubleClicked, this,
-        [this](cues::Cue *cue) {
-            if (auto *ac = qobject_cast<audio::AudioCue *>(cue)) {
-                ac->prepare();
-                auto *editor = new ui::AudioEditorWindow(ac, this);
-                editor->show();
-            }
-        });
+        [this](cues::Cue *cue) { openAudioEditor(cue); });
     // Right-click → Insert Above/Below — drops a Memo at the chosen
     // row. Memo is the no-op cue, fastest to retype into anything else
     // via the inspector. Opening a full picker dialog feels heavy for
@@ -684,6 +683,14 @@ void MainWindow::buildMenus()
                          QKeySequence(QStringLiteral("Ctrl+Shift+S")),
                          this, &MainWindow::showScriptWindow);
     toolsMenu->addSeparator();
+    // Master switch for lighting triggers (per computer). Off = songs play
+    // and keep their place but send nothing to the desk — for rehearsing
+    // without the rig.
+    auto *armTriggers = toolsMenu->addAction(tr("Lighting &Triggers Armed"));
+    armTriggers->setCheckable(true);
+    armTriggers->setChecked(m_goEngine->triggersArmed());
+    connect(armTriggers, &QAction::toggled, m_goEngine.get(), &GoEngine::setTriggersArmed);
+    connect(m_goEngine.get(), &GoEngine::triggersArmedChanged, armTriggers, &QAction::setChecked);
     m_actShowMode = toolsMenu->addAction(tr("&Show Mode (locked)"));
     m_actShowMode->setShortcut(QKeySequence(QStringLiteral("Ctrl+Shift+L")));
     m_actShowMode->setCheckable(true);
@@ -1761,12 +1768,30 @@ QString MainWindow::mediaImportDir() const
          + QStringLiteral("/quewi-imports");
 }
 
-void MainWindow::openAudioEditor(cues::Cue *cue)
+ui::AudioEditorWindow *MainWindow::openAudioEditor(cues::Cue *cue)
 {
-    if (auto *ac = qobject_cast<audio::AudioCue *>(cue)) {
-        ac->prepare();
-        (new ui::AudioEditorWindow(ac, this))->show();
-    }
+    auto *ac = qobject_cast<audio::AudioCue *>(cue);
+    if (!ac) return nullptr;
+    ac->prepare();
+    auto *editor = new ui::AudioEditorWindow(ac, this);
+    // A video's soundtrack belongs to its video cue: that's the cue its
+    // triggers are "on" (fire-cue lookup, and it can't fire itself).
+    cues::Cue *owner = qobject_cast<video::VideoCue *>(ac->parent());
+    if (!owner) owner = ac;
+    midi::MidiEngine *midi = m_midiEngine.get();
+    editor->setTriggerSupport(m_workspace.get(), m_workspace->undoStack(),
+        [midi] { return midi ? midi->outputPortNames() : QStringList(); });
+    QPointer<cues::Cue> ownerPtr(owner);
+    connect(editor, &ui::AudioEditorWindow::testTriggerRequested, this,
+            [this, ownerPtr](const audio::TriggerAction &a) {
+                if (m_goEngine) m_goEngine->sendTriggerAction(a, ownerPtr.data());
+            });
+    connect(m_goEngine.get(), &GoEngine::triggerFired, editor,
+            [editor, ownerPtr](cues::Cue *firedOwner, const QUuid &id, const QString &, bool) {
+                if (firedOwner && firedOwner == ownerPtr) editor->flashTrigger(id);
+            });
+    editor->show();
+    return editor;
 }
 
 void MainWindow::showMediaImport()

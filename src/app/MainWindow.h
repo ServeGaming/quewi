@@ -28,7 +28,7 @@ class QUrl;
 
 namespace quewi::core { class Workspace; class CueList; class CueListModel; }
 namespace quewi::cues { class Cue; }
-namespace quewi::ui   { class ActiveCuesPanel; class CartView; class MixView; class CueListView; class Inspector; class ShortcutManager; class TransportBar; class OscMonitor; class ScriptWindow; }
+namespace quewi::ui   { class AudioEditorWindow; class ActiveCuesPanel; class CartView; class MixView; class CueListView; class Inspector; class ShortcutManager; class TransportBar; class OscMonitor; class ScriptWindow; }
 namespace quewi::osc  { class OscEngine; }
 namespace quewi::audio { class AudioEngine; class AudioCue; }
 namespace quewi::lighting { class LightingEngine; }
@@ -153,7 +153,9 @@ private:
     // Where Import from URL downloads land: media/ beside a saved show, else
     // ~/Music/quewi-imports.
     QString mediaImportDir() const;
-    void openAudioEditor(cues::Cue *cue);
+    // Opens the audio editor on an audio cue (or a video's soundtrack), wired
+    // for lighting triggers: Test sends, live sends flash their marker.
+    ui::AudioEditorWindow *openAudioEditor(cues::Cue *cue);
     // Close quewi so a launched update installer (which waits for this
     // process to exit) can run. Never prompts; the save question has
     // already been asked.
