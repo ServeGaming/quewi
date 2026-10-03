@@ -1,6 +1,8 @@
 #include "ui/LightTriggersPanel.h"
 
+#include "audio/DeskCommands.h"
 #include "core/CueList.h"
+#include "core/LightingDesk.h"
 #include "core/UndoCommands.h"
 #include "core/Workspace.h"
 #include "cues/Cue.h"
@@ -17,8 +19,12 @@
 #include <QLineEdit>
 #include <QMenu>
 #include <QPushButton>
+#include <QAbstractItemView>
+#include <QMetaObject>
 #include <QScrollArea>
+#include <QShowEvent>
 #include <QSignalBlocker>
+#include <QSlider>
 #include <QSpinBox>
 #include <QStackedWidget>
 #include <QTableWidget>
@@ -93,8 +99,8 @@ constexpr MscCommand kMscCommands[] = {
     {0x09, "RESTORE"}, {0x0A, "RESET"}, {0x0B, "GO OFF"},
 };
 
-// Presets ▾. They only fill fields; the host is left alone (it's the desk's
-// address, which the user set once) and the numbers are there to be edited.
+// Presets ▾. They only fill fields, and the numbers are there to be edited.
+// Host blank + port 0 = the lighting desk set in Preferences.
 struct Preset {
     const char *name;
     void (*apply)(TriggerAction &);
@@ -103,7 +109,8 @@ struct Preset {
 void oscPreset(TriggerAction &a, const char *address, const char *args = "")
 {
     a.kind = TriggerAction::Kind::Osc;
-    a.port = 8000;
+    a.host.clear();
+    a.port = 0;
     a.transport = 0;
     a.address = QString::fromLatin1(address);
     a.args = QString::fromLatin1(args);
@@ -114,8 +121,10 @@ const Preset kPresets[] = {
      [](TriggerAction &a) { oscPreset(a, "/eos/cue/1/1/fire"); }},
     {QT_TRANSLATE_NOOP("TriggerActionEditor", "ETC Eos — GO"),
      [](TriggerAction &a) { oscPreset(a, "/eos/key/go_0"); }},
-    {QT_TRANSLATE_NOOP("TriggerActionEditor", "ETC Eos — Stop/Back"),
-     [](TriggerAction &a) { oscPreset(a, "/eos/key/stop_back"); }},
+    {QT_TRANSLATE_NOOP("TriggerActionEditor", "ETC Eos — Stop"),
+     [](TriggerAction &a) { oscPreset(a, "/eos/key/stop"); }},
+    {QT_TRANSLATE_NOOP("TriggerActionEditor", "ETC Eos — Back"),
+     [](TriggerAction &a) { oscPreset(a, "/eos/key/back"); }},
     {QT_TRANSLATE_NOOP("TriggerActionEditor", "ETC Eos — Fire macro"),
      [](TriggerAction &a) { oscPreset(a, "/eos/macro/1/fire"); }},
     {QT_TRANSLATE_NOOP("TriggerActionEditor", "ETC Eos — Sub level"),
@@ -140,6 +149,49 @@ const Preset kPresets[] = {
      }},
 };
 
+// "What should it do?" item data: a DeskDo, or one of these.
+constexpr int kDoNothing = -1;
+constexpr int kDoFireCue = 1000;
+
+using DeskDo = TriggerAction::DeskDo;
+constexpr DeskDo kAllDeskDo[] = {
+    DeskDo::Go, DeskDo::Stop, DeskDo::Back, DeskDo::GoToCue, DeskDo::SubLevel,
+    DeskDo::SubBump, DeskDo::FaderLevel, DeskDo::FaderBump, DeskDo::Macro, DeskDo::Command,
+};
+
+int doCodeOf(const TriggerAction &a)
+{
+    switch (a.kind) {
+    case TriggerAction::Kind::Desk:    return int(a.deskDo);
+    case TriggerAction::Kind::FireCue: return kDoFireCue;
+    default:                           return kDoNothing;
+    }
+}
+
+// One OSC arg as the custom editor's Args field types it back: numbers bare,
+// strings quoted (so commas and spaces inside survive).
+QString oscArgText(const QVariant &v)
+{
+    switch (v.typeId()) {
+    case QMetaType::Float:
+        return QString::number(double(v.toFloat()));
+    case QMetaType::Double:
+        return QString::number(v.toDouble());
+    case QMetaType::Int:
+    case QMetaType::LongLong:
+        return QString::number(v.toLongLong());
+    case QMetaType::Bool:
+        return v.toBool() ? QStringLiteral("true") : QStringLiteral("false");
+    default: {
+        QString s = v.toString();
+        s.replace(QLatin1Char('"'), QLatin1Char('\''));
+        return QLatin1Char('"') + s + QLatin1Char('"');
+    }
+    }
+}
+
+core::LightingDesk::Type deskType(int cached) { return core::LightingDesk::Type(cached); }
+
 } // namespace
 
 // ══ TriggerActionEditor ══════════════════════════════════════════════════════
@@ -151,17 +203,18 @@ TriggerActionEditor::TriggerActionEditor(QWidget *parent) : QFrame(parent)
     outer->setContentsMargins(12, 10, 12, 12);
     outer->setSpacing(8);
 
-    // Header: title · kind · Presets ▾ · Test
+    // Header: title · [kind · Presets ▾ when custom] · Custom toggle · Test
     auto *head = new QHBoxLayout();
     head->setSpacing(8);
     m_title = capsLabel(tr("SENDS"), this);
     m_kind = new QComboBox(this);
     m_kind->setObjectName(QStringLiteral("ltKind"));
-    m_kind->addItem(tr("Nothing"),  int(TriggerAction::Kind::None));
     m_kind->addItem(tr("OSC"),      int(TriggerAction::Kind::Osc));
     m_kind->addItem(tr("MIDI"),     int(TriggerAction::Kind::Midi));
     m_kind->addItem(tr("MSC"),      int(TriggerAction::Kind::Msc));
-    m_kind->addItem(tr("Fire cue"), int(TriggerAction::Kind::FireCue));
+    m_custom = new QCheckBox(tr("Custom OSC / MIDI"), this);
+    m_custom->setObjectName(QStringLiteral("ltCustom"));
+    m_custom->setToolTip(tr("For experts: type the exact OSC, MIDI or MSC message yourself"));
     m_presets = new QPushButton(tr("Presets  ▾"), this);
     m_presets->setObjectName(QStringLiteral("ltButton"));
     m_presets->setCursor(Qt::PointingHandCursor);
@@ -172,37 +225,158 @@ TriggerActionEditor::TriggerActionEditor(QWidget *parent) : QFrame(parent)
     m_test->setToolTip(tr("Send this now"));
     head->addWidget(m_title);
     head->addWidget(m_kind, 1);
+    head->addStretch(0);
+    head->addWidget(m_custom);
     head->addWidget(m_presets);
     head->addWidget(m_test);
     outer->addLayout(head);
 
-    m_pages = new QStackedWidget(this);
-    outer->addWidget(m_pages);
-
-    auto makePage = [this](QFormLayout *&form) {
-        auto *w = new QWidget(m_pages);
-        form = new QFormLayout(w);
+    auto makeForm = [](QWidget *w) {
+        auto *form = new QFormLayout(w);
         form->setContentsMargins(0, 0, 0, 0);
         form->setHorizontalSpacing(10);
         form->setVerticalSpacing(6);
         form->setFieldGrowthPolicy(QFormLayout::AllNonFixedFieldsGrow);
+        return form;
+    };
+
+    // ── Simple mode ────────────────────────────────────────────────────
+    m_simpleBox = new QWidget(this);
+    m_simpleForm = makeForm(m_simpleBox);
+    {
+        QWidget *w = m_simpleBox;
+        m_do = new QComboBox(w);
+        m_do->setObjectName(QStringLiteral("ltDo"));
+        m_number = new QLineEdit(w);
+        m_number->setObjectName(QStringLiteral("ltNumber"));
+        m_list = spin(1, 9999, w);
+        m_list->setObjectName(QStringLiteral("ltList"));
+
+        m_levelRow = new QWidget(w);
+        auto *lv = new QHBoxLayout(m_levelRow);
+        lv->setContentsMargins(0, 0, 0, 0);
+        lv->setSpacing(8);
+        m_levelSlider = new QSlider(Qt::Horizontal, m_levelRow);
+        m_levelSlider->setObjectName(QStringLiteral("ltLevelSlider"));
+        m_levelSlider->setRange(0, 100);
+        m_levelSlider->setPageStep(10);
+        m_level = spin(0, 100, m_levelRow);
+        m_level->setObjectName(QStringLiteral("ltLevel"));
+        m_level->setSuffix(QStringLiteral(" %"));
+        lv->addWidget(m_levelSlider, 1);
+        lv->addWidget(m_level);
+
+        m_hold = new QDoubleSpinBox(w);
+        m_hold->setObjectName(QStringLiteral("ltHold"));
+        m_hold->setRange(0.02, 30.0);
+        m_hold->setDecimals(2);
+        m_hold->setSingleStep(0.05);
+        m_hold->setValue(0.25);
+        m_hold->setSuffix(QStringLiteral(" s"));
+        m_hold->setKeyboardTracking(false);
+        m_hold->setToolTip(tr("How long the button stays pressed"));
+
+        m_text = new QLineEdit(w);
+        m_text->setObjectName(QStringLiteral("ltCommand"));
+        m_text->setPlaceholderText(tr("e.g. Chan 1 At Full"));
+
+        m_cueCombo = new QComboBox(w);
+        m_cueCombo->setObjectName(QStringLiteral("ltFireCue"));
+        m_cueCombo->setMinimumContentsLength(18);
+        m_cueCombo->setSizeAdjustPolicy(QComboBox::AdjustToMinimumContentsLengthWithIcon);
+
+        m_preview = new QLabel(w);
+        m_preview->setObjectName(QStringLiteral("ltPreview"));
+        m_preview->setWordWrap(true);
+        m_preview->setStyleSheet(QStringLiteral("color:%1; font-size:12px;")
+                                     .arg(Theme::tokens().ink60.name()));
+        m_problem = helpLabel(QString(), w);
+        m_problem->setObjectName(QStringLiteral("ltProblem"));
+        m_problem->setStyleSheet(QStringLiteral("color:%1; font-size:11px;")
+                                     .arg(Theme::tokens().warn.name()));
+
+        m_simpleForm->addRow(tr("What should it do?"), m_do);
+        m_simpleForm->addRow(tr("Cue"), m_number);
+        m_simpleForm->addRow(tr("Cue list"), m_list);
+        m_simpleForm->addRow(tr("Level"), m_levelRow);
+        m_simpleForm->addRow(tr("Hold"), m_hold);
+        m_simpleForm->addRow(tr("Command"), m_text);
+        m_simpleForm->addRow(tr("Cue"), m_cueCombo);
+        m_simpleForm->addRow(QString(), m_preview);
+        m_simpleForm->addRow(QString(), m_problem);
+
+        connect(m_do, &QComboBox::currentIndexChanged, this, [this](int) {
+            const int code = m_do->currentData().toInt();
+            change([code](TriggerAction &a) {
+                if (code == kDoNothing) {
+                    a.kind = TriggerAction::Kind::None;
+                } else if (code == kDoFireCue) {
+                    a.kind = TriggerAction::Kind::FireCue;
+                } else {
+                    a.kind = TriggerAction::Kind::Desk;
+                    a.deskDo = DeskDo(code);
+                }
+            });
+        });
+        connect(m_number, &QLineEdit::editingFinished, this, [this] {
+            change([this](TriggerAction &a) { a.number = m_number->text().trimmed(); });
+        });
+        connect(m_list, &QSpinBox::valueChanged, this, [this](int v) {
+            change([v](TriggerAction &a) { a.list = v; });
+        });
+        connect(m_levelSlider, &QSlider::valueChanged, this, [this](int v) {
+            if (m_loading) return;
+            {
+                const QSignalBlocker b(m_level);
+                m_level->setValue(v);
+            }
+            change([v](TriggerAction &a) { a.level = v; });
+        });
+        connect(m_level, &QSpinBox::valueChanged, this, [this](int v) {
+            if (m_loading) return;
+            {
+                const QSignalBlocker b(m_levelSlider);
+                m_levelSlider->setValue(v);
+            }
+            change([v](TriggerAction &a) { a.level = v; });
+        });
+        connect(m_hold, &QDoubleSpinBox::valueChanged, this, [this](double v) {
+            change([v](TriggerAction &a) { a.hold = v; });
+        });
+        connect(m_text, &QLineEdit::editingFinished, this, [this] {
+            change([this](TriggerAction &a) { a.text = m_text->text().trimmed(); });
+        });
+        connect(m_cueCombo, &QComboBox::currentIndexChanged, this, [this](int) {
+            const QUuid id = m_cueCombo->currentData().toUuid();
+            change([id](TriggerAction &a) { a.cueId = id; });
+        });
+    }
+    outer->addWidget(m_simpleBox);
+
+    // ── Custom (expert) mode: one page per kind ────────────────────────
+    m_customBox = new QWidget(this);
+    auto *cv = new QVBoxLayout(m_customBox);
+    cv->setContentsMargins(0, 0, 0, 0);
+    m_pages = new QStackedWidget(m_customBox);
+    cv->addWidget(m_pages);
+    outer->addWidget(m_customBox);
+
+    auto makePage = [this, makeForm](QFormLayout *&form) {
+        auto *w = new QWidget(m_pages);
+        form = makeForm(w);
         m_pages->addWidget(w);
         return w;
     };
 
-    // ── Nothing ────────────────────────────────────────────────────────
-    {
-        QFormLayout *f = nullptr;
-        auto *w = makePage(f);
-        f->addRow(helpLabel(tr("This edge sends nothing."), w));
-    }
     // ── OSC ────────────────────────────────────────────────────────────
     {
         QFormLayout *f = nullptr;
         auto *w = makePage(f);
         m_oscHost = new QLineEdit(w);
-        m_oscHost->setPlaceholderText(QStringLiteral("127.0.0.1"));
-        m_oscPort = spin(1, 65535, w);
+        m_oscHost->setPlaceholderText(tr("lighting desk (Preferences)"));
+        m_oscHost->setToolTip(tr("Leave blank to send to the lighting desk set in Preferences"));
+        m_oscPort = spin(0, 65535, w);
+        m_oscPort->setSpecialValueText(tr("desk port"));
         m_oscTransport = new QComboBox(w);
         m_oscTransport->addItems({tr("UDP"), tr("TCP"), tr("WebSocket")});
         m_oscAddress = new QLineEdit(w);
@@ -335,24 +509,12 @@ TriggerActionEditor::TriggerActionEditor(QWidget *parent) : QFrame(parent)
             change([this](TriggerAction &a) { a.qList = m_mscQList->text().trimmed(); });
         });
     }
-    // ── Fire cue ───────────────────────────────────────────────────────
-    {
-        QFormLayout *f = nullptr;
-        auto *w = makePage(f);
-        m_cueCombo = new QComboBox(w);
-        m_cueCombo->setMinimumContentsLength(18);
-        m_cueCombo->setSizeAdjustPolicy(QComboBox::AdjustToMinimumContentsLengthWithIcon);
-        f->addRow(tr("Cue"), m_cueCombo);
-        f->addRow(QString(), helpLabel(tr("Fires that cue as if you pressed GO on it."), w));
-        connect(m_cueCombo, &QComboBox::currentIndexChanged, this, [this](int) {
-            const QUuid id = m_cueCombo->currentData().toUuid();
-            change([id](TriggerAction &a) { a.cueId = id; });
-        });
-    }
-
     connect(m_kind, &QComboBox::currentIndexChanged, this, [this](int) {
         const auto k = TriggerAction::Kind(m_kind->currentData().toInt());
         change([k](TriggerAction &a) { a.kind = k; });
+    });
+    connect(m_custom, &QCheckBox::toggled, this, [this](bool on) {
+        if (!m_loading) setCustom(on);
     });
     connect(m_test, &QPushButton::clicked, this, [this] { emit testRequested(m_action); });
     connect(m_presets, &QPushButton::clicked, this, [this] {
@@ -363,7 +525,52 @@ TriggerActionEditor::TriggerActionEditor(QWidget *parent) : QFrame(parent)
         menu.exec(m_presets->mapToGlobal(QPoint(0, m_presets->height())));
     });
 
+    m_deskType = int(core::LightingDesk::load().type);
     load();
+}
+
+bool TriggerActionEditor::isCustom() const
+{
+    using K = TriggerAction::Kind;
+    return m_action.kind == K::Osc || m_action.kind == K::Midi || m_action.kind == K::Msc;
+}
+
+void TriggerActionEditor::refreshDesk()
+{
+    const int t = int(core::LightingDesk::load().type);
+    if (t == m_deskType) return;
+    m_deskType = t;
+    load();
+}
+
+void TriggerActionEditor::setCustom(bool on)
+{
+    if (on == isCustom()) return;
+    change([this, on](TriggerAction &a) {
+        using K = TriggerAction::Kind;
+        if (!on) {                 // back to simple mode: "Nothing"
+            a.kind = K::None;
+            return;
+        }
+        const bool fromDesk = a.kind == K::Desk;
+        const TriggerAction desk = a;
+        a.kind = K::Osc;
+        a.host.clear();
+        a.port = 0;
+        a.transport = 0;
+        a.address.clear();
+        a.args.clear();
+        if (!fromDesk) return;
+        // Show what simple mode would have sent, so it can be seen and tweaked.
+        for (const auto &s : audio::deskSends(core::LightingDesk::load(), desk)) {
+            if (s.type != audio::DeskSend::Type::Osc) continue;
+            a.address = s.address;
+            QStringList parts;
+            for (const auto &v : s.args) parts << oscArgText(v);
+            a.args = parts.join(QStringLiteral(", "));
+            break;
+        }
+    });
 }
 
 void TriggerActionEditor::setTitle(const QString &title) { m_title->setText(title); }
@@ -413,11 +620,130 @@ void TriggerActionEditor::change(const std::function<void(TriggerAction &)> &f)
     f(a);
     if (a == m_action) return;
     const bool newKind = a.kind != m_action.kind;
+    const bool newDo = a.deskDo != m_action.deskDo;
     m_action = a;
     // Only a new kind needs the widgets reloaded (to show and fill its page).
     // Reloading otherwise would clear the very combo whose signal got us here.
-    if (newKind) load();
+    if (newKind) {
+        load();
+    } else {
+        updateSimpleRows();
+        // Moving off an action marked "(not on this desk)" drops that item —
+        // later, not inside the combo's own signal.
+        if (newDo)
+            QMetaObject::invokeMethod(this, [this] {
+                m_loading = true;
+                syncDoCombo();
+                m_loading = false;
+            }, Qt::QueuedConnection);
+    }
     emit edited(m_action);
+}
+
+void TriggerActionEditor::syncDoCombo()
+{
+    const auto type = deskType(m_deskType);
+    const bool isDesk = m_action.kind == TriggerAction::Kind::Desk;
+    QList<QPair<QString, int>> want;
+    want.append({tr("Nothing"), kDoNothing});
+    for (const DeskDo d : kAllDeskDo) {
+        const bool ok = audio::deskSupports(type, d);
+        if (ok)
+            want.append({TriggerAction::deskDoName(d), int(d)});
+        else if (isDesk && m_action.deskDo == d)
+            want.append({tr("%1 (not on this desk)").arg(TriggerAction::deskDoName(d)), int(d)});
+    }
+    want.append({tr("Fire a quewi cue"), kDoFireCue});
+
+    bool same = m_do->count() == want.size();
+    for (int i = 0; same && i < want.size(); ++i)
+        same = m_do->itemText(i) == want[i].first && m_do->itemData(i).toInt() == want[i].second;
+    if (!same && !m_do->view()->isVisible()) {
+        m_do->clear();
+        for (const auto &w : want) m_do->addItem(w.first, w.second);
+    }
+    m_do->setCurrentIndex(std::max(0, m_do->findData(doCodeOf(m_action))));
+}
+
+void TriggerActionEditor::updateSimpleRows()
+{
+    using K = TriggerAction::Kind;
+    const auto &a = m_action;
+    const bool desk = a.kind == K::Desk;
+    const auto type = deskType(m_deskType);
+    const DeskDo d = a.deskDo;
+
+    bool number = false, list = false, level = false, hold = false, text = false;
+    QString numberLabel, listLabel, numberHint = tr("e.g. 3");
+    if (desk) {
+        switch (d) {
+        case DeskDo::Go: case DeskDo::Stop: case DeskDo::Back:
+            break;
+        case DeskDo::GoToCue:
+            number = list = true;
+            numberLabel = tr("Cue");
+            numberHint = tr("e.g. 12.5");
+            listLabel = type == core::LightingDesk::Type::Ma3 ? tr("Sequence") : tr("Cue list");
+            break;
+        case DeskDo::SubLevel:
+            number = level = true;
+            numberLabel = tr("Sub");
+            break;
+        case DeskDo::SubBump:
+            number = hold = true;
+            numberLabel = tr("Sub");
+            break;
+        case DeskDo::FaderLevel:
+            number = list = level = true;
+            numberLabel = tr("Fader");
+            listLabel = tr("Fader page");
+            break;
+        case DeskDo::FaderBump:
+            number = list = hold = true;
+            numberLabel = tr("Fader");
+            listLabel = tr("Fader page");
+            break;
+        case DeskDo::Macro:
+            number = true;
+            numberLabel = tr("Macro");
+            break;
+        case DeskDo::Command:
+            text = true;
+            break;
+        }
+    }
+    auto setLabel = [this](QWidget *field, const QString &text) {
+        if (auto *l = qobject_cast<QLabel *>(m_simpleForm->labelForField(field)))
+            l->setText(text);
+    };
+    m_simpleForm->setRowVisible(m_number, number);
+    m_simpleForm->setRowVisible(m_list, list);
+    m_simpleForm->setRowVisible(m_levelRow, level);
+    m_simpleForm->setRowVisible(m_hold, hold);
+    m_simpleForm->setRowVisible(m_text, text);
+    m_simpleForm->setRowVisible(m_cueCombo, a.kind == K::FireCue);
+    if (number) {
+        setLabel(m_number, numberLabel);
+        m_number->setPlaceholderText(numberHint);
+    }
+    if (list) setLabel(m_list, listLabel);
+
+    // The plain-English line, and why it won't work if it won't.
+    QString preview, problem;
+    switch (a.kind) {
+    case K::None:    preview = tr("Sends nothing."); break;
+    case K::FireCue: preview = tr("Fires that cue as if you pressed GO on it."); break;
+    case K::Desk: {
+        preview = a.summary();
+        QString err;
+        if (audio::deskSends(core::LightingDesk{.type = type}, a, &err).empty()) problem = err;
+        break;
+    }
+    default:         preview = a.summary(); break;
+    }
+    m_preview->setText(preview);
+    m_problem->setText(problem);
+    m_simpleForm->setRowVisible(m_problem, !problem.isEmpty());
 }
 
 void TriggerActionEditor::fillPorts(QComboBox *combo)
@@ -474,19 +800,39 @@ void TriggerActionEditor::load()
     m_loading = true;
     const auto &a = m_action;
     using K = TriggerAction::Kind;
-    m_kind->setCurrentIndex(std::max(0, m_kind->findData(int(a.kind))));
-    m_pages->setCurrentIndex(int(a.kind));
-    // Size the stack to the page showing, not the tallest one, so "Nothing"
-    // doesn't leave a hole the height of the MIDI form.
-    for (int i = 0; i < m_pages->count(); ++i) {
-        const auto pol = i == int(a.kind) ? QSizePolicy::Preferred : QSizePolicy::Ignored;
-        m_pages->widget(i)->setSizePolicy(pol, pol);
-    }
-    m_pages->adjustSize();
+    const bool custom = isCustom();
+    m_custom->setChecked(custom);
+    m_kind->setVisible(custom);
+    m_presets->setVisible(custom);
+    m_simpleBox->setVisible(!custom);
+    m_customBox->setVisible(custom);
     m_test->setEnabled(a.kind != K::None);
+
+    if (custom) {
+        const int page = int(a.kind) - int(K::Osc);   // Osc, Midi, Msc
+        m_kind->setCurrentIndex(std::max(0, m_kind->findData(int(a.kind))));
+        m_pages->setCurrentIndex(page);
+        // Size the stack to the page showing, not the tallest one, so OSC
+        // doesn't leave a hole the height of the MIDI form.
+        for (int i = 0; i < m_pages->count(); ++i) {
+            const auto pol = i == page ? QSizePolicy::Preferred : QSizePolicy::Ignored;
+            m_pages->widget(i)->setSizePolicy(pol, pol);
+        }
+        m_pages->adjustSize();
+    } else {
+        syncDoCombo();
+        m_number->setText(a.number);
+        m_list->setValue(std::max(1, a.list));
+        m_level->setValue(std::clamp(a.level, 0, 100));
+        m_levelSlider->setValue(std::clamp(a.level, 0, 100));
+        m_hold->setValue(std::clamp(a.hold, 0.02, 30.0));
+        m_text->setText(a.text);
+        updateSimpleRows();
+    }
 
     switch (a.kind) {
     case K::None:
+    case K::Desk:
         break;
     case K::Osc:
         m_oscHost->setText(a.host);
@@ -547,9 +893,30 @@ LightTriggersPanel::LightTriggersPanel(QWidget *parent) : QWidget(parent)
              tk.bgInteractive.darker(115).name(),  // %5 pressed
              tk.ink40.name()));                    // %6 disabled text
 
-    auto *outer = new QHBoxLayout(this);
-    outer->setContentsMargins(16, 14, 16, 16);
+    auto *page = new QVBoxLayout(this);
+    page->setContentsMargins(16, 10, 16, 16);
+    page->setSpacing(10);
+
+    // ── Top: which desk the triggers talk to ───────────────────────────
+    auto *deskRow = new QHBoxLayout();
+    deskRow->setSpacing(8);
+    m_deskLabel = new QLabel(this);
+    m_deskLabel->setObjectName(QStringLiteral("ltDesk"));
+    m_deskLabel->setStyleSheet(QStringLiteral("color:%1; font-size:12px;").arg(tk.ink60.name()));
+    m_deskLabel->setTextInteractionFlags(Qt::TextSelectableByMouse);
+    auto *changeDesk = new QPushButton(tr("Change…"), this);
+    changeDesk->setObjectName(QStringLiteral("ltButton"));
+    changeDesk->setCursor(Qt::PointingHandCursor);
+    changeDesk->setToolTip(tr("Set the lighting desk in Preferences → Lighting"));
+    deskRow->addWidget(m_deskLabel);
+    deskRow->addWidget(changeDesk);
+    deskRow->addStretch(1);
+    page->addLayout(deskRow);
+    connect(changeDesk, &QPushButton::clicked, this, &LightTriggersPanel::deskSettingsRequested);
+
+    auto *outer = new QHBoxLayout();
     outer->setSpacing(14);
+    page->addLayout(outer, 1);
 
     // ── Left: list + buttons ───────────────────────────────────────────
     auto *left = new QVBoxLayout();
@@ -743,7 +1110,21 @@ LightTriggersPanel::LightTriggersPanel(QWidget *parent) : QWidget(parent)
     connect(m_exit,  &TriggerActionEditor::testRequested, this, &LightTriggersPanel::testRequested);
 
     setCursorSeconds(0.0);
+    refreshDesk();
     refresh();
+}
+
+void LightTriggersPanel::refreshDesk()
+{
+    m_deskLabel->setText(tr("Lighting desk: %1").arg(core::LightingDesk::load().summary()));
+    m_enter->refreshDesk();
+    m_exit->refreshDesk();
+}
+
+void LightTriggersPanel::showEvent(QShowEvent *e)
+{
+    QWidget::showEvent(e);
+    refreshDesk();     // it may have changed in Preferences meanwhile
 }
 
 void LightTriggersPanel::setCue(audio::AudioCue *cue)
@@ -845,6 +1226,10 @@ QUuid LightTriggersPanel::addTrigger(double start, double end)
     t.name  = nextName();
     t.start = std::max(0.0, start);
     t.end   = end > t.start ? end : -1.0;
+    // A fresh marker does the obvious thing: GO on the desk. A range's exit
+    // starts as nothing.
+    t.enter.kind   = TriggerAction::Kind::Desk;
+    t.enter.deskDo = TriggerAction::DeskDo::Go;
     LightTriggers next = m_cue->lightTriggers();
     next.push_back(t);
     m_selectedId = t.id;

@@ -556,6 +556,8 @@ void AudioEditorWindow::buildBottomPanel() {
             m_timeline, &TimelineCanvas::setSelectedTrigger);
     connect(m_triggersPanel, &LightTriggersPanel::testRequested,
             this, &AudioEditorWindow::testTriggerRequested);
+    connect(m_triggersPanel, &LightTriggersPanel::deskSettingsRequested,
+            this, &AudioEditorWindow::lightingDeskSettingsRequested);
     m_triggersPanel->setCursorSeconds(double(m_timeline->editCursorFrame()) * secondsPerFrame());
     if (m_cue)
         connect(m_cue, &cues::Cue::changed, this, &AudioEditorWindow::syncTriggersToCanvas);

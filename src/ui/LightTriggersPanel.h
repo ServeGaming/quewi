@@ -18,6 +18,8 @@ class QFormLayout;
 class QLabel;
 class QLineEdit;
 class QPushButton;
+class QShowEvent;
+class QSlider;
 class QSpinBox;
 class QStackedWidget;
 class QTableWidget;
@@ -27,11 +29,20 @@ namespace quewi::core { class Workspace; }
 
 namespace quewi::ui {
 
-// Edits one TriggerAction — what an edge of a lighting trigger sends: nothing,
-// an OSC message, a MIDI message, an MSC command or "fire this cue". A kind
-// combo picks the page; Presets ▾ fills in the usual desk addresses (Eos,
-// grandMA) for the user to adjust. Every change is reported through edited()
-// with the whole action; the owner decides how to store it.
+// Edits one TriggerAction — what an edge of a lighting trigger sends.
+//
+// Simple mode (the default): "What should it do?" — Nothing, the things the
+// lighting desk in Preferences can do (GO, Bump sub, Go to cue…; Kind::Desk)
+// or "Fire a quewi cue" — with only the fields that action needs and a
+// plain-English preview line.
+//
+// Custom mode ("Custom OSC / MIDI" toggle; automatic for Osc / Midi / Msc
+// actions): the expert editor — a kind combo (OSC / MIDI / MSC), its page, and
+// Presets ▾. Turning it on from a desk action pre-fills the OSC the desk
+// would get, so the real command can be seen and tweaked.
+//
+// Every change is reported through edited() with the whole action; the owner
+// decides how to store it.
 class TriggerActionEditor : public QFrame {
     Q_OBJECT
 public:
@@ -44,6 +55,10 @@ public:
 
     void setWorkspace(core::Workspace *ws);                 // Fire-cue picker
     void setMidiPortsProvider(std::function<QStringList()> f);
+    // Re-reads the lighting desk in Preferences (what simple mode offers).
+    void refreshDesk();
+
+    bool isCustom() const;             // showing the expert (OSC / MIDI / MSC) editor
 
     // Presets ▾, in menu order. applyPreset fills the fields and emits edited().
     static QStringList presetNames();
@@ -56,20 +71,40 @@ signals:
 private:
     void load();                       // m_action → widgets
     void change(const std::function<void(audio::TriggerAction &)> &f);
+    void setCustom(bool on);           // the toggle
     void fillPorts(QComboBox *combo);
     void fillCues();
     void updateMidiRows();
+    void syncDoCombo();                // "What should it do?" items for the desk
+    void updateSimpleRows();           // which simple fields show, their labels, preview
 
     audio::TriggerAction m_action;
     bool m_loading = false;
+    int  m_deskType = 0;               // core::LightingDesk::Type, cached by refreshDesk
     QPointer<core::Workspace> m_workspace;
     std::function<QStringList()> m_midiPorts;
 
     QLabel         *m_title = nullptr;
+    QCheckBox      *m_custom = nullptr;
     QComboBox      *m_kind  = nullptr;
     QPushButton    *m_presets = nullptr;
     QPushButton    *m_test  = nullptr;
+    QWidget        *m_simpleBox = nullptr;
+    QWidget        *m_customBox = nullptr;
     QStackedWidget *m_pages = nullptr;
+
+    // Simple mode
+    QFormLayout    *m_simpleForm = nullptr;
+    QComboBox      *m_do = nullptr;
+    QLineEdit      *m_number = nullptr;
+    QSpinBox       *m_list = nullptr;
+    QWidget        *m_levelRow = nullptr;
+    QSlider        *m_levelSlider = nullptr;
+    QSpinBox       *m_level = nullptr;
+    QDoubleSpinBox *m_hold = nullptr;
+    QLineEdit      *m_text = nullptr;
+    QLabel         *m_preview = nullptr;
+    QLabel         *m_problem = nullptr;
 
     // OSC
     QLineEdit *m_oscHost = nullptr;
@@ -125,6 +160,10 @@ public:
     // "rename", "toggleRange", "toggleEnabled", "delete".
     void  applyTriggerAction(const QUuid &id, const QString &action);
 
+    // Re-reads the lighting desk in Preferences: the header line and what the
+    // editors' simple mode offers. Also done whenever the panel is shown.
+    void refreshDesk();
+
 public slots:
     void flashTrigger(const QUuid &id);                // briefly highlight a row (amber) when it fires live
 
@@ -132,6 +171,10 @@ signals:
     void testRequested(const quewi::audio::TriggerAction &action);
     void triggersEdited();                             // after a commit
     void selectionChanged(const QUuid &id);
+    void deskSettingsRequested();                      // "Change…" next to the desk line
+
+protected:
+    void showEvent(QShowEvent *e) override;
 
 private:
     // The single write path. `mergeable` edits (field tweaks) fold into the
@@ -157,6 +200,7 @@ private:
     QSet<QUuid> m_flashing;
     QList<QUuid> m_rowIds;                   // table row → trigger id
 
+    QLabel       *m_deskLabel = nullptr;
     QTableWidget *m_table = nullptr;
     QLabel       *m_cursorLabel = nullptr;
     QPushButton  *m_duplicateBtn = nullptr;

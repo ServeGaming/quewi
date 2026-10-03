@@ -59,6 +59,9 @@ signals:
     // Test buttons, and — with "Send while previewing" on — every trigger the
     // editor's own preview crosses. The owner sends it (GoEngine).
     void testTriggerRequested(const quewi::audio::TriggerAction &action);
+    // The Lighting tab's "Change…" next to the desk line: open Preferences →
+    // Lighting.
+    void lightingDeskSettingsRequested();
 
 public slots:
     // A trigger fired (live show or preview): flash its row and marker.
