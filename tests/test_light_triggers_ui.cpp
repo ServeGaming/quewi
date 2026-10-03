@@ -263,7 +263,7 @@ private slots:
         panel.setCursorSeconds(12.5);
 
         QSignalSpy edited(&panel, &ui::LightTriggersPanel::triggersEdited);
-        auto *point = button(panel, QStringLiteral("+ Point at cursor"));
+        auto *point = button(panel, QStringLiteral("+ Point here"));
         auto *range = button(panel, QStringLiteral("+ Range"));
         QVERIFY(point && range);
 
@@ -280,6 +280,28 @@ private slots:
         QCOMPARE(panel.selectedTrigger(), r.id);
         QCOMPARE(edited.count(), 2);
         QCOMPARE(undo.count(), 2);   // structural edits don't merge
+    }
+
+    // While the song plays, "+ Point here" goes where you're listening — the
+    // edit cursor stays at the playback start, so every point used to land
+    // at 0.000.
+    void pointHereFollowsThePlayhead()
+    {
+        audio::AudioCue cue;
+        ui::LightTriggersPanel panel;
+        panel.setCue(&cue);
+        panel.setCursorSeconds(0.0);
+        double playhead = 5.25;
+        panel.setPlayheadProvider([&playhead] { return playhead; });
+        button(panel, QStringLiteral("+ Point here"))->click();
+        QCOMPARE(cue.lightTriggers().back().start, 5.25);
+        playhead = 9.5;
+        panel.addPointHere();
+        QCOMPARE(cue.lightTriggers().back().start, 9.5);
+        playhead = -1.0;                       // stopped: back to the cursor
+        panel.setCursorSeconds(2.0);
+        panel.addPointHere();
+        QCOMPARE(cue.lightTriggers().front().start, 2.0);
     }
 
     void editsCommitAndUndoRestores()
@@ -626,10 +648,10 @@ private slots:
         panel.setBeatGrid(g);
         panel.setSnapToBeats(true);
         panel.setCursorSeconds(3.2);
-        button(panel, QStringLiteral("+ Point at cursor"))->click();
+        button(panel, QStringLiteral("+ Point here"))->click();
         QCOMPARE(cue.lightTriggers()[0].start, 3.0);
         panel.setSnapToBeats(false);
-        button(panel, QStringLiteral("+ Point at cursor"))->click();
+        button(panel, QStringLiteral("+ Point here"))->click();
         QCOMPARE(cue.lightTriggers()[1].start, 3.2);
     }
 

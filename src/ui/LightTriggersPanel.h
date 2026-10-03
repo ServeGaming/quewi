@@ -159,6 +159,10 @@ public:
     // Mutations the timeline's marker lane asks for. All go through commit().
     // end <= start (e.g. -1) = a point. addTrigger selects and returns the new one.
     QUuid addTrigger(double start, double end = -1.0);
+    // Where a new point goes: the playhead while the preview plays, else the
+    // edit cursor; snapped to the beat when Snap is on.
+    double hereSeconds() const;
+    QUuid  addPointHere();
     void  moveTrigger(const QUuid &id, double start, double end);
     // "rename", "toggleRange", "toggleEnabled", "delete".
     void  applyTriggerAction(const QUuid &id, const QString &action);

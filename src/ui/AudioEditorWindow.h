@@ -107,6 +107,8 @@ private:
     // Lighting triggers → the marker lane (on cue changes and rate changes).
     void syncTriggersToCanvas();
     double secondsPerFrame() const;
+    // Space: start from the edit cursor, or pause / carry on mid-play.
+    void togglePlayPause();
     // The preview's heard position (timeline frame), or -1 when stopped.
     qint64 currentPlayFrame() const;
     // Preview tracker: sends what the preview crosses while the toggle is on.
@@ -161,6 +163,7 @@ private:
     QTimer                            m_playTimer;
     bool                        m_looping  = false;
     bool                        m_isPlaying = false;
+    bool                        m_paused    = false;   // suspended mid-play (Space)
     qint64                      m_playFrameOffset = 0; // first frame of current loop
     qint64                      m_sinkStartFrame  = 0;
 };

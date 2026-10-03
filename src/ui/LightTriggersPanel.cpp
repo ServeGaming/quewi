@@ -1054,13 +1054,15 @@ LightTriggersPanel::LightTriggersPanel(QWidget *parent) : QWidget(parent)
     left->setSpacing(8);
     auto *btnRow = new QHBoxLayout();
     btnRow->setSpacing(6);
-    auto *addPoint = new QPushButton(tr("+ Point at cursor"), this);
+    auto *addPoint = new QPushButton(tr("+ Point here"), this);
     auto *addRange = new QPushButton(tr("+ Range"), this);
     m_duplicateBtn = new QPushButton(tr("Duplicate"), this);
     m_deleteBtn    = new QPushButton(tr("Delete"), this);
-    addRange->setToolTip(tr("A range from the cursor, %1 s long: sends one thing as the song "
-                            "enters it and another as it leaves").arg(kDefaultRangeSeconds));
-    addPoint->setToolTip(tr("A single hit at the edit cursor"));
+    addRange->setToolTip(tr("A range from where the song is playing (or the edit cursor), "
+                            "%1 s long: sends one thing as the song enters it and another as "
+                            "it leaves").arg(kDefaultRangeSeconds));
+    addPoint->setToolTip(tr("A single hit where the song is playing (or at the edit "
+                            "cursor when stopped). Shortcut: M"));
     for (auto *b : {addPoint, addRange, m_duplicateBtn, m_deleteBtn}) {
         b->setObjectName(QStringLiteral("ltButton"));
         b->setCursor(Qt::PointingHandCursor);
@@ -1166,13 +1168,9 @@ LightTriggersPanel::LightTriggersPanel(QWidget *parent) : QWidget(parent)
     outer->addWidget(m_editorStack, 2);
 
     // ── Wiring ─────────────────────────────────────────────────────────
-    // With Snap on, the buttons place on the beat at the cursor too.
-    auto atCursor = [this] {
-        return m_cue && snapToBeats() ? m_cue->beatGrid().snap(m_cursor) : m_cursor;
-    };
-    connect(addPoint, &QPushButton::clicked, this, [this, atCursor] { addTrigger(atCursor()); });
-    connect(addRange, &QPushButton::clicked, this, [this, atCursor] {
-        const double s = atCursor();
+    connect(addPoint, &QPushButton::clicked, this, [this] { addPointHere(); });
+    connect(addRange, &QPushButton::clicked, this, [this] {
+        const double s = hereSeconds();
         addTrigger(s, s + kDefaultRangeSeconds);
     });
     connect(m_duplicateBtn, &QPushButton::clicked, this, [this] {
@@ -1355,6 +1353,17 @@ void LightTriggersPanel::editSelected(const std::function<void(LightTrigger &)> 
     f(next[size_t(i)]);
     commit(next, mergeable);
 }
+
+double LightTriggersPanel::hereSeconds() const
+{
+    // While the preview plays, "here" is what you're hearing — the edit
+    // cursor stays where playback started, so every point used to land there.
+    const double play = m_playhead ? m_playhead() : -1.0;
+    const double at = play >= 0.0 ? play : m_cursor;
+    return m_cue && snapToBeats() ? m_cue->beatGrid().snap(at) : at;
+}
+
+QUuid LightTriggersPanel::addPointHere() { return addTrigger(hereSeconds()); }
 
 QUuid LightTriggersPanel::addTrigger(double start, double end)
 {

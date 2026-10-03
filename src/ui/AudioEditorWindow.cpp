@@ -602,6 +602,30 @@ void AudioEditorWindow::buildBottomPanel() {
     connect(tapKey, &QShortcut::activated, this, doTap);
     connect(tapKey, &QShortcut::activatedAmbiguously, this, doTap);
 
+    // Space plays / pauses the editor mix. A shortcut, not keyPressEvent: a
+    // focused button eats Space first and pressed itself again. Text boxes
+    // still get their spaces (they claim the key before shortcuts).
+    auto typing = [] {
+        QWidget *fw = QApplication::focusWidget();
+        return qobject_cast<QLineEdit *>(fw) || qobject_cast<QAbstractSpinBox *>(fw)
+            || qobject_cast<QTextEdit *>(fw) || qobject_cast<QPlainTextEdit *>(fw);
+    };
+    auto *spaceKey = new QShortcut(QKeySequence(Qt::Key_Space), this);
+    spaceKey->setContext(Qt::WindowShortcut);
+    auto doSpace = [this, typing] { if (!typing()) togglePlayPause(); };
+    connect(spaceKey, &QShortcut::activated, this, doSpace);
+    connect(spaceKey, &QShortcut::activatedAmbiguously, this, doSpace);
+    // M drops a lighting marker where the song is playing.
+    auto *markKey = new QShortcut(QKeySequence(Qt::Key_M), this);
+    markKey->setContext(Qt::WindowShortcut);
+    auto doMark = [this, typing] {
+        if (typing()) return;
+        m_triggersPanel->addPointHere();
+        showLightingTab();
+    };
+    connect(markKey, &QShortcut::activated, this, doMark);
+    connect(markKey, &QShortcut::activatedAmbiguously, this, doMark);
+
     if (m_cue)
         connect(m_cue, &cues::Cue::changed, this, &AudioEditorWindow::syncTriggersToCanvas);
     syncTriggersToCanvas();
@@ -744,9 +768,24 @@ void AudioEditorWindow::updateHeader() {
 
 // ── Playback ──────────────────────────────────────────────────────────────────
 
-void AudioEditorWindow::onPlay() {
-    if (m_isPlaying) { stopPlayback(); return; }
-    startPlayback();
+void AudioEditorWindow::onPlay() { togglePlayPause(); }
+
+void AudioEditorWindow::togglePlayPause() {
+    if (!m_isPlaying) { startPlayback(); return; }
+    if (!m_sink) return;
+    if (m_paused) {
+        m_sink->resume();
+        m_paused = false;
+        m_playTimer.start(33);
+        statusBar()->showMessage(tr("Playing…"));
+    } else {
+        // Pause where it is: the playhead stays put and Space carries on
+        // from there (Stop goes back to the edit cursor).
+        m_sink->suspend();
+        m_paused = true;
+        m_playTimer.stop();
+        statusBar()->showMessage(tr("Paused — Space to carry on"));
+    }
 }
 
 void AudioEditorWindow::onStop() { stopPlayback(); }
@@ -799,6 +838,7 @@ void AudioEditorWindow::startPlayback() {
 
 void AudioEditorWindow::stopPlayback() {
     m_playTimer.stop();
+    m_paused = false;
     endPreviewTriggers();   // ranges we were inside send their exit
     if (m_sink) { m_sink->stop(); m_sink.reset(); }
     if (m_liveDevice) { m_liveDevice->close(); m_liveDevice.reset(); }
@@ -1009,7 +1049,7 @@ void AudioEditorWindow::keyPressEvent(QKeyEvent *e) {
     // Consume Space locally so the main window's GO never fires while the
     // editor is focused. Space here toggles play/stop on the editor mix.
     if (e->key() == Qt::Key_Space && e->modifiers() == Qt::NoModifier) {
-        onPlay();
+        togglePlayPause();
         e->accept();
         return;
     }
