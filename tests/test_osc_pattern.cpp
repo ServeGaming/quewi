@@ -56,6 +56,16 @@ private slots:
         QVERIFY( Pattern::matches(u"/foo//bar",   u"/foo/a/b/c/bar"));
         QVERIFY(!Pattern::matches(u"/foo//bar",   u"/foo/baz"));
     }
+
+    // What a "/quewi/notify/*" subscription is widened to (MainWindow::
+    // pushOscNotify): this level and every level below it.
+    void notifySubscriptionsReachDeeperAddresses()
+    {
+        QVERIFY( Pattern::matches(u"/quewi/notify//*", u"/quewi/notify/cue/state"));
+        QVERIFY( Pattern::matches(u"/quewi/notify//*", u"/quewi/notify/trigger/fired"));
+        QVERIFY( Pattern::matches(u"/quewi/notify//*", u"/quewi/notify/heartbeat"));
+        QVERIFY(!Pattern::matches(u"/quewi/notify//*", u"/quewi/reply/cue"));
+    }
 };
 
 QTEST_MAIN(OscPatternTests)

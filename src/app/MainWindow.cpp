@@ -189,6 +189,7 @@ MainWindow::MainWindow(QWidget *parent)
     m_goEngine->setMidiEngine(m_midiEngine.get());
     connect(m_goEngine.get(), &GoEngine::statusMessage, this,
             [this](const QString &m) { statusBar()->showMessage(m, 2500); });
+    registerOscApiV5();
     // Cross-list cue links: when any cue fires, fire its linked partner too.
     connect(m_goEngine.get(), &GoEngine::cueFired, this,
             [this](cues::Cue *c) { fireLinkedFor(c); });
@@ -4055,6 +4056,11 @@ void MainWindow::registerOscRemoteHandlers()
                     if (!old.isValid() || old == v) return;   // unknown field / no-op
                     m_workspace->undoStack()->push(
                         new core::EditCueFieldCommand(c, field, old, v));
+                    // A new file decodes now, like the Inspector's Browse —
+                    // otherwise the remote's first GO found it still decoding
+                    // and played nothing.
+                    if (field == QLatin1String("filePath"))
+                        if (auto *snd = video::VideoCue::audioOf(c)) snd->prepare();
                     return;
                 }
             }
@@ -4087,9 +4093,14 @@ void MainWindow::registerOscRemoteHandlers()
             auto *list = activeOscList();
             if (!list) return;
             for (int r = 0; r < list->cueCount(); ++r) {
-                auto *ac = qobject_cast<audio::AudioCue *>(list->cueAt(r));
-                if (!ac || !sameCueNumber(ac->number(), num)) continue;
-                const auto vid = ac->currentVoiceId();
+                auto *c = list->cueAt(r);
+                if (!c || !sameCueNumber(c->number(), num)) continue;
+                // A video cue rides its soundtrack; a seek moves the picture too.
+                auto *vc = qobject_cast<video::VideoCue *>(c);
+                if (verb == QLatin1String("seek") && vc && m_videoEngine && vc->currentVoiceId())
+                    m_videoEngine->seek(vc->currentVoiceId(), qint64(std::max(0.0, val) * 1000.0));
+                auto *ac = video::VideoCue::audioOf(c);
+                const auto vid = ac ? ac->currentVoiceId() : 0;
                 if (!vid) return;                     // not playing → no-op
                 if      (verb == QLatin1String("level")) m_audioEngine->setVoiceGain(vid, val);
                 else if (verb == QLatin1String("pan"))   m_audioEngine->setVoicePan(vid, std::clamp(val, -1.0, 1.0));
@@ -4162,8 +4173,12 @@ void MainWindow::registerOscRemoteHandlers()
             auto *list = activeOscList();
             if (!list) return;
             for (int r = 0; r < list->cueCount(); ++r) {
-                auto *ac = qobject_cast<audio::AudioCue *>(list->cueAt(r));
-                if (!ac || !sameCueNumber(ac->number(), num)) continue;
+                auto *c = list->cueAt(r);
+                if (!c || !sameCueNumber(c->number(), num)) continue;
+                // A video cue's effects are its soundtrack's.
+                auto *vc = qobject_cast<video::VideoCue *>(c);
+                auto *ac = vc ? vc->sound() : qobject_cast<audio::AudioCue *>(c);
+                if (!ac) return;
                 ac->setEffectParam(type, param, val);          // stored (next GO)
                 m_workspace->markModified();   // not undoable, but it IS unsaved
                 if (m_audioEngine)
@@ -4187,8 +4202,11 @@ void MainWindow::registerOscRemoteHandlers()
         auto *list = activeOscList();
         if (!list) return;
         for (int r = 0; r < list->cueCount(); ++r) {
-            auto *ac = qobject_cast<audio::AudioCue *>(list->cueAt(r));
-            if (!ac || !sameCueNumber(ac->number(), num)) continue;
+            auto *c = list->cueAt(r);
+            if (!c || !sameCueNumber(c->number(), num)) continue;
+            auto *vc = qobject_cast<video::VideoCue *>(c);
+            auto *ac = vc ? vc->sound() : qobject_cast<audio::AudioCue *>(c);
+            if (!ac) return;
             replyToSender(QStringLiteral("/quewi/reply/cue/fx"),
                 { osc::Argument::s(QString::fromUtf8(
                     QJsonDocument(ac->effectChainSummary())
@@ -4252,7 +4270,13 @@ void MainWindow::pushOscNotify(const QString &address,
     msg.address = address;
     msg.args = std::move(args);
     for (const auto &s : m_oscSubscribers) {
-        if (!osc::Pattern::matches(s.pattern, address)) continue;
+        // A trailing "/*" means "this level and everything under it". Plain
+        // OSC matching stops '*' at a '/', so the documented default
+        // "/quewi/notify/*" used to match none of the two-level addresses
+        // (/quewi/notify/cue/state, …) — subscribers got nothing.
+        const bool deep = s.pattern.endsWith(QLatin1String("/*"))
+            && osc::Pattern::matches(QString(s.pattern.chopped(1) + QStringLiteral("/*")), address);
+        if (!deep && !osc::Pattern::matches(s.pattern, address)) continue;
         osc::Destination d;
         d.host = s.host;
         d.port = s.port;

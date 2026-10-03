@@ -1,7 +1,9 @@
 #pragma once
 
+#include "audio/LightTrigger.h"
 #include "osc/OscMessage.h"
 
+#include <QJsonObject>
 #include <QMainWindow>
 #include <QSet>
 #include <QString>
@@ -225,6 +227,12 @@ private:
                                              quint64 voiceId);
 
     void registerOscRemoteHandlers();
+    // v5: lighting triggers, video conversion, soundboard → mic
+    // (MainWindowOscV5.cpp). Needs the GoEngine, so it runs after it exists.
+    void registerOscApiV5();
+    cues::Cue  *oscCueByNumber(double num) const;
+    QJsonObject triggersReplyJson(cues::Cue *c) const;
+    void        commitTriggers(cues::Cue *c, const audio::LightTriggers &next);
     // (Re)bind the OSC UDP listener to the configured port (osc/udpPort,
     // default 53535), falling back to a few stable ports if it's taken or in a
     // Windows-reserved range, and surfacing the actual port (or a clear

@@ -2,6 +2,7 @@ set(QUEWI_APP_SOURCES
     main.cpp
     MainWindow.cpp
     MainWindow.h
+    MainWindowOscV5.cpp
     GoEngine.cpp
     GoEngine.h
     UpdateChecker.cpp
