@@ -25,8 +25,9 @@ namespace quewi::audio {
 //             /eos/fader/<bank>/<n> <0..1> · bump: …/<n>/fire 1.0 … 0.0
 //   macro     /eos/macro/<n>/fire 1.0 … 0.0
 //   command   /eos/newcmd "<text> Enter"
+//   GO list   /eos/newcmd "Go_CueList <n> Enter" (no OSC address for it)
 // grandMA3 — its command line over OSC: [/<prefix>]/cmd "<command>"
-//   Go+ · Go- · Goto Cue <n> Sequence <list> · any typed command
+//   Go+ · Go- · Go+ Sequence <n> · Goto Cue <n> Sequence <list> · any command
 // grandMA2 / MSC — MIDI Show Control: GO (next, or cue n list m), STOP,
 //   FIRE (macro n).
 struct DeskSend {

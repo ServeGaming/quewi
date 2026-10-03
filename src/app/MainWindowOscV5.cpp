@@ -397,7 +397,8 @@ void MainWindow::registerOscApiV5()
         o.insert(QStringLiteral("name"), desk.typeName());
         o.insert(QStringLiteral("summary"), desk.summary());
         QJsonArray can;
-        for (const auto d : {audio::TriggerAction::DeskDo::Go, audio::TriggerAction::DeskDo::Stop,
+        for (const auto d : {audio::TriggerAction::DeskDo::Go, audio::TriggerAction::DeskDo::GoList,
+                             audio::TriggerAction::DeskDo::Stop,
                              audio::TriggerAction::DeskDo::Back, audio::TriggerAction::DeskDo::GoToCue,
                              audio::TriggerAction::DeskDo::SubLevel, audio::TriggerAction::DeskDo::SubBump,
                              audio::TriggerAction::DeskDo::FaderLevel, audio::TriggerAction::DeskDo::FaderBump,

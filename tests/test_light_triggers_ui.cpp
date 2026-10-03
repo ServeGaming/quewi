@@ -209,7 +209,7 @@ private slots:
             auto *enter = enterEditor(panel);
             auto *what = named<QComboBox>(*enter, "ltDo");
             QVERIFY(what);
-            const QList<int> ma3 = {-1, int(Do::Go), int(Do::Back), int(Do::GoToCue),
+            const QList<int> ma3 = {-1, int(Do::Go), int(Do::GoList), int(Do::Back), int(Do::GoToCue),
                                     int(Do::Command), 1000};
             QCOMPARE(comboData(what), ma3);
             QCOMPARE(what->itemText(what->count() - 1), QStringLiteral("Fire a quewi cue"));
@@ -239,7 +239,7 @@ private slots:
             panel.setCue(&cue);
             panel.addTrigger(1.0);
             auto *what = named<QComboBox>(*enterEditor(panel), "ltDo");
-            QCOMPARE(what->count(), 12);      // Nothing + all ten + Fire a quewi cue
+            QCOMPARE(what->count(), 13);      // Nothing + all eleven + Fire a quewi cue
         }
     }
 

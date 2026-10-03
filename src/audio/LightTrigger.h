@@ -37,6 +37,7 @@ struct TriggerAction {
         FaderBump,   // Eos: press fader `number` (page `list`)'s button for `hold` s
         Macro,       // Eos: fire macro `number`
         Command,     // type `text` on the desk's command line (Eos, MA3)
+        GoList,      // GO on cue list / sequence `list` (not the main playback)
     };
     enum class MidiType { NoteOn, NoteOff, ControlChange, ProgramChange, Raw };
 

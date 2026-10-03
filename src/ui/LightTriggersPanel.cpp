@@ -172,7 +172,7 @@ constexpr int kDoFireCue = 1000;
 
 using DeskDo = TriggerAction::DeskDo;
 constexpr DeskDo kAllDeskDo[] = {
-    DeskDo::Go, DeskDo::Stop, DeskDo::Back, DeskDo::GoToCue, DeskDo::SubLevel,
+    DeskDo::Go, DeskDo::GoList, DeskDo::Stop, DeskDo::Back, DeskDo::GoToCue, DeskDo::SubLevel,
     DeskDo::SubBump, DeskDo::FaderLevel, DeskDo::FaderBump, DeskDo::Macro, DeskDo::Command,
 };
 
@@ -695,6 +695,10 @@ void TriggerActionEditor::updateSimpleRows()
     if (desk) {
         switch (d) {
         case DeskDo::Go: case DeskDo::Stop: case DeskDo::Back:
+            break;
+        case DeskDo::GoList:
+            list = true;
+            listLabel = type == core::LightingDesk::Type::Ma3 ? tr("Sequence") : tr("Cue list");
             break;
         case DeskDo::GoToCue:
             number = list = true;

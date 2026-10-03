@@ -77,8 +77,8 @@ time.sleep(0.3)
 send("/quewi/query/lightingDesk")
 r = [x for x in collect(0.5) if x[1] == "/quewi/reply/lightingDesk"]
 d = json.loads(r[0][2][0]) if r else {}
-expect("desk now points here, Eos offers all 10 actions",
-       d.get("port") == MYPORT and len(d.get("actions", [])) == 10)
+expect("desk now points here, Eos offers all 11 actions",
+       d.get("port") == MYPORT and len(d.get("actions", [])) == 11)
 
 send("/quewi/cue/add", "audio", 1.0, "Song"); time.sleep(0.3)
 send("/quewi/cue/1/set/filePath", TONE); time.sleep(1.5)

@@ -50,6 +50,7 @@
 #include "ui/MixView.h"
 #include "mix/MixCue.h"
 #include "ui/AudioEditorWindow.h"
+#include "ui/LightingDeskDialog.h"
 #include "ui/CommandPalette.h"
 #include "ui/MediaImportDialog.h"
 #include "ui/Notifications.h"
@@ -689,7 +690,7 @@ void MainWindow::buildMenus()
     // and keep their place but send nothing to the desk — for rehearsing
     // without the rig.
     toolsMenu->addAction(tr("Lighting &Desk…"), this,
-                         [this] { showPreferencesPage(QStringLiteral("Lighting")); });
+                         [this] { ui::LightingDeskDialog::edit(this); });
     auto *armTriggers = toolsMenu->addAction(tr("Lighting &Triggers Armed"));
     armTriggers->setCheckable(true);
     armTriggers->setChecked(m_goEngine->triggersArmed());
@@ -1802,8 +1803,8 @@ ui::AudioEditorWindow *MainWindow::openAudioEditor(cues::Cue *cue)
             });
     connect(editor, &ui::AudioEditorWindow::lightingDeskSettingsRequested, this,
             [this, editor] {
-                showPreferencesPage(QStringLiteral("Lighting"));
-                editor->refreshLightingDesk();   // the desk may have changed
+                if (ui::LightingDeskDialog::edit(editor))
+                    editor->refreshLightingDesk();   // the desk changed
             });
     connect(m_goEngine.get(), &GoEngine::triggerFired, editor,
             [editor, ownerPtr](cues::Cue *firedOwner, const QUuid &id, const QString &, bool) {

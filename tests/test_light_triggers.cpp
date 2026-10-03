@@ -235,6 +235,8 @@ private slots:
         auto cmd = desk(D::Command);
         cmd.text = QStringLiteral("Chan 1 At Full");
         QCOMPARE(wire(audio::deskSends(eos, cmd)), QStringList{"/eos/newcmd Chan 1 At Full Enter"});
+        QCOMPARE(wire(audio::deskSends(eos, desk(D::GoList, {}, 2))),
+                 QStringList{"/eos/newcmd Go_CueList 2 Enter"});
         cmd.text = QStringLiteral("Sub 2 At 50#");
         QCOMPARE(wire(audio::deskSends(eos, cmd)), QStringList{"/eos/newcmd Sub 2 At 50#"});
 
@@ -250,6 +252,7 @@ private slots:
         core::LightingDesk ma3;
         ma3.type = core::LightingDesk::Type::Ma3;
         QCOMPARE(wire(audio::deskSends(ma3, desk(D::Go))), QStringList{"/cmd Go+"});
+        QCOMPARE(wire(audio::deskSends(ma3, desk(D::GoList, {}, 4))), QStringList{"/cmd Go+ Sequence 4"});
         QCOMPARE(wire(audio::deskSends(ma3, desk(D::GoToCue, "5", 3))),
                  QStringList{"/cmd Goto Cue 5 Sequence 3"});
         ma3.ma3Prefix = QStringLiteral("gma3");
@@ -263,6 +266,7 @@ private slots:
         QCOMPARE(wire(audio::deskSends(ma2, desk(D::GoToCue, "7", 2))), QStringList{"MSC 01 370032"});
         QCOMPARE(wire(audio::deskSends(ma2, desk(D::Macro, "5"))), QStringList{"MSC 07 05"});
         QVERIFY(audio::deskSends(ma2, desk(D::Back)).empty());
+        QVERIFY(!audio::deskSupports(ma2.type, D::GoList));
     }
 
     void deskActionsSaveAndTheDeskTravelsWithTheShow()

@@ -79,6 +79,7 @@ const DeskDoInfo kDeskDo[] = {
     {TriggerAction::DeskDo::FaderBump,  "faderBump",  QT_TRANSLATE_NOOP("LightTrigger", "Bump fader")},
     {TriggerAction::DeskDo::Macro,      "macro",      QT_TRANSLATE_NOOP("LightTrigger", "Fire macro")},
     {TriggerAction::DeskDo::Command,    "command",    QT_TRANSLATE_NOOP("LightTrigger", "Desk command")},
+    {TriggerAction::DeskDo::GoList,     "goList",     QT_TRANSLATE_NOOP("LightTrigger", "GO on cue list")},
 };
 } // namespace
 
@@ -210,6 +211,7 @@ QString TriggerAction::summary() const
         case DeskDo::FaderBump:  return tr("Desk: bump fader %1/%2").arg(list).arg(n);
         case DeskDo::Macro:      return tr("Desk: macro %1").arg(n);
         case DeskDo::Command:    return tr("Desk: \"%1\"").arg(text.trimmed());
+        case DeskDo::GoList:     return tr("Desk: GO on list %1").arg(list);
         }
         break;
     }
@@ -256,6 +258,9 @@ QJsonObject TriggerAction::toJson() const
             break;
         case DeskDo::Command:
             o.insert(QStringLiteral("text"), text);
+            break;
+        case DeskDo::GoList:
+            o.insert(QStringLiteral("list"), list);
             break;
         default:
             o.insert(QStringLiteral("number"), number);

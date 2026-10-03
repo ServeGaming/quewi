@@ -79,6 +79,12 @@ std::vector<DeskSend> eos(const core::LightingDesk &desk, const TriggerAction &a
     case Do::Macro:
         press(out, QStringLiteral("/eos/macro/%1/fire").arg(n), kKeyReleaseMs);
         break;
+    case Do::GoList:
+        // There's no OSC address for "GO on list N" in ETC's dictionary; the
+        // command line's Go_CueList does it (what Eos macros use).
+        out.push_back(osc(QStringLiteral("/eos/newcmd"),
+                          {QStringLiteral("Go_CueList %1 Enter").arg(list)}));
+        break;
     case Do::Command: {
         // newcmd clears whatever is half-typed on the desk first, so our
         // command can't be glued onto it.
@@ -100,6 +106,7 @@ std::vector<DeskSend> ma3(const core::LightingDesk &desk, const TriggerAction &a
     switch (a.deskDo) {
     case Do::Go:      cmd = QStringLiteral("Go+"); break;
     case Do::Back:    cmd = QStringLiteral("Go-"); break;
+    case Do::GoList:  cmd = QStringLiteral("Go+ Sequence %1").arg(std::max(1, a.list)); break;
     case Do::GoToCue: cmd = QStringLiteral("Goto Cue %1 Sequence %2").arg(a.number).arg(std::max(1, a.list)); break;
     case Do::Command: cmd = a.text.trimmed(); break;
     default:          return {};
@@ -146,7 +153,8 @@ bool deskSupports(Type type, Do what)
     case Type::Eos:
         return true;
     case Type::Ma3:
-        return what == Do::Go || what == Do::Back || what == Do::GoToCue || what == Do::Command;
+        return what == Do::Go || what == Do::Back || what == Do::GoToCue || what == Do::Command
+            || what == Do::GoList;
     case Type::Ma2Msc:
         return what == Do::Go || what == Do::GoToCue || what == Do::Stop || what == Do::Macro;
     }
