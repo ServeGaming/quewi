@@ -1,5 +1,6 @@
 #include "ui/PreferencesDialog.h"
 
+#include "ui/LightingDeskDialog.h"
 #include "ui/Theme.h"
 #include "audio/AudioEngine.h"
 #include "core/CueListModel.h"
@@ -570,6 +571,10 @@ QWidget *makeOscPage(QWidget *parent)
         "(0.0.0.0). Applied when you close Preferences — if the port "
         "is unavailable, quewi falls back to another and tells you which."),
         mainGroup));
+    mainForm->addRow(QString(), makeHint(QObject::tr(
+        "This is the port quewi listens on for remotes (HeliOSC, QLab…). "
+        "To send to a lighting desk, use Tools → Lighting Desk…"),
+        mainGroup));
     outer->addWidget(mainGroup);
 
     // Advanced group — extra transports + diagnostics.
@@ -706,108 +711,43 @@ QWidget *makeShowModePage(QWidget *parent)
 
 // ── Lighting ──────────────────────────────────────────────────────
 
-// The console lighting triggers talk to (core::LightingDesk). Every field
-// saves as it's edited, like the rest of Preferences; triggers read it at
-// send time, so a change applies to the very next one.
+// The console lighting triggers talk to (core::LightingDesk). The actual
+// setup lives in LightingDeskDialog (Tools → Lighting Desk…); this is a
+// one-line summary plus the way in, so the desk's IP/port never gets confused
+// with quewi's own OSC listening port on the OSC page.
 QGroupBox *makeLightingDeskGroup(QWidget *parent)
 {
-    auto *group = new QGroupBox(QObject::tr("Lighting desk (for lighting triggers)"), parent);
-    auto *form  = new QFormLayout(group);
-    const auto desk = core::LightingDesk::load();
+    auto *group = new QGroupBox(QObject::tr("Lighting desk"), parent);
+    auto *lay   = new QVBoxLayout(group);
+    lay->setSpacing(8);
 
-    auto *type = new QComboBox(group);
-    for (const auto t : {core::LightingDesk::Type::Eos, core::LightingDesk::Type::Ma3,
-                         core::LightingDesk::Type::Ma2Msc}) {
-        core::LightingDesk d;
-        d.type = t;
-        type->addItem(d.typeName(), core::LightingDesk::typeKey(t));
-    }
-    type->setCurrentIndex(type->findData(core::LightingDesk::typeKey(desk.type)));
-    form->addRow(QObject::tr("Desk"), type);
-
-    auto *host = new QLineEdit(desk.host, group);
-    host->setPlaceholderText(QObject::tr("e.g. 192.168.1.100"));
-    host->setToolTip(QObject::tr("The desk's IP address on the lighting network."));
-    form->addRow(QObject::tr("IP address"), host);
-
-    auto *port = new QSpinBox(group);
-    port->setRange(1, 65535);
-    port->setValue(desk.port);
-    port->setToolTip(QObject::tr("The port the desk receives OSC on (Eos: OSC UDP RX port, 8000 by default)."));
-    form->addRow(QObject::tr("OSC port"), port);
-
-    auto *prefix = new QLineEdit(desk.ma3Prefix, group);
-    prefix->setPlaceholderText(QObject::tr("(none)"));
-    prefix->setToolTip(QObject::tr("The OSC prefix set in grandMA3's OSC settings, if any (e.g. gma3)."));
-    form->addRow(QObject::tr("OSC prefix"), prefix);
-
-    auto *midi = new QComboBox(group);
-    midi->setEditable(true);
-    midi->addItem(QObject::tr("(first available)"), QString());
-    {
-        midi::MidiEngine ports;
-        for (const auto &name : ports.outputPortNames()) midi->addItem(name, name);
-    }
-    if (desk.midiPort.isEmpty()) midi->setCurrentIndex(0);
-    else if (const int i = midi->findData(desk.midiPort); i >= 0) midi->setCurrentIndex(i);
-    else midi->setEditText(desk.midiPort);
-    form->addRow(QObject::tr("MIDI output"), midi);
-
-    auto *device = new QSpinBox(group);
-    device->setRange(0, 127);
-    device->setValue(desk.mscDeviceId);
-    device->setToolTip(QObject::tr("MSC device ID. 127 = everyone (all-call)."));
-    form->addRow(QObject::tr("MSC device ID"), device);
-
-    auto *hint = makeHint(QString(), group);
-    form->addRow(hint);
-
-    auto save = [=] {
-        core::LightingDesk d = core::LightingDesk::load();
-        d.type = core::LightingDesk::typeFromKey(type->currentData().toString());
-        d.host = host->text().trimmed();
-        d.port = port->value();
-        d.ma3Prefix = prefix->text().trimmed().remove(QLatin1Char('/'));
-        const QString midiText = midi->currentText().trimmed();
-        d.midiPort = (midi->currentIndex() == 0 && midiText == midi->itemText(0)) ? QString() : midiText;
-        d.mscDeviceId = device->value();
-        d.save();
+    auto *row = new QHBoxLayout();
+    row->setSpacing(12);
+    auto *summary = new QLabel(group);
+    summary->setObjectName(QStringLiteral("lightingDeskSummary"));
+    summary->setTextInteractionFlags(Qt::TextSelectableByMouse);
+    auto refresh = [summary] {
+        const auto desk = core::LightingDesk::load();
+        const bool unset = desk.type != core::LightingDesk::Type::Ma2Msc && desk.host.isEmpty();
+        summary->setText(unset ? QObject::tr("Not set up") : desk.summary());
+        summary->setStyleSheet(unset
+            ? QStringLiteral("color:%1;").arg(Theme::tokens().ink60.name())
+            : QString());
     };
-    auto showFor = [=] {
-        const auto t = core::LightingDesk::typeFromKey(type->currentData().toString());
-        const bool osc = t != core::LightingDesk::Type::Ma2Msc;
-        form->setRowVisible(host, osc);
-        form->setRowVisible(port, osc);
-        form->setRowVisible(prefix, t == core::LightingDesk::Type::Ma3);
-        form->setRowVisible(midi, !osc);
-        form->setRowVisible(device, !osc);
-        switch (t) {
-        case core::LightingDesk::Type::Eos:
-            hint->setText(QObject::tr(
-                "On the desk (Eos, Ion, Element or Nomad), in the Show Control "
-                "system settings: turn on OSC RX and set the OSC UDP RX port to match "
-                "the port above. The IP address is the desk's own."));
-            break;
-        case core::LightingDesk::Type::Ma3:
-            hint->setText(QObject::tr(
-                "On the desk: add an OSC data line in the OSC menu with this computer's "
-                "IP, the port above, and Receive + Receive Command enabled."));
-            break;
-        case core::LightingDesk::Type::Ma2Msc:
-            hint->setText(QObject::tr(
-                "Connect a MIDI interface to the desk and set MIDI Show Control "
-                "In on the desk to the same device ID."));
-            break;
-        }
-    };
-    showFor();
+    refresh();
+    row->addWidget(summary, 1);
 
-    QObject::connect(type, &QComboBox::currentIndexChanged, group, [=] { save(); showFor(); });
-    QObject::connect(host, &QLineEdit::editingFinished, group, save);
-    QObject::connect(port, &QSpinBox::valueChanged, group, save);
-    QObject::connect(prefix, &QLineEdit::editingFinished, group, save);
-    QObject::connect(midi, &QComboBox::currentTextChanged, group, save);
-    QObject::connect(device, &QSpinBox::valueChanged, group, save);
+    auto *setup = new QPushButton(QObject::tr("Set up…"), group);
+    setup->setObjectName(QStringLiteral("lightingDeskSetup"));
+    QObject::connect(setup, &QPushButton::clicked, group, [group, refresh] {
+        if (LightingDeskDialog::edit(group->window())) refresh();
+    });
+    row->addWidget(setup, 0);
+    lay->addLayout(row);
+
+    lay->addWidget(makeHint(QObject::tr(
+        "Where lighting triggers in cues are sent. Also under Tools → Lighting Desk…"),
+        group));
     return group;
 }
 
