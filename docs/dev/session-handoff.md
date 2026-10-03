@@ -50,8 +50,8 @@ site (MkDocs, `docs/`) deploys to GitHub Pages on every push to `main`
 
 ## Current state — on `main`, not yet released (→ 1.0.4)
 
-All committed and pushed. **28 ctest suites** (27 green on Windows at the
-last local run; the new `journal_lock` suite was verified on Linux — see §5).
+All committed and pushed. **28 ctest suites, all green in CI on Windows,
+macOS and Linux (+ ASan/UBSan, TSan) at `6dabf77`.**
 
 ### 0. Lighting triggers + OSC v5 for HeliOSC (2026-10-03) — Matthew's ask
 "A lighting tab where I select portions of a song that send OSC or MIDI to
@@ -186,8 +186,11 @@ offered or deleted. Stray locks with no journal are tidied if stale.
 - **Verification honesty**: done in a Linux cloud session. The new suite
   passes there against Qt 6.4 (standalone build); the changed MainWindow TUs
   compile clean (syntax-only, `-Wall -Wextra`). The full project wasn't built
-  or ctest'd there (needs Qt ≥ 6.7; download.qt.io blocked) — CI on the push
-  covers that on all three OSes. **Not driven** with two real quewi windows
+  or ctest'd there (needs Qt ≥ 6.7; download.qt.io blocked). CI then failed
+  `journal_lock` on Windows Debug only: the age test couldn't open the owner's
+  lock file to back-date it (Windows holds it with no sharing — itself the
+  protection). Fixed in `943e3ac` (Windows branch checks it can't be opened,
+  then skips); CI green on all OSes since. **Not driven** with two real quewi windows
   on Windows yet: next Windows session, run two test copies (one with a
   modified show) and confirm the second gets no prompt; then kill one with
   Task Manager and confirm the next launch offers its journal.
