@@ -162,11 +162,18 @@ EffectsRackWidget::EffectsRackWidget(QWidget *parent) : QWidget(parent) {
 }
 
 void EffectsRackWidget::setTrack(audio::AudioEditorTrack *track) {
-    if (m_track) disconnect(m_track, &audio::AudioEditorTrack::changed,
-                            this, &EffectsRackWidget::rebuild);
+    if (m_track) disconnect(m_track, nullptr, this, nullptr);
     m_track = track;
-    if (m_track) connect(m_track, &audio::AudioEditorTrack::changed,
-                         this, &EffectsRackWidget::rebuild);
+    if (m_track) {
+        connect(m_track, &audio::AudioEditorTrack::changed,
+                this, &EffectsRackWidget::rebuild);
+        // The track was removed under us: drop its cards (they point at its
+        // effects) rather than leave them wired to freed objects.
+        connect(m_track, &QObject::destroyed, this, [this] {
+            m_track = nullptr;
+            rebuild();
+        });
+    }
     rebuild();
 }
 
@@ -368,7 +375,12 @@ void EffectsRackWidget::openEditor(audio::AudioEffect *fx) {
         comp->setScope(m_scope);
         dlg = comp;
     }
-    if (dlg) dlg->show();
+    if (dlg) {
+        // Close the editor when its effect goes (removed, replaced by a
+        // preset, or its track deleted) instead of leaving an empty window.
+        connect(fx, &QObject::destroyed, dlg, &QWidget::close);
+        dlg->show();
+    }
 }
 
 void EffectsRackWidget::addEffect() {

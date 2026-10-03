@@ -65,6 +65,12 @@ target_sources(test_cart_view PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/../src/app/GoEngine.cpp
 )
 
+# The audio editor's track/effect lifetimes (audit A7). Same GoEngine trick.
+quewi_add_test(audio_editor Qt6::Test Qt6::Widgets quewi_ui)
+target_sources(test_audio_editor PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/../src/app/GoEngine.cpp
+)
+
 # On Windows, Qt's DLLs need to be reachable via PATH at test runtime.
 if(WIN32)
     foreach(name ${_quewi_test_names})

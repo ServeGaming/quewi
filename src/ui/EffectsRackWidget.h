@@ -2,6 +2,7 @@
 
 #include "audio/AudioEditorModel.h"
 #include <QJsonArray>
+#include <QPointer>
 #include <QWidget>
 
 class QHBoxLayout;
@@ -39,7 +40,8 @@ private slots:
     void rebuild();
 
 private:
-    audio::AudioEditorTrack *m_track = nullptr;
+    // Guarded: the editor can remove the track this rack shows (A7).
+    QPointer<audio::AudioEditorTrack> m_track;
     LiveAudioScope *m_scope = nullptr;
     QHBoxLayout *m_cardsLayout = nullptr; // horizontal strip of effect cards
     QLabel      *m_trackLabel  = nullptr;

@@ -113,7 +113,7 @@ private:
     std::unique_ptr<QAudioSink>       m_sink;
     std::unique_ptr<LiveEffectDevice> m_liveDevice;
     std::vector<float>                m_renderedPcm;
-    audio::AudioEditorTrack          *m_activeTrack = nullptr;
+    QPointer<audio::AudioEditorTrack> m_activeTrack; // nulls itself if removed
     QTimer                            m_playTimer;
     bool                        m_looping  = false;
     bool                        m_isPlaying = false;

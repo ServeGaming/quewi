@@ -524,6 +524,13 @@ void AudioEditorWindow::buildBottomPanel() {
         m_activeTrack = m_model->track(0);
         m_effectsRack->setTrack(m_activeTrack);
     }
+    // Removing the active track nulls m_activeTrack (and the rack's track);
+    // fall back to the first track so Play and the rack have one again.
+    connect(m_model.get(), &audio::AudioEditorModel::tracksChanged, this, [this] {
+        if (m_activeTrack || m_model->trackCount() == 0) return;
+        m_activeTrack = m_model->track(0);
+        m_effectsRack->setTrack(m_activeTrack);
+    });
 }
 
 void AudioEditorWindow::updateHeader() {
