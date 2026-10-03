@@ -61,6 +61,12 @@ soundboard you can talk through.
   while stopped left the editor and its effects rack pointing at the
   deleted track, so the next Play could crash. The editor now falls back
   to track 1 and closes any open EQ or compressor window for that track.
+- **A second copy of quewi could delete the first one's recovery file.**
+  Opening quewi while another copy had unsaved changes offered to "recover"
+  that copy's live autosave, and answering No deleted it, leaving the
+  running show without crash protection. Each copy now locks its own
+  autosave, and recovery only offers ones whose quewi has actually closed
+  or crashed.
 - The video cue Inspector no longer shows a stray "Text size" label.
 
 ---

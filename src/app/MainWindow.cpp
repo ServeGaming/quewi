@@ -5,6 +5,7 @@
 #include "UpdateInstaller.h"
 
 #include <QDialog>
+#include <QLockFile>
 #include <QProgressDialog>
 #include <QScopeGuard>
 #include <QProcess>
@@ -36,6 +37,7 @@
 #include "osc/OscCue.h"
 #include "osc/OscEngine.h"
 #include "osc/OscPattern.h"
+#include "show/JournalLock.h"
 #include "show/ShowFile.h"
 #include "video/CueConvert.h"
 #include "video/VideoCue.h"
@@ -1628,6 +1630,10 @@ void MainWindow::renumberSelection()
 // On clean save, close, or load, we delete the journal. On startup we
 // scan that folder; any leftover journal means the previous session
 // died unexpectedly, and we offer to recover.
+//
+// Each instance holds "<journal>.lock" while its journal exists, so a
+// second quewi running alongside never offers (or deletes) a journal
+// that's still live — only ones whose owner has died.
 
 void MainWindow::scheduleJournal()
 {
@@ -1644,6 +1650,9 @@ void MainWindow::scheduleJournal()
         m_journalPath = dir + QStringLiteral("/")
                       + QUuid::createUuid().toString(QUuid::WithoutBraces)
                       + QStringLiteral(".journal");
+        // Lock before the first write, so the journal is never on disk
+        // unowned. (A fresh UUID can't be held by anyone else.)
+        m_journalLock = show::lockJournal(m_journalPath);
     }
     m_journalTimer->start();
 }
@@ -1664,33 +1673,30 @@ void MainWindow::clearJournal()
         QFile::remove(m_journalPath);
         m_journalPath.clear();
     }
+    // After the journal is gone — releasing deletes the lock file.
+    m_journalLock.reset();
 }
 
 bool MainWindow::recoverFromJournalIfPresent()
 {
     const auto dir = QStandardPaths::writableLocation(QStandardPaths::AppDataLocation)
                         + QStringLiteral("/journals");
-    QDir d(dir);
-    const auto journals = d.entryList({QStringLiteral("*.journal")}, QDir::Files);
-    if (journals.isEmpty()) return false;
-
-    // Newest first.
-    QStringList paths;
-    for (const auto &j : journals) paths << d.filePath(j);
-    std::sort(paths.begin(), paths.end(), [](const QString &a, const QString &b) {
-        return QFileInfo(a).lastModified() > QFileInfo(b).lastModified();
-    });
+    // Only journals whose owner is gone, newest first, each now locked by us.
+    // A journal another running quewi is writing isn't in this list, so it's
+    // neither offered nor deleted below.
+    auto orphans = show::claimOrphanedJournals(dir);
+    if (orphans.empty()) return false;
 
     const auto answer = QMessageBox::question(this,
         tr("Recover unsaved work?"),
         tr("quewi found %1 unsaved show%2 from a previous session. Recover the most "
            "recent? You can save it under a new name once it's open.")
-            .arg(paths.size()).arg(paths.size() == 1 ? QString() : QStringLiteral("s")),
+            .arg(orphans.size()).arg(orphans.size() == 1 ? QString() : QStringLiteral("s")),
         QMessageBox::Yes | QMessageBox::No);
 
     bool recovered = false;
     if (answer == QMessageBox::Yes) {
-        const QString journal = paths.first();
+        const QString journal = orphans.front().path;
         if (loadShowFromPath(journal)) {
             recovered = true;
             m_currentPath.clear(); // force Save As; this isn't a real .quewi yet
@@ -1701,9 +1707,10 @@ bool MainWindow::recoverFromJournalIfPresent()
             // journal was already deleted, so the work was gone for good.
             m_workspace->markModified();
             // Keep journaling into the same file until it's properly saved,
-            // so a second crash before then still has it.
-            paths.removeFirst();
+            // so a second crash before then still has it — and keep its lock.
             m_journalPath = journal;
+            m_journalLock = std::move(orphans.front().lock);
+            orphans.erase(orphans.begin());
             writeJournal();
             updateTitle();
             statusBar()->showMessage(tr("Recovered from journal — save it to keep it"), 6000);
@@ -1711,8 +1718,12 @@ bool MainWindow::recoverFromJournalIfPresent()
     }
 
     // Clean the other leftover journals so we don't ask again. (Declined →
-    // they're fine losing it.)
-    for (const auto &p : paths) QFile::remove(p);
+    // they're fine losing it.) Each lock is released after its journal is
+    // removed, taking the lock file with it.
+    for (auto &o : orphans) {
+        QFile::remove(o.path);
+        o.lock.reset();
+    }
     return recovered;
 }
 

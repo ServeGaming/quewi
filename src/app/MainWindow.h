@@ -14,6 +14,7 @@
 class QAction;
 class QHBoxLayout;
 class QLabel;
+class QLockFile;
 class QPushButton;
 class QDockWidget;
 class QSplitter;
@@ -371,6 +372,9 @@ private:
 
     QString m_currentPath;
     QString m_journalPath;
+    // Held for as long as m_journalPath exists, so another quewi starting up
+    // knows this journal is live and leaves it alone (show/JournalLock.h).
+    std::unique_ptr<QLockFile> m_journalLock;
     QTimer *m_journalTimer = nullptr;
 
     void rebuildListTabs();

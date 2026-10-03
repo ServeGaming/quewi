@@ -42,6 +42,9 @@ quewi_add_test(console_link Qt6::Test quewi_mix)
 quewi_add_test(x32_link     Qt6::Test Qt6::Network quewi_mix)
 quewi_add_test(mix_show     Qt6::Test quewi_mix)
 quewi_add_test(mix_persistence Qt6::Test Qt6::Sql quewi_mix quewi_show)
+# Crash-journal locks: a running instance's journal is never recovered or
+# deleted by another; a crashed one's is.
+quewi_add_test(journal_lock Qt6::Test quewi_show)
 quewi_add_test(dm7_value    Qt6::Test quewi_mix)
 quewi_add_test(dm7_link     Qt6::Test Qt6::Network quewi_mix)
 # Integration test against a real X32 emulator on 127.0.0.1:10023. Skips

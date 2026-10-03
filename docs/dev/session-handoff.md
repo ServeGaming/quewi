@@ -50,7 +50,8 @@ site (MkDocs, `docs/`) deploys to GitHub Pages on every push to `main`
 
 ## Current state — on `main`, not yet released (→ 1.0.4)
 
-All committed and pushed. **27/27 ctest suites green, selftest exits 0.**
+All committed and pushed. **28 ctest suites** (27 green on Windows at the
+last local run; the new `journal_lock` suite was verified on Linux — see §5).
 
 ### 0. Lighting triggers + OSC v5 for HeliOSC (2026-10-03) — Matthew's ask
 "A lighting tab where I select portions of a song that send OSC or MIDI to
@@ -168,6 +169,32 @@ active track while stopped left `m_activeTrack` and the effects rack on the
 freed track (next Play crashed). Now QPointers + fallback to track 1; open
 EQ/Compressor editors close with their effect. `test_audio_editor`; driven.
 
+### 5. A second instance no longer eats the first one's journal (2026-10-03)
+Bug: `recoverFromJournalIfPresent()` offered every `*.journal` in
+`%APPDATA%\ServeGaming\quewi\journals`, including one a running quewi was
+still writing — "No" deleted it (the live show lost crash protection), "Yes"
+hijacked it. Fix: `show/JournalLock.*` — each instance holds a QLockFile
+`<journal>.lock` from the moment it picks a journal path until `clearJournal()`
+(journal removed first, then the lock released, which deletes the lock file).
+Recovery uses `claimOrphanedJournals(dir)`: only journals whose lock it can
+take (owner dead → stale by PID; age never counts, `setStaleLockTime(0)`),
+newest first, each returned *locked* so two instances starting at once can't
+both claim one; a recovered journal keeps its lock. Live journals are never
+offered or deleted. Stray locks with no journal are tidied if stale.
+- Test `test_journal_lock` (8 cases, incl. a child process that takes a lock
+  and `_Exit`s = real crash, and two simultaneous claimants).
+- **Verification honesty**: done in a Linux cloud session. The new suite
+  passes there against Qt 6.4 (standalone build); the changed MainWindow TUs
+  compile clean (syntax-only, `-Wall -Wextra`). The full project wasn't built
+  or ctest'd there (needs Qt ≥ 6.7; download.qt.io blocked) — CI on the push
+  covers that on all three OSes. **Not driven** with two real quewi windows
+  on Windows yet: next Windows session, run two test copies (one with a
+  modified show) and confirm the second gets no prompt; then kill one with
+  Task Manager and confirm the next launch offers its journal.
+- Note: Matthew's installed 1.0.3 doesn't take the lock, so a 1.0.4 test copy
+  still sees *his* live 1.0.3 journal as orphaned. Keep backing up the
+  journals folder (see "Driving a test copy") until he's on 1.0.4.
+
 ### Next steps
 1. Matthew: try lighting triggers against his Eos/MA, Send-to-mic (with
    VB-Cable), video sound on the real show (he reported video→audio convert
@@ -175,8 +202,7 @@ EQ/Compressor editors close with their effect. `test_audio_editor`; driven.
    converted video takes a couple of seconds to draw the waveform — decode,
    expected). Then **cut 1.0.4** (release checklist below). First release
    installable purely through the in-app updater.
-2. Open bug (task chip offered): a second quewi instance offers to "recover"
-   — and on No deletes — the first instance's live journal.
+2. Drive the journal-lock fix on Windows with two copies (§5).
 3. Open audit items: A12 (output matrix sliders), A5 (waveform handles),
    V3/V4/V7–V10/V12–V14 (video), M11, and low-severity audio/UI items.
 4. Queued idea: Freesound.org as a second sound-effects source (CC-licensed;
@@ -284,7 +310,9 @@ dark palettes share `quewi-dark.qss`, light is tokenised to match.
   journals it left (`%APPDATA%\ServeGaming\quewi\journals`) and reset
   `lastSeenVersion` / `ui\whatsNewVersion` if they moved.
   **Careful:** a second copy finds *his* live journal and asks to recover
-  it — "No" deletes it. Back up the journals folder first and restore it.
+  it — "No" deletes it. Fixed for 1.0.4+ (journal locks, §5), but his 1.0.3
+  takes no lock, so until he's updated: back up the journals folder first
+  and restore it.
   **Headless-ish**: `quewi.exe --selftest-idle` skips recovery + Welcome and
   stays open; with his copy on 53535 it binds OSC on **53000** — script it
   with a UDP client (`tools/osc_triggers_drive.py`, `tools/osc_triggers_video.py`).
