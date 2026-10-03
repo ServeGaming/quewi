@@ -163,6 +163,31 @@ Voicemod-style: pads play into a virtual cable apps use as a microphone.
   **Not driven**: no virtual cable on his PC (Voicemod driver present but its
   endpoints inactive). He needs to install VB-Audio Virtual Cable and try it.
 
+### 0b. Lighting triggers, round 2 (2026-10-03) — simple mode, desk, beat grid
+Matthew can't write OSC by hand, uses ETC Nomad (on this PC, OSC UDP RX
+**8500**) / Ion; HeliOSC is for programming/busking, quewi optionally runs the
+show — they don't run at once, so quewi's own OSC port (he set 8500 too,
+clashing with Nomad) is fine as is (his call).
+- **Simple mode** (`TriggerAction::Kind::Desk`, `DeskDo`): GO, GO on cue list,
+  Stop, Back, Go to cue, sub level, bump sub, fader level, bump fader, macro,
+  desk command. `audio/DeskCommands` builds the wire format — Eos per ETC's
+  Show Control guide + HeliOSC's proven patterns (keys press+release 50 ms,
+  stop/back keys, fader bank slot 9 so HeliOSC's slot 1 isn't re-paged,
+  `/eos/newcmd`); "GO on cue list" = `Go_CueList <n> Enter` (no OSC address
+  in ETC's dictionary — **unverified on a desk**); MA3 `/cmd` Go+/Go-/Goto;
+  MA2 MSC. Editor: "What should it do?" + Custom OSC/MIDI toggle.
+- **Lighting desk** = `core::LightingDesk`, per computer in QSettings
+  `lighting/desk/*`, edited in Fable's **Lighting Desk** window (Tools →
+  Lighting Desk…, Preferences → Lighting → Set up…). Custom OSC with no host
+  goes there too. Set on his PC to Eos 127.0.0.1:8500 (Nomad).
+- **Beat grid** (`audio/BeatGrid`): BPM/first beat/beats-per-bar on the cue
+  (`beatGrid` field), Tap (+T key), Detect (onset autocorrelation + 1 ms
+  onset fit: ±0.05 BPM, first beat ±20 ms on synthetic clicks — not tried on
+  real songs), snap (Alt = off), Fill with beats (default bump sub 1, 40 % of
+  a beat). UI by subagents; `tools/osc_desk_drive.py` drives desk actions.
+- Not done: nothing verified on his real Nomad yet (offered); docs page not
+  yet updated for simple mode / desk / beat grid / GO on list.
+
 ### 4. Audit A7 closed (2026-10-03)
 The audio-thread UAF was already fixed in 0.9.91; what remained: removing the
 active track while stopped left `m_activeTrack` and the effects rack on the
