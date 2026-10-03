@@ -3,7 +3,9 @@
 #include <QUndoStack>
 
 #include "audio/AudioCue.h"
+#include "audio/BeatGrid.h"
 #include "audio/DeskCommands.h"
+#include <QRandomGenerator>
 #include "audio/LightTrigger.h"
 #include "core/UndoCommands.h"
 
@@ -284,6 +286,99 @@ private slots:
         QCOMPARE(d2.type, core::LightingDesk::Type::Ma3);
         QCOMPARE(d2.host, QStringLiteral("10.0.0.5"));
         QCOMPARE(d2.ma3Prefix, QStringLiteral("gma3"));   // slashes stripped on load
+    }
+
+    // ── Beat grid ────────────────────────────────────────────────────────
+    void beatGridMaths()
+    {
+        audio::BeatGrid g;
+        g.bpm = 120.0;          // 0.5 s a beat
+        g.firstBeat = 0.25;
+        QCOMPARE(g.beatLength(), 0.5);
+        QCOMPARE(g.snap(1.3), 1.25);
+        QCOMPARE(g.snap(1.3, 4), 2.25);              // nearest bar line (4 beats)
+        const auto beats = g.beatsIn(1.0, 3.0);
+        QCOMPARE(int(beats.size()), 4);               // 1.25 1.75 2.25 2.75
+        QCOMPARE(beats.front(), 1.25);
+        QCOMPARE(g.beatsIn(1.25, 2.0).front(), 1.25); // a range starting on a beat keeps it
+        const auto twos = g.beatsIn(0.0, 3.0, 2);     // beats 0, 2, 4 → 0.25, 1.25, 2.25
+        QCOMPARE(twos, (std::vector<double>{0.25, 1.25, 2.25}));
+        QVERIFY(g.isBarLine(0) && g.isBarLine(4) && !g.isBarLine(3) && g.isBarLine(-4));
+
+        audio::TriggerAction bump;
+        bump.kind = audio::TriggerAction::Kind::Desk;
+        bump.deskDo = audio::TriggerAction::DeskDo::SubBump;
+        bump.number = QStringLiteral("3");
+        const auto filled = audio::fillWithBeats(g, 1.0, 3.0, 1, bump, QStringLiteral("Beat"));
+        QCOMPARE(int(filled.size()), 4);
+        QCOMPARE(filled[2].name, QStringLiteral("Beat 3"));
+        QCOMPARE(filled[2].start, 2.25);
+        QCOMPARE(filled[2].enter.number, QStringLiteral("3"));
+        QVERIFY(!filled[0].isRange());
+
+        QVERIFY(audio::BeatGrid{}.beatsIn(0, 10).empty());   // no grid, no beats
+
+        audio::AudioCue cue;
+        QUndoStack undo;
+        undo.push(new core::EditCueFieldCommand(&cue, QStringLiteral("beatGrid"),
+                                                cue.field(QStringLiteral("beatGrid")), g.toJson()));
+        audio::AudioCue back;
+        back.fromPayload(cue.toPayload());
+        QVERIFY(back.beatGrid() == g);
+        undo.undo();
+        QVERIFY(!cue.beatGrid().isSet());
+        QVERIFY(!cue.toPayload().contains(QStringLiteral("beatGrid")));
+    }
+
+    void tapTempo()
+    {
+        audio::TapTempo t;
+        QCOMPARE(t.tap(10.0), 0.0);
+        for (int i = 1; i <= 6; ++i) t.tap(10.0 + i * 0.5);
+        QVERIFY(std::abs(t.bpm() - 120.0) < 0.01);
+        t.tap(13.0 + 0.38);                        // one fumbled tap: median holds
+        QVERIFY(std::abs(t.bpm() - 120.0) < 0.01);
+        t.tap(20.0);                               // a long pause starts over
+        QCOMPARE(t.bpm(), 0.0);
+    }
+
+    // A synthetic song: a kick-like click on every beat over quiet noise.
+    static std::vector<float> clickTrack(double bpm, double firstBeat, double seconds, int sr)
+    {
+        std::vector<float> s(size_t(seconds * sr));
+        auto *rng = QRandomGenerator::global();
+        for (auto &x : s) x = float((rng->generateDouble() - 0.5) * 0.02);
+        const double beat = 60.0 / bpm;
+        for (double t = firstBeat; t < seconds; t += beat) {
+            const auto start = size_t(t * sr);
+            for (size_t i = 0; i < size_t(0.06 * sr) && start + i < s.size(); ++i) {
+                const double env = std::exp(-double(i) / (0.012 * sr));
+                s[start + i] += float(0.8 * env * std::sin(2.0 * M_PI * 60.0 * double(i) / sr));
+            }
+        }
+        return s;
+    }
+
+    void detectsTempoAndFirstBeat()
+    {
+        const int sr = 22050;
+        for (const auto [bpm, first] : {std::pair{128.0, 0.37}, std::pair{95.0, 0.12},
+                                        std::pair{150.0, 0.20}}) {
+            const auto audio = clickTrack(bpm, first, 30.0, sr);
+            const auto est = audio::estimateTempo(audio.data(), audio.size(), sr);
+            QVERIFY2(std::abs(est.bpm - bpm) < 0.05,   // 0.05 BPM ≈ 0.1 s over 4 minutes
+                     qPrintable(QStringLiteral("%1 BPM: got %2").arg(bpm).arg(est.bpm)));
+            // First beat within 20 ms (modulo a beat).
+            const double beat = 60.0 / bpm;
+            double off = std::fmod(std::abs(est.firstBeat - first), beat);
+            off = std::min(off, beat - off);
+            QVERIFY2(off < 0.02, qPrintable(QStringLiteral("%1 BPM (est %4): first beat %2 vs %3")
+                                            .arg(bpm).arg(est.firstBeat).arg(first).arg(est.bpm, 0, 'f', 3)));
+            QVERIFY(est.confidence > 0.3);
+        }
+        // Silence: no tempo.
+        std::vector<float> quiet(size_t(10 * sr), 0.0f);
+        QCOMPARE(audio::estimateTempo(quiet.data(), quiet.size(), sr).bpm, 0.0);
     }
 
     void fieldsAreReachableByName()

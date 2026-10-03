@@ -2,6 +2,7 @@
 
 #include "audio/AudioFile.h"
 #include "audio/AudioTrajectory.h"
+#include "audio/BeatGrid.h"
 #include "audio/LightTrigger.h"
 #include "cues/Cue.h"
 
@@ -95,6 +96,9 @@ public:
     // undoable field "lightTriggers" (a QJsonArray, or a JSON string from a
     // remote); kept sorted by start time.
     const LightTriggers &lightTriggers() const { return m_lightTriggers; }
+    // The song's tempo for snapping triggers to beats (see BeatGrid.h).
+    // Undoable field "beatGrid" (QJsonObject, or a JSON string remotely).
+    const BeatGrid &beatGrid() const { return m_beatGrid; }
 
     const QJsonObject &editorModelJson() const { return m_editorModelJson; }
     void setEditorModelJson(const QJsonObject &j) { m_editorModelJson = j; emitChanged(); }
@@ -165,6 +169,7 @@ private:
     QJsonObject m_editorModelJson;
     QJsonObject m_videoOrigin;
     LightTriggers m_lightTriggers;
+    BeatGrid      m_beatGrid;
 
     std::shared_ptr<AudioFile> m_file;
     quint64                    m_currentVoiceId = 0;

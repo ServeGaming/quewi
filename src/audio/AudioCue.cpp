@@ -5,6 +5,7 @@
 #include <QDir>
 #include <QFileInfo>
 #include <QJsonArray>
+#include <QJsonDocument>
 #include <QJsonObject>
 
 #include <optional>
@@ -31,6 +32,7 @@ QVariant AudioCue::field(const QString &key) const
     if (key == QLatin1String("objElevation"))   return m_objElevation;
     if (key == QLatin1String("objSpread"))      return m_objSpread;
     if (key == QLatin1String("lightTriggers"))  return triggersToJson(m_lightTriggers);
+    if (key == QLatin1String("beatGrid"))       return m_beatGrid.toJson();
     return cues::Cue::field(key);
 }
 
@@ -85,6 +87,21 @@ void AudioCue::setField(const QString &key, const QVariant &value)
     if (key == QLatin1String("objAzimuth"))   { setDouble(m_objAzimuth);   return; }
     if (key == QLatin1String("objElevation")) { setDouble(m_objElevation); return; }
     if (key == QLatin1String("objSpread"))    { setDouble(m_objSpread);    return; }
+    if (key == QLatin1String("beatGrid")) {
+        QJsonObject o;
+        if (value.metaType() == QMetaType::fromType<QJsonObject>()) {
+            o = value.toJsonObject();
+        } else {
+            const auto doc = QJsonDocument::fromJson(value.toString().toUtf8());
+            if (!doc.isObject()) return;
+            o = doc.object();
+        }
+        const auto next = BeatGrid::fromJson(o);
+        if (next == m_beatGrid) return;
+        m_beatGrid = next;
+        emitChanged();
+        return;
+    }
     if (key == QLatin1String("lightTriggers")) {
         bool ok = false;
         auto next = triggersFromVariant(value, &ok);
@@ -142,6 +159,8 @@ QJsonObject AudioCue::toPayload() const
         o.insert(QStringLiteral("videoOrigin"), m_videoOrigin);
     if (!m_lightTriggers.empty())
         o.insert(QStringLiteral("lightTriggers"), triggersToJson(m_lightTriggers));
+    if (m_beatGrid.isSet())
+        o.insert(QStringLiteral("beatGrid"), m_beatGrid.toJson());
     return o;
 }
 
@@ -176,6 +195,7 @@ void AudioCue::fromPayload(const QJsonObject &payload)
     m_editorModelJson = payload.value(QStringLiteral("editorModel")).toObject();
     m_videoOrigin     = payload.value(QStringLiteral("videoOrigin")).toObject();
     m_lightTriggers   = triggersFromJson(payload.value(QStringLiteral("lightTriggers")).toArray());
+    m_beatGrid        = BeatGrid::fromJson(payload.value(QStringLiteral("beatGrid")).toObject());
     m_file.reset();
 }
 
