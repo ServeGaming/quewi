@@ -39,6 +39,8 @@ add_library(quewi_ui STATIC
     TimelineCanvas.cpp
     EffectsRackWidget.h
     EffectsRackWidget.cpp
+    LightTriggersPanel.h
+    LightTriggersPanel.cpp
     ParametricEqDialog.h
     ParametricEqDialog.cpp
     CompressorDialog.h

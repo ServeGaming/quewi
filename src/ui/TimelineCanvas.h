@@ -1,6 +1,7 @@
 #pragma once
 
 #include "audio/AudioEditorModel.h"
+#include "audio/LightTrigger.h"
 
 #include <QHash>
 #include <QImage>
@@ -17,6 +18,7 @@ namespace quewi::ui {
 // Layout (left to right, top to bottom):
 //
 //  [ruler: time ticks]
+//  [lighting lane: trigger points / ranges]
 //  [track header | waveform regions ...]   ← per track
 //  [track header | waveform regions ...]
 //  ...
@@ -60,6 +62,17 @@ public:
 
     static constexpr int kHeaderWidth = 120;
     static constexpr int kRulerHeight = 24;
+    // Lighting-trigger lane between the ruler and the first track. Like the
+    // ruler it doesn't scroll vertically; the tracks start below it.
+    static constexpr int kMarkerLaneHeight = 20;
+
+    // Lighting triggers shown in the marker lane. Times are seconds; the lane
+    // maps them to frames with sampleRate. The canvas never edits them — it
+    // reports what the user did through the trigger* signals below.
+    void setTriggers(const audio::LightTriggers &t, double sampleRate);
+    void setSelectedTrigger(const QUuid &id);
+    // Brief highlight of a trigger that just fired.
+    void flashTrigger(const QUuid &id);
 
 signals:
     void regionSelected(QUuid regionId);
@@ -68,7 +81,13 @@ signals:
     void requestRemoveTrack(int trackIndex);
     // Emitted when the user clicks to reposition the edit cursor.
     void editCursorMoved(qint64 frame);
-
+    // Marker lane. end < 0 = a point. Moves/resizes are reported on release
+    // (drawn live while dragging).
+    void triggerAdded(double start, double end);
+    void triggerMoved(QUuid id, double start, double end);
+    void triggerSelected(QUuid id);
+    // "rename", "toggleRange", "toggleEnabled", "delete".
+    void triggerContextAction(QUuid id, QString action);
 protected:
     void paintEvent(QPaintEvent *) override;
     void mousePressEvent(QMouseEvent *) override;
@@ -85,6 +104,8 @@ private:
     int   trackHeight()          const { return m_trackHeight; }
     int   timelineLeft()         const { return kHeaderWidth; }
     int   rulerBottom()          const { return kRulerHeight; }
+    int   tracksTop()            const { return kRulerHeight + kMarkerLaneHeight; }
+    bool  inTriggerLane(int y)   const { return y >= kRulerHeight && y < tracksTop(); }
     // Canvas height required to show all tracks
     int   contentHeight()        const;
 
@@ -117,7 +138,30 @@ private:
     bool drawRegionSpectrogram(QPainter &p, const audio::AudioRegion &region,
                                int x1, int x2, int top, int h);
     void drawPlayhead(QPainter &p);
-    void updateScrollBars();
+    void drawTriggerGuides(QPainter &p);   // faint lines down through the tracks
+    void drawTriggerLane(QPainter &p);
+
+    // ── Lighting triggers ─────────────────────────────────────────────────
+    double secondsToX(double s) const;
+    double xToSeconds(int x) const;        // clamped >= 0
+    enum class TriggerPart { Body, StartEdge, EndEdge };
+    // Index into m_triggers of the trigger under x in the lane, or -1.
+    int    triggerAt(int x, TriggerPart *part = nullptr) const;
+    // Start/end as drawn: the live drag values for the one being dragged.
+    void   shownSpan(const audio::LightTrigger &t, double &start, double &end) const;
+    audio::LightTriggers m_triggers;
+    double m_triggerRate = 48000.0;
+    QUuid  m_selectedTrigger;
+    QUuid  m_flashTrigger;
+    struct TriggerDrag {
+        enum Mode { None, Create, Move, ResizeStart, ResizeEnd } mode = None;
+        QUuid  id;
+        bool   moved = false;
+        QPoint pressPos;
+        double pressSec = 0.0;
+        double origStart = 0.0, origEnd = -1.0;
+        double curStart = 0.0, curEnd = -1.0;
+    } m_tdrag;    void updateScrollBars();
 
     // ── Spectrogram cache (Spectrogram view mode) ─────────────────────────
     // One heat-map image per distinct source file, built once on a worker

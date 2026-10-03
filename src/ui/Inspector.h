@@ -64,6 +64,9 @@ signals:
     void editSoundRequested(quewi::audio::AudioCue *sound);
     // "Convert to audio cue" / "Convert to video cue".
     void convertCueRequested(quewi::cues::Cue *cue);
+    // "Lighting triggers…" on an audio cue, or on a video cue's Sound: open
+    // the audio editor's Lighting tab on that sound.
+    void editLightTriggersRequested(quewi::audio::AudioCue *sound);
 
 public slots:
     void setCue(quewi::cues::Cue *cue);
@@ -353,6 +356,9 @@ private:
     QPushButton    *m_vsEditBtn         = nullptr;
     QPushButton    *m_videoToAudioBtn   = nullptr;
     QPushButton    *m_audioToVideoBtn   = nullptr;
+    QLabel         *m_audioLightLabel   = nullptr;   // "3 triggers" / "none"
+    QPushButton    *m_audioLightBtn     = nullptr;
+    QPushButton    *m_vsLightBtn        = nullptr;
     void populateVideoSound(video::VideoCue *vc);
     QLineEdit      *m_textString        = nullptr;
     QSpinBox       *m_textSize          = nullptr;

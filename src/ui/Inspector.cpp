@@ -634,6 +634,21 @@ Inspector::Inspector(QWidget *parent)
     m_audioToVideoBtn = new QPushButton(tr("Convert to video cue"), m_audioGroup);
     audioForm->addRow(QString(), m_audioToVideoBtn);
 
+    // Lighting triggers on this song: a count and a way into the editor.
+    {
+        auto *lightRow = new QHBoxLayout();
+        lightRow->setContentsMargins(0, 0, 0, 0);
+        m_audioLightLabel = new QLabel(tr("none"), m_audioGroup);
+        m_audioLightLabel->setStyleSheet(QStringLiteral("color:%1;")
+                                             .arg(Theme::tokens().ink60.name()));
+        m_audioLightBtn = new QPushButton(tr("Lighting triggers…"), m_audioGroup);
+        m_audioLightBtn->setToolTip(tr("Points and ranges on the song that cue the lighting "
+                                       "desk (OSC, MIDI, MSC) or fire a cue as it plays"));
+        lightRow->addWidget(m_audioLightLabel, 1);
+        lightRow->addWidget(m_audioLightBtn);
+        audioForm->addRow(tr("Lighting"), lightRow);
+    }
+
     auto *quickRow = new QHBoxLayout();
     m_audioNormalize = new QPushButton(tr("Normalize"), m_audioGroup);
     m_audioReverse   = new QPushButton(tr("Reverse"),   m_audioGroup);
@@ -998,7 +1013,10 @@ Inspector::Inspector(QWidget *parent)
         m_videoToAudioBtn->setToolTip(tr(
             "Drop the picture and keep just the sound, as an audio cue. You can "
             "convert it back to a video cue later; its screen and position are kept."));
+        m_vsLightBtn = new QPushButton(tr("Lighting triggers…"), m_videoSoundGroup);
+        m_vsLightBtn->setToolTip(tr("Cue the lighting desk from points in the soundtrack"));
         btnRow->addWidget(m_vsEditBtn);
+        btnRow->addWidget(m_vsLightBtn);
         btnRow->addWidget(m_videoToAudioBtn);
         btnRow->addStretch(1);
         vsOuter->addLayout(btnRow);
@@ -1196,6 +1214,14 @@ Inspector::Inspector(QWidget *parent)
     connect(m_vsEditBtn, &QPushButton::clicked, this, [this] {
         if (auto *vc = qobject_cast<video::VideoCue *>(m_cue.data()))
             emit editSoundRequested(vc->sound());
+    });
+    connect(m_vsLightBtn, &QPushButton::clicked, this, [this] {
+        if (auto *vc = qobject_cast<video::VideoCue *>(m_cue.data()))
+            emit editLightTriggersRequested(vc->sound());
+    });
+    connect(m_audioLightBtn, &QPushButton::clicked, this, [this] {
+        if (auto *ac = qobject_cast<audio::AudioCue *>(m_cue.data()))
+            emit editLightTriggersRequested(ac);
     });
     connect(m_videoToAudioBtn, &QPushButton::clicked, this, [this] {
         if (m_cue) emit convertCueRequested(m_cue.data());
@@ -1528,6 +1554,10 @@ void Inspector::rebuild()
         m_audioToVideoBtn->setText(audioCue->videoOrigin().isEmpty()
                                        ? tr("Convert to video cue")
                                        : tr("Convert back to video cue"));
+        const int n = int(audioCue->lightTriggers().size());
+        m_audioLightLabel->setText(n == 0 ? tr("none")
+                                 : n == 1 ? tr("1 trigger")
+                                          : tr("%1 triggers").arg(n));
     }
     // Follow live playback position only while a video cue is selected;
     // stay idle (no timer) for every other cue type.
