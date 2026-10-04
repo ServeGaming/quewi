@@ -33,12 +33,14 @@ EosCueText parseEosCueText(const QString &text)
         if (ok) {
             out.percent = pct;
             tok.removeLast();
-            // A time comes in front of the percentage: "5.00", "1:30", "5".
-            static const QRegularExpression timeRe(QStringLiteral(R"(^\d+(:\d{1,2})*(\.\d+)?$)"));
-            if (!tok.isEmpty() && timeRe.match(tok.last()).hasMatch())
-                out.time = tok.takeLast();
         }
     }
+    // The time comes last (before the percentage, when there is one):
+    // "5.00", "1:30", "5". The previous cue's text has no percentage at all
+    // ("1/1 5.0" on Nomad).
+    static const QRegularExpression timeRe(QStringLiteral(R"(^\d+(:\d{1,2})*(\.\d+)?$)"));
+    if (!tok.isEmpty() && timeRe.match(tok.last()).hasMatch())
+        out.time = tok.takeLast();
     out.label = tok.join(QLatin1Char(' '));
     return out;
 }

@@ -48,6 +48,13 @@ private slots:
         QCOMPARE(t.label, QString());
         QCOMPARE(t.time, QStringLiteral("3"));
         QVERIFY(osc::parseEosCueText(QString()).isEmpty());
+
+        // What a real Nomad sends: no label, and no percentage for the previous cue.
+        t = osc::parseEosCueText(QStringLiteral("1/1 5.0"));
+        QCOMPARE(t.cue, QStringLiteral("1"));
+        QCOMPARE(t.time, QStringLiteral("5.0"));
+        QCOMPARE(t.label, QString());
+        QCOMPARE(t.percent, -1);
     }
 
     void handleUpdatesState()
@@ -141,6 +148,30 @@ private slots:
 
         fb.stop();
         QCOMPARE(fb.link(), osc::EosFeedback::Link::Off);
+    }
+
+    // quewi opened before the desk: refused at first, then the desk comes
+    // up (Nomad launched later) and the link goes Live by itself.
+    void recoversWhenTheDeskStartsLater()
+    {
+        QTcpServer probe;
+        QVERIFY(probe.listen(QHostAddress::LocalHost, 0));
+        const quint16 port = probe.serverPort();
+        probe.close();
+        osc::EosFeedback fb;
+        fb.setTimings(200, 1000, 5000);
+        fb.start(QStringLiteral("127.0.0.1"), port);
+        QTRY_COMPARE(fb.link(), osc::EosFeedback::Link::Failed);
+        QTest::qWait(500);                              // a couple of refused retries
+
+        QTcpServer desk;
+        QVERIFY(desk.listen(QHostAddress::LocalHost, port));
+        QTRY_VERIFY_WITH_TIMEOUT(desk.hasPendingConnections(), 3000);
+        QTcpSocket *peer = desk.nextPendingConnection();
+        peer->write(framed(text("/eos/out/active/cue/text", "1/2 5.0 100%")));
+        QTRY_COMPARE(fb.link(), osc::EosFeedback::Link::Live);
+        QCOMPARE(fb.active().cue, QStringLiteral("2"));
+        QVERIFY(fb.detail().isEmpty());                 // the old failure is gone
     }
 
     void failsVisiblyWhenNothingListens()
