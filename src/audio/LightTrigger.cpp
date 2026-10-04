@@ -367,6 +367,42 @@ bool TriggerAction::setField(const QString &key, const QVariant &v)
 
 // ── LightTrigger ─────────────────────────────────────────────────────────────
 
+void TriggerAction::applyChange(const TriggerAction &before, const TriggerAction &after)
+{
+    if (before.kind != after.kind || kind != before.kind) {
+        // A different kind of action altogether (or this one was a different
+        // kind from the one edited): make it exactly the edited one.
+        *this = after;
+        return;
+    }
+    const QJsonObject a = before.toJson(), b = after.toJson();
+    for (auto it = b.begin(); it != b.end(); ++it)
+        if (!a.contains(it.key()) || a.value(it.key()) != it.value())
+            setField(it.key(), it.value().toVariant());
+}
+
+QStringList triggerGroups(const LightTriggers &t)
+{
+    LightTriggers sorted = t;
+    std::stable_sort(sorted.begin(), sorted.end(),
+                     [](const LightTrigger &a, const LightTrigger &b) { return a.start < b.start; });
+    QStringList out;
+    for (const auto &x : sorted)
+        if (!x.group.isEmpty() && !out.contains(x.group)) out << x.group;
+    return out;
+}
+
+QString uniqueGroupName(const LightTriggers &t, const QString &base)
+{
+    const QString b = base.trimmed().isEmpty() ? QStringLiteral("Group") : base.trimmed();
+    const QStringList used = triggerGroups(t);
+    if (!used.contains(b)) return b;
+    for (int n = 2;; ++n) {
+        const QString name = QStringLiteral("%1 %2").arg(b).arg(n);
+        if (!used.contains(name)) return name;
+    }
+}
+
 QJsonObject LightTrigger::toJson() const
 {
     QJsonObject o{
@@ -376,6 +412,7 @@ QJsonObject LightTrigger::toJson() const
         {QStringLiteral("enabled"), enabled},
         {QStringLiteral("enter"),   enter.toJson()},
     };
+    if (!group.isEmpty()) o.insert(QStringLiteral("group"), group);
     if (isRange()) {
         o.insert(QStringLiteral("end"), end);
         o.insert(QStringLiteral("exit"), exit.toJson());
@@ -392,6 +429,7 @@ LightTrigger LightTrigger::fromJson(const QJsonObject &o)
     t.start   = std::max(0.0, o.value(QStringLiteral("start")).toDouble());
     t.end     = o.value(QStringLiteral("end")).toDouble(-1.0);
     t.enabled = o.value(QStringLiteral("enabled")).toBool(true);
+    t.group   = o.value(QStringLiteral("group")).toString().trimmed();
     t.enter   = TriggerAction::fromJson(o.value(QStringLiteral("enter")).toObject());
     t.exit    = TriggerAction::fromJson(o.value(QStringLiteral("exit")).toObject());
     return t;
@@ -404,6 +442,7 @@ QVariant LightTrigger::field(const QString &key) const
     if (key == QLatin1String("start"))   return start;
     if (key == QLatin1String("end"))     return isRange() ? end : -1.0;
     if (key == QLatin1String("enabled")) return enabled;
+    if (key == QLatin1String("group"))   return group;
     if (key == QLatin1String("enter"))
         return QString::fromUtf8(QJsonDocument(enter.toJson()).toJson(QJsonDocument::Compact));
     if (key == QLatin1String("exit"))
@@ -427,6 +466,7 @@ bool LightTrigger::setField(const QString &key, const QVariant &v)
         return true;
     }
     if (key == QLatin1String("enabled")) { enabled = v.toBool(); return true; }
+    if (key == QLatin1String("group"))   { group = v.toString().trimmed(); return true; }
     if (key == QLatin1String("enter") || key == QLatin1String("exit")) {
         QJsonObject o;
         if (v.metaType() == QMetaType::fromType<QJsonObject>()) {

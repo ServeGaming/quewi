@@ -122,6 +122,58 @@ the nearest beat. Hold **Alt** to place it freely.
 Every edit, in the lane or the tab, can be undone, and triggers are saved
 with the show.
 
+### Editing several at once
+
+Select more than one trigger and the editor changes them all together.
+The editor's Name and times are greyed out, and a line above it
+says how many are selected.
+
+**Selecting:**
+
+| Where | Do this | To |
+|---|---|---|
+| Lane | **Ctrl**+click | Add or remove one trigger |
+| Lane | **Shift**+click | Add a trigger (and its group) |
+| Lane | **Shift**+drag (or **Ctrl**+drag) across empty space | Add every trigger in that stretch |
+| List | **Ctrl**+click, **Shift**+click, **Ctrl+A** | The usual list selection |
+
+**Editing:** change anything in the **Sends** card and the change goes to
+every selected trigger. Only the setting you touched changes. Say twelve
+beats bump subs 1, 2, 3 and 4 in turn: set **Hold** to 0.1 s, and all twelve
+get the new hold while each keeps its own sub. Pick a different **What
+should it do?** and they all switch. The card shows the trigger you picked
+last.
+
+**Also on a selection:**
+
+- **Drag** any selected marker in the lane and they all move together,
+  keeping their spacing. The one you grab snaps to the beat.
+- **Delete** (the button, the Delete key, or right-click) removes them all.
+- **Enabled**, and **Enable / Disable** on the right-click menu, switch them
+  all on or off.
+- **Duplicate** copies the block straight after itself, on the next bar
+  when there's a beat grid, so a chorus pattern repeats in time for the
+  next chorus. The copy is selected, ready to drag.
+
+Every one of these is a single undo step.
+
+### Groups
+
+A **group** keeps triggers together so you can come back and edit them as
+one later. **Fill with beats** puts its new beats in a group named after
+them ("Beat", then "Beat 2" for the next fill…).
+
+- **Click** any trigger in a group in the lane and the whole group is
+  selected. Drag it and the group moves. **Alt**+click picks just that one.
+- To make a group, select the triggers and press **Ctrl+G** (or right-click
+  → **Group…**) and give it a name, such as "Chorus bumps". Or type a name
+  in the editor's **Group** box.
+- Right-click a trigger → **Select Group** or **Ungroup**. In the editor,
+  **Select all** next to the Group box selects the rest of the group.
+- The list has a **Group** column.
+
+A trigger can be in one group at a time. Groups are saved with the show.
+
 ---
 
 ## What a trigger can do
@@ -234,7 +286,8 @@ The grid is saved with the cue, and editing it can be undone.
   1 with a short **Hold**.
 
 The dialog shows how many it will add before you press **Add**. The whole
-fill is one undo step.
+fill is one undo step. The new beats are put in their own
+[group](#groups) and selected, so you can change them all straight away.
 
 !!! example "Bump sub 5 on every beat of the chorus"
     1. Set the tempo (type the BPM, **Tap** or **Detect**) and check the

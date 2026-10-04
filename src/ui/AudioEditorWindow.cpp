@@ -363,9 +363,17 @@ void AudioEditorWindow::buildBottomPanel() {
     connect(m_timeline, &TimelineCanvas::triggerMoved, this, [this](QUuid id, double s, double e) {
         m_triggersPanel->moveTrigger(id, s, e);
     });
-    connect(m_timeline, &TimelineCanvas::triggerSelected, this, [this](QUuid id) {
+    connect(m_timeline, &TimelineCanvas::triggerClicked, this,
+            [this](QUuid id, Qt::KeyboardModifiers mods) {
         showLightingTab();
-        m_triggersPanel->selectTrigger(id);
+        m_triggersPanel->clickTrigger(id, mods);
+    });
+    connect(m_timeline, &TimelineCanvas::triggersSpanSelected, this, [this](double a, double b) {
+        showLightingTab();
+        m_triggersPanel->selectSpan(a, b);
+    });
+    connect(m_timeline, &TimelineCanvas::triggersMovedBy, this, [this](QList<QUuid> ids, double d) {
+        m_triggersPanel->moveTriggersBy(ids, d);
     });
     connect(m_timeline, &TimelineCanvas::triggerContextAction, this, [this](QUuid id, QString action) {
         showLightingTab();
@@ -374,8 +382,8 @@ void AudioEditorWindow::buildBottomPanel() {
     connect(m_timeline, &TimelineCanvas::editCursorMoved, this, [this](qint64 frame) {
         m_triggersPanel->setCursorSeconds(double(frame) * secondsPerFrame());
     });
-    connect(m_triggersPanel, &LightTriggersPanel::selectionChanged,
-            m_timeline, &TimelineCanvas::setSelectedTrigger);
+    connect(m_triggersPanel, &LightTriggersPanel::selectionSetChanged,
+            m_timeline, &TimelineCanvas::setSelectedTriggers);
     connect(m_triggersPanel, &LightTriggersPanel::testRequested,
             this, &AudioEditorWindow::testTriggerRequested);
     connect(m_triggersPanel, &LightTriggersPanel::deskSettingsRequested,
@@ -435,6 +443,21 @@ void AudioEditorWindow::buildBottomPanel() {
     };
     connect(markKey, &QShortcut::activated, this, doMark);
     connect(markKey, &QShortcut::activatedAmbiguously, this, doMark);
+
+    // Ctrl+G groups the selected lighting triggers; Delete removes them
+    // (the list has its own Delete; this one covers the lane).
+    auto *groupKey = new QShortcut(QKeySequence(QStringLiteral("Ctrl+G")), this);
+    groupKey->setContext(Qt::WindowShortcut);
+    connect(groupKey, &QShortcut::activated, this, [this, typing] {
+        if (typing() || m_triggersPanel->selectedTrigger().isNull()) return;
+        showLightingTab();
+        m_triggersPanel->applyTriggerAction(m_triggersPanel->selectedTrigger(), QStringLiteral("group"));
+    });
+    auto *delTrig = new QShortcut(QKeySequence::Delete, m_timeline);
+    delTrig->setContext(Qt::WidgetShortcut);
+    connect(delTrig, &QShortcut::activated, this, [this] {
+        if (!m_triggersPanel->selectedTriggers().isEmpty()) m_triggersPanel->deleteSelection();
+    });
 
     if (m_cue)
         connect(m_cue, &cues::Cue::changed, this, &AudioEditorWindow::syncTriggersToCanvas);

@@ -27,6 +27,15 @@ soundboard you can talk through.
   **Fill with beats…** puts a trigger on every beat or bar of a section,
   for example bumping a sub in time with the chorus.
   [Beat grid →](../using-quewi/lighting-triggers.md#beat-grid)
+- **Edit many triggers at once, and groups.** Ctrl-, Shift- or drag-select
+  triggers and change them together. Only the setting you change is
+  copied, so twelve bumps can get a new hold time and keep their own subs.
+  Drag them as a block, delete, enable or duplicate them (a duplicate lands
+  on the next bar). Groups keep a set together: **Fill with beats** groups
+  what it adds, **Ctrl+G** groups a selection, and clicking any member in
+  the timeline selects the lot. Over OSC, `triggers/group/<name>/…` edits,
+  shifts or removes a whole group.
+  [Editing several at once →](../using-quewi/lighting-triggers.md#editing-several-at-once)
 - **Video editor.** Double-click a video cue to open it in an editor laid
   out like Premiere Pro or DaVinci Resolve: a viewer with transport
   controls, an Inspector with the clip, video, audio and lighting

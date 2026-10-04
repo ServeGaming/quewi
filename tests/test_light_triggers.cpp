@@ -139,6 +139,58 @@ private slots:
         QCOMPARE(t[size_t(ev[0].index)].name, QStringLiteral("kept"));
     }
 
+    void applyChangeCarriesOnlyWhatChanged()
+    {
+        using A = audio::TriggerAction;
+        A before;
+        before.kind = A::Kind::Desk;
+        before.deskDo = A::DeskDo::SubBump;
+        before.number = QStringLiteral("1");
+        before.hold = 0.25;
+        A after = before;
+        after.hold = 0.1;
+
+        A other = before;
+        other.number = QStringLiteral("7");
+        other.applyChange(before, after);
+        QCOMPARE(other.hold, 0.1);
+        QCOMPARE(other.number, QStringLiteral("7"));
+
+        // What it does: the new action's fields come along, the number stays.
+        A fader = after;
+        fader.deskDo = A::DeskDo::FaderBump;
+        fader.list = 3;
+        other.applyChange(after, fader);
+        QCOMPARE(other.deskDo, A::DeskDo::FaderBump);
+        QCOMPARE(other.list, 3);
+        QCOMPARE(other.number, QStringLiteral("7"));
+
+        // A different kind: it becomes the edited action.
+        A osc;
+        osc.kind = A::Kind::Osc;
+        osc.address = QStringLiteral("/x");
+        other.applyChange(fader, osc);
+        QCOMPARE(other.kind, A::Kind::Osc);
+        QCOMPARE(other.address, QStringLiteral("/x"));
+    }
+
+    void groupsRoundTripAndGetUniqueNames()
+    {
+        LightTrigger t;
+        t.group = QStringLiteral("Chorus");
+        const auto o = t.toJson();
+        QCOMPARE(o.value(QStringLiteral("group")).toString(), QStringLiteral("Chorus"));
+        QCOMPARE(LightTrigger::fromJson(o).group, QStringLiteral("Chorus"));
+        QVERIFY(!LightTrigger().toJson().contains(QStringLiteral("group")));
+        QVERIFY(t.setField(QStringLiteral("group"), QStringLiteral(" Verse ")));
+        QCOMPARE(t.field(QStringLiteral("group")).toString(), QStringLiteral("Verse"));
+
+        LightTriggers ts{t};
+        QCOMPARE(audio::uniqueGroupName(ts, QStringLiteral("Beat")), QStringLiteral("Beat"));
+        QCOMPARE(audio::uniqueGroupName(ts, QStringLiteral("Verse")), QStringLiteral("Verse 2"));
+        QCOMPARE(audio::triggerGroups(ts), QStringList{QStringLiteral("Verse")});
+    }
+
     void disabledTriggersStayQuiet()
     {
         auto t = LightTriggers{point(1.0, "a"), range(2.0, 3.0, "r")};

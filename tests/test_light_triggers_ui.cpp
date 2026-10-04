@@ -10,6 +10,7 @@
 #include <QSettings>
 #include <QSignalSpy>
 #include <QSpinBox>
+#include <QTableWidget>
 #include <QDialogButtonBox>
 #include <QRandomGenerator>
 #include <QUndoStack>
@@ -430,7 +431,7 @@ private slots:
         t.start = 1.0;
         canvas.setTriggers({t}, rate);
         QSignalSpy moved(&canvas, &ui::TimelineCanvas::triggerMoved);
-        QSignalSpy selected(&canvas, &ui::TimelineCanvas::triggerSelected);
+        QSignalSpy selected(&canvas, &ui::TimelineCanvas::triggerClicked);
         QTest::mousePress(&canvas, Qt::LeftButton, {}, QPoint(x0 + 100, laneY));
         QCOMPARE(selected.count(), 1);
         QTest::mouseMove(&canvas, QPoint(x0 + 120, laneY));
@@ -553,9 +554,232 @@ private slots:
         }
         QCOMPARE(t[1].name, QStringLiteral("Beat 1"));
         QCOMPARE(undo.count(), before + 1);
-        QCOMPARE(panel.selectedTrigger(), kept);  // selection left alone
+        // The new row is one group, selected, ready to edit together.
+        QVERIFY(t[0].group.isEmpty());
+        for (int i = 1; i < 5; ++i) QCOMPARE(t[size_t(i)].group, QStringLiteral("Beat"));
+        QCOMPARE(panel.selectedTriggers().size(), 4);
+        QVERIFY(!panel.selectedTriggers().contains(kept));
+        // A second fill gets its own group.
+        QCOMPARE(panel.fillWithBeats(6.0, 7.0, 1, bump, QStringLiteral("Beat")), 2);
+        QCOMPARE(cue.lightTriggers().back().group, QStringLiteral("Beat 2"));
+        undo.undo();
         undo.undo();
         QCOMPARE(cue.lightTriggers().size(), size_t(1));
+    }
+
+    // ── Several at once, and groups ──────────────────────────────────────
+
+    // Three bumps on different subs: one edit of Hold through the editor
+    // reaches all three and leaves each one's sub alone.
+    void bulkEditChangesOnlyWhatChanged()
+    {
+        setDesk(core::LightingDesk::Type::Eos);
+        audio::AudioCue cue;
+        QUndoStack undo;
+        ui::LightTriggersPanel panel;
+        panel.setCue(&cue);
+        panel.setUndoStack(&undo);
+        audio::LightTriggers ts;
+        for (int i = 0; i < 3; ++i) {
+            audio::LightTrigger t;
+            t.start = 1.0 + i;
+            t.name = QStringLiteral("B%1").arg(i + 1);
+            t.enter.kind = audio::TriggerAction::Kind::Desk;
+            t.enter.deskDo = audio::TriggerAction::DeskDo::SubBump;
+            t.enter.number = QString::number(i + 1);
+            t.enter.hold = 0.25;
+            ts.push_back(t);
+        }
+        cue.setField(QStringLiteral("lightTriggers"), audio::triggersToJson(ts));
+        panel.setSelection({ts[0].id, ts[1].id, ts[2].id}, ts[1].id);
+        QCOMPARE(panel.selectedTriggers().size(), 3);
+        QCOMPARE(panel.selectedTrigger(), ts[1].id);
+
+        auto *multi = named<QLabel>(panel, "ltMultiLabel");
+        QVERIFY(multi && !multi->isHidden());
+        QVERIFY(multi->text().startsWith(QStringLiteral("3 triggers selected")));
+        QVERIFY(!named<QLineEdit>(panel, "ltName")->isEnabled());
+
+        auto *enter = enterEditor(panel);
+        auto *hold = named<QDoubleSpinBox>(*enter, "ltHold");
+        QVERIFY(hold);
+        const int before = undo.count();
+        hold->setValue(0.1);
+        const auto &now = cue.lightTriggers();
+        for (int i = 0; i < 3; ++i) {
+            QCOMPARE(now[size_t(i)].enter.hold, 0.1);
+            QCOMPARE(now[size_t(i)].enter.number, QString::number(i + 1));   // kept
+        }
+        QCOMPARE(undo.count(), before + 1);
+
+        // Changing what it does carries the new action's fields.
+        auto *what = named<QComboBox>(*enter, "ltDo");
+        what->setCurrentIndex(what->findText(QStringLiteral("Bump fader")));
+        for (const auto &t : cue.lightTriggers())
+            QCOMPARE(t.enter.deskDo, audio::TriggerAction::DeskDo::FaderBump);
+        QCOMPARE(cue.lightTriggers()[0].enter.number, QStringLiteral("1"));
+
+        // Enable / disable for all.
+        panel.applyTriggerAction(ts[0].id, QStringLiteral("toggleEnabled"));
+        for (const auto &t : cue.lightTriggers()) QVERIFY(!t.enabled);
+
+        undo.undo();
+        undo.undo();
+        undo.undo();
+        QCOMPARE(cue.lightTriggers()[2].enter.hold, 0.25);
+    }
+
+    void groupsSelectTogether()
+    {
+        audio::AudioCue cue;
+        QUndoStack undo;
+        ui::LightTriggersPanel panel;
+        panel.setCue(&cue);
+        panel.setUndoStack(&undo);
+        const QUuid a = panel.addTrigger(1.0), b = panel.addTrigger(2.0),
+                    c = panel.addTrigger(3.0), d = panel.addTrigger(4.0);
+        panel.setSelection({a, b, c}, a);
+        panel.groupSelection(QStringLiteral("Chorus"));
+        for (int i = 0; i < 3; ++i) QCOMPARE(cue.lightTriggers()[size_t(i)].group, QStringLiteral("Chorus"));
+        QVERIFY(cue.lightTriggers()[3].group.isEmpty());
+
+        QSignalSpy sets(&panel, &ui::LightTriggersPanel::selectionSetChanged);
+        panel.clickTrigger(d);                                 // ungrouped: just it
+        QCOMPARE(panel.selectedTriggers(), QList<QUuid>{d});
+        panel.clickTrigger(b);                                 // grouped: the group
+        QCOMPARE(panel.selectedTriggers(), (QList<QUuid>{a, b, c}));
+        QCOMPARE(panel.selectedTrigger(), b);
+        QVERIFY(sets.count() >= 2);
+        panel.clickTrigger(b, Qt::AltModifier);                // just this one
+        QCOMPARE(panel.selectedTriggers(), QList<QUuid>{b});
+        panel.clickTrigger(d, Qt::ControlModifier);            // toggle in
+        QCOMPARE(panel.selectedTriggers(), (QList<QUuid>{b, d}));
+        panel.clickTrigger(d, Qt::ControlModifier);            // and out
+        QCOMPARE(panel.selectedTriggers(), QList<QUuid>{b});
+        panel.clickTrigger(d, Qt::ShiftModifier);              // add
+        QCOMPARE(panel.selectedTriggers(), (QList<QUuid>{b, d}));
+
+        panel.selectGroup(QStringLiteral("Chorus"));
+        QCOMPARE(panel.selectedTriggers(), (QList<QUuid>{a, b, c}));
+        panel.selectSpan(3.5, 4.5);
+        QCOMPARE(panel.selectedTriggers(), (QList<QUuid>{a, b, c, d}));
+
+        // The Group column shows it.
+        auto *table = panel.findChild<QTableWidget *>(QStringLiteral("ltTable"));
+        QVERIFY(table);
+        QCOMPARE(table->item(0, 2)->text(), QStringLiteral("Chorus"));
+        QCOMPARE(table->selectionModel()->selectedRows().size(), 4);
+
+        // Ungroup.
+        panel.setSelection({a, b, c}, a);
+        panel.applyTriggerAction(a, QStringLiteral("ungroup"));
+        for (const auto &t : cue.lightTriggers()) QVERIFY(t.group.isEmpty());
+    }
+
+    void moveDeleteAndDuplicateASelection()
+    {
+        audio::AudioCue cue;
+        QUndoStack undo;
+        ui::LightTriggersPanel panel;
+        panel.setCue(&cue);
+        panel.setUndoStack(&undo);
+        audio::BeatGrid g;
+        g.bpm = 120.0;                    // a beat = 0.5 s, a bar = 2 s
+        panel.setBeatGrid(g);
+        audio::TriggerAction go;
+        go.kind = audio::TriggerAction::Kind::Desk;
+        QCOMPARE(panel.fillWithBeats(2.0, 4.0, 1, go, QStringLiteral("Beat")), 4);   // 2, 2.5, 3, 3.5
+        const auto ids = panel.selectedTriggers();
+
+        panel.moveTriggersBy(ids, 0.5);
+        QCOMPARE(cue.lightTriggers()[0].start, 2.5);
+        QCOMPARE(cue.lightTriggers()[3].start, 4.0);
+        panel.moveTriggersBy(ids, -10.0);             // can't go before 0
+        QCOMPARE(cue.lightTriggers()[0].start, 0.0);
+        QCOMPARE(cue.lightTriggers()[3].start, 1.5);
+        undo.undo();
+        undo.undo();
+
+        // A block copies straight after itself, on the next bar.
+        panel.setSelection(ids);
+        panel.duplicateSelection();
+        QCOMPARE(cue.lightTriggers().size(), size_t(8));
+        QCOMPARE(cue.lightTriggers()[4].start, 4.0);
+        QCOMPARE(cue.lightTriggers()[7].start, 5.5);
+        QCOMPARE(cue.lightTriggers()[4].group, QStringLiteral("Beat 2"));
+        QCOMPARE(panel.selectedTriggers().size(), 4);   // the copies
+        QVERIFY(!panel.selectedTriggers().contains(ids[0]));
+
+        // Delete the copies in one step.
+        const int before = undo.count();
+        panel.deleteSelection();
+        QCOMPARE(cue.lightTriggers().size(), size_t(4));
+        QCOMPARE(undo.count(), before + 1);
+        undo.undo();
+        QCOMPARE(cue.lightTriggers().size(), size_t(8));
+    }
+
+    // In the lane: clicking a grouped marker selects the group, dragging it
+    // moves the lot, and Shift-drag selects a stretch.
+    void laneSelectsAndMovesGroups()
+    {
+        audio::AudioCue cue;
+        QUndoStack undo;
+        ui::LightTriggersPanel panel;
+        panel.setCue(&cue);
+        panel.setUndoStack(&undo);
+        audio::AudioEditorModel model;
+        model.addTrack(QStringLiteral("T"));
+        ui::TimelineCanvas canvas(&model);
+        canvas.resize(900, 300);
+        canvas.show();
+        QVERIFY(QTest::qWaitForWindowExposed(&canvas));
+        const double rate = 48000.0;
+        canvas.setFramesPerPixel(rate / 100.0);          // 100 px per second
+        // The same wiring as the audio editor.
+        connect(&canvas, &ui::TimelineCanvas::triggerClicked, &panel, &ui::LightTriggersPanel::clickTrigger);
+        connect(&canvas, &ui::TimelineCanvas::triggersSpanSelected, &panel, &ui::LightTriggersPanel::selectSpan);
+        connect(&canvas, &ui::TimelineCanvas::triggersMovedBy, &panel, &ui::LightTriggersPanel::moveTriggersBy);
+        connect(&canvas, &ui::TimelineCanvas::triggerMoved, &panel, &ui::LightTriggersPanel::moveTrigger);
+        connect(&panel, &ui::LightTriggersPanel::selectionSetChanged, &canvas, &ui::TimelineCanvas::setSelectedTriggers);
+        auto sync = [&] { canvas.setTriggers(cue.lightTriggers(), rate); };
+        connect(&cue, &cues::Cue::changed, &canvas, sync);
+
+        const QUuid a = panel.addTrigger(1.0), b = panel.addTrigger(2.0), c = panel.addTrigger(3.0);
+        const QUuid lone = panel.addTrigger(5.0);
+        panel.setSelection({a, b, c});
+        panel.groupSelection(QStringLiteral("Hits"));
+        panel.selectTrigger(lone);
+        sync();
+
+        const int laneY = ui::TimelineCanvas::kRulerHeight + ui::TimelineCanvas::kMarkerLaneHeight / 2;
+        const int x0 = ui::TimelineCanvas::kHeaderWidth;
+        QTest::mouseClick(&canvas, Qt::LeftButton, {}, QPoint(x0 + 200, laneY));   // b
+        QCOMPARE(panel.selectedTriggers(), (QList<QUuid>{a, b, c}));
+        QVERIFY(canvas.isTriggerSelected(a) && canvas.isTriggerSelected(c));
+        QVERIFY(!canvas.isTriggerSelected(lone));
+
+        // Drag b half a second right: the whole group goes.
+        QTest::mousePress(&canvas, Qt::LeftButton, {}, QPoint(x0 + 200, laneY));
+        QTest::mouseMove(&canvas, QPoint(x0 + 220, laneY));
+        QTest::mouseMove(&canvas, QPoint(x0 + 250, laneY));
+        QTest::mouseRelease(&canvas, Qt::LeftButton, {}, QPoint(x0 + 250, laneY));
+        QCOMPARE(cue.lightTriggers()[0].start, 1.5);
+        QCOMPARE(cue.lightTriggers()[1].start, 2.5);
+        QCOMPARE(cue.lightTriggers()[2].start, 3.5);
+        QCOMPARE(cue.lightTriggers()[3].start, 5.0);          // not selected, not moved
+
+        // Alt+click: just one of the group.
+        QTest::mouseClick(&canvas, Qt::LeftButton, Qt::AltModifier, QPoint(x0 + 250, laneY));
+        QCOMPARE(panel.selectedTriggers(), QList<QUuid>{b});
+
+        // Shift-drag over 3.0 – 6.0 adds c and lone.
+        QTest::mousePress(&canvas, Qt::LeftButton, Qt::ShiftModifier, QPoint(x0 + 300, laneY));
+        QTest::mouseMove(&canvas, QPoint(x0 + 400, laneY));
+        QTest::mouseMove(&canvas, QPoint(x0 + 600, laneY));
+        QTest::mouseRelease(&canvas, Qt::LeftButton, Qt::ShiftModifier, QPoint(x0 + 600, laneY));
+        QCOMPARE(panel.selectedTriggers(), (QList<QUuid>{b, c, lone}));
+        QCOMPARE(cue.lightTriggers().size(), size_t(4));        // no range made
     }
 
     void fillDialogCountsAndDefaults()

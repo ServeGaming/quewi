@@ -71,7 +71,11 @@ public:
     // maps them to frames with sampleRate. The canvas never edits them — it
     // reports what the user did through the trigger* signals below.
     void setTriggers(const audio::LightTriggers &t, double sampleRate);
+    // The selected triggers (any number; a group is selected as a whole by
+    // the panel). setSelectedTrigger = just that one (null = none).
     void setSelectedTrigger(const QUuid &id);
+    void setSelectedTriggers(const QList<QUuid> &ids);
+    bool isTriggerSelected(const QUuid &id) const { return m_selTriggers.contains(id); }
     // Brief highlight of a trigger that just fired.
     void flashTrigger(const QUuid &id);
 
@@ -95,8 +99,19 @@ signals:
     // (drawn live while dragging).
     void triggerAdded(double start, double end);
     void triggerMoved(QUuid id, double start, double end);
-    void triggerSelected(QUuid id);
-    // "rename", "toggleRange", "toggleEnabled", "delete".
+    // Several selected triggers dragged together, all by `delta` seconds.
+    void triggersMovedBy(QList<QUuid> ids, double delta);
+    // A click on a trigger. No modifier = select it (the panel widens that
+    // to its group); Ctrl = toggle it; Shift = add it (and its group); Alt =
+    // just this one, even in a group. The canvas selects it on its own first,
+    // so it works without a panel too.
+    void triggerClicked(QUuid id, Qt::KeyboardModifiers modifiers);
+    // Shift- or Ctrl-drag across the lane: every trigger starting in
+    // [from, to] is added to the selection.
+    void triggersSpanSelected(double from, double to);
+    // "rename", "toggleRange", "toggleEnabled", "delete", "group", "ungroup",
+    // "selectGroup". On a trigger that's part of a multiple selection, the
+    // panel applies enable / delete / group to the whole selection.
     void triggerContextAction(QUuid id, QString action);
 protected:
     void paintEvent(QPaintEvent *) override;
@@ -168,11 +183,15 @@ private:
     void   shownSpan(const audio::LightTrigger &t, double &start, double &end) const;
     audio::LightTriggers m_triggers;
     double m_triggerRate = 48000.0;
-    QUuid  m_selectedTrigger;
+    QSet<QUuid> m_selTriggers;
     QUuid  m_flashTrigger;
     struct TriggerDrag {
-        enum Mode { None, Create, Move, ResizeStart, ResizeEnd } mode = None;
+        // MoveMany: the whole selection, by curStart - origStart of the
+        // grabbed one. Span: a Shift/Ctrl drag selecting what it covers.
+        enum Mode { None, Create, Move, MoveMany, ResizeStart, ResizeEnd, Span } mode = None;
         QUuid  id;
+        bool   clickOnRelease = false;   // plain click on a selected one: reselect if no drag
+        double minStart = 0.0;           // MoveMany: earliest selected start (can't go < 0)
         bool   moved = false;
         QPoint pressPos;
         double pressSec = 0.0;

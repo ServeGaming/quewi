@@ -129,6 +129,8 @@ again.
 
 - Video editor keys (In / Out, Select and Razor tools, Delete to cut a
   section…): see [The video editor](../cue-types/video.md#keys).
-- Audio editor's Lighting tab: **T** taps the tempo, and **Alt** while
-  dragging in the lighting lane places a trigger without snapping to the
-  beat. See [Lighting triggers](lighting-triggers.md#beat-grid).
+- Audio editor's Lighting tab: **M** adds a trigger at the playhead, **T**
+  taps the tempo, **Ctrl+G** groups the selected triggers, **Delete**
+  removes them, and **Alt** while dragging in the lighting lane places a
+  trigger without snapping to the beat (Alt+click picks one trigger out of
+  a group). See [Lighting triggers](lighting-triggers.md#editing-several-at-once).

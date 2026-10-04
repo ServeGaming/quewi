@@ -52,6 +52,7 @@ public:
     void setAction(const audio::TriggerAction &a);
     audio::TriggerAction action() const;
     void setNamePrefix(const QString &p);
+    QString namePrefix() const;           // what the new points are named (and grouped) after
 
     double from() const;
     double to() const;

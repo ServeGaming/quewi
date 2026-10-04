@@ -234,7 +234,31 @@ Voicemod-style: pads play into a virtual cable apps use as a microphone.
   OSC reference (`desk` kind + `do` table, lighting desk v5, `beatGrid`,
   `cuts`), shortcuts (editor Space), release notes 1.0.4.
 
-### 0b. Lighting triggers, round 2 (2026-10-03) — simple mode, desk, beat grid
+### 0a2. Trigger multi-select, bulk edit, groups (2026-10-04)
+Matthew asked to shift-click many beats and give them the same fader bump /
+duration, kept in a group for later bulk edits.
+- `LightTrigger::group` (JSON `group`, omitted when empty); `triggerGroups`,
+  `uniqueGroupName`; `TriggerAction::applyChange(before, after)` copies only
+  the changed fields (a kind change, or a target of another kind, copies
+  the whole action).
+- Panel: `m_selection` + primary `m_selectedId`; ExtendedSelection list with
+  a Group column; multi-mode editor (banner `ltMultiLabel`, name/times
+  disabled, tristate Enabled, Group combo `ltGroup`, "Select all N");
+  `clickTrigger` (plain = group, Ctrl toggle, Shift add+group, Alt one),
+  `selectSpan`, `moveTriggersBy`, `deleteSelection`, `duplicateSelection`
+  (block lands on next bar with a grid; copies get "<group> 2"),
+  `groupSelection`. Fill with beats groups + selects what it adds.
+- Lane (`TimelineCanvas`): set selection, `triggerClicked(id, mods)` replaces
+  `triggerSelected`; MoveMany drag; Shift/Ctrl-drag span select; picket-fence
+  names hidden when they'd overlap; group items in the context menu.
+  Editor window: Ctrl+G group, Delete on the lane.
+- OSC: `/quewi/cue/<n>/triggers/group/<name>/set/<field>|shift|remove`
+  (name percent-decoded). `tools/osc_trigger_groups_drive.py` ALL PASS on a
+  test copy (hits on time after a shift; undo restores a removed group).
+- Driven in the UI: clicking a grouped beat selected all 4 + banner; one
+  address edit changed all 4, loner untouched. Tests: 4 new UI + 2 model.
+
+ (2026-10-03) — simple mode, desk, beat grid
 Matthew can't write OSC by hand, uses ETC Nomad (on this PC, OSC UDP RX
 **8500**) / Ion; HeliOSC is for programming/busking, quewi optionally runs the
 show — they don't run at once, so quewi's own OSC port (he set 8500 too,

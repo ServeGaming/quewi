@@ -15,6 +15,9 @@
 #include <QHBoxLayout>
 #include <QHeaderView>
 #include <QInputDialog>
+#include <QHash>
+#include <QItemSelection>
+#include <QShortcut>
 #include <QLabel>
 #include <QLineEdit>
 #include <QMenu>
@@ -1084,12 +1087,18 @@ LightTriggersPanel::LightTriggersPanel(QWidget *parent) : QWidget(parent)
     btnRow->addWidget(m_cursorLabel);
     left->addLayout(btnRow);
 
-    m_table = new QTableWidget(0, 5, this);
+    m_duplicateBtn->setToolTip(tr("Copy the selected triggers. Several are copied as a "
+                                  "block, straight after the originals"));
+    m_deleteBtn->setToolTip(tr("Delete the selected triggers (Delete)"));
+
+    m_table = new QTableWidget(0, 6, this);
     m_table->setObjectName(QStringLiteral("ltTable"));
-    m_table->setHorizontalHeaderLabels({tr("On"), tr("Name"), tr("Start"), tr("End"), tr("Sends")});
+    m_table->setHorizontalHeaderLabels({tr("On"), tr("Name"), tr("Group"), tr("Start"),
+                                        tr("End"), tr("Sends")});
     m_table->verticalHeader()->setVisible(false);
     m_table->setSelectionBehavior(QAbstractItemView::SelectRows);
-    m_table->setSelectionMode(QAbstractItemView::SingleSelection);
+    // Ctrl / Shift pick several; Ctrl+A picks all.
+    m_table->setSelectionMode(QAbstractItemView::ExtendedSelection);
     m_table->setEditTriggers(QAbstractItemView::NoEditTriggers);
     m_table->setShowGrid(false);
     m_table->setWordWrap(false);
@@ -1097,10 +1106,43 @@ LightTriggersPanel::LightTriggersPanel(QWidget *parent) : QWidget(parent)
     auto *hh = m_table->horizontalHeader();
     hh->setSectionResizeMode(0, QHeaderView::ResizeToContents);
     hh->setSectionResizeMode(1, QHeaderView::Interactive);
-    hh->setSectionResizeMode(2, QHeaderView::ResizeToContents);
+    hh->setSectionResizeMode(2, QHeaderView::Interactive);
     hh->setSectionResizeMode(3, QHeaderView::ResizeToContents);
-    hh->setSectionResizeMode(4, QHeaderView::Stretch);
-    m_table->setColumnWidth(1, 140);
+    hh->setSectionResizeMode(4, QHeaderView::ResizeToContents);
+    hh->setSectionResizeMode(5, QHeaderView::Stretch);
+    m_table->setColumnWidth(1, 130);
+    m_table->setColumnWidth(2, 90);
+    auto *delKey = new QShortcut(QKeySequence::Delete, m_table);
+    delKey->setContext(Qt::WidgetShortcut);
+    connect(delKey, &QShortcut::activated, this, &LightTriggersPanel::deleteSelection);
+    m_table->setContextMenuPolicy(Qt::CustomContextMenu);
+    connect(m_table, &QWidget::customContextMenuRequested, this, [this](const QPoint &pos) {
+        const int row = m_table->rowAt(pos.y());
+        if (row < 0 || row >= m_rowIds.size()) return;
+        const QUuid id = m_rowIds.at(row);
+        const int i = indexOf(id);
+        if (i < 0) return;
+        const auto t = m_cue->lightTriggers()[size_t(i)];
+        const int n = m_selection.contains(id) ? int(m_selection.size()) : 1;
+        QMenu menu(this);
+        auto *groupAct = menu.addAction(n > 1 ? tr("Group %1 Triggers…").arg(n) : tr("Group…"));
+        QAction *selectGroupAct = nullptr, *ungroupAct = nullptr;
+        if (!t.group.isEmpty()) {
+            selectGroupAct = menu.addAction(tr("Select Group \"%1\"").arg(t.group));
+            ungroupAct = menu.addAction(tr("Ungroup"));
+        }
+        menu.addSeparator();
+        auto *dupAct = menu.addAction(tr("Duplicate"));
+        auto *delAct = menu.addAction(n > 1 ? tr("Delete %1 Triggers").arg(n) : tr("Delete"));
+        QAction *chosen = menu.exec(m_table->viewport()->mapToGlobal(pos));
+        if (!chosen) return;
+        if (!m_selection.contains(id)) setSelection({id}, id);
+        if (chosen == groupAct)                      applyTriggerAction(id, QStringLiteral("group"));
+        else if (chosen == selectGroupAct)           selectGroup(t.group);
+        else if (chosen == ungroupAct)               applyTriggerAction(id, QStringLiteral("ungroup"));
+        else if (chosen == dupAct)                   duplicateSelection();
+        else if (chosen == delAct)                   deleteSelection();
+    });
     left->addWidget(m_table, 1);
     outer->addLayout(left, 3);
 
@@ -1124,6 +1166,13 @@ LightTriggersPanel::LightTriggersPanel(QWidget *parent) : QWidget(parent)
     auto *fv = new QVBoxLayout(form);
     fv->setContentsMargins(0, 0, 6, 0);
     fv->setSpacing(10);
+
+    m_multiLabel = new QLabel(form);
+    m_multiLabel->setObjectName(QStringLiteral("ltMultiLabel"));
+    m_multiLabel->setWordWrap(true);
+    m_multiLabel->setStyleSheet(QStringLiteral("color:%1; font-weight:600;").arg(tk.accent.name()));
+    m_multiLabel->hide();
+    fv->addWidget(m_multiLabel);
 
     auto *card = new QFrame(form);
     card->setObjectName(QStringLiteral("ltCard"));
@@ -1156,7 +1205,23 @@ LightTriggersPanel::LightTriggersPanel(QWidget *parent) : QWidget(parent)
     endRow->addWidget(m_isRange);
     endRow->addWidget(m_end, 1);
     m_enabled = new QCheckBox(tr("Enabled"), card);
+    m_group = new QComboBox(card);
+    m_group->setObjectName(QStringLiteral("ltGroup"));
+    m_group->setEditable(true);
+    m_group->setInsertPolicy(QComboBox::NoInsert);
+    m_group->lineEdit()->setPlaceholderText(tr("None"));
+    m_group->setToolTip(tr("Triggers in a group are picked and edited together: click one in "
+                           "the lighting lane and the whole group is selected (Alt+click picks "
+                           "just one). Type a new name to make a group"));
+    m_selectGroupBtn = new QPushButton(card);
+    m_selectGroupBtn->setObjectName(QStringLiteral("ltButton"));
+    m_selectGroupBtn->setCursor(Qt::PointingHandCursor);
+    auto *groupRow = new QHBoxLayout();
+    groupRow->setContentsMargins(0, 0, 0, 0);
+    groupRow->addWidget(m_group, 1);
+    groupRow->addWidget(m_selectGroupBtn);
     cf->addRow(tr("Name"), m_name);
+    cf->addRow(tr("Group"), groupRow);
     cf->addRow(tr("Start"), m_start);
     cf->addRow(tr("End"), endRow);
     cf->addRow(QString(), m_enabled);
@@ -1181,30 +1246,22 @@ LightTriggersPanel::LightTriggersPanel(QWidget *parent) : QWidget(parent)
         const double s = hereSeconds();
         addTrigger(s, s + kDefaultRangeSeconds);
     });
-    connect(m_duplicateBtn, &QPushButton::clicked, this, [this] {
-        const int i = indexOf(m_selectedId);
-        if (!m_cue || i < 0) return;
-        LightTriggers next = m_cue->lightTriggers();
-        LightTrigger copy = next[size_t(i)];
-        copy.id = QUuid::createUuid();
-        copy.name = copy.name.isEmpty() ? QString() : tr("%1 copy").arg(copy.name);
-        copy.start += 1.0;
-        if (copy.end >= 0.0) copy.end += 1.0;
-        next.push_back(copy);
-        m_selectedId = copy.id;
-        commit(next, false);
-        emit selectionChanged(m_selectedId);
-    });
-    connect(m_deleteBtn, &QPushButton::clicked, this, [this] {
-        applyTriggerAction(m_selectedId, QStringLiteral("delete"));
-    });
+    connect(m_duplicateBtn, &QPushButton::clicked, this, &LightTriggersPanel::duplicateSelection);
+    connect(m_deleteBtn, &QPushButton::clicked, this, &LightTriggersPanel::deleteSelection);
 
     connect(m_table, &QTableWidget::itemSelectionChanged, this, [this] {
         if (m_loading) return;
-        const int row = m_table->currentRow();
-        const auto sel = m_table->selectionModel()->selectedRows();
-        if (sel.isEmpty() || row < 0 || row >= m_rowIds.size()) return;
-        setSelected(m_rowIds.at(row));
+        auto rows = m_table->selectionModel()->selectedRows();
+        if (rows.isEmpty()) return;               // keep the editor on what it showed
+        std::sort(rows.begin(), rows.end(),
+                  [](const QModelIndex &a, const QModelIndex &b) { return a.row() < b.row(); });
+        QList<QUuid> ids;
+        for (const auto &r : rows)
+            if (r.row() < m_rowIds.size()) ids << m_rowIds.at(r.row());
+        const int cur = m_table->currentRow();
+        const QUuid primary = cur >= 0 && cur < m_rowIds.size() && ids.contains(m_rowIds.at(cur))
+                                  ? m_rowIds.at(cur) : ids.value(0);
+        setSelection(ids, primary);
     });
     connect(m_table, &QTableWidget::itemChanged, this, [this](QTableWidgetItem *item) {
         if (m_loading || item->column() != 0 || item->row() >= m_rowIds.size()) return;
@@ -1239,14 +1296,43 @@ LightTriggersPanel::LightTriggersPanel(QWidget *parent) : QWidget(parent)
             t.end = on ? t.start + kDefaultRangeSeconds : -1.0;
         }, false);
     });
-    connect(m_enabled, &QCheckBox::toggled, this, [this](bool on) {
+    connect(m_enabled, &QCheckBox::checkStateChanged, this, [this](Qt::CheckState st) {
+        if (st == Qt::PartiallyChecked) return;   // "some are": only shown, never set
+        const bool on = st == Qt::Checked;
         editSelected([on](LightTrigger &t) { t.enabled = on; }, false);
     });
+    auto setGroup = [this] {
+        if (m_loading || m_selection.isEmpty()) return;
+        const QString g = m_group->currentText().trimmed();
+        editSelected([g](LightTrigger &t) { t.group = g; }, false);
+    };
+    connect(m_group, &QComboBox::activated, this, setGroup);
+    connect(m_group->lineEdit(), &QLineEdit::editingFinished, this, setGroup);
+    connect(m_selectGroupBtn, &QPushButton::clicked, this, [this] {
+        if (const int i = indexOf(m_selectedId); i >= 0)
+            selectGroup(m_cue->lightTriggers()[size_t(i)].group);
+    });
+    // With several selected, the editor shows the primary's actions; an edit
+    // goes to it as is and to the others as just the fields that changed.
     connect(m_enter, &TriggerActionEditor::edited, this, [this](const TriggerAction &a) {
-        editSelected([a](LightTrigger &t) { t.enter = a; });
+        const int i = indexOf(m_selectedId);
+        if (i < 0) return;
+        const TriggerAction before = m_cue->lightTriggers()[size_t(i)].enter;
+        const QUuid primary = m_selectedId;
+        editSelected([&](LightTrigger &t) {
+            if (t.id == primary) t.enter = a;
+            else                 t.enter.applyChange(before, a);
+        });
     });
     connect(m_exit, &TriggerActionEditor::edited, this, [this](const TriggerAction &a) {
-        editSelected([a](LightTrigger &t) { t.exit = a; });
+        const int i = indexOf(m_selectedId);
+        if (i < 0) return;
+        const TriggerAction before = m_cue->lightTriggers()[size_t(i)].exit;
+        const QUuid primary = m_selectedId;
+        editSelected([&](LightTrigger &t) {
+            if (t.id == primary)  t.exit = a;
+            else if (t.isRange()) t.exit.applyChange(before, a);   // points have no exit
+        });
     });
     connect(m_enter, &TriggerActionEditor::testRequested, this, &LightTriggersPanel::testRequested);
     connect(m_exit,  &TriggerActionEditor::testRequested, this, &LightTriggersPanel::testRequested);
@@ -1307,17 +1393,220 @@ void LightTriggersPanel::setCursorSeconds(double s)
 
 void LightTriggersPanel::selectTrigger(const QUuid &id)
 {
-    if (id == m_selectedId) return;
-    setSelected(id);
-    refresh();
+    setSelection(id.isNull() ? QList<QUuid>{} : QList<QUuid>{id}, id);
 }
 
-void LightTriggersPanel::setSelected(const QUuid &id)
+QList<QUuid> LightTriggersPanel::selectedTriggers() const
 {
-    if (id == m_selectedId) return;
-    m_selectedId = id;
+    QList<QUuid> out;
+    for (const QUuid &id : m_rowIds)             // song order
+        if (m_selection.contains(id)) out << id;
+    return out;
+}
+
+void LightTriggersPanel::setSelection(const QList<QUuid> &ids, const QUuid &primary)
+{
+    QList<QUuid> clean;
+    for (const QUuid &id : ids)
+        if (indexOf(id) >= 0 && !clean.contains(id)) clean << id;
+    const QUuid p = clean.contains(primary) ? primary : clean.value(0);
+    if (clean == m_selection && p == m_selectedId) return;
+    const bool primaryChanged = p != m_selectedId;
+    m_selection = clean;
+    m_selectedId = p;
+    applyTableSelection();
     loadEditor();
-    emit selectionChanged(id);
+    if (primaryChanged) emit selectionChanged(p);
+    emit selectionSetChanged(m_selection);
+}
+
+void LightTriggersPanel::clickTrigger(const QUuid &id, Qt::KeyboardModifiers mods)
+{
+    const int i = indexOf(id);
+    if (i < 0) return;
+    const QString group = m_cue->lightTriggers()[size_t(i)].group;
+    auto withGroup = [&] {
+        QList<QUuid> g;
+        if (group.isEmpty()) return QList<QUuid>{id};
+        for (const auto &t : m_cue->lightTriggers())
+            if (t.group == group) g << t.id;
+        return g;
+    };
+    QList<QUuid> sel = m_selection;
+    QUuid primary = id;
+    if (mods & Qt::ControlModifier) {
+        if (sel.contains(id)) {
+            sel.removeAll(id);
+            primary = m_selectedId == id ? sel.value(sel.size() - 1) : m_selectedId;
+        } else {
+            sel << id;
+        }
+    } else if (mods & Qt::ShiftModifier) {
+        for (const QUuid &g : withGroup())
+            if (!sel.contains(g)) sel << g;
+    } else if (mods & Qt::AltModifier) {
+        sel = {id};
+    } else {
+        sel = withGroup();
+    }
+    setSelection(sel, primary);
+    // The lane already drew its own guess; make sure it matches.
+    emit selectionSetChanged(m_selection);
+}
+
+void LightTriggersPanel::selectSpan(double from, double to)
+{
+    if (!m_cue) return;
+    QList<QUuid> sel = m_selection;
+    for (const auto &t : m_cue->lightTriggers())
+        if (t.start >= from && t.start <= to && !sel.contains(t.id)) sel << t.id;
+    setSelection(sel, m_selectedId.isNull() ? sel.value(0) : m_selectedId);
+    emit selectionSetChanged(m_selection);
+}
+
+void LightTriggersPanel::selectGroup(const QString &group)
+{
+    if (!m_cue || group.isEmpty()) return;
+    QList<QUuid> sel;
+    for (const auto &t : m_cue->lightTriggers())
+        if (t.group == group) sel << t.id;
+    setSelection(sel, sel.contains(m_selectedId) ? m_selectedId : sel.value(0));
+}
+
+void LightTriggersPanel::moveTriggersBy(const QList<QUuid> &ids, double delta)
+{
+    if (!m_cue || ids.isEmpty() || delta == 0.0) return;
+    LightTriggers next = m_cue->lightTriggers();
+    double minStart = 1e300;
+    for (const auto &t : next)
+        if (ids.contains(t.id)) minStart = std::min(minStart, t.start);
+    if (minStart > 1e299) return;
+    delta = std::max(delta, -minStart);          // nothing before the song starts
+    for (auto &t : next) {
+        if (!ids.contains(t.id)) continue;
+        const bool range = t.isRange();
+        t.start += delta;
+        if (range) t.end += delta;
+    }
+    commit(next, false);
+}
+
+void LightTriggersPanel::deleteSelection()
+{
+    if (!m_cue || m_selection.isEmpty()) return;
+    // Keep the row after the block selected so Delete can be pressed again.
+    int lastRow = -1;
+    for (const QUuid &id : m_selection) lastRow = std::max(lastRow, int(m_rowIds.indexOf(id)));
+    QUuid neighbour;
+    for (int r = lastRow + 1; r < m_rowIds.size() && neighbour.isNull(); ++r)
+        if (!m_selection.contains(m_rowIds.at(r))) neighbour = m_rowIds.at(r);
+    for (int r = lastRow - 1; r >= 0 && neighbour.isNull(); --r)
+        if (!m_selection.contains(m_rowIds.at(r))) neighbour = m_rowIds.at(r);
+    LightTriggers next = m_cue->lightTriggers();
+    const QList<QUuid> gone = m_selection;
+    next.erase(std::remove_if(next.begin(), next.end(),
+                              [&](const LightTrigger &t) { return gone.contains(t.id); }),
+               next.end());
+    m_selection.clear();
+    m_selectedId = QUuid();
+    commit(next, false);
+    setSelection(neighbour.isNull() ? QList<QUuid>{} : QList<QUuid>{neighbour}, neighbour);
+    emit selectionChanged(m_selectedId);
+    emit selectionSetChanged(m_selection);
+}
+
+void LightTriggersPanel::groupSelection(const QString &name)
+{
+    const QString g = name.trimmed();
+    editSelected([&g](LightTrigger &t) { t.group = g; }, false);
+}
+
+void LightTriggersPanel::duplicateSelection()
+{
+    if (!m_cue || m_selection.isEmpty()) return;
+    const LightTriggers &all = m_cue->lightTriggers();
+    LightTriggers picked;
+    for (const auto &t : all)
+        if (m_selection.contains(t.id)) picked.push_back(t);
+    if (picked.empty()) return;
+
+    // One trigger: a second later, as ever. A block: straight after itself —
+    // on the next bar when there's a beat grid, so a pattern repeats in time.
+    double offset = 1.0;
+    if (picked.size() > 1) {
+        double lo = 1e300, hi = -1e300;
+        for (const auto &t : picked) {
+            lo = std::min(lo, t.start);
+            hi = std::max(hi, t.isRange() ? t.end : t.start);
+        }
+        const double span = hi - lo;
+        const auto &grid = m_cue->beatGrid();
+        if (grid.isSet()) {
+            const double bar = grid.beatLength() * std::max(1, grid.beatsPerBar);
+            offset = std::max(1.0, std::ceil((span + grid.beatLength() * 0.5) / bar)) * bar;
+        } else {
+            offset = span + span / double(picked.size() - 1);
+        }
+        if (offset <= 0.0) offset = 1.0;
+    }
+    LightTriggers copies;
+    QHash<QString, QString> newGroup;           // each group copied gets its own
+    LightTriggers withCopies = all;
+    for (auto t : picked) {
+        t.id = QUuid::createUuid();
+        if (picked.size() == 1 && !t.name.isEmpty()) t.name = tr("%1 copy").arg(t.name);
+        t.start += offset;
+        if (t.end >= 0.0) t.end += offset;
+        if (!t.group.isEmpty()) {
+            if (!newGroup.contains(t.group))
+                newGroup.insert(t.group, audio::uniqueGroupName(withCopies, t.group));
+            t.group = newGroup.value(t.group);
+        }
+        copies.push_back(t);
+        withCopies.push_back(t);
+    }
+    addAndSelect(copies, QString());
+}
+
+void LightTriggersPanel::addAndSelect(const LightTriggers &added, const QString &groupBase)
+{
+    if (!m_cue || added.empty()) return;
+    LightTriggers next = m_cue->lightTriggers();
+    LightTriggers adding = added;
+    if (!groupBase.isEmpty()) {
+        const QString g = audio::uniqueGroupName(next, groupBase);
+        for (auto &t : adding) t.group = g;
+    }
+    QList<QUuid> ids;
+    for (const auto &t : adding) ids << t.id;
+    next.insert(next.end(), adding.begin(), adding.end());
+    commit(next, false);
+    setSelection(ids, ids.value(0));
+}
+
+void LightTriggersPanel::applyTableSelection()
+{
+    const bool was = m_loading;
+    m_loading = true;
+    auto *sm = m_table->selectionModel();
+    QItemSelection sel;
+    int primaryRow = -1;
+    for (int r = 0; r < m_rowIds.size(); ++r) {
+        if (!m_selection.contains(m_rowIds.at(r))) continue;
+        sel.select(m_table->model()->index(r, 0),
+                   m_table->model()->index(r, m_table->columnCount() - 1));
+        if (m_rowIds.at(r) == m_selectedId) primaryRow = r;
+    }
+    sm->select(sel, QItemSelectionModel::ClearAndSelect);
+    if (primaryRow >= 0) {
+        sm->setCurrentIndex(m_table->model()->index(primaryRow, 0), QItemSelectionModel::NoUpdate);
+        m_table->scrollTo(m_table->model()->index(primaryRow, 0));
+    } else {
+        sm->setCurrentIndex(QModelIndex(), QItemSelectionModel::NoUpdate);
+    }
+    m_duplicateBtn->setEnabled(!m_selection.isEmpty());
+    m_deleteBtn->setEnabled(!m_selection.isEmpty());
+    m_loading = was;
 }
 
 int LightTriggersPanel::indexOf(const QUuid &id) const
@@ -1354,11 +1643,10 @@ void LightTriggersPanel::commit(const LightTriggers &next, bool mergeable)
 
 void LightTriggersPanel::editSelected(const std::function<void(LightTrigger &)> &f, bool mergeable)
 {
-    if (m_loading) return;
-    const int i = indexOf(m_selectedId);
-    if (i < 0) return;
+    if (m_loading || !m_cue || m_selection.isEmpty()) return;
     LightTriggers next = m_cue->lightTriggers();
-    f(next[size_t(i)]);
+    for (auto &t : next)
+        if (m_selection.contains(t.id)) f(t);
     commit(next, mergeable);
 }
 
@@ -1384,11 +1672,7 @@ QUuid LightTriggersPanel::addTrigger(double start, double end)
     // starts as nothing.
     t.enter.kind   = TriggerAction::Kind::Desk;
     t.enter.deskDo = TriggerAction::DeskDo::Go;
-    LightTriggers next = m_cue->lightTriggers();
-    next.push_back(t);
-    m_selectedId = t.id;
-    commit(next, false);
-    emit selectionChanged(t.id);
+    addAndSelect({t}, QString());
     return t.id;
 }
 
@@ -1425,20 +1709,33 @@ void LightTriggersPanel::applyTriggerAction(const QUuid &id, const QString &acti
         t.end = t.isRange() ? -1.0 : t.start + kDefaultRangeSeconds;
         commit(next, false);
     } else if (action == QLatin1String("toggleEnabled")) {
-        t.enabled = !t.enabled;
-        commit(next, false);
+        if (!m_selection.contains(id)) setSelection({id}, id);
+        const bool on = !t.enabled;
+        editSelected([on](LightTrigger &x) { x.enabled = on; }, false);
     } else if (action == QLatin1String("delete")) {
-        next.erase(next.begin() + i);
-        if (id == m_selectedId) {
-            // Keep a neighbour selected so Delete can be pressed again.
-            QUuid neighbour;
-            const int row = m_rowIds.indexOf(id);
-            if (row >= 0 && row + 1 < m_rowIds.size()) neighbour = m_rowIds.at(row + 1);
-            else if (row > 0)                         neighbour = m_rowIds.at(row - 1);
-            m_selectedId = neighbour;
-            emit selectionChanged(neighbour);
-        }
-        commit(next, false);
+        if (!m_selection.contains(id)) setSelection({id}, id);
+        deleteSelection();
+    } else if (action == QLatin1String("group")) {
+        if (!m_selection.contains(id)) setSelection({id}, id);
+        // Offer the selection's own group if it has one, else a fresh name.
+        QString common = t.group;
+        for (const auto &x : m_cue->lightTriggers())
+            if (m_selection.contains(x.id) && x.group != common) { common.clear(); break; }
+        bool ok = false;
+        const QString n = QInputDialog::getText(
+            this, tr("Group Triggers"),
+            m_selection.size() > 1 ? tr("Group %1 triggers as:").arg(m_selection.size())
+                                   : tr("Group name:"),
+            QLineEdit::Normal,
+            common.isEmpty() ? audio::uniqueGroupName(m_cue->lightTriggers(), tr("Group")) : common,
+            &ok);
+        if (!ok || !m_cue || n.trimmed().isEmpty()) return;
+        groupSelection(n);
+    } else if (action == QLatin1String("ungroup")) {
+        if (!m_selection.contains(id)) setSelection({id}, id);
+        groupSelection(QString());
+    } else if (action == QLatin1String("selectGroup")) {
+        selectGroup(t.group);
     }
 }
 
@@ -1479,16 +1776,19 @@ void LightTriggersPanel::refresh()
     std::stable_sort(list.begin(), list.end(),
                      [](const LightTrigger &a, const LightTrigger &b) { return a.start < b.start; });
 
-    const bool lostSelection = !m_selectedId.isNull() && indexOf(m_selectedId) < 0;
-    if (lostSelection) m_selectedId = QUuid();   // deleted elsewhere (undo, remote)
+    // Triggers deleted elsewhere (undo, remote) leave the selection.
+    const QUuid oldPrimary = m_selectedId;
+    const int oldCount = int(m_selection.size());
+    m_selection.removeIf([this](const QUuid &id) { return indexOf(id) < 0; });
+    if (!m_selection.contains(m_selectedId)) m_selectedId = m_selection.value(0);
+    const bool lostSelection = m_selectedId != oldPrimary;
+    const bool selectionShrank = int(m_selection.size()) != oldCount;
 
     m_table->setRowCount(int(list.size()));
     m_rowIds.clear();
-    int selRow = -1;
     for (int r = 0; r < int(list.size()); ++r) {
         const auto &t = list[size_t(r)];
         m_rowIds << t.id;
-        if (t.id == m_selectedId) selRow = r;
 
         auto *on = new QTableWidgetItem();
         on->setFlags(Qt::ItemIsEnabled | Qt::ItemIsSelectable | Qt::ItemIsUserCheckable);
@@ -1499,14 +1799,15 @@ void LightTriggersPanel::refresh()
         QTableWidgetItem *cells[] = {
             on,
             new QTableWidgetItem(t.name.isEmpty() ? tr("(unnamed)") : t.name),
+            new QTableWidgetItem(t.group),
             new QTableWidgetItem(secondsText(t.start)),
             new QTableWidgetItem(t.isRange() ? secondsText(t.end) : QStringLiteral("—")),
             new QTableWidgetItem(sends),
         };
-        cells[2]->setTextAlignment(Qt::AlignRight | Qt::AlignVCenter);
         cells[3]->setTextAlignment(Qt::AlignRight | Qt::AlignVCenter);
-        cells[4]->setToolTip(sends);
-        for (int c = 0; c < 5; ++c) {
+        cells[4]->setTextAlignment(Qt::AlignRight | Qt::AlignVCenter);
+        cells[5]->setToolTip(sends);
+        for (int c = 0; c < 6; ++c) {
             if (c > 0) {
                 cells[c]->setFlags(Qt::ItemIsEnabled | Qt::ItemIsSelectable);
                 if (!t.enabled) cells[c]->setForeground(tk.ink40);
@@ -1515,18 +1816,12 @@ void LightTriggersPanel::refresh()
         }
         colourRow(r);
     }
-    if (selRow >= 0) {
-        m_table->selectRow(selRow);
-    } else {
-        m_table->clearSelection();
-        m_table->setCurrentItem(nullptr);
-    }
-    m_duplicateBtn->setEnabled(selRow >= 0);
-    m_deleteBtn->setEnabled(selRow >= 0);
+    applyTableSelection();
     loadGrid();
     m_loading = false;
     loadEditor();
-    if (lostSelection) emit selectionChanged(QUuid());
+    if (lostSelection) emit selectionChanged(m_selectedId);
+    if (lostSelection || selectionShrank) emit selectionSetChanged(m_selection);
 }
 
 void LightTriggersPanel::loadEditor()
@@ -1538,18 +1833,66 @@ void LightTriggersPanel::loadEditor()
     }
     const bool wasLoading = m_loading;
     m_loading = true;
-    const auto &t = m_cue->lightTriggers()[size_t(i)];
+    const auto &all = m_cue->lightTriggers();
+    const auto &t = all[size_t(i)];
+    const bool multi = isMulti();
     m_editorStack->setCurrentIndex(1);
     {
-        const QSignalBlocker b1(m_start), b2(m_end), b3(m_isRange), b4(m_enabled);
+        const QSignalBlocker b1(m_start), b2(m_end), b3(m_isRange), b4(m_enabled), b5(m_group);
+        int on = 0, n = 0;
+        QString common = t.group;
+        for (const auto &x : all) {
+            if (!m_selection.contains(x.id)) continue;
+            ++n;
+            if (x.enabled) ++on;
+            if (x.group != common) common.clear();
+        }
         // Don't overwrite a name being typed unless the selection moved on.
-        if (t.id != m_editorId || !m_name->hasFocus()) m_name->setText(t.name);
+        if (multi) {
+            m_name->clear();
+            m_name->setPlaceholderText(tr("%1 triggers").arg(n));
+        } else if (t.id != m_editorId || !m_name->hasFocus()) {
+            m_name->setPlaceholderText(tr("e.g. Chorus wash"));
+            m_name->setText(t.name);
+        }
         m_editorId = t.id;
+        m_name->setEnabled(!multi);
+        m_start->setEnabled(!multi);
+        m_isRange->setEnabled(!multi);
         m_start->setValue(t.start);
         m_isRange->setChecked(t.isRange());
-        m_end->setEnabled(t.isRange());
+        m_end->setEnabled(!multi && t.isRange());
         m_end->setValue(t.isRange() ? t.end : t.start);
-        m_enabled->setChecked(t.enabled);
+        if (on == 0 || on == n) {
+            m_enabled->setTristate(false);
+            m_enabled->setChecked(on == n);
+        } else {
+            m_enabled->setCheckState(Qt::PartiallyChecked);   // some on, some off
+        }
+
+        const QStringList groups = audio::triggerGroups(all);
+        if (!m_group->lineEdit()->hasFocus() || t.id != m_editorId) {
+            m_group->clear();
+            m_group->addItems(groups);
+            m_group->setEditText(common);
+            m_group->lineEdit()->setPlaceholderText(multi && common.isEmpty() && !t.group.isEmpty()
+                                                        ? tr("(mixed)") : tr("None"));
+        }
+        int inGroup = 0;
+        for (const auto &x : all) if (!t.group.isEmpty() && x.group == t.group) ++inGroup;
+        int selectedInGroup = 0;
+        for (const auto &x : all)
+            if (!t.group.isEmpty() && x.group == t.group && m_selection.contains(x.id)) ++selectedInGroup;
+        m_selectGroupBtn->setText(tr("Select all %1").arg(inGroup));
+        m_selectGroupBtn->setToolTip(tr("Select every trigger in \"%1\"").arg(t.group));
+        m_selectGroupBtn->setVisible(inGroup > 1 && selectedInGroup < inGroup);
+
+        m_multiLabel->setVisible(multi);
+        if (multi)
+            m_multiLabel->setText(common.isEmpty()
+                ? tr("%1 triggers selected. Changes apply to all of them.").arg(n)
+                : tr("%1 triggers selected (group \"%2\"). Changes apply to all of them.")
+                      .arg(n).arg(common));
     }
     m_enter->setTitle(t.isRange() ? tr("ON ENTER") : tr("SENDS"));
     m_enter->setAction(t.enter);
@@ -1557,6 +1900,9 @@ void LightTriggersPanel::loadEditor()
     m_exit->setVisible(t.isRange());
     m_duplicateBtn->setEnabled(true);
     m_deleteBtn->setEnabled(true);
+    m_enter->setToolTip(multi ? tr("Shows the trigger you picked last. A change here is made "
+                                   "to every selected trigger, and only that change: "
+                                   "their other settings stay as they are") : QString());
     m_loading = wasLoading;
 }
 
@@ -1714,9 +2060,9 @@ int LightTriggersPanel::fillWithBeats(double from, double to, int every,
     if (!m_cue) return 0;
     const auto added = audio::fillWithBeats(m_cue->beatGrid(), from, to, every, action, namePrefix);
     if (added.empty()) return 0;
-    LightTriggers next = m_cue->lightTriggers();
-    next.insert(next.end(), added.begin(), added.end());
-    commit(next, false);        // one step; the selection stays where it was
+    // One step; the new row shares a group and ends up selected, ready to
+    // edit as one.
+    addAndSelect(added, namePrefix.trimmed().isEmpty() ? tr("Beat") : namePrefix.trimmed());
     return int(added.size());
 }
 
@@ -1740,9 +2086,7 @@ void LightTriggersPanel::openFillDialog()
     if (dlg.exec() != QDialog::Accepted || !m_cue) return;
     const auto added = dlg.triggers();
     if (added.empty()) return;
-    LightTriggers next = m_cue->lightTriggers();
-    next.insert(next.end(), added.begin(), added.end());
-    commit(next, false);
+    addAndSelect(added, dlg.namePrefix());
 }
 
 void LightTriggersPanel::flashTrigger(const QUuid &id)

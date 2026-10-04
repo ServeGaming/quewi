@@ -153,8 +153,13 @@ void TimelineCanvas::setTriggers(const audio::LightTriggers &t, double sampleRat
 }
 
 void TimelineCanvas::setSelectedTrigger(const QUuid &id) {
-    if (m_selectedTrigger == id) return;
-    m_selectedTrigger = id;
+    setSelectedTriggers(id.isNull() ? QList<QUuid>{} : QList<QUuid>{id});
+}
+
+void TimelineCanvas::setSelectedTriggers(const QList<QUuid> &ids) {
+    QSet<QUuid> next(ids.begin(), ids.end());
+    if (next == m_selTriggers) return;
+    m_selTriggers = std::move(next);
     update();
 }
 
@@ -229,7 +234,12 @@ double TimelineCanvas::xToSeconds(int x) const {
 }
 
 void TimelineCanvas::shownSpan(const audio::LightTrigger &t, double &start, double &end) const {
-    if (m_tdrag.moved && t.id == m_tdrag.id) {
+    if (m_tdrag.moved && m_tdrag.mode == TriggerDrag::MoveMany && m_selTriggers.contains(t.id)) {
+        const double d = m_tdrag.curStart - m_tdrag.origStart;
+        start = t.start + d;
+        end   = t.isRange() ? t.end + d : -1.0;
+    } else if (m_tdrag.moved && t.id == m_tdrag.id
+               && m_tdrag.mode != TriggerDrag::Span && m_tdrag.mode != TriggerDrag::Create) {
         start = m_tdrag.curStart;
         end   = m_tdrag.curEnd;
     } else {
@@ -275,7 +285,7 @@ void TimelineCanvas::drawTriggerGuides(QPainter &p) {
     for (const auto &t : m_triggers) {
         double s = 0, e = 0;
         shownSpan(t, s, e);
-        const bool sel = t.id == m_selectedTrigger || t.id == m_flashTrigger;
+        const bool sel = m_selTriggers.contains(t.id) || t.id == m_flashTrigger;
         QColor line = tk.accent;
         line.setAlpha(!t.enabled ? 22 : sel ? 120 : 55);
         const int x1 = int(secondsToX(s));
@@ -328,7 +338,7 @@ void TimelineCanvas::drawTriggerLane(QPainter &p) {
         if (e <= s) continue;
         const double x1 = secondsToX(s), x2 = secondsToX(e);
         if (x2 < kHeaderWidth || x1 > width()) continue;
-        const bool sel = t.id == m_selectedTrigger;
+        const bool sel = m_selTriggers.contains(t.id);
         const bool hot = sel || t.id == m_flashTrigger;
         QColor fill = tk.accent;
         fill.setAlpha(!t.enabled ? 26 : hot ? 125 : 70);
@@ -351,7 +361,7 @@ void TimelineCanvas::drawTriggerLane(QPainter &p) {
         if (e > s) continue;
         const double x = secondsToX(s);
         if (x < kHeaderWidth - 8 || x > width() + 8) continue;
-        const bool sel = t.id == m_selectedTrigger;
+        const bool sel = m_selTriggers.contains(t.id);
         const bool hot = sel || t.id == m_flashTrigger;
         const double r = sel ? 6.0 : 5.0;
         QPolygonF d;
@@ -361,11 +371,32 @@ void TimelineCanvas::drawTriggerLane(QPainter &p) {
         p.setPen(sel ? QPen(tk.ink100, 1.0) : Qt::NoPen);
         p.setBrush(fill);
         p.drawPolygon(d);
-        if (!t.name.isEmpty()) {
+        // A row of beats is a picket fence of names: skip a name that would
+        // run into the next marker.
+        bool room = true;
+        for (const auto &o : m_triggers) {
+            double os = 0, oe = 0;
+            shownSpan(o, os, oe);
+            if (o.id == t.id || oe > os) continue;
+            const double ox = secondsToX(os);
+            if (ox > x && ox - x < fm.horizontalAdvance(t.name) + r + 10) { room = false; break; }
+        }
+        if (!t.name.isEmpty() && room) {
             p.setPen(t.enabled ? (sel ? tk.ink100 : tk.ink60) : tk.ink40);
             p.drawText(QRectF(x + r + 4, top, 160, h - 1), Qt::AlignLeft | Qt::AlignVCenter,
                        fm.elidedText(t.name, Qt::ElideRight, 156));
         }
+    }
+
+    // A Shift/Ctrl drag selecting a stretch: a neutral dashed box.
+    if (m_tdrag.mode == TriggerDrag::Span && m_tdrag.moved) {
+        const double x1 = secondsToX(std::min(m_tdrag.curStart, m_tdrag.curEnd));
+        const double x2 = secondsToX(std::max(m_tdrag.curStart, m_tdrag.curEnd));
+        QColor fill = tk.ink100;
+        fill.setAlpha(22);
+        p.setPen(QPen(tk.ink60, 1.0, Qt::DashLine));
+        p.setBrush(fill);
+        p.drawRect(QRectF(x1 + 0.5, top + 1.5, std::max(1.0, x2 - x1 - 1.0), h - 4.0));
     }
 
     // A range being drawn: dashed outline until release.
@@ -746,16 +777,51 @@ void TimelineCanvas::mousePressEvent(QMouseEvent *e) {
             m_tdrag.pressSnapped = snapSeconds(m_tdrag.pressSec, m_tdrag.noSnap);
             TriggerPart part = TriggerPart::Body;
             const int ti = triggerAt(x, &part);
+            const auto mods = e->modifiers();
+            const bool pick = mods & (Qt::ShiftModifier | Qt::ControlModifier);
+            if (ti >= 0 && pick) {
+                // Shift / Ctrl: change the selection only, no drag.
+                const QUuid id = m_triggers[size_t(ti)].id;
+                if (mods & Qt::ControlModifier) {
+                    if (!m_selTriggers.remove(id)) m_selTriggers.insert(id);
+                } else {
+                    m_selTriggers.insert(id);
+                }
+                m_tdrag = TriggerDrag{};
+                emit triggerClicked(id, mods);
+                update();
+                return;
+            }
             if (ti >= 0) {
-                const auto &t = m_triggers[size_t(ti)];
-                m_selectedTrigger = t.id;
-                emit triggerSelected(t.id);
+                const auto t = m_triggers[size_t(ti)];
+                const bool edge = part != TriggerPart::Body;
+                if (m_selTriggers.contains(t.id) && m_selTriggers.size() > 1 && !edge
+                    && !(mods & Qt::AltModifier)) {
+                    // Grabbing part of a selection: drag them all; a click
+                    // without a drag reselects on release.
+                    m_tdrag.clickOnRelease = true;
+                } else {
+                    m_selTriggers = {t.id};
+                    emit triggerClicked(t.id, mods);   // may come back wider (its group)
+                }
                 m_tdrag.id = t.id;
                 m_tdrag.origStart = m_tdrag.curStart = t.start;
                 m_tdrag.origEnd   = m_tdrag.curEnd   = t.isRange() ? t.end : -1.0;
-                m_tdrag.mode = part == TriggerPart::StartEdge ? TriggerDrag::ResizeStart
-                             : part == TriggerPart::EndEdge   ? TriggerDrag::ResizeEnd
-                                                              : TriggerDrag::Move;
+                if (edge) {
+                    m_tdrag.mode = part == TriggerPart::StartEdge ? TriggerDrag::ResizeStart
+                                                                  : TriggerDrag::ResizeEnd;
+                } else if (m_selTriggers.size() > 1 && m_selTriggers.contains(t.id)) {
+                    m_tdrag.mode = TriggerDrag::MoveMany;
+                    m_tdrag.minStart = t.start;
+                    for (const auto &o : m_triggers)
+                        if (m_selTriggers.contains(o.id))
+                            m_tdrag.minStart = std::min(m_tdrag.minStart, o.start);
+                } else {
+                    m_tdrag.mode = TriggerDrag::Move;
+                }
+            } else if (pick) {
+                m_tdrag.mode = TriggerDrag::Span;
+                m_tdrag.curStart = m_tdrag.curEnd = m_tdrag.pressSec;
             } else {
                 m_tdrag.mode = TriggerDrag::Create;
                 m_tdrag.curStart = m_tdrag.pressSnapped;
@@ -822,6 +888,19 @@ void TimelineCanvas::mouseMoveEvent(QMouseEvent *e) {
             const double a = snap(m_tdrag.pressSec), b = snap(sec);
             m_tdrag.curStart = std::min(a, b);
             m_tdrag.curEnd   = std::max(a, b);
+            break;
+        }
+        case TriggerDrag::Span:
+            m_tdrag.curStart = m_tdrag.pressSec;
+            m_tdrag.curEnd   = sec;
+            break;
+        case TriggerDrag::MoveMany: {
+            // The grabbed one snaps; the rest keep their spacing. Nothing
+            // goes before the start of the song.
+            double s = snap(m_tdrag.origStart + delta);
+            s = std::max(s, m_tdrag.origStart - m_tdrag.minStart);
+            m_tdrag.curStart = s;
+            setCursor(Qt::ClosedHandCursor);
             break;
         }
         case TriggerDrag::Move: {
@@ -918,6 +997,24 @@ void TimelineCanvas::mouseReleaseEvent(QMouseEvent *) {
     if (d.mode == TriggerDrag::Create) {
         if (d.moved && d.curEnd > d.curStart) emit triggerAdded(d.curStart, d.curEnd);
         else                                  emit triggerAdded(d.pressSnapped, -1.0);
+    } else if (d.mode == TriggerDrag::Span) {
+        if (d.moved) {
+            const double a = std::min(d.curStart, d.curEnd), b = std::max(d.curStart, d.curEnd);
+            for (const auto &t : m_triggers)
+                if (t.start >= a && t.start <= b) m_selTriggers.insert(t.id);
+            emit triggersSpanSelected(a, b);
+        }
+    } else if (d.mode == TriggerDrag::MoveMany) {
+        const double delta = d.curStart - d.origStart;
+        if (d.moved && delta != 0.0) {
+            QList<QUuid> ids;
+            for (const auto &t : m_triggers)
+                if (m_selTriggers.contains(t.id)) ids << t.id;
+            emit triggersMovedBy(ids, delta);
+        } else if (!d.moved && d.clickOnRelease) {
+            m_selTriggers = {d.id};
+            emit triggerClicked(d.id, Qt::NoModifier);
+        }
     } else if (d.moved) {
         emit triggerMoved(d.id, d.curStart, d.curEnd);
     }
@@ -933,8 +1030,6 @@ void TimelineCanvas::mouseDoubleClickEvent(QMouseEvent *e) {
     if (ti < 0) return;
     const QUuid id = m_triggers[size_t(ti)].id;
     m_tdrag = TriggerDrag{};
-    m_selectedTrigger = id;
-    emit triggerSelected(id);
     emit triggerContextAction(id, QStringLiteral("rename"));
 }
 
@@ -994,20 +1089,38 @@ void TimelineCanvas::contextMenuEvent(QContextMenuEvent *e) {
             return;
         }
         const auto t = m_triggers[size_t(ti)];
-        m_selectedTrigger = t.id;
-        emit triggerSelected(t.id);
+        if (!m_selTriggers.contains(t.id)) {
+            m_selTriggers = {t.id};
+            emit triggerClicked(t.id, Qt::NoModifier);   // may widen to its group
+        }
         update();
-        auto *renameAct = menu.addAction(tr("Rename…"));
-        auto *rangeAct  = menu.addAction(t.isRange() ? tr("Make a Point") : tr("Make a Range"));
-        auto *enableAct = menu.addAction(t.enabled ? tr("Disable") : tr("Enable"));
+        const int n = int(m_selTriggers.size());
+        QAction *renameAct = nullptr, *rangeAct = nullptr;
+        if (n == 1) {
+            renameAct = menu.addAction(tr("Rename…"));
+            rangeAct  = menu.addAction(t.isRange() ? tr("Make a Point") : tr("Make a Range"));
+        }
+        auto *enableAct = menu.addAction(n > 1 ? (t.enabled ? tr("Disable %1 Triggers").arg(n)
+                                                            : tr("Enable %1 Triggers").arg(n))
+                                               : (t.enabled ? tr("Disable") : tr("Enable")));
         menu.addSeparator();
-        auto *deleteAct = menu.addAction(tr("Delete"));
+        auto *groupAct = menu.addAction(n > 1 ? tr("Group %1 Triggers…").arg(n) : tr("Group…"));
+        QAction *ungroupAct = nullptr, *selectGroupAct = nullptr;
+        if (!t.group.isEmpty()) {
+            selectGroupAct = menu.addAction(tr("Select Group \"%1\"").arg(t.group));
+            ungroupAct = menu.addAction(tr("Ungroup"));
+        }
+        menu.addSeparator();
+        auto *deleteAct = menu.addAction(n > 1 ? tr("Delete %1 Triggers").arg(n) : tr("Delete"));
         QAction *chosen = menu.exec(e->globalPos());
         QString action;
-        if      (chosen == renameAct) action = QStringLiteral("rename");
-        else if (chosen == rangeAct)  action = QStringLiteral("toggleRange");
-        else if (chosen == enableAct) action = QStringLiteral("toggleEnabled");
-        else if (chosen == deleteAct) action = QStringLiteral("delete");
+        if      (chosen && chosen == renameAct)      action = QStringLiteral("rename");
+        else if (chosen && chosen == rangeAct)       action = QStringLiteral("toggleRange");
+        else if (chosen == enableAct)                action = QStringLiteral("toggleEnabled");
+        else if (chosen == groupAct)                 action = QStringLiteral("group");
+        else if (chosen && chosen == ungroupAct)     action = QStringLiteral("ungroup");
+        else if (chosen && chosen == selectGroupAct) action = QStringLiteral("selectGroup");
+        else if (chosen == deleteAct)                action = QStringLiteral("delete");
         if (!action.isEmpty()) emit triggerContextAction(t.id, action);
         return;
     }

@@ -135,7 +135,13 @@ private:
 };
 
 // The audio editor's "Lighting" tab: the cue's lighting triggers as a list on
-// the left and an editor for the selected one on the right.
+// the left and an editor for the selected one(s) on the right.
+//
+// Any number can be selected (Ctrl/Shift in the list or the lane). With more
+// than one, the editor edits them all at once: an action edit carries over
+// only the fields that changed (TriggerAction::applyChange), so setting Hold
+// on twenty bumps keeps each one's sub. Triggers can share a group (Fill with
+// beats makes one); clicking one in the lane selects its whole group.
 //
 // Every edit builds a new LightTriggers vector and goes through commit(): an
 // undoable "lightTriggers" field edit when an undo stack is set, otherwise a
@@ -152,9 +158,24 @@ public:
     void setWorkspace(core::Workspace *ws);            // for Fire-cue picker
     void setMidiPortsProvider(std::function<QStringList()> f);
     void setCursorSeconds(double s);                   // editor edit cursor
-    void selectTrigger(const QUuid &id);
+    void selectTrigger(const QUuid &id);               // just that one
 
+    // The trigger the editor shows (the last one picked), and the whole
+    // selection, in song order.
     QUuid selectedTrigger() const { return m_selectedId; }
+    QList<QUuid> selectedTriggers() const;
+    // ids that don't exist are dropped; primary falls back to the first.
+    void setSelection(const QList<QUuid> &ids, const QUuid &primary = {});
+    // A click in the lane: no modifier = it and its group; Ctrl = toggle it;
+    // Shift = add it and its group; Alt = just it.
+    void clickTrigger(const QUuid &id, Qt::KeyboardModifiers modifiers = {});
+    void selectSpan(double from, double to);           // adds what starts in [from, to]
+    void selectGroup(const QString &group);
+    // Selection edits, each one undo step.
+    void moveTriggersBy(const QList<QUuid> &ids, double delta);
+    void deleteSelection();
+    void groupSelection(const QString &name);          // empty = ungroup
+    void duplicateSelection();
 
     // Mutations the timeline's marker lane asks for. All go through commit().
     // end <= start (e.g. -1) = a point. addTrigger selects and returns the new one.
@@ -164,7 +185,9 @@ public:
     double hereSeconds() const;
     QUuid  addPointHere();
     void  moveTrigger(const QUuid &id, double start, double end);
-    // "rename", "toggleRange", "toggleEnabled", "delete".
+    // "rename", "toggleRange", "toggleEnabled", "delete", "group" (asks for a
+    // name), "ungroup", "selectGroup". On a trigger in a multiple selection,
+    // enable / delete / group / ungroup act on the whole selection.
     void  applyTriggerAction(const QUuid &id, const QString &action);
 
     // Re-reads the lighting desk in Preferences: the header line and what the
@@ -200,6 +223,8 @@ public:
 
     // Adds point triggers on every `every`-th beat in [from, to) sending
     // `action`, in one undo step. Returns how many.
+    // The new points share a group named after the prefix ("Beat", "Beat 2"…)
+    // and end up selected.
     int  fillWithBeats(double from, double to, int every,
                        const audio::TriggerAction &action, const QString &namePrefix);
     // "Fill with beats…": the dialog, then fillWithBeats.
@@ -211,7 +236,8 @@ public slots:
 signals:
     void testRequested(const quewi::audio::TriggerAction &action);
     void triggersEdited();                             // after a commit
-    void selectionChanged(const QUuid &id);
+    void selectionChanged(const QUuid &id);               // the editor's trigger
+    void selectionSetChanged(const QList<QUuid> &ids);    // the whole selection
     void deskSettingsRequested();                      // "Change…" next to the desk line
     void snapToBeatsChanged(bool on);
     void tempoDetected(double bpm, double firstBeat, double confidence);
@@ -223,8 +249,11 @@ private:
     // The single write path. `mergeable` edits (field tweaks) fold into the
     // previous undo step; structural ones (add, delete, move…) stay separate.
     void commit(const audio::LightTriggers &next, bool mergeable);
-    // Applies f to the selected trigger and commits.
+    // Applies f to every selected trigger and commits.
     void editSelected(const std::function<void(audio::LightTrigger &)> &f, bool mergeable = true);
+    void addAndSelect(const audio::LightTriggers &added, const QString &groupBase);
+    void applyTableSelection();              // m_selection → table rows (no signals)
+    bool isMulti() const { return m_selection.size() > 1; }
     void refresh();
     void loadEditor();
     void setSelected(const QUuid &id);
@@ -240,6 +269,7 @@ private:
     QPointer<QUndoStack>       m_undo;
     QPointer<core::Workspace>  m_workspace;
     QUuid  m_selectedId;
+    QList<QUuid> m_selection;                // includes m_selectedId when set
     QUuid  m_editorId;                       // whose fields the editor shows
     double m_cursor = 0.0;
     bool   m_loading = false;
@@ -272,7 +302,10 @@ private:
     QPushButton  *m_deleteBtn = nullptr;
 
     QStackedWidget *m_editorStack = nullptr;   // placeholder | form
+    QLabel         *m_multiLabel = nullptr;
     QLineEdit      *m_name = nullptr;
+    QComboBox      *m_group = nullptr;
+    QPushButton    *m_selectGroupBtn = nullptr;
     QDoubleSpinBox *m_start = nullptr;
     QCheckBox      *m_isRange = nullptr;
     QDoubleSpinBox *m_end = nullptr;

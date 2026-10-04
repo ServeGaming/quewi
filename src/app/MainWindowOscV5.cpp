@@ -48,6 +48,7 @@
 #include <QMediaDevices>
 #include <QStatusBar>
 #include <QUndoStack>
+#include <QUrl>
 
 #include <cmath>
 #include <optional>
@@ -337,6 +338,74 @@ void MainWindow::registerOscApiV5()
             if (i < 0) return;
             next.erase(next.begin() + i);
             commitTriggers(c, next);
+        }, Qt::QueuedConnection);
+    });
+
+    // Groups: every trigger whose group is <name> at once. Spaces and other
+    // characters an OSC address can't hold are percent-encoded (%20).
+    auto groupOf = [](const QStringList &parts) {
+        return QUrl::fromPercentEncoding(parts.value(5).toUtf8()).trimmed();
+    };
+    sub("/quewi/cue/*/triggers/group/*/set/*", [=](const osc::Message &m) {
+        const auto parts = m.address.split(QChar('/'), Qt::SkipEmptyParts);
+        const auto num = cueNum(m);
+        if (!num || parts.size() < 8 || m.args.empty()) return;
+        const QString group = groupOf(parts), field = parts.value(7);
+        const QVariant v = variantArg(m.args.front());
+        if (group.isEmpty() || !v.isValid()) return;
+        QMetaObject::invokeMethod(this, [=] {
+            auto *c = oscCueByNumber(*num);
+            auto *sound = c ? triggerSoundOf(c) : nullptr;
+            if (!sound) return;
+            auto next = sound->lightTriggers();
+            bool any = false;
+            for (auto &t : next)
+                if (t.group == group) any = t.setField(field, v) || any;
+            if (any) commitTriggers(c, next);
+        }, Qt::QueuedConnection);
+    });
+    sub("/quewi/cue/*/triggers/group/*/shift", [=](const osc::Message &m) {
+        const auto parts = m.address.split(QChar('/'), Qt::SkipEmptyParts);
+        const auto num = cueNum(m);
+        if (!num || parts.size() < 7 || m.args.empty()) return;
+        const QString group = groupOf(parts);
+        const auto by = osc::toNumber(m.args.front());
+        if (group.isEmpty() || !by) return;
+        QMetaObject::invokeMethod(this, [=] {
+            auto *c = oscCueByNumber(*num);
+            auto *sound = c ? triggerSoundOf(c) : nullptr;
+            if (!sound) return;
+            auto next = sound->lightTriggers();
+            double first = 1e300;
+            for (const auto &t : next)
+                if (t.group == group) first = std::min(first, t.start);
+            if (first > 1e299) return;
+            const double d = std::max(*by, -first);       // nothing before the song starts
+            for (auto &t : next) {
+                if (t.group != group) continue;
+                const bool range = t.isRange();
+                t.start += d;
+                if (range) t.end += d;
+            }
+            commitTriggers(c, next);
+        }, Qt::QueuedConnection);
+    });
+    sub("/quewi/cue/*/triggers/group/*/remove", [=](const osc::Message &m) {
+        const auto parts = m.address.split(QChar('/'), Qt::SkipEmptyParts);
+        const auto num = cueNum(m);
+        if (!num || parts.size() < 7) return;
+        const QString group = groupOf(parts);
+        if (group.isEmpty()) return;
+        QMetaObject::invokeMethod(this, [=] {
+            auto *c = oscCueByNumber(*num);
+            auto *sound = c ? triggerSoundOf(c) : nullptr;
+            if (!sound) return;
+            auto next = sound->lightTriggers();
+            const auto n = next.size();
+            next.erase(std::remove_if(next.begin(), next.end(),
+                                      [&](const audio::LightTrigger &t) { return t.group == group; }),
+                       next.end());
+            if (next.size() != n) commitTriggers(c, next);
         }, Qt::QueuedConnection);
     });
 

@@ -268,6 +268,9 @@ pushes `/quewi/notify/cue/changed` for the cue like any other edit.
 | `/quewi/cue/<num>/triggers/clear` | — | — | Remove all of the cue's triggers. |
 | `/quewi/cue/<num>/trigger/<ref>/set/<field>` | one value (`i/h/f/d/s/T/F`) | — | Edit one field of one trigger (fields below). Unknown fields and bad values are ignored. |
 | `/quewi/cue/<num>/trigger/<ref>/remove` | — | — | Remove that trigger. |
+| `/quewi/cue/<num>/triggers/group/<name>/set/<field>` | one value | — | Edit one field of **every** trigger in group `<name>`, e.g. `…/group/Chorus%20bumps/set/enter.hold 0.1`. Each trigger keeps its other fields. `set/group` renames the group (or with `""` ungroups it). One undo step. |
+| `/quewi/cue/<num>/triggers/group/<name>/shift` | `f` seconds | — | Move every trigger in the group by that much (negative = earlier). Nothing goes before 0: the shift stops where the earliest one reaches the start. |
+| `/quewi/cue/<num>/triggers/group/<name>/remove` | — | — | Remove every trigger in the group. |
 | `/quewi/cue/<num>/trigger/<ref>/test` | optional `s` `"exit"` | — | Send the trigger's enter action now (or its exit action with `"exit"`), exactly as playback would. Works even when triggers are disarmed, and doesn't push `trigger/fired`. |
 | `/quewi/triggers/armed` | optional `T`/`F` or `i` 0/1 | `/quewi/reply/triggers/armed` `T`/`F` | Arm or disarm all lighting triggers on this computer (the **Tools → Lighting Triggers Armed** switch; remembered across restarts). With no argument it changes nothing and just replies. |
 | `/quewi/query/triggers/armed` | — | `/quewi/reply/triggers/armed` `T`/`F` | Read the master switch. |
@@ -289,6 +292,7 @@ For `/trigger/<ref>/set/<field>`:
 | `start` | `f` | Seconds in the song file (clamped to ≥ 0) |
 | `end` | `f` | Seconds in the song file. Greater than `start` makes it a range; `-1` (or anything ≤ `start`) makes it a point |
 | `enabled` | `T` / `F` | A disabled trigger sends nothing |
+| `group` | `s` | The trigger's group (empty = none). Triggers in a group are selected and edited together in the editor, and by the `triggers/group/<name>/…` addresses |
 | `enter` | `s` JSON object | Replace the whole enter action (a point's only action) |
 | `exit` | `s` JSON object | Replace the whole exit action (used by ranges) |
 | `enter.<field>` / `exit.<field>` | one value | Edit one field of an action, e.g. `enter.address`, `exit.kind` (action fields below) |
@@ -296,7 +300,8 @@ For `/trigger/<ref>/set/<field>`:
 Triggers are kept sorted by `start`, so editing `start` can change a
 trigger's index. Address it by id (or name) if you edit several in a row.
 Names used as `<ref>` must be valid in an OSC address: no spaces, `/`, `*`,
-`?`, `#`, `,`, `[ ]` or `{ }`. Ids always work.
+`?`, `#`, `,`, `[ ]` or `{ }`. Ids always work. A group `<name>` is
+percent-decoded, so a space is `%20` (`Chorus%20bumps`).
 
 ### Action fields
 

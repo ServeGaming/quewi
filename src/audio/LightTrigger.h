@@ -6,6 +6,7 @@
 #include <QJsonArray>
 #include <QJsonObject>
 #include <QString>
+#include <QStringList>
 #include <QUuid>
 #include <QVariant>
 
@@ -104,6 +105,13 @@ struct TriggerAction {
     static QString midiTypeKey(MidiType t);
     static MidiType midiTypeFromKey(const QString &key);
 
+    // Bulk edits: what changed from `before` to `after` (an editor's edit of
+    // one trigger), applied to this action. Only the changed fields carry
+    // over, so "Hold 0.1" on a selection of bumps keeps each one's sub
+    // number. A change of kind (or of what the desk should do) brings the
+    // fields the new one needs, since they weren't there before.
+    void applyChange(const TriggerAction &before, const TriggerAction &after);
+
     bool operator==(const TriggerAction &o) const { return toJson() == o.toJson(); }
 };
 
@@ -113,6 +121,9 @@ struct LightTrigger {
     double  start = 0.0;        // seconds in the source file
     double  end   = -1.0;       // > start → a range; otherwise a point
     bool    enabled = true;
+    // Triggers sharing a group are picked and edited together (a row of beat
+    // bumps). Empty = not grouped.
+    QString group;
     TriggerAction enter;        // a point's only action; a range's start
     TriggerAction exit;         // a range's end (and when it stops inside)
 
@@ -121,8 +132,8 @@ struct LightTrigger {
     QJsonObject toJson() const;
     static LightTrigger fromJson(const QJsonObject &o);
 
-    // Remote field access: name, start, end, enabled, enter, exit (as JSON),
-    // and enter.<field> / exit.<field>.
+    // Remote field access: name, start, end, enabled, group, enter, exit (as
+    // JSON), and enter.<field> / exit.<field>.
     QVariant field(const QString &key) const;
     bool     setField(const QString &key, const QVariant &value);
 
@@ -136,6 +147,11 @@ LightTriggers triggersFromJson(const QJsonArray &a);
 // Accepts a QJsonArray, a JSON string, or a QVariantList (what remotes and
 // the undo stack hand setField).
 LightTriggers triggersFromVariant(const QVariant &v, bool *ok = nullptr);
+
+// Groups in use, in order of first appearance by start time.
+QStringList triggerGroups(const LightTriggers &t);
+// `base` if no trigger uses it as a group, else "base 2", "base 3"…
+QString uniqueGroupName(const LightTriggers &t, const QString &base);
 
 // One thing to send.
 struct TriggerEvent {

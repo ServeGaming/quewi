@@ -182,6 +182,12 @@ TriggerAction FillBeatsDialog::action() const { return m_action->action(); }
 
 void FillBeatsDialog::setNamePrefix(const QString &p) { m_prefix->setText(p); }
 
+QString FillBeatsDialog::namePrefix() const
+{
+    const QString p = m_prefix->text().trimmed();
+    return p.isEmpty() ? tr("Beat") : p;
+}
+
 double FillBeatsDialog::from() const
 {
     switch (range()) {
