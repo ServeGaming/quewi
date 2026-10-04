@@ -129,6 +129,29 @@ QIcon makeEditorIcon(const QString &name) {
     } else if (name == QLatin1String("pause")) {
         p.fillRect(QRectF(5, 4, 3, 10), ink);
         p.fillRect(QRectF(10, 4, 3, 10), ink);
+    } else if (name == QLatin1String("frameBack")) {
+        // ◁‖  one frame back: an outlined triangle against a bar
+        p.drawLine(12.5, 5, 12.5, 13);
+        QPainterPath path;
+        path.moveTo(10, 5); path.lineTo(4, 9); path.lineTo(10, 13); path.closeSubpath();
+        p.drawPath(path);
+    } else if (name == QLatin1String("frameForward")) {
+        // ‖▷  one frame forward
+        p.drawLine(5.5, 5, 5.5, 13);
+        QPainterPath path;
+        path.moveTo(8, 5); path.lineTo(14, 9); path.lineTo(8, 13); path.closeSubpath();
+        p.drawPath(path);
+    } else if (name == QLatin1String("cut")) {
+        // ✂ as two blades: a section going away
+        p.drawLine(4, 4, 14, 14);
+        p.drawLine(14, 4, 4, 14);
+        p.drawEllipse(QRectF(2.5, 11.5, 4, 4));
+        p.drawEllipse(QRectF(11.5, 11.5, 4, 4));
+    } else if (name == QLatin1String("keep")) {
+        // [ ]  keep only what's between the brackets
+        p.drawLine(5, 4, 3, 4); p.drawLine(3, 4, 3, 14); p.drawLine(3, 14, 5, 14);
+        p.drawLine(13, 4, 15, 4); p.drawLine(15, 4, 15, 14); p.drawLine(15, 14, 13, 14);
+        p.fillRect(QRectF(6.5, 7, 5, 4), ink);
     }
     p.end();
     QIcon icon(pm);

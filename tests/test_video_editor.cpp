@@ -5,7 +5,9 @@
 #include <QApplication>
 #include <QElapsedTimer>
 #include <QEventLoop>
+#include <QJsonArray>
 #include <QJsonObject>
+#include <QLabel>
 #include <QMouseEvent>
 #include <QPointer>
 #include <QSignalSpy>
@@ -15,6 +17,7 @@
 #include "audio/AudioCue.h"
 #include "core/UndoCommands.h"
 #include "ui/VideoEditorWindow.h"
+#include "ui/VideoInspector.h"
 #include "ui/VideoThumbnailer.h"
 #include "ui/VideoTimeline.h"
 #include "video/PictureTiming.h"
@@ -57,6 +60,24 @@ void drag(QWidget *w, QPoint from, QPoint to, Qt::KeyboardModifiers mods = Qt::N
 }
 
 QString videoFile() { return qEnvironmentVariable("QUEWI_TEST_VIDEO_FILE"); }
+
+// The editor without a file, for the splice tests: the timeline is told a
+// duration so the marks have somewhere to go; Out stands in for the end of
+// the file.
+struct Bench {
+    video::VideoCue vc;
+    QUndoStack undo;
+    ui::VideoEditorWindow w{&vc, &undo};
+    Bench()
+    {
+        w.setAttribute(Qt::WA_DeleteOnClose, false);
+        vc.setField(QStringLiteral("trimOutSeconds"), 8.0);
+        w.timeline()->setDuration(10.0);
+        w.resize(1280, 820);
+        w.show();
+        QApplication::processEvents();
+    }
+};
 
 } // namespace
 
@@ -294,7 +315,134 @@ private slots:
         QVERIFY(waitFor([&] { return guard.isNull(); }, 2000));   // WA_DeleteOnClose
     }
 
+    // ── Splicing ───────────────────────────────────────────────────────
+    void deletingASelectionCutsItOut()
+    {
+        Bench b;
+        b.w.selectRange(2.0, 4.0);
+        QVERIFY(b.w.timeline()->hasSelection());
+        b.w.deleteSelection();
+        QCOMPARE(b.vc.cuts().size(), size_t(1));
+        QCOMPARE(b.vc.cuts()[0].start, 2.0);
+        QCOMPARE(b.vc.cuts()[0].end, 4.0);
+        QCOMPARE(b.undo.count(), 1);                  // one step
+        QVERIFY(!b.w.timeline()->hasSelection());
+        QCOMPARE(b.w.timeline()->cuts().size(), size_t(1));   // drawn
+
+        // A second cut is its own step, not merged into the first.
+        b.w.selectRange(6.0, 7.0);
+        b.w.deleteSelection();
+        QCOMPARE(b.undo.count(), 2);
+        QCOMPARE(b.vc.cuts().size(), size_t(2));
+        b.undo.undo();
+        QCOMPARE(b.vc.cuts().size(), size_t(1));
+
+        // Restore section puts it back.
+        b.w.restoreCut(2.0, 4.0);
+        QVERIFY(b.vc.cuts().empty());
+        b.undo.undo();
+        QCOMPARE(b.vc.cuts().size(), size_t(1));
+        b.w.restoreAllCuts();
+        QVERIFY(b.vc.cuts().empty());
+    }
+
+    void razorSplitThenDeleteCutsTheSegment()
+    {
+        Bench b;
+        auto *tl = b.w.timeline();
+        QVERIFY(tl->width() > 600);
+        b.w.setTool(ui::VideoTimeline::Tool::Razor);
+        const QPoint at3(tl->xForSeconds(3.0), tl->pictureLane().center().y());
+        mouse(tl, QEvent::MouseButtonPress, at3, Qt::LeftButton);
+        mouse(tl, QEvent::MouseButtonRelease, at3, Qt::NoButton);
+        QCOMPARE(tl->splitPoints().size(), 1);
+        QVERIFY(std::abs(tl->splitPoints()[0] - 3.0) < 0.02);
+
+        // Back to Select: a click in the segment picks it, split → Out.
+        b.w.setTool(ui::VideoTimeline::Tool::Select);
+        const QPoint at5(tl->xForSeconds(5.0), tl->soundLane().center().y());
+        mouse(tl, QEvent::MouseButtonPress, at5, Qt::LeftButton);
+        mouse(tl, QEvent::MouseButtonRelease, at5, Qt::NoButton);
+        QVERIFY(tl->hasSelection());
+        QVERIFY(std::abs(tl->selectionStart() - 3.0) < 0.02);
+        QCOMPARE(tl->selectionEnd(), 8.0);
+
+        QTest::keyClick(&b.w, Qt::Key_Delete);
+        QCOMPARE(b.vc.cuts().size(), size_t(1));
+        QVERIFY(std::abs(b.vc.cuts()[0].start - 3.0) < 0.02);
+        QCOMPARE(b.vc.cuts()[0].end, 8.0);
+        QVERIFY(tl->splitPoints().isEmpty());          // used up
+    }
+
+    void draggingInALaneSelectsARange()
+    {
+        Bench b;
+        auto *tl = b.w.timeline();
+        const int y = tl->pictureLane().center().y();
+        drag(tl, {tl->xForSeconds(5.0), y}, {tl->xForSeconds(6.0), y});
+        QVERIFY(tl->hasSelection());
+        QVERIFY(std::abs(tl->selectionStart() - 5.0) < 0.05);
+        QVERIFY(std::abs(tl->selectionEnd() - 6.0) < 0.05);
+        QTest::keyClick(&b.w, Qt::Key_Escape);
+        QVERIFY(!tl->hasSelection());
+    }
+
+    void keepOnlyThisTrimsToTheSelection()
+    {
+        Bench b;
+        b.w.selectRange(2.0, 4.0);
+        b.w.keepOnlySelection();
+        QCOMPARE(b.vc.trimInSeconds(), 2.0);
+        QCOMPARE(b.vc.trimOutSeconds(), 4.0);
+        QCOMPARE(b.undo.count(), 1);                  // one step for both
+        b.undo.undo();
+        QCOMPARE(b.vc.trimInSeconds(), 0.0);
+        QCOMPARE(b.vc.trimOutSeconds(), 8.0);
+    }
+
+    void playsForCountsTheCutsOut()
+    {
+        Bench b;
+        b.vc.setField(QStringLiteral("trimInSeconds"), 1.0);
+        QCOMPARE(b.w.playsForSeconds(), 7.0);
+        b.w.selectRange(2.0, 4.0);
+        b.w.deleteSelection();
+        QCOMPARE(b.w.playsForSeconds(), 5.0);
+        QVERIFY(b.w.inspector()->playsForLabel->text().contains(QStringLiteral("0:05.00")));
+    }
+
     // ── With a real video file ─────────────────────────────────────────
+    void previewPlaybackJumpsOverCuts()
+    {
+        if (videoFile().isEmpty()) QSKIP("set QUEWI_TEST_VIDEO_FILE to a video (>= 8 s)");
+        video::VideoCue vc;
+        vc.setField(QStringLiteral("filePath"), videoFile());
+        QJsonArray cuts;
+        cuts.append(QJsonArray{2.0, 4.0});
+        vc.setField(QStringLiteral("cuts"), cuts);
+        QCOMPARE(vc.cuts().size(), size_t(1));
+        QUndoStack undo;
+        ui::VideoEditorWindow w(&vc, &undo);
+        w.setAttribute(Qt::WA_DeleteOnClose, false);
+        w.show();
+        QVERIFY(waitFor([&] { return w.durationSeconds() > 0.0; }, 5000));
+
+        w.seekTo(1.5);
+        w.togglePlay();
+        QVERIFY(waitFor([&] { return w.isPlaying(); }, 3000));
+        bool insideCut = false;
+        QElapsedTimer clock;
+        clock.start();
+        while (w.playheadSeconds() < 4.2 && clock.elapsed() < 6000) {
+            QTest::qWait(15);
+            const double p = w.playheadSeconds();
+            if (p > 2.2 && p < 3.9) insideCut = true;
+        }
+        QVERIFY2(w.playheadSeconds() >= 4.2, qPrintable(QString::number(w.playheadSeconds())));
+        QVERIFY(!insideCut);
+        w.togglePlay();
+    }
+
     void editorMarksInAndOutFromThePlayhead()
     {
         if (videoFile().isEmpty()) QSKIP("set QUEWI_TEST_VIDEO_FILE to a video (>= 8 s)");
