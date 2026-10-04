@@ -511,6 +511,57 @@ When quewi is reading an Eos desk back (`feedback` on), the reply also has
 }
 ```
 
+### Matrix List
+
+*New in the next release.* The [Matrix List](../using-quewi/matrix-list.md)
+merges a quewi cue list with an Eos desk's cue list into one running
+order. Remotes can read it, a page at a time: a 300-row show doesn't fit
+in one UDP packet.
+
+| Address | Args | Reply |
+|---|---|---|
+| `/quewi/query/matrix` | `[from i] [count i] [list s]` | `/quewi/reply/matrix` `s` JSON: rows `from` (default 0) to `from + count` (default 100, at most 500). |
+| `/quewi/query/matrix/current` | `[before i] [after i] [list s]` | `/quewi/reply/matrix` `s` JSON: the rows around standby (default 3 before, 12 after); around the desk's live cue if nothing is on standby. |
+
+`list` picks a Matrix List by name or id. Without it: the one on screen,
+else the show's first. A show with none replies `{"error": "no matrix list"}`.
+
+```js
+{
+  "list": "Matrix", "id": "{…}",       // the Matrix List
+  "source": "Main",                     // the quewi cue list it interleaves
+  "deskList": "2",                      // the desk's cue list
+  "desk": "live",                       // "live", "cached" (last read, desk not connected) or "none"
+  "total": 149, "from": 0,              // rows in the whole list; first row in this reply
+  "standbyRow": 0,                      // row of the cue GO fires next (-1 = none)
+  "deskActiveRow": 14,                  // row of the desk's running cue (-1 = not shown)
+  "deskPendingRow": 15,
+  "rows": [
+    { "row": 0, "kind": "quewi",        // "quewi", "hit" (a lighting cue part-way
+                                        //  through the song above) or "desk" (on its own)
+      "cue": { "id": "{…}", "number": "2", "name": "Blackout", "type": "OSC", "notes": "…" },
+      "standby": true, "running": false,          // quewi rows only
+      "lights": [
+        { "list": "2", "number": "0.99", "part": 1, "uid": "5ED1…", "label": "B/O",
+          "notes": "…", "scene": "Act 1", "sceneEnd": true,
+          "up": 3, "down": 3, "follow": 2, "hang": 1,     // seconds; left out when not set
+          "parts": 2,                    // the desk's part count; "partsListed": parts shown with it
+          "how": "fired",                // "manual" (placed by hand), "fired" (quewi fires it
+                                         //  at GO), "hit" (in a song, see "at"), "order"
+          "at": 30.0, "trigger": "Chorus",   // hits only: seconds after the song's GO
+          "missing": true,               // not on the desk (left out when false)
+          "active": false, "pending": false }
+      ] },
+    { "row": 5, "kind": "desk", "after": "2", "lights": [ … ] }   // "after": the quewi cue it follows
+  ]
+}
+```
+
+`/quewi/notify/matrix/changed` (`s` Matrix List id) is pushed when the
+rows change shape (a placement, the desk's list read again, the source
+list edited): query again. Standby and the desk's live cue moving don't
+push it; follow `/quewi/notify/cue/state` and re-query `current`, or poll.
+
 ## Queries (peer → quewi, quewi replies)
 
 | Send | Reply address | Reply args |
@@ -525,6 +576,8 @@ When quewi is reading an Eos desk back (`feedback` on), the reply also has
 | `/quewi/query/triggers/armed` | `/quewi/reply/triggers/armed` | `T` / `F` — the lighting-trigger master switch *(1.1.0, see [Lighting triggers](#lighting-triggers-v5))* |
 | `/quewi/cue/<num>/triggers/list` | `/quewi/reply/cue/triggers` | `s` JSON of the cue's lighting triggers *(1.1.0)* |
 | `/quewi/query/soundboard/mic` | `/quewi/reply/soundboard/mic` | `s` JSON of the soundboard → mic settings and device lists *(1.1.0, see [Soundboard → mic](#soundboard-mic))* |
+| `/quewi/query/matrix [from i] [count i] [list s]` | `/quewi/reply/matrix` | `s` JSON of the Matrix List's rows *(next release, see [Matrix List](#matrix-list))* |
+| `/quewi/query/matrix/current [before i] [after i] [list s]` | `/quewi/reply/matrix` | the same, around standby |
 | `/quewi/query/cueListDetails` | `/quewi/reply/cueListDetails` | `s` JSON `[{id, name, cueCount, isActive}, …]`. Richer alias for `/quewi/query/cueLists` — useful for cue-list picker UIs that need cue counts + which list is currently active without a follow-up round trip. The original `/quewi/query/cueLists` (id/name pairs) stays for backward compat. |
 
 ---
@@ -572,6 +625,7 @@ Subscriptions live in memory only. If quewi restarts, re-subscribe. (Run a heart
 | `/quewi/notify/trigger/fired` | `s d s s s` cue id, cue number, trigger id, trigger name, `"enter"` / `"exit"` | *(1.1.0)* A lighting trigger sent during playback. Points always say `"enter"`. Not pushed while triggers are disarmed, for edges set to Nothing, for Test, or for the audio editor's Send while previewing. The cue is the one the trigger is on (a video cue for a soundtrack's triggers). |
 | `/quewi/notify/triggers/armed` | `T` / `F` | *(1.1.0)* The lighting-trigger master switch changed (Tools menu or OSC). |
 | `/quewi/notify/soundboard/mic/changed` | — | *(1.1.0)* A soundboard → mic setting changed (on the quewi machine or over OSC). Re-query with `/quewi/query/soundboard/mic`. |
+| `/quewi/notify/matrix/changed` | `s` Matrix List id | *(next release)* The Matrix List's rows changed. Re-query with `/quewi/query/matrix`. |
 
 ---
 

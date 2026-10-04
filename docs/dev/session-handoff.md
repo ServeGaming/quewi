@@ -54,6 +54,76 @@ All committed and pushed. **30 ctest suites** (all green in CI at `6dabf77`
 before the video editor; with it, 30/30 + selftest green on a Linux Qt 6.11
 build — see §6; CI covers Windows/macOS on the push).
 
+### 0a4. Matrix List — sound + lights in one running order (2026-10-04, branch `feat/matrix-list`, PR, not on main)
+Matthew: "grab the cue list from ETC like HeliOSC does and have that as a
+new type of cue list called a Matrix List where it intermeshes the cues to
+get a full view of the entire show." Built in a worktree session, shipped
+as a PR (not merged, no version bump — that's for main).
+- **Reading the desk** `osc/EosCueLists`: shares `EosFeedback`'s TCP 3032
+  link (new `sendToDesk()` + `messageReceived` signal; no second socket).
+  ETC OSC Get: `/eos/get/cuelist/count|index/<i>`, `/eos/get/cue/<l>/count|
+  index/<i>`, windowed (32), stall → one retry → Partial (a partial read
+  never replaces a complete one). **Checked read-only against Eos 3.3.9 on
+  Matthew's PC (his Nomad was running, show "LIA 10-2-26")**: the cue's
+  index is `args[0]`; the trailing `list/<a>/<b>` pages the *arguments*
+  (list/0/31), not the cues — the first version got this wrong and only
+  the real desk showed it; an index past the end answers
+  `/eos/out/get/cue/0/0 <i>`; by-number `/eos/get/cue/<l>/<c>/<p>` answers
+  `args[0] = -1`, or no args if absent. Nomad serves ~9 GETs/s whatever the
+  window: list 2 (146 cues, decimals like 0.99/8.1) took ~17 s. So a
+  `/eos/out/notify/cue/<l>` re-asks only the named cues by number + the
+  count, and falls back to a full read on a count mismatch (renumber /
+  range). **The notify format is ETC's documented one but was NOT seen
+  from the real desk** (nothing was edited on his desk). Parts: parsed and
+  folded under their cue, but his show has none — **parts unverified on a
+  real desk**.
+- **Model** `core/MatrixModel` (pure, `quewi_core`): rows of quewi cues;
+  each desk cue placed by the first of: hand placement (With / After /
+  Start, saved) → fired at GO by a quewi cue (desk GoToCue trigger at the
+  top of a song, OSC `/eos/cue/[l/]n/fire`, `/eos/newcmd Go_To_Cue`, MSC
+  GO) → hit in a song (trigger later in the song → nested "Hit" row by
+  time) → by order (follows the previous desk cue's slot). Identity = list
+  + number + part + UID: renumbers follow the UID; deleted cues stay as
+  ⚠ missing rows; placements whose quewi cue is gone fall back to auto but
+  are kept. Decision (SM-friendly): untied cues follow the *previous* desk
+  cue, so one drag settles a run.
+- **Persistence**: `CueList::Kind::Matrix` (holds no cues) + `matrixConfig()`
+  in meta key `matrix_lists_json` `{listId: {version, sourceList, deskList,
+  placements, deskCache, deskCachedAt}}`. Optional: shows without it are
+  byte-identical to 1.1.0's format; 1.1.0 opening a show with one sees an
+  empty normal cue list (harmless). The desk cache is updated silently (no
+  "unsaved") so the matrix reads right offline.
+- **UI** `ui/MatrixView` + `ui/MatrixSource` (helpers/JSON). + menu and
+  View menu "Matrix List (sound + lights)"; tab `▦`; selecting it makes the
+  source list the GO context (GO = normal GO, nothing fires desk cues);
+  double-click / context menu = make standby; drag desk rows to place;
+  right-click = put back / forget; Show Mode locks placing; detach works;
+  follow-the-show scroll; colours from `showRegionColours()`. Placements are
+  NOT on the undo stack (markModified like the mix grid).
+- **Show Mode**: `ShowCueLine` gained `deskCues` + `deskOnly`; when the
+  matrix page is up, COMING UP is the merged order (Hit rows skipped — the
+  hits region covers them) and STANDBY lists its desk cues.
+- **OSC**: `/quewi/query/matrix [from count list]`, `/quewi/query/matrix/
+  current [before after list]` → `/quewi/reply/matrix` JSON;
+  `/quewi/notify/matrix/changed`. In `app/MainWindowMatrix.cpp`.
+- **Tests** (36 suites, all green; selftest 0): `eos_cue_lists` (fake desk
+  speaking the real format: decimals, parts, 300 cues windowed, notify →
+  patch / full re-read, stall → Partial; opt-in `QUEWI_TEST_EOS_HOST=127.0.0.1
+  QUEWI_TEST_EOS_LIST=2` reads a real desk — passed against his Nomad),
+  `matrix_model`, `matrix_persistence` (hand-built 1.1.0-era file),
+  `matrix_view` (+ `QUEWI_RENDER_DIR` PNG; offscreen fonts render garbled —
+  use the windows platform for a real look).
+- **Driven**: a `--selftest-idle` test copy (OSC 53000, PID-checked; his
+  quewi was on 8500) with a hand-made show, reading his running Nomad:
+  `/quewi/query/matrix` returned 149 rows, list 2's 146 cues interleaved,
+  LX 0.99 "fired" by an OSC cue, a missing LX 999 marked, and the desk's
+  live 8.3 / pending 8.4 flagged as he worked. **Not driven**: the GUI by
+  eye (no computer-use grant in that session) — drag-and-drop was only
+  exercised through the model in tests; Show Mode's merged COMING UP only
+  in a widget test.
+- Docs: `using-quewi/matrix-list.md` (nav), OSC reference §Matrix List,
+  release notes "Unreleased".
+
 ### 6. Video editor (2026-10-04) — Matthew's ask: "add a video track editor"
 There was none (video cues had the Inspector's scrubber + "Edit sound…").
 Built a per-cue editor, the video counterpart of the audio editor — not a
@@ -343,6 +413,10 @@ offered or deleted. Stray locks with no journal are tidied if stale.
   journals folder (see "Driving a test copy") until he's on 1.0.4.
 
 ### Next steps
+0. Review/merge the Matrix List PR (`feat/matrix-list`, §0a4), then drive
+   it by eye on Windows: drag placements, Show Mode COMING UP, detach;
+   edit a cue on the Nomad (label, renumber, delete, add a part) and watch
+   the notify path patch the matrix.
 1. Matthew: try lighting triggers against his Eos/MA, Send-to-mic (with
    VB-Cable), video sound on the real show (he reported video→audio convert
    "working perfectly" 2026-10-03; double-click into the editor for a

@@ -1,5 +1,30 @@
 # Release notes
 
+## Unreleased
+
+### New
+
+- **Matrix List: the whole show in one running order.** quewi reads your
+  ETC Eos / Ion / Element / Nomad desk's cue list (over the same
+  connection Show Mode already uses, read-only) and interleaves it with a
+  quewi cue list: one row per moment, sound and video on the left,
+  lighting cues with their labels, times, notes and scenes in a Lights
+  column. Lighting cues quewi fires sit with the cue that fires them; hits
+  inside a song sit under it at their time; the rest follow the desk's
+  order, and you can drag any of them onto the quewi cue they go with.
+  Standby, what's playing and the desk's live and pending cues are
+  highlighted as the show runs. Placements and the desk's cues are saved
+  with the show, so it reads right with no desk connected. Add one with
+  **+ → Matrix List (sound + lights)**.
+  [Matrix List →](../using-quewi/matrix-list.md)
+- **Show Mode follows the Matrix List.** When it's the page you were on,
+  COMING UP shows the merged order, lighting cues included, and STANDBY
+  says which lighting cues go with the next GO.
+- **OSC:** `/quewi/query/matrix` and `/quewi/query/matrix/current` return
+  the merged list as JSON (paged), and `/quewi/notify/matrix/changed` says
+  when to ask again.
+  [OSC reference →](../osc-control/reference.md#matrix-list)
+
 ## 1.1.0 (2026-10-04)
 
 Songs that cue the lights, a stage manager's Show Mode that shows what the
