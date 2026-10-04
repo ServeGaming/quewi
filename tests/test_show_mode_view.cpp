@@ -687,6 +687,33 @@ private slots:
                 > child<QWidget>(b, "smComingCard")->height() + child<QWidget>(b, "smHitsCard")->height());
     }
 
+    // NOW PLAYING: the song's name is what the SM reads there, so a running
+    // row gives it the whole first line — a typical 15-character name shows
+    // in full at the sizes Matthew runs, with the time and remaining under it.
+    void runningNamesShowInFull()
+    {
+        for (const QSize sz : {QSize(1280, 720), QSize(1100, 700)}) {
+            ShowModeView v;
+            v.resize(sz);
+            v.setSnapshot(live());
+            settle(v);
+            auto *running = child<QWidget>(v, "smRunning");
+            int names = 0;
+            for (auto *l : running->findChildren<ElideLabel *>()) {
+                if (l->property("role").toString() != QStringLiteral("rowTitle") || !l->isVisible()) continue;
+                ++names;
+                QVERIFY2(!l->isElided(), qPrintable(QStringLiteral("%1 elided at %2x%3 (%4 px)")
+                                                       .arg(l->text()).arg(sz.width()).arg(sz.height()).arg(l->width())));
+            }
+            QCOMPARE(names, 2);   // Defying Gravity, Storm bed
+            // The time line says "2:51", not "2:51 elapsed".
+            bool sawTime = false;
+            for (auto *l : running->findChildren<QLabel *>())
+                if (l->text() == QStringLiteral("2:51")) sawTime = true;
+            QVERIFY(sawTime);
+        }
+    }
+
     // The beat fill at 1280×720: the headline is Beat 1 and the list folds
     // the rest into one row rather than cutting a stack of them off.
     void beatFillFolds()

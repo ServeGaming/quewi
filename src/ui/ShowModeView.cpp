@@ -176,6 +176,16 @@ int ElideLabel::linesNeeded(int width, int cap) const
     return std::max(1, n);
 }
 
+bool ElideLabel::isElided() const
+{
+    const QRect r = contentsRect();
+    if (m_maxLines <= 1 || !wordWrap())
+        return QFontMetrics(font()).horizontalAdvance(text()) > r.width();
+    const int lh = QFontMetrics(font()).lineSpacing();
+    const int roomFor = std::clamp(lh > 0 ? r.height() / lh : 1, 1, m_maxLines);
+    return linesNeeded(r.width(), roomFor + 1) > roomFor;
+}
+
 void ElideLabel::paintEvent(QPaintEvent *)
 {
     QPainter p(this);
@@ -850,13 +860,20 @@ ShowModeView::Row ShowModeView::makeRow(QWidget *parent, bool withBar, const cha
         w->setProperty("region", QLatin1String(region));
     // Columns: edge · lead · title · (detail, compact only) · trail.
     g->addWidget(r.edge, 0, 0, withBar ? 3 : 2, 1);
-    g->addWidget(r.lead, 0, 1, 2, 1, Qt::AlignVCenter);
-    g->addWidget(r.title, 0, 2);
-    g->addWidget(r.detail, 1, 2);
-    g->addWidget(r.trail, 0, 4, 2, 1, Qt::AlignVCenter);
     if (withBar) {
+        // A running song: the name gets the whole first line — it's what
+        // the SM reads — with the time and the remaining under it, then the bar.
+        g->addWidget(r.lead, 0, 1, Qt::AlignVCenter);
+        g->addWidget(r.title, 0, 2, 1, 3);
+        g->addWidget(r.detail, 1, 2);
+        g->addWidget(r.trail, 1, 4, Qt::AlignVCenter);
         r.bar = new ThinProgressBar(r.frame);
         g->addWidget(r.bar, 2, 1, 1, 4);
+    } else {
+        g->addWidget(r.lead, 0, 1, 2, 1, Qt::AlignVCenter);
+        g->addWidget(r.title, 0, 2);
+        g->addWidget(r.detail, 1, 2);
+        g->addWidget(r.trail, 0, 4, 2, 1, Qt::AlignVCenter);
     }
     g->setColumnStretch(2, 1);
     return r;
@@ -1654,11 +1671,11 @@ void ShowModeView::renderRunning()
         const auto &rc = list[i];
         r.lead->setText(rc.cue.number);
         r.title->setText(rc.cue.name);
+        // The time, and PAUSED when it is; a loop is already the "∞" on the right.
         QStringList d;
-        d << tr("%1 elapsed").arg(showClockText(rc.elapsedSeconds));
+        d << showClockText(rc.elapsedSeconds);
         if (rc.paused) d << tr("PAUSED");
-        if (rc.looping) d << tr("LOOPING");
-        r.detail->setText(d.join(QStringLiteral("  ·  ")));
+        r.detail->setText(d.join(QStringLiteral(" · ")));
         r.detail->show();
         QString rem = showRemainingText(rc.remainingSeconds);
         if (rem.isEmpty()) rem = rc.looping ? QStringLiteral("∞") : QStringLiteral("—");

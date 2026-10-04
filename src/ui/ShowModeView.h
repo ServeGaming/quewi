@@ -35,6 +35,8 @@ public:
     int  maxLines() const { return m_maxLines; }
     // How many lines the text would take at `width`, capped at `cap`.
     int  linesNeeded(int width, int cap) const;
+    // Whether the text as laid out right now loses anything to "…".
+    bool isElided() const;
     QSize sizeHint() const override;
     QSize minimumSizeHint() const override;
     // Not height-for-width: the line count is set from outside (maxLines),
