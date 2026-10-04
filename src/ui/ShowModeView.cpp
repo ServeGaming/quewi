@@ -194,21 +194,131 @@ void ElideLabel::paintEvent(QPaintEvent *)
     }
 }
 
+// ── Region colours ──────────────────────────────────────────────────────
+
+QColor showMix(const QColor &a, const QColor &b, double t)
+{
+    t = std::clamp(t, 0.0, 1.0);
+    return QColor::fromRgbF(a.redF() + (b.redF() - a.redF()) * t,
+                            a.greenF() + (b.greenF() - a.greenF()) * t,
+                            a.blueF() + (b.blueF() - a.blueF()) * t);
+}
+
+ShowRegionColours showRegionColours()
+{
+    const auto &tk = Theme::tokens();
+    ShowRegionColours c;
+    c.standby = tk.accent;
+    c.coming  = tk.ink60;
+    c.running = tk.running;
+    // The hits need their own hue: info and loaded are the same blue at two
+    // strengths, so one is derived from info — turned toward violet and
+    // muted to the palette's pastel weight. Lavender, not purple.
+    c.hits    = QColor::fromHslF(std::fmod(tk.info.hslHueF() + 55.0 / 360.0, 1.0), 0.48, 0.72);
+    c.desk    = tk.loaded;
+    return c;
+}
+
 // ── ThinProgressBar ─────────────────────────────────────────────────────
+
+namespace {
+constexpr int    kFrameMs   = 16;      // ~60 fps while gliding
+constexpr double kEaseTauMs = 45.0;    // the drawn value's lag behind where it's heading
+constexpr double kSnapBack  = 0.05;    // a step back bigger than this is a restart
+constexpr double kMaxLeadMs = 1500.0;  // never extrapolate further than this past a change
+}
 
 ThinProgressBar::ThinProgressBar(QWidget *parent) : QWidget(parent)
 {
     m_colour = Theme::tokens().accent;
     setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
     setFixedHeight(m_thickness);
+    m_anim = new QTimer(this);
+    m_anim->setInterval(kFrameMs);
+    m_anim->setTimerType(Qt::PreciseTimer);
+    connect(m_anim, &QTimer::timeout, this, &ThinProgressBar::frame);
 }
 
-void ThinProgressBar::setProgress(double p)
+bool ThinProgressBar::isGliding() const
+{
+    return m_anim->isActive();
+}
+
+void ThinProgressBar::snapTo(double v)
+{
+    m_target = v;
+    m_shown = v;
+    m_rate = -1.0;
+    m_leadMs = 0.0;
+    m_sinceChange.start();
+    m_anim->stop();
+    update();
+}
+
+void ThinProgressBar::setProgress(double p, const QString &item)
 {
     const double v = p < 0.0 ? -1.0 : std::clamp(p, 0.0, 1.0);
-    if (qFuzzyCompare(v + 2.0, m_progress + 2.0)) return;
-    m_progress = v;
+    const bool newItem = item != m_item;
+    m_item = item;
+    // Cases that must not glide: a different thing, nothing known on either
+    // side, a restart, or a bar nobody can see (tests included).
+    if (newItem || v < 0.0 || m_target < 0.0 || m_shown < 0.0 || v < m_target - kSnapBack || !isVisible()) {
+        if (!qFuzzyCompare(v + 2.0, m_shown + 2.0) || !qFuzzyCompare(v + 2.0, m_target + 2.0) || newItem)
+            snapTo(v);
+        return;
+    }
+    if (qFuzzyCompare(v + 2.0, m_target + 2.0)) return;   // the same value again: keep gliding
+    const qint64 dt = m_sinceChange.restart();
+    // Two changes a few ms apart (a snapshot right after a show) say nothing
+    // about the real rate; keep whatever was known.
+    if (v > m_target && dt >= 30) {
+        // Rate from this change, smoothed with the last; lead a bit past the
+        // gap we've seen so a late update doesn't stall the bar.
+        const double r = (v - m_target) / double(dt);
+        // One change is a guess; from the second rising change on, lead
+        // ahead by up to one more gap at the latest rate — so the bar can
+        // never run more than one observed step past what it was told.
+        const bool trusted = m_rate >= 0.0;
+        m_rate = r;
+        m_leadMs = trusted ? std::min(kMaxLeadMs, double(dt)) : 0.0;
+    } else if (v < m_target) {
+        m_rate = -1.0;   // a small step back (overshoot corrected): just ease to it
+        m_leadMs = 0.0;
+    }
+    m_target = v;
+    if (!m_anim->isActive()) {
+        m_sinceFrame.start();
+        m_anim->start();
+    }
+}
+
+void ThinProgressBar::frame()
+{
+    const double dtMs = std::max<double>(1.0, double(m_sinceFrame.restart()));
+    double desired = m_target;
+    const double lead = m_rate > 0.0 && m_leadMs > 0.0 ? std::min(double(m_sinceChange.elapsed()), m_leadMs) : 0.0;
+    if (lead > 0.0) desired = std::min(1.0, m_target + m_rate * lead);
+    const double k = 1.0 - std::exp(-dtMs / kEaseTauMs);
+    m_shown += (desired - m_shown) * k;
+    const bool stillLeading = m_rate > 0.0 && m_leadMs > 0.0 && lead < m_leadMs && desired < 1.0;
+    if (std::abs(desired - m_shown) < 0.0005 && !stillLeading) {
+        m_shown = desired;
+        m_anim->stop();
+    }
     update();
+}
+
+void ThinProgressBar::showEvent(QShowEvent *)
+{
+    m_shown = m_target;
+    m_rate = -1.0;
+    m_sinceChange.start();
+}
+
+void ThinProgressBar::hideEvent(QHideEvent *)
+{
+    m_anim->stop();
+    m_shown = m_target;
 }
 
 void ThinProgressBar::setColour(const QColor &c)
@@ -234,9 +344,9 @@ void ThinProgressBar::paintEvent(QPaintEvent *)
     const double rad = std::min(2.0, r.height() / 2.0);
     p.setBrush(tk.bgInteractive);
     p.drawRoundedRect(r, rad, rad);
-    if (m_progress >= 0.0) {
+    if (m_shown >= 0.0) {
         QRectF f = r;
-        f.setWidth(std::max(r.height(), r.width() * m_progress));
+        f.setWidth(std::max(r.height(), r.width() * m_shown));
         p.setBrush(m_colour);
         p.drawRoundedRect(f, rad, rad);
     }
@@ -347,19 +457,22 @@ void ShowModeView::tick()
 
 namespace {
 
-QWidget *card(QWidget *parent, const char *name)
+QWidget *card(QWidget *parent, const char *name, const char *region)
 {
     auto *w = new QWidget(parent);
     w->setObjectName(QLatin1String(name));
     w->setProperty("role", "card");
+    w->setProperty("region", QLatin1String(region));
     w->setAttribute(Qt::WA_StyledBackground);
     return w;
 }
 
-QLabel *caps(QWidget *parent, const QString &text)
+// A small caption inside a card ("ACTIVE", "PENDING"), tinted to its region.
+QLabel *caps(QWidget *parent, const QString &text, const char *region)
 {
     auto *l = new QLabel(text, parent);
     l->setProperty("role", "caps");
+    l->setProperty("region", QLatin1String(region));
     return l;
 }
 
@@ -387,7 +500,7 @@ QPushButton *button(QWidget *parent, const char *name, const QString &text)
 
 } // namespace
 
-ShowModeView::Row ShowModeView::makeRow(QWidget *parent, bool withBar)
+ShowModeView::Row ShowModeView::makeRow(QWidget *parent, bool withBar, const char *region)
 {
     Row r;
     r.frame = new QWidget(parent);
@@ -408,6 +521,9 @@ ShowModeView::Row ShowModeView::makeRow(QWidget *parent, bool withBar)
     r.trail = elide(r.frame, "rowTrail");
     r.trail->setAlignment(Qt::AlignRight | Qt::AlignVCenter);
     r.trail->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Fixed);
+    for (QWidget *w : {static_cast<QWidget *>(r.lead), static_cast<QWidget *>(r.title),
+                       static_cast<QWidget *>(r.detail), static_cast<QWidget *>(r.trail)})
+        w->setProperty("region", QLatin1String(region));
     g->addWidget(r.edge, 0, 0, withBar ? 3 : 2, 1);
     g->addWidget(r.lead, 0, 1, 2, 1, Qt::AlignVCenter);
     g->addWidget(r.title, 0, 2);
@@ -424,6 +540,25 @@ ShowModeView::Row ShowModeView::makeRow(QWidget *parent, bool withBar)
 void ShowModeView::setRowVisible(Row &r, bool on)
 {
     r.frame->setVisible(on);
+}
+
+ShowModeView::Band ShowModeView::makeBand(QWidget *card, const char *region, const QString &heading)
+{
+    Band b;
+    b.frame = new QWidget(card);
+    b.frame->setProperty("role", "band");
+    b.frame->setProperty("region", QLatin1String(region));
+    b.frame->setAttribute(Qt::WA_StyledBackground);
+    b.lay = new QHBoxLayout(b.frame);
+    b.lay->setContentsMargins(16, 6, 12, 6);
+    b.lay->setSpacing(10);
+    b.heading = new QLabel(heading, b.frame);
+    b.heading->setProperty("role", "heading");
+    b.heading->setProperty("region", QLatin1String(region));
+    b.lay->addWidget(b.heading);
+    b.lay->addStretch(1);
+    m_bandLayouts.push_back(b.lay);
+    return b;
 }
 
 void ShowModeView::buildUi()
@@ -472,12 +607,19 @@ void ShowModeView::buildUi()
     stage->setSpacing(10);
     body->addLayout(stage, 1);
 
-    // Standby hero.
-    m_standbyCard = card(this, "smStandbyCard");
+    // Standby hero: the amber band, then the cue's own colour down the edge.
+    m_standbyCard = card(this, "smStandbyCard", "standby");
     {
-        auto *h = new QHBoxLayout(m_standbyCard);
+        auto *outer = new QVBoxLayout(m_standbyCard);
+        outer->setContentsMargins(0, 0, 0, 0);
+        outer->setSpacing(0);
+        auto band = makeBand(m_standbyCard, "standby", tr("STANDBY"));
+        m_standbyCaps = band.heading;
+        outer->addWidget(band.frame);
+        auto *h = new QHBoxLayout;
         h->setContentsMargins(0, 0, 0, 0);
         h->setSpacing(0);
+        outer->addLayout(h, 1);
         m_standbyEdge = new QWidget(m_standbyCard);
         m_standbyEdge->setObjectName(QStringLiteral("smStandbyEdge"));
         m_standbyEdge->setAttribute(Qt::WA_StyledBackground);
@@ -487,9 +629,6 @@ void ShowModeView::buildUi()
         v->setContentsMargins(18, 12, 18, 14);
         v->setSpacing(4);
         h->addLayout(v, 1);
-
-        m_standbyCaps = caps(m_standbyCard, tr("STANDBY"));
-        v->addWidget(m_standbyCaps);
 
         auto *line = new QHBoxLayout;
         line->setSpacing(22);
@@ -530,15 +669,20 @@ void ShowModeView::buildUi()
     stage->addWidget(m_standbyCard, 5);
 
     // Coming up.
-    m_comingCard = card(this, "smComingCard");
+    m_comingCard = card(this, "smComingCard", "coming");
     {
-        auto *v = new QVBoxLayout(m_comingCard);
-        v->setContentsMargins(18, 10, 18, 10);
+        auto *outer = new QVBoxLayout(m_comingCard);
+        outer->setContentsMargins(0, 0, 0, 0);
+        outer->setSpacing(0);
+        auto band = makeBand(m_comingCard, "coming", tr("COMING UP"));
+        m_comingCaps = band.heading;
+        outer->addWidget(band.frame);
+        auto *v = new QVBoxLayout;
+        v->setContentsMargins(18, 8, 18, 10);
         v->setSpacing(6);
-        m_comingCaps = caps(m_comingCard, tr("COMING UP"));
-        v->addWidget(m_comingCaps);
+        outer->addLayout(v, 1);
         for (int i = 0; i < kComingUpRows; ++i) {
-            m_comingRows.push_back(makeRow(m_comingCard, false));
+            m_comingRows.push_back(makeRow(m_comingCard, false, "coming"));
             v->addWidget(m_comingRows.back().frame);
         }
         m_comingEmpty = new QLabel(tr("Nothing after this."), m_comingCard);
@@ -553,23 +697,26 @@ void ShowModeView::buildUi()
     m_lowerRow->setSpacing(10);
     stage->addLayout(m_lowerRow, 4);
 
-    m_runningCard = card(this, "smRunningCard");
+    m_runningCard = card(this, "smRunningCard", "running");
     {
-        auto *v = new QVBoxLayout(m_runningCard);
-        v->setContentsMargins(16, 10, 16, 10);
-        v->setSpacing(8);
-        auto *top = new QHBoxLayout;
-        m_runningCaps = caps(m_runningCard, tr("NOW PLAYING"));
+        auto *outer = new QVBoxLayout(m_runningCard);
+        outer->setContentsMargins(0, 0, 0, 0);
+        outer->setSpacing(0);
+        auto band = makeBand(m_runningCard, "running", tr("NOW PLAYING"));
+        m_runningCaps = band.heading;
         m_runningState = new QLabel(m_runningCard);
         m_runningState->setObjectName(QStringLiteral("smRunningState"));
         m_runningState->setProperty("role", "chip");
+        m_runningState->setProperty("region", "running");
         m_runningState->setAlignment(Qt::AlignRight | Qt::AlignVCenter);
-        top->addWidget(m_runningCaps);
-        top->addStretch(1);
-        top->addWidget(m_runningState);
-        v->addLayout(top);
+        band.lay->addWidget(m_runningState);
+        outer->addWidget(band.frame);
+        auto *v = new QVBoxLayout;
+        v->setContentsMargins(16, 10, 16, 10);
+        v->setSpacing(8);
+        outer->addLayout(v, 1);
         for (int i = 0; i < kRunningRows; ++i) {
-            m_runningRows.push_back(makeRow(m_runningCard, true));
+            m_runningRows.push_back(makeRow(m_runningCard, true, "running"));
             v->addWidget(m_runningRows.back().frame);
         }
         v->addStretch(1);
@@ -580,13 +727,13 @@ void ShowModeView::buildUi()
     m_runningCard->setObjectName(QStringLiteral("smRunning"));
     m_lowerRow->addWidget(m_runningCard, 5);
 
-    m_hitsCard = card(this, "smHitsCard");
+    m_hitsCard = card(this, "smHitsCard", "hits");
     {
-        auto *v = new QVBoxLayout(m_hitsCard);
-        v->setContentsMargins(16, 10, 16, 10);
-        v->setSpacing(4);
-        auto *top = new QHBoxLayout;
-        m_hitsCaps = caps(m_hitsCard, tr("NEXT LIGHTING HIT"));
+        auto *outer = new QVBoxLayout(m_hitsCard);
+        outer->setContentsMargins(0, 0, 0, 0);
+        outer->setSpacing(0);
+        auto band = makeBand(m_hitsCard, "hits", tr("NEXT LIGHTING HIT"));
+        m_hitsCaps = band.heading;
         m_armed = new QPushButton(m_hitsCard);
         m_armed->setObjectName(QStringLiteral("smArmed"));
         m_armed->setCheckable(true);
@@ -595,10 +742,12 @@ void ShowModeView::buildUi()
         connect(m_armed, &QPushButton::toggled, this, [this](bool on) {
             if (on != m_snap.triggersArmed) emit armedToggled(on);
         });
-        top->addWidget(m_hitsCaps);
-        top->addStretch(1);
-        top->addWidget(m_armed);
-        v->addLayout(top);
+        band.lay->addWidget(m_armed);
+        outer->addWidget(band.frame);
+        auto *v = new QVBoxLayout;
+        v->setContentsMargins(16, 8, 16, 10);
+        v->setSpacing(4);
+        outer->addLayout(v, 1);
         m_hitCountdown = new QLabel(m_hitsCard);
         m_hitCountdown->setObjectName(QStringLiteral("smHitCountdown"));
         m_hitCountdown->setProperty("role", "hitCountdown");
@@ -611,7 +760,7 @@ void ShowModeView::buildUi()
         v->addWidget(m_hitDoes);
         v->addSpacing(6);
         for (int i = 0; i < kHitRows; ++i) {
-            m_hitRows.push_back(makeRow(m_hitsCard, false));
+            m_hitRows.push_back(makeRow(m_hitsCard, false, "hits"));
             m_hitRows.back().edge->hide();
             v->addWidget(m_hitRows.back().frame);
         }
@@ -624,30 +773,31 @@ void ShowModeView::buildUi()
     }
     m_lowerRow->addWidget(m_hitsCard, 4);
 
-    m_deskCard = card(this, "smDeskCard");
+    m_deskCard = card(this, "smDeskCard", "desk");
     {
-        auto *v = new QVBoxLayout(m_deskCard);
-        v->setContentsMargins(16, 10, 16, 10);
-        v->setSpacing(4);
-        auto *top = new QHBoxLayout;
-        top->setSpacing(8);
-        m_deskCaps = caps(m_deskCard, tr("LIGHTING DESK"));
+        auto *outer = new QVBoxLayout(m_deskCard);
+        outer->setContentsMargins(0, 0, 0, 0);
+        outer->setSpacing(0);
+        auto band = makeBand(m_deskCard, "desk", tr("LIGHTING DESK"));
+        m_deskCaps = band.heading;
         m_deskDot = new QLabel(m_deskCard);
         m_deskDot->setObjectName(QStringLiteral("smDeskDot"));
         m_deskDot->setFixedSize(10, 10);
         m_deskLink = elide(m_deskCard, "deskLink");
         m_deskLink->setObjectName(QStringLiteral("smDeskLink"));
         m_deskLink->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Fixed);
-        top->addWidget(m_deskCaps);
-        top->addStretch(1);
-        top->addWidget(m_deskDot);
-        top->addWidget(m_deskLink);
-        v->addLayout(top);
+        band.lay->addWidget(m_deskDot);
+        band.lay->addWidget(m_deskLink);
+        outer->addWidget(band.frame);
+        auto *v = new QVBoxLayout;
+        v->setContentsMargins(16, 8, 16, 10);
+        v->setSpacing(4);
+        outer->addLayout(v, 1);
         m_deskDetail = elide(m_deskCard, "quiet", 2);
         m_deskDetail->setObjectName(QStringLiteral("smDeskDetail"));
         v->addWidget(m_deskDetail);
         v->addSpacing(4);
-        m_deskActiveCaps = caps(m_deskCard, tr("ACTIVE"));
+        m_deskActiveCaps = caps(m_deskCard, tr("ACTIVE"), "desk");
         v->addWidget(m_deskActiveCaps);
         auto *act = new QHBoxLayout;
         act->setSpacing(12);
@@ -669,7 +819,7 @@ void ShowModeView::buildUi()
         m_deskBar->setObjectName(QStringLiteral("smDeskBar"));
         v->addWidget(m_deskBar);
         v->addSpacing(6);
-        m_deskPendingCaps = caps(m_deskCard, tr("PENDING"));
+        m_deskPendingCaps = caps(m_deskCard, tr("PENDING"), "desk");
         v->addWidget(m_deskPendingCaps);
         m_deskPending = elide(m_deskCard, "deskPending");
         m_deskPending->setObjectName(QStringLiteral("smDeskPending"));
@@ -710,6 +860,11 @@ void ShowModeView::buildUi()
 // Font sizes, paddings and the column width follow the window: 1280×720 is
 // scale 1 and 4K roughly 3. One stylesheet on the root reaches every child
 // through its role/objectName, so a resize is a single restyle.
+//
+// Each region owns a colour (showRegionColours): a header band across its
+// card, the heading in it, a faint wash over the card, and the region's key
+// number — so STANDBY, NOW PLAYING, the hits and the desk read as different
+// things from across a dark booth without any of them shouting.
 void ShowModeView::applyScale()
 {
     const double s = std::clamp(std::min(width() / 1280.0, height() / 720.0), 0.7, 3.0);
@@ -717,11 +872,38 @@ void ShowModeView::applyScale()
         m_scale = s;
         const auto &tk = Theme::tokens();
         const QString mono = monoFamilies();
+        const auto rc = showRegionColours();
+
+        // The region rules, one block per region.
+        QString regions;
+        const struct { const char *name; QColor colour; } regionList[] = {
+            {"standby", rc.standby}, {"coming", rc.coming}, {"running", rc.running},
+            {"hits", rc.hits}, {"desk", rc.desk},
+        };
+        for (const auto &r : regionList) {
+            const QString name = QLatin1String(r.name);
+            const bool neutral = name == QLatin1String("coming");
+            const QColor wash   = showMix(tk.bgPanel, r.colour, neutral ? 0.03 : 0.06);
+            const QColor band   = showMix(tk.bgPanel, r.colour, neutral ? 0.10 : 0.17);
+            const QColor border = showMix(tk.divider, r.colour, neutral ? 0.25 : 0.40);
+            const QColor capsC  = showMix(tk.ink40, r.colour, 0.55);
+            regions += QStringLiteral(
+                "QWidget[role=\"card\"][region=\"%1\"] { background:%2; border:1px solid %3; }"
+                "QWidget[role=\"band\"][region=\"%1\"] { background:%4; border-bottom:1px solid %3;"
+                "  border-top-left-radius:3px; border-top-right-radius:3px; }"
+                "QLabel[role=\"heading\"][region=\"%1\"] { color:%5; }"
+                "QLabel[role=\"caps\"][region=\"%1\"] { color:%6; }")
+                .arg(name, wash.name(), border.name(), band.name(), r.colour.name(), capsC.name());
+        }
+
         const QString qss = QStringLiteral(
             "QWidget#showModeView { background:%1; }"
             "QWidget[role=\"card\"] { background:%2; border:1px solid %3; border-radius:4px; }"
+            "QWidget[role=\"band\"] { background:transparent; }"
             "QWidget[role=\"row\"] { background:transparent; }"
             "QLabel { background:transparent; }"
+            // Headings: a readable label, not a whisper.
+            "QLabel[role=\"heading\"] { color:%6; font-size:%35px; font-weight:700; letter-spacing:0.12em; }"
             "QLabel[role=\"caps\"] { color:%4; font-size:%5px; font-weight:700; letter-spacing:0.15em; }"
             "QLabel[role=\"headerShow\"] { color:%6; font-size:%7px; font-weight:600; }"
             "QLabel[role=\"headerPos\"] { color:%4; font-size:%7px; }"
@@ -732,32 +914,41 @@ void ShowModeView::applyScale()
             "QPushButton#smExit { color:%4; background:transparent; border:1px solid %10; border-radius:3px;"
             "  font-size:%14px; padding:%11px %12px; }"
             "QPushButton#smExit:hover { color:%6; background:%9; }"
-            "QLabel#smStandbyNumber { color:%15; font-size:%16px; font-weight:800; letter-spacing:-0.02em; }"
-            "QLabel[role=\"standbyName\"] { color:%15; font-size:%17px; font-weight:600; }"
+            // Standby: the number in amber, the name in full ink, the rest quieter.
+            "QLabel#smStandbyNumber { color:%13; font-size:%16px; font-weight:800; letter-spacing:-0.02em; font-family:%8; }"
+            "QLabel[role=\"standbyName\"] { color:%15; font-size:%17px; font-weight:700; }"
             "QLabel[role=\"standbyMeta\"] { color:%6; font-size:%18px; letter-spacing:0.04em; }"
-            "QLabel[role=\"standbyHits\"] { color:%13; font-size:%18px; font-weight:600; }"
+            "QLabel[role=\"standbyHits\"] { color:%36; font-size:%18px; font-weight:600; }"
             "QLabel[role=\"standbyNotes\"] { color:%15; font-size:%19px; }"
             "QLabel[role=\"standbyEmpty\"] { color:%6; font-size:%17px; font-weight:600; }"
+            // Rows: number and time in the mono face; the detail line dimmer.
             "QLabel[role=\"rowLead\"] { color:%15; font-size:%20px; font-weight:700; font-family:%8; }"
+            "QLabel[role=\"rowLead\"][region=\"coming\"] { color:%6; }"
+            "QLabel[role=\"rowLead\"][region=\"hits\"] { color:%36; font-size:%21px; }"
             "QLabel[role=\"rowTitle\"] { color:%15; font-size:%21px; font-weight:600; }"
-            "QLabel[role=\"rowDetail\"] { color:%6; font-size:%14px; }"
+            "QLabel[role=\"rowDetail\"] { color:%4; font-size:%14px; }"
+            "QLabel[role=\"rowDetail\"][region=\"running\"] { color:%6; }"
             "QLabel[role=\"rowTrail\"] { color:%15; font-size:%22px; font-weight:700; font-family:%8; }"
+            "QLabel[role=\"rowTrail\"][region=\"running\"] { color:%28; }"
+            "QLabel[role=\"rowTrail\"][region=\"coming\"] { color:%4; font-size:%5px; letter-spacing:0.1em; }"
             "QLabel[role=\"quiet\"] { color:%4; font-size:%14px; }"
             "QLabel[role=\"quiet\"][tone=\"warn\"] { color:%23; }"
             "QLabel[role=\"chip\"] { color:%6; font-size:%5px; font-weight:700; letter-spacing:0.1em; }"
             "QLabel[role=\"chip\"][tone=\"warn\"] { color:%23; }"
-            "QLabel[role=\"hitCountdown\"] { color:%13; font-size:%24px; font-weight:800; font-family:%8; }"
+            // Hits: the countdown in the hits' lavender, dim when disarmed, amber when frozen.
+            "QLabel[role=\"hitCountdown\"] { color:%36; font-size:%24px; font-weight:800; font-family:%8; }"
             "QLabel[role=\"hitCountdown\"][tone=\"off\"] { color:%4; }"
             "QLabel[role=\"hitCountdown\"][tone=\"paused\"] { color:%23; }"
             "QLabel[role=\"hitName\"] { color:%15; font-size:%21px; font-weight:600; }"
             "QLabel[role=\"hitDoes\"] { color:%6; font-size:%14px; }"
-            "QPushButton#smArmed { color:%13; background:transparent; border:1px solid %13; border-radius:3px;"
+            "QPushButton#smArmed { color:%36; background:transparent; border:1px solid %36; border-radius:3px;"
             "  font-size:%5px; font-weight:700; letter-spacing:0.1em; padding:%25px %12px; }"
             "QPushButton#smArmed:!checked { color:%23; border-color:%23; background:%26; }"
+            // Desk: its cue number in the desk's blue.
             "QLabel[role=\"deskLink\"] { color:%6; font-size:%14px; font-weight:600; }"
-            "QLabel[role=\"deskActive\"] { color:%15; font-size:%27px; font-weight:800; font-family:%8; }"
+            "QLabel[role=\"deskActive\"] { color:%37; font-size:%27px; font-weight:800; font-family:%8; }"
             "QLabel[role=\"deskTime\"] { color:%6; font-size:%21px; font-family:%8; }"
-            "QLabel[role=\"deskLabel\"] { color:%6; font-size:%21px; }"
+            "QLabel[role=\"deskLabel\"] { color:%15; font-size:%21px; }"
             "QLabel[role=\"deskPending\"] { color:%6; font-size:%21px; font-weight:600; }"
             "QLabel[role=\"blind\"] { color:%23; background:%26; border-radius:3px; font-size:%18px;"
             "  font-weight:700; letter-spacing:0.1em; padding:%25px; }"
@@ -806,7 +997,11 @@ void ShowModeView::applyScale()
                  QString::number(px(18, s)),       // 31 transport font
                  tk.errBright.name(),              // 32
                  rgba(tk.errBright, 26),           // 33 faint red
-                 rgba(tk.errBright, 90));          // 34
+                 rgba(tk.errBright, 90),           // 34
+                 QString::number(px(13, s)),       // 35 heading
+                 rc.hits.name(),                   // 36 hits lavender
+                 rc.desk.name())                   // 37 desk blue
+            + regions;
         setStyleSheet(qss);
 
         // Geometry that QSS can't express.
@@ -818,6 +1013,7 @@ void ShowModeView::applyScale()
         for (auto &r : m_runningRows) r.bar->setThickness(px(4, s));
         for (auto &r : m_comingRows) r.edge->setFixedWidth(px(4, s));
         for (auto &r : m_runningRows) r.edge->setFixedWidth(px(4, s));
+        for (auto *lay : m_bandLayouts) lay->setContentsMargins(px(16, s), px(6, s), px(12, s), px(6, s));
         // The notes block gets more lines the taller the screen.
         m_standbyNotes->setMaxLines(height() >= 1000 ? 4 : 3);
     }
@@ -971,7 +1167,7 @@ void ShowModeView::renderRunning()
         if (rem.isEmpty()) rem = rc.looping ? QStringLiteral("∞") : QStringLiteral("—");
         r.trail->setText(rem);
         r.trail->show();
-        r.bar->setProgress(rc.progress);
+        r.bar->setProgress(rc.progress, rc.cue.id.toString());
         r.bar->setColour(rc.paused ? tk.warn : tk.running);
         setEdgeColour(r.edge, rc.cue.colour.isValid() ? rc.cue.colour : tk.running);
         setRowVisible(r, true);
@@ -1092,8 +1288,9 @@ void ShowModeView::renderDesk()
     m_deskActiveLabel->setText(d.activeLabel);
     m_deskActiveLabel->setVisible(!d.activeLabel.isEmpty());
     m_deskActiveTime->setText(d.activeTime);
-    m_deskBar->setProgress(d.activeProgress);
-    m_deskBar->setColour(d.activeProgress >= 0.999 ? Theme::tokens().running : Theme::tokens().accent);
+    // Keyed on the cue so a new cue snaps to its start instead of gliding back.
+    m_deskBar->setProgress(d.activeProgress, QStringLiteral("%1/%2").arg(d.activeList, d.activeCue));
+    m_deskBar->setColour(d.activeProgress >= 0.999 ? Theme::tokens().running : showRegionColours().desk);
     QString pending = cueText(d.pendingList, d.pendingCue);
     if (!d.pendingLabel.isEmpty()) pending += QStringLiteral("   ") + d.pendingLabel;
     m_deskPending->setText(pending);

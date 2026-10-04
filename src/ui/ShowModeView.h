@@ -8,8 +8,10 @@
 #include <QWidget>
 
 #include <functional>
+#include <vector>
 
 class QBoxLayout;
+class QHBoxLayout;
 class QPushButton;
 class QTimer;
 
@@ -40,24 +42,60 @@ private:
 
 // A hairline progress track (2 px radius, theme colours) — the HeliOSC
 // "thin progress bar" under a running cue.
+//
+// The value it draws glides: setProgress() sets a target, and while the
+// widget is visible the drawn value eases toward it at 60 fps, running a
+// little ahead at the rate the target has been rising so a value that
+// arrives in coarse steps (the desk's, every 0.5–1 s) still reads as one
+// continuous movement. It snaps instead when the item changes, when the
+// value jumps backwards (a restart), becomes unknown, or the bar is hidden —
+// so tests that never show the widget see progress() == what they set.
 class ThinProgressBar : public QWidget {
     Q_OBJECT
 public:
     explicit ThinProgressBar(QWidget *parent = nullptr);
-    // 0..1; < 0 = unknown (an empty track).
-    void setProgress(double p);
-    double progress() const { return m_progress; }
+    // 0..1; < 0 = unknown (an empty track). `item` names what's being
+    // tracked (a cue id, "list/cue"); a different item snaps, never glides.
+    void setProgress(double p, const QString &item = QString());
+    double progress() const { return m_target; }        // the value asked for
+    double shownProgress() const { return m_shown; }    // the value drawn
+    bool   isGliding() const;
     void setColour(const QColor &c);
     void setThickness(int px);
 
 protected:
     void paintEvent(QPaintEvent *) override;
+    void showEvent(QShowEvent *) override;
+    void hideEvent(QHideEvent *) override;
 
 private:
-    double m_progress = -1.0;
-    QColor m_colour;
-    int    m_thickness = 4;
+    void snapTo(double v);
+    void frame();
+
+    double  m_target = -1.0;
+    double  m_shown  = -1.0;
+    QString m_item;
+    double  m_rate = -1.0;         // progress per ms between target changes; < 0 = unknown
+    double  m_leadMs = 0.0;        // how far past the last change to extrapolate
+    QElapsedTimer m_sinceChange;   // since the target last moved
+    QElapsedTimer m_sinceFrame;
+    QTimer *m_anim = nullptr;
+    QColor  m_colour;
+    int     m_thickness = 4;
 };
+
+// The colour each region of the show screens owns — the header band on its
+// card, its heading and its key numbers. Both views use the same set so the
+// Lighting dock and Show Mode agree on what blue means.
+struct ShowRegionColours {
+    QColor standby;   // amber — what GO fires next
+    QColor coming;    // neutral — the queue behind it
+    QColor running;   // green — playing now
+    QColor hits;      // lavender — lighting hits coming up
+    QColor desk;      // dusty blue — the desk's own state
+};
+ShowRegionColours showRegionColours();
+QColor showMix(const QColor &a, const QColor &b, double t);   // a→b, t in 0..1
 
 // Text helpers the two views agree on, so "0:03.2" means the same thing
 // on the stage-manager screen and in the dock.
@@ -132,8 +170,18 @@ private:
         ElideLabel *trail  = nullptr;   // remaining / "in 0:04"
         ThinProgressBar *bar = nullptr;
     };
-    Row makeRow(QWidget *parent, bool withBar);
+    Row makeRow(QWidget *parent, bool withBar, const char *region);
     void setRowVisible(Row &r, bool on);
+
+    // The coloured header strip across the top of a card: its heading on
+    // the left, anything else (a chip, the Armed switch) on the right.
+    struct Band {
+        QWidget     *frame   = nullptr;
+        QLabel      *heading = nullptr;
+        QHBoxLayout *lay     = nullptr;
+    };
+    Band makeBand(QWidget *card, const char *region, const QString &heading);
+    std::vector<QHBoxLayout *> m_bandLayouts;
 
     ShowSnapshot m_snap;
     std::function<ShowSnapshot()> m_provider;

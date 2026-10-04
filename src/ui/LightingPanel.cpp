@@ -24,11 +24,41 @@ QString rgba(const QColor &c, int alpha)
     return QStringLiteral("rgba(%1,%2,%3,%4)").arg(c.red()).arg(c.green()).arg(c.blue()).arg(alpha);
 }
 
-QLabel *caps(QWidget *parent, const QString &text)
+QLabel *caps(QWidget *parent, const QString &text, const char *region)
 {
     auto *l = new QLabel(text, parent);
     l->setProperty("role", "caps");
+    l->setProperty("region", QLatin1String(region));
     return l;
+}
+
+QWidget *card(QWidget *parent, const char *name, const char *region)
+{
+    auto *w = new QWidget(parent);
+    w->setObjectName(QLatin1String(name));
+    w->setProperty("role", "card");
+    w->setProperty("region", QLatin1String(region));
+    w->setAttribute(Qt::WA_StyledBackground);
+    return w;
+}
+
+// The coloured header strip across a card; returns its layout (the heading
+// is already in it, left; anything added after sits right).
+QHBoxLayout *band(QWidget *card, const char *region, const QString &heading)
+{
+    auto *w = new QWidget(card);
+    w->setProperty("role", "band");
+    w->setProperty("region", QLatin1String(region));
+    w->setAttribute(Qt::WA_StyledBackground);
+    auto *lay = new QHBoxLayout(w);
+    lay->setContentsMargins(12, 5, 8, 5);
+    lay->setSpacing(8);
+    auto *l = new QLabel(heading, w);
+    l->setProperty("role", "heading");
+    l->setProperty("region", QLatin1String(region));
+    lay->addWidget(l);
+    lay->addStretch(1);
+    return lay;
 }
 
 ElideLabel *elide(QWidget *parent, const char *role, int lines = 1)
@@ -122,16 +152,27 @@ LightingPanel::HitRow LightingPanel::makeHitRow(QWidget *parent)
 void LightingPanel::buildUi()
 {
     m_box = new QBoxLayout(QBoxLayout::TopToBottom, this);
-    m_box->setContentsMargins(12, 10, 12, 10);
-    m_box->setSpacing(14);
+    m_box->setContentsMargins(10, 8, 10, 8);
+    m_box->setSpacing(8);
 
     // ── Desk: link dot, name, address / detail, settings ──
-    m_deskBlock = new QWidget(this);
-    m_deskBlock->setObjectName(QStringLiteral("lpDeskBlock"));
+    m_deskBlock = card(this, "lpDeskBlock", "desk");
     {
-        auto *v = new QVBoxLayout(m_deskBlock);
-        v->setContentsMargins(0, 0, 0, 0);
+        auto *outer = new QVBoxLayout(m_deskBlock);
+        outer->setContentsMargins(0, 0, 0, 0);
+        outer->setSpacing(0);
+        auto *bandLay = band(m_deskBlock, "desk", tr("LIGHTING DESK"));
+        m_settings = new QPushButton(tr("Settings…"), m_deskBlock);
+        m_settings->setObjectName(QStringLiteral("lpDeskSettings"));
+        m_settings->setFocusPolicy(Qt::NoFocus);
+        m_settings->setCursor(Qt::PointingHandCursor);
+        connect(m_settings, &QPushButton::clicked, this, &LightingPanel::deskSettingsRequested);
+        bandLay->addWidget(m_settings);
+        outer->addWidget(bandLay->parentWidget());
+        auto *v = new QVBoxLayout;
+        v->setContentsMargins(12, 8, 12, 8);
         v->setSpacing(3);
+        outer->addLayout(v, 1);
         auto *top = new QHBoxLayout;
         top->setSpacing(8);
         m_deskDot = new QLabel(m_deskBlock);
@@ -139,14 +180,8 @@ void LightingPanel::buildUi()
         m_deskDot->setFixedSize(9, 9);
         m_deskLink = elide(m_deskBlock, "deskLink");
         m_deskLink->setObjectName(QStringLiteral("lpDeskLink"));
-        m_settings = new QPushButton(tr("Desk settings…"), m_deskBlock);
-        m_settings->setObjectName(QStringLiteral("lpDeskSettings"));
-        m_settings->setFocusPolicy(Qt::NoFocus);
-        m_settings->setCursor(Qt::PointingHandCursor);
-        connect(m_settings, &QPushButton::clicked, this, &LightingPanel::deskSettingsRequested);
         top->addWidget(m_deskDot);
         top->addWidget(m_deskLink, 1);
-        top->addWidget(m_settings);
         v->addLayout(top);
         m_deskDetail = elide(m_deskBlock, "quiet", 2);
         m_deskDetail->setObjectName(QStringLiteral("lpDeskDetail"));
@@ -156,13 +191,18 @@ void LightingPanel::buildUi()
     m_box->addWidget(m_deskBlock);
 
     // ── The desk's cues: ACTIVE with progress, PENDING ──
-    m_cueBlock = new QWidget(this);
-    m_cueBlock->setObjectName(QStringLiteral("lpCueBlock"));
+    m_cueBlock = card(this, "lpCueBlock", "desk");
     {
-        auto *v = new QVBoxLayout(m_cueBlock);
-        v->setContentsMargins(0, 0, 0, 0);
+        auto *outer = new QVBoxLayout(m_cueBlock);
+        outer->setContentsMargins(0, 0, 0, 0);
+        outer->setSpacing(0);
+        auto *bandLay = band(m_cueBlock, "desk", tr("DESK CUES"));
+        outer->addWidget(bandLay->parentWidget());
+        auto *v = new QVBoxLayout;
+        v->setContentsMargins(12, 8, 12, 8);
         v->setSpacing(2);
-        m_activeCaps = caps(m_cueBlock, tr("ACTIVE"));
+        outer->addLayout(v, 1);
+        m_activeCaps = caps(m_cueBlock, tr("ACTIVE"), "desk");
         v->addWidget(m_activeCaps);
         auto *line = new QHBoxLayout;
         line->setSpacing(10);
@@ -188,7 +228,7 @@ void LightingPanel::buildUi()
         v->addSpacing(6);
         auto *pend = new QHBoxLayout;
         pend->setSpacing(8);
-        m_pendingCaps = caps(m_cueBlock, tr("PENDING"));
+        m_pendingCaps = caps(m_cueBlock, tr("PENDING"), "desk");
         m_pending = elide(m_cueBlock, "deskPending");
         m_pending->setObjectName(QStringLiteral("lpDeskPending"));
         pend->addWidget(m_pendingCaps);
@@ -209,16 +249,12 @@ void LightingPanel::buildUi()
     m_box->addWidget(m_cueBlock);
 
     // ── Lighting hits: Armed switch, the next hit big, then a few more ──
-    m_hitsBlock = new QWidget(this);
-    m_hitsBlock->setObjectName(QStringLiteral("lpHitsBlock"));
+    m_hitsBlock = card(this, "lpHitsBlock", "hits");
     {
-        auto *v = new QVBoxLayout(m_hitsBlock);
-        v->setContentsMargins(0, 0, 0, 0);
-        v->setSpacing(3);
-        auto *top = new QHBoxLayout;
-        top->setSpacing(8);
-        top->addWidget(caps(m_hitsBlock, tr("LIGHTING HITS")));
-        top->addStretch(1);
+        auto *outer = new QVBoxLayout(m_hitsBlock);
+        outer->setContentsMargins(0, 0, 0, 0);
+        outer->setSpacing(0);
+        auto *bandLay = band(m_hitsBlock, "hits", tr("LIGHTING HITS"));
         m_armed = new QPushButton(m_hitsBlock);
         m_armed->setObjectName(QStringLiteral("lpArmed"));
         m_armed->setCheckable(true);
@@ -228,8 +264,12 @@ void LightingPanel::buildUi()
         connect(m_armed, &QPushButton::toggled, this, [this](bool on) {
             if (on != m_snap.triggersArmed) emit armedToggled(on);
         });
-        top->addWidget(m_armed);
-        v->addLayout(top);
+        bandLay->addWidget(m_armed);
+        outer->addWidget(bandLay->parentWidget());
+        auto *v = new QVBoxLayout;
+        v->setContentsMargins(12, 8, 12, 8);
+        v->setSpacing(3);
+        outer->addLayout(v, 1);
         auto *head = new QHBoxLayout;
         head->setSpacing(10);
         m_hitCountdown = new QLabel(m_hitsBlock);
@@ -262,35 +302,57 @@ void LightingPanel::buildUi()
     m_box->addWidget(m_hitsBlock, 1);
 }
 
+// The same language as Show Mode, at dock size: the desk's two blocks in the
+// desk's blue, the hits in lavender, each with its header band.
 void LightingPanel::applyStyle()
 {
     const auto &tk = Theme::tokens();
+    const auto rc = showRegionColours();
     const QString mono = QStringLiteral("'JetBrains Mono','Cascadia Mono','Consolas',monospace");
+
+    QString regions;
+    const struct { const char *name; QColor colour; } regionList[] = {{"desk", rc.desk}, {"hits", rc.hits}};
+    for (const auto &r : regionList) {
+        const QString name = QLatin1String(r.name);
+        const QColor wash   = showMix(tk.bgRow, r.colour, 0.06);
+        const QColor band   = showMix(tk.bgRow, r.colour, 0.17);
+        const QColor border = showMix(tk.divider, r.colour, 0.40);
+        const QColor capsC  = showMix(tk.ink40, r.colour, 0.55);
+        regions += QStringLiteral(
+            "QWidget[role=\"card\"][region=\"%1\"] { background:%2; border:1px solid %3; border-radius:4px; }"
+            "QWidget[role=\"band\"][region=\"%1\"] { background:%4; border-bottom:1px solid %3;"
+            "  border-top-left-radius:3px; border-top-right-radius:3px; }"
+            "QLabel[role=\"heading\"][region=\"%1\"] { color:%5; }"
+            "QLabel[role=\"caps\"][region=\"%1\"] { color:%6; }")
+            .arg(name, wash.name(), border.name(), band.name(), r.colour.name(), capsC.name());
+    }
+
     setStyleSheet(QStringLiteral(
         "QWidget#lightingPanel { background:%1; }"
         "QLabel { background:transparent; }"
+        "QLabel[role=\"heading\"] { color:%8; font-size:11px; font-weight:700; letter-spacing:0.12em; }"
         "QLabel[role=\"caps\"] { color:%2; font-size:10px; font-weight:700; letter-spacing:0.15em; }"
         "QLabel[role=\"quiet\"] { color:%2; font-size:11px; }"
         "QLabel[role=\"quiet\"][tone=\"warn\"] { color:%3; }"
         "QLabel[role=\"deskLink\"] { color:%4; font-size:13px; font-weight:600; }"
         "QPushButton#lpDeskSettings { color:%2; background:transparent; border:1px solid %5;"
-        "  border-radius:3px; font-size:11px; padding:2px 8px; }"
+        "  border-radius:3px; font-size:10px; padding:1px 7px; }"
         "QPushButton#lpDeskSettings:hover { color:%4; background:%6; }"
-        "QLabel[role=\"deskActive\"] { color:%4; font-size:26px; font-weight:800; font-family:%7; }"
+        "QLabel[role=\"deskActive\"] { color:%11; font-size:26px; font-weight:800; font-family:%7; }"
         "QLabel[role=\"deskTime\"] { color:%8; font-size:13px; font-family:%7; }"
-        "QLabel[role=\"deskLabel\"] { color:%8; font-size:13px; }"
+        "QLabel[role=\"deskLabel\"] { color:%4; font-size:13px; }"
         "QLabel[role=\"deskPending\"] { color:%8; font-size:13px; font-weight:600; }"
         "QLabel[role=\"blind\"] { color:%3; background:%9; border-radius:3px; font-size:11px;"
         "  font-weight:700; letter-spacing:0.1em; padding:2px; }"
         "QPushButton#lpArmed { color:%10; background:transparent; border:1px solid %10; border-radius:3px;"
-        "  font-size:10px; font-weight:700; letter-spacing:0.1em; padding:2px 8px; }"
+        "  font-size:10px; font-weight:700; letter-spacing:0.1em; padding:1px 7px; }"
         "QPushButton#lpArmed:!checked { color:%3; border-color:%3; background:%9; }"
         "QLabel[role=\"hitCountdown\"] { color:%10; font-size:30px; font-weight:800; font-family:%7; }"
         "QLabel[role=\"hitCountdown\"][tone=\"paused\"] { color:%3; }"
         "QLabel[role=\"hitCountdown\"][tone=\"off\"] { color:%2; }"
         "QLabel[role=\"hitName\"] { color:%4; font-size:14px; font-weight:600; }"
         "QLabel[role=\"hitDoes\"] { color:%8; font-size:11px; }"
-        "QLabel[role=\"hitWhen\"] { color:%4; font-size:13px; font-weight:700; font-family:%7; }"
+        "QLabel[role=\"hitWhen\"] { color:%10; font-size:13px; font-weight:700; font-family:%7; }"
         "QLabel[role=\"hitWhen\"][tone=\"paused\"] { color:%3; }"
         "QLabel[role=\"hitWhen\"][tone=\"off\"] { color:%2; }"
         "QLabel[role=\"hitRowName\"] { color:%4; font-size:12px; font-weight:600; }"
@@ -304,7 +366,9 @@ void LightingPanel::applyStyle()
              mono,                         // 7
              tk.ink60.name(),              // 8
              rgba(tk.warn, 28))            // 9
-        .arg(tk.accent.name()));           // 10
+        .arg(rc.hits.name(),               // 10 hits lavender
+             rc.desk.name())               // 11 desk blue
+        + regions);
     // Polish first so the metrics are the stylesheet's font, not the default.
     for (auto &r : m_hitRows) r.when->ensurePolished();
     const QFontMetrics fm(m_hitRows.front().when->font());
@@ -319,7 +383,7 @@ void LightingPanel::relayout()
     if (wide == m_wide) return;
     m_wide = wide;
     m_box->setDirection(wide ? QBoxLayout::LeftToRight : QBoxLayout::TopToBottom);
-    m_box->setSpacing(wide ? 24 : 14);
+    m_box->setSpacing(wide ? 12 : 8);
     m_box->setStretch(0, wide ? 3 : 0);
     m_box->setStretch(1, wide ? 4 : 0);
     m_box->setStretch(2, wide ? 5 : 1);
@@ -387,8 +451,8 @@ void LightingPanel::renderDesk()
     m_activeTime->setText(d.activeTime);
     m_activeLabel->setText(d.activeLabel);
     m_activeLabel->setVisible(!d.activeLabel.isEmpty());
-    m_activeBar->setProgress(d.activeProgress);
-    m_activeBar->setColour(d.activeProgress >= 0.999 ? tk.running : tk.accent);
+    m_activeBar->setProgress(d.activeProgress, QStringLiteral("%1/%2").arg(d.activeList, d.activeCue));
+    m_activeBar->setColour(d.activeProgress >= 0.999 ? tk.running : showRegionColours().desk);
     QString pending = cueText(d.pendingList, d.pendingCue);
     if (!d.pendingLabel.isEmpty()) pending += QStringLiteral("   ") + d.pendingLabel;
     m_pending->setText(pending);

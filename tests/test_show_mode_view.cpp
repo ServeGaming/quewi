@@ -5,6 +5,8 @@
 #include <QPushButton>
 #include <QSignalSpy>
 
+#include <cmath>
+
 #include "ui/LightingPanel.h"
 #include "ui/ShowModeView.h"
 #include "ui/Theme.h"
@@ -185,6 +187,54 @@ private slots:
         QCOMPARE(showRemainingText(42.6), QStringLiteral("-0:43"));
         QCOMPARE(showRemainingText(-1.0), QString());
         QCOMPARE(showDeskLinkText(ShowDeskStatus::Link::Live), QStringLiteral("Live"));
+    }
+
+    // The bar's target is always exactly what was set; the drawn value only
+    // glides while the bar is on screen, and snaps for a new item, a
+    // restart, or an unknown value.
+    void progressBarGlides()
+    {
+        ThinProgressBar bar;
+        bar.setProgress(0.25, QStringLiteral("a"));
+        QCOMPARE(bar.progress(), 0.25);
+        QCOMPARE(bar.shownProgress(), 0.25);        // hidden: no glide
+        QVERIFY(!bar.isGliding());
+        bar.resize(300, 4);
+        bar.show();
+        QVERIFY(QTest::qWaitForWindowExposed(&bar));
+        bar.setProgress(0.30, QStringLiteral("a"));
+        QCOMPARE(bar.progress(), 0.30);
+        QVERIFY(bar.isGliding());
+        QTRY_VERIFY(!bar.isGliding());              // settles on its own…
+        QVERIFY(std::abs(bar.shownProgress() - 0.30) < 0.02);   // …at (or just past) the target
+        // Steady rise, 0.01 per 100 ms: the drawn value stays within 150 ms'
+        // worth of the target (never behind it by more than a frame or two).
+        for (int i = 1; i <= 5; ++i) {
+            bar.setProgress(0.30 + 0.01 * i, QStringLiteral("a"));
+            QTest::qWait(100);
+            const double diff = bar.shownProgress() - bar.progress();
+            QVERIFY2(diff > -0.004 && diff < 0.016,
+                     qPrintable(QStringLiteral("shown %1 vs target %2").arg(bar.shownProgress()).arg(bar.progress())));
+        }
+        // A restart (big step back) snaps.
+        bar.setProgress(0.02, QStringLiteral("a"));
+        QCOMPARE(bar.shownProgress(), 0.02);
+        QVERIFY(!bar.isGliding());
+        // A different item snaps, even forwards.
+        bar.setProgress(0.90, QStringLiteral("b"));
+        QCOMPARE(bar.shownProgress(), 0.90);
+        QVERIFY(!bar.isGliding());
+        // Unknown empties the track at once.
+        bar.setProgress(-1.0, QStringLiteral("b"));
+        QCOMPARE(bar.progress(), -1.0);
+        QCOMPARE(bar.shownProgress(), -1.0);
+        // Hidden mid-glide: the animation stops and the drawn value lands.
+        bar.setProgress(0.10, QStringLiteral("c"));
+        bar.setProgress(0.20, QStringLiteral("c"));
+        QVERIFY(bar.isGliding());
+        bar.hide();
+        QVERIFY(!bar.isGliding());
+        QCOMPARE(bar.shownProgress(), 0.20);
     }
 
     void standbyHero()
