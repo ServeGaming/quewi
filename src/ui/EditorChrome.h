@@ -17,7 +17,7 @@ namespace quewi::ui {
 
 // 18×18 line icons in the theme's primary ink: play, pause, stop, loop,
 // select, razor, zoomIn, zoomOut, zoomFit, addTrack, undo, redo, render,
-// waveform, spectrogram, toIn, toOut.
+// waveform, spectrogram, toIn, toOut, frameBack, frameForward, cut, keep.
 QIcon makeEditorIcon(const QString &name);
 QWidget *toolbarDivider(QWidget *parent);
 QLabel  *sectionLabel(const QString &text, QWidget *parent);

@@ -39,6 +39,8 @@ add_library(quewi_ui STATIC
     VideoEditorWindow.cpp
     VideoTimeline.h
     VideoTimeline.cpp
+    VideoInspector.h
+    VideoInspector.cpp
     VideoThumbnailer.h
     VideoThumbnailer.cpp
     AudioEditorWindow.h
