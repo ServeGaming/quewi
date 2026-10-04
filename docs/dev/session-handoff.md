@@ -54,6 +54,44 @@ All committed and pushed. **30 ctest suites** (all green in CI at `6dabf77`
 before the video editor; with it, 30/30 + selftest green on a Linux Qt 6.11
 build — see §6; CI covers Windows/macOS on the push).
 
+### 7. Command menu + leader key (2026-10-04) — on a worktree branch, to merge
+Matthew's ask: a macOS-style command menu (Spotlight/Raycast) "with that
+super key like power that Omarchy has". Built on `worktree-agent-ac2cd7a9968a20b4c`
+(not pushed to main; Claude merges it).
+- `ui/CommandMenu.*` replaces `CommandPalette.*`: a frameless, modal,
+  translucent panel over the main window (dim backdrop, click outside closes).
+  **Search view** (Ctrl+K): fuzzy over every menu action + cues in the list on
+  screen (stand by; Ctrl+↵ opens the editor) + lists + recent shows +
+  Preferences pages (+ themes via View › Theme). **Key view** (which-key):
+  one-letter categories — C Cue, L Lights, S Show, G Go to, F File, E Edit,
+  V View, I List, T Tools, P Preferences, H Help — drill by letter, Backspace
+  up, non-mnemonic → search, Esc closes, Space inert. Mnemonics from the menus'
+  `&` accelerators, conflicts resolved deterministically and **remembered** in
+  `commandmenu/mnemonics/<node>` (Preferences → Reset). Recent picks in
+  `commandmenu/recent`. `ui/CommandMatch.*` is the pure matcher.
+- `ui/LeaderKey.*`: the "Super". Default **`** (backtick) — single key, unused,
+  far from Space/Esc. Registered with ShortcutManager as `commandmenu.leader`
+  (rebindable in Keyboard shortcuts and Preferences → Command menu; the
+  main window re-reads it on WindowActivate). Tap → key view; hold + letter →
+  category directly, or a **pin** (`commandmenu/chords/<L>`, set with Ctrl+P
+  in the search). Letters are swallowed while held, so A can't make a cue.
+  Text fields: the key just types. Window-level only (editors untouched).
+- Safety: GO/Panic/Pause/Fade All aren't menu-bar actions so they're never in
+  it; the only cue action is stand-by. Modal, so Space/Esc shortcuts can't
+  reach the window. Show Mode: `isRunSafe` keeps enabled, non-editing items
+  only (File/Edit/Cue/List, list switching, recents, Preferences, editor
+  secondary all gone).
+- MainWindow: `showCommandMenu(bool keys, typed)` builds a `CommandContext`
+  of values + callbacks (the only MainWindow change besides the leader hook
+  and registering Ctrl+K as `commandmenu.open`). Preferences page "Command
+  menu" (`makeCommandMenuPage`). Docs: `using-quewi/command-menu.md`,
+  shortcuts page, release notes *Unreleased*.
+- `test_command_menu` (20 cases, incl. `QUEWI_RENDER_DIR` PNGs over a
+  stand-in main window). **Not driven in the real app on Windows** — only
+  compiled + selftest; the leader's real-key path (ShortcutOverride on a
+  live Win32 window, AltGr layouts) and the translucent backdrop on DWM
+  are the things to try first.
+
 ### 6. Video editor (2026-10-04) — Matthew's ask: "add a video track editor"
 There was none (video cues had the Inspector's scrubber + "Edit sound…").
 Built a per-cue editor, the video counterpart of the audio editor — not a
