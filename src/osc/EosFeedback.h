@@ -4,6 +4,8 @@
 #include <QObject>
 #include <QString>
 
+#include <functional>
+
 class QTcpSocket;
 class QTimer;
 
@@ -24,6 +26,8 @@ struct EosCueText {
     }
 };
 EosCueText parseEosCueText(const QString &text);
+// An Eos time as seconds: "5", "5.00", "1:30", "1:02:03.5". -1 if it isn't one.
+double eosTimeSeconds(const QString &time);
 
 // Reads an ETC Eos console's state back (Eos, Ion, Element, Nomad): which
 // cue is running and which is pending, its progress, the show name, Blind.
@@ -58,7 +62,12 @@ public:
     const EosCueText &active() const   { return m_active; }
     const EosCueText &pending() const  { return m_pending; }
     const EosCueText &previous() const { return m_previous; }
-    double  activeProgress() const { return m_progress; }   // 0..1, < 0 unknown
+    // The active cue's progress, 0..1 (< 0 unknown), moved on smoothly
+    // between the desk's updates: the desk only says where it is every so
+    // often, so this runs on at the cue's pace (its time, or the rate the
+    // last updates rose at) for up to a couple of seconds past the last one.
+    double  activeProgress() const;
+    double  reportedProgress() const { return m_progress; }   // as last sent
     QString showName() const { return m_showName; }
     bool    blind() const { return m_blind; }
 
@@ -67,6 +76,7 @@ public:
 
     // Timing, overridable for tests (ms).
     void setTimings(int reconnectMs, int pingMs, int silenceMs);
+    void setClock(std::function<qint64()> nowMs);   // tests: a fake clock
 
 signals:
     void linkChanged(quewi::osc::EosFeedback::Link link);
@@ -93,6 +103,13 @@ private:
 
     EosCueText m_active, m_pending, m_previous;
     double     m_progress = -1.0;
+    // Smoothing: when m_progress was last set, and how fast it's rising.
+    void       setProgress(double p);
+    qint64     now() const;
+    std::function<qint64()> m_clock;
+    QElapsedTimer m_since;
+    qint64     m_progressAtMs = 0;
+    double     m_rate = 0.0;              // progress per second; 0 = unknown
     QString    m_showName;
     bool       m_blind = false;
 };

@@ -61,12 +61,44 @@ private slots:
         fb.handle({QStringLiteral("/eos/out/event/state"), {osc::Argument::i(0)}});
         QCOMPARE(fb.active().cue, QStringLiteral("4"));
         QCOMPARE(fb.pending().label, QStringLiteral("Noon"));
-        QCOMPARE(fb.activeProgress(), 0.5);
+        QCOMPARE(fb.reportedProgress(), 0.5);
         QCOMPARE(fb.showName(), QStringLiteral("Into the Woods"));
         QVERIFY(fb.blind());
         QCOMPARE(changed.count(), 5);
         fb.handle(text("/eos/out/pending/cue/text", "1/5 Noon 3.00 0%"));   // same: no signal
         QCOMPARE(changed.count(), 5);
+    }
+
+    // The bar runs on between the desk's updates instead of stepping.
+    void progressRunsOnSmoothlyBetweenUpdates()
+    {
+        QCOMPARE(osc::eosTimeSeconds(QStringLiteral("8.00")), 8.0);
+        QCOMPARE(osc::eosTimeSeconds(QStringLiteral("1:30")), 90.0);
+        QCOMPARE(osc::eosTimeSeconds(QStringLiteral("Label")), -1.0);
+
+        qint64 t = 0;
+        osc::EosFeedback fb;
+        fb.setClock([&t] { return t; });
+        // An 8 s cue at 0 %: until the desk says more, it runs at 1/8 per s.
+        fb.handle(text("/eos/out/active/cue/text", "1/5 Fade 8.00 0%"));
+        t = 1000;
+        QVERIFY(qAbs(fb.activeProgress() - 0.125) < 1e-9);
+        // The desk reports 20 % at 1.6 s: measured pace takes over.
+        t = 1600;
+        fb.handle({QStringLiteral("/eos/out/active/cue"), {osc::Argument::f(0.2f)}});
+        QVERIFY(qAbs(fb.activeProgress() - 0.2) < 1e-6);
+        t = 2100;
+        QVERIFY(fb.activeProgress() > 0.25 && fb.activeProgress() < 0.3);
+        // A stalled desk: it stops 2 s past the last update.
+        t = 60000;
+        const double capped = fb.activeProgress();
+        QVERIFY(capped < 0.5);
+        t = 90000;
+        QCOMPARE(fb.activeProgress(), capped);
+        QVERIFY(qAbs(fb.reportedProgress() - 0.2) < 1e-6);
+        // A new cue starts again from its own report.
+        fb.handle(text("/eos/out/active/cue/text", "1/6 Snap 0.00 100%"));
+        QCOMPARE(fb.activeProgress(), 1.0);
     }
 
     void talksToAFakeDeskOverTcp()

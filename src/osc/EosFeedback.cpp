@@ -43,8 +43,18 @@ EosCueText parseEosCueText(const QString &text)
     return out;
 }
 
+double eosTimeSeconds(const QString &time)
+{
+    static const QRegularExpression re(QStringLiteral(R"(^\d+(:\d{1,2})*(\.\d+)?$)"));
+    if (!re.match(time).hasMatch()) return -1.0;
+    double total = 0.0;
+    for (const auto &part : time.split(QLatin1Char(':'))) total = total * 60.0 + part.toDouble();
+    return total;
+}
+
 EosFeedback::EosFeedback(QObject *parent) : QObject(parent)
 {
+    m_since.start();
     m_retry = new QTimer(this);
     m_retry->setInterval(3000);
     m_retry->setSingleShot(true);
@@ -111,6 +121,7 @@ void EosFeedback::clearState()
                      || !m_showName.isEmpty() || m_blind || m_progress >= 0.0;
     m_active = m_pending = m_previous = {};
     m_progress = -1.0;
+    m_rate = 0.0;
     m_showName.clear();
     m_blind = false;
     if (had) emit stateChanged();
@@ -216,9 +227,11 @@ void EosFeedback::handle(const Message &m)
         changed = true;
     };
     if (a == QLatin1String("/eos/out/active/cue/text")) {
+        const QString was = m_active.list + QLatin1Char('/') + m_active.cue;
         setText(m_active);
+        if (m_active.list + QLatin1Char('/') + m_active.cue != was) m_rate = 0.0;   // a new cue
         if (m_active.percent >= 0 && m_active.percent / 100.0 != m_progress) {
-            m_progress = m_active.percent / 100.0;
+            setProgress(m_active.percent / 100.0);
             changed = true;
         }
     } else if (a == QLatin1String("/eos/out/pending/cue/text")) {
@@ -229,7 +242,7 @@ void EosFeedback::handle(const Message &m)
         // A float 0..1 as the active cue runs — smoother than the text's %.
         if (const auto v = firstNumber(m)) {
             const double p = std::clamp(*v, 0.0, 1.0);
-            if (p != m_progress) { m_progress = p; changed = true; }
+            if (p != m_progress) { setProgress(p); changed = true; }
         }
     } else if (a == QLatin1String("/eos/out/show/name")) {
         if (str() != m_showName) { m_showName = str(); changed = true; }
@@ -243,6 +256,38 @@ void EosFeedback::handle(const Message &m)
         if (blind != m_blind) { m_blind = blind; changed = true; }
     }
     if (changed) emit stateChanged();
+}
+
+void EosFeedback::setClock(std::function<qint64()> nowMs) { m_clock = std::move(nowMs); }
+
+qint64 EosFeedback::now() const { return m_clock ? m_clock() : m_since.elapsed(); }
+
+void EosFeedback::setProgress(double p)
+{
+    const qint64 t = now();
+    // How fast it's going: measured from the last two updates of the same
+    // cue when it rose, else the cue's own time ("8.00" → 1/8 per second).
+    // (Updates closer than 100 ms apart — the text and the float for the
+    // same moment — say nothing about the pace.)
+    if (m_progress >= 0.0 && p > m_progress && t - m_progressAtMs >= 100) {
+        const double measured = (p - m_progress) * 1000.0 / double(t - m_progressAtMs);
+        m_rate = std::min(10.0, m_rate > 0.0 ? 0.5 * m_rate + 0.5 * measured : measured);
+    } else if (p < m_progress || m_progress < 0.0
+               || (m_rate <= 0.0 && t - m_progressAtMs >= 100)) {
+        const double secs = eosTimeSeconds(m_active.time);
+        m_rate = secs > 0.0 ? 1.0 / secs : 0.0;
+    }
+    m_progress = p;
+    m_progressAtMs = t;
+}
+
+double EosFeedback::activeProgress() const
+{
+    if (m_progress < 0.0 || m_progress >= 1.0 || m_rate <= 0.0) return m_progress;
+    // Run on for at most 2 s past the last update: a desk that stops
+    // reporting (held, or a dropped link) mustn't race the bar to the end.
+    const double secs = std::min(2.0, (now() - m_progressAtMs) / 1000.0);
+    return std::min(1.0, m_progress + m_rate * std::max(0.0, secs));
 }
 
 } // namespace quewi::osc
