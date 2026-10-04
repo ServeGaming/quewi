@@ -5,6 +5,7 @@
 #include "video/Layer.h"
 #include "video/TestPatternLayer.h"
 #include "video/TextLayer.h"
+#include "video/VideoCue.h"
 #include "video/VideoLayer.h"
 
 #include <QPointer>
@@ -24,12 +25,39 @@ VideoEngine::VideoEngine(QObject *parent)
 
 VideoEngine::~VideoEngine() { stopAll(); }
 
+VideoVoiceParams voiceParamsFor(const VisualCue &cue)
+{
+    VideoVoiceParams p;
+    p.screenIndex = cue.screenIndex();
+    p.geometry = QRectF(cue.posX(), cue.posY(), cue.posW(), cue.posH());
+    p.opacity = cue.opacity();
+    if (auto *vc = qobject_cast<const VideoCue *>(&cue)) {
+        p.kind = VideoVoiceParams::Video;
+        p.filePath = vc->filePath();
+        p.loop = vc->loop();
+        p.timing = vc->pictureTiming();
+    } else if (auto *ic = qobject_cast<const ImageCue *>(&cue)) {
+        p.kind = VideoVoiceParams::Image;
+        p.filePath = ic->filePath();
+    } else if (auto *tc = qobject_cast<const TextCue *>(&cue)) {
+        p.kind = VideoVoiceParams::Text;
+        p.text = tc->text();
+        p.fontPixelSize = tc->fontPixelSize();
+        p.textColor = tc->textColor();
+    }
+    return p;
+}
+
 VideoVoiceId VideoEngine::fire(const VideoVoiceParams &params)
 {
     Layer *layer = nullptr;
     switch (params.kind) {
     case VideoVoiceParams::Video:
-        layer = new VideoLayer(params.filePath, params.loop);
+    {
+        PictureTiming timing = params.timing;
+        timing.loop = params.loop;
+        layer = new VideoLayer(params.filePath, timing);
+    }
         break;
     case VideoVoiceParams::Image:
         layer = new ImageLayer(params.filePath);

@@ -174,7 +174,7 @@ void CompositorWindow::paintEvent(QPaintEvent *)
                          g.width()  * winRect.width(),
                          g.height() * winRect.height());
 
-        p.setOpacity(layer->opacity());
+        p.setOpacity(layer->drawnOpacity());
         p.drawImage(dst, frame);
     }
     p.setOpacity(1.0);

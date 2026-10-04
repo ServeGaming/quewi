@@ -1,6 +1,7 @@
 #pragma once
 
 #include "video/Layer.h"
+#include "video/PictureTiming.h"
 
 #include <QImage>
 #include <QPointer>
@@ -23,7 +24,11 @@ namespace quewi::video {
 class VideoLayer : public Layer {
     Q_OBJECT
 public:
-    explicit VideoLayer(const QString &filePath, bool loop, QObject *parent = nullptr);
+    // Starts at timing.inSeconds, stops (or loops back) at the Out point and
+    // fades its envelope per timing. An untrimmed loop uses the player's own
+    // seamless looping.
+    explicit VideoLayer(const QString &filePath, const PictureTiming &timing,
+                        QObject *parent = nullptr);
     ~VideoLayer() override;
 
     QImage currentFrame() const override { return m_frame; }
@@ -38,14 +43,25 @@ public:
     void   pause();
     void   resume();
     bool   isPaused()  const;
-    bool   isLooping() const { return m_loop; }
+    bool   isLooping() const { return m_timing.loop; }
+    const PictureTiming &timing() const { return m_timing; }
 
 private slots:
     void onMediaStatus(int status);
 
 private:
+    // Out point / wrap handling and the fade envelope for position posMs.
+    void followPosition(qint64 posMs);
+    void wrapToIn();
+
     QString m_path;
-    bool    m_loop = false;
+    PictureTiming m_timing;
+    bool    m_nativeLoop = false;    // QMediaPlayer::Infinite (untrimmed loop)
+    bool    m_firstPass  = true;     // the fade in only runs once
+    bool    m_ended      = false;    // finished() sent (non-looping Out)
+    bool    m_startSeekPending = false;
+    bool    m_wrapping   = false;    // seek back to In not landed yet
+    qint64  m_lastPosMs  = 0;
     QPointer<QMediaPlayer>  m_player;
     QPointer<QAudioOutput>  m_audioOut;
     QPointer<QVideoSink>    m_sink;

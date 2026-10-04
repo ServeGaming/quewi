@@ -10,6 +10,7 @@ add_library(quewi_video STATIC
     CompositorWindow.h
     CompositorWindow.cpp
     Layer.h
+    PictureTiming.h
     VideoLayer.h
     VideoLayer.cpp
     ImageLayer.h

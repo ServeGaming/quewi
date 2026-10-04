@@ -62,6 +62,8 @@ public:
 signals:
     // "Edit sound…" on a video cue: open the audio editor on its soundtrack.
     void editSoundRequested(quewi::audio::AudioCue *sound);
+    // "Edit video…" on a video cue: open the video editor (trims, fades).
+    void editVideoRequested(quewi::video::VideoCue *cue);
     // "Convert to audio cue" / "Convert to video cue".
     void convertCueRequested(quewi::cues::Cue *cue);
     // "Lighting triggers…" on an audio cue, or on a video cue's Sound: open
@@ -344,6 +346,7 @@ private:
     QDoubleSpinBox *m_visualOpacity     = nullptr;
     QCheckBox      *m_videoLoop         = nullptr;
     VideoScrubber  *m_videoScrubber     = nullptr;
+    QPushButton    *m_editVideoBtn      = nullptr;
     QFormLayout    *m_visualForm        = nullptr;
     // A video cue's soundtrack (VideoCue::sound), edited as "sound.*" fields.
     QGroupBox      *m_videoSoundGroup   = nullptr;

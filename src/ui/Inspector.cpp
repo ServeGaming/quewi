@@ -862,6 +862,10 @@ Inspector::Inspector(QWidget *parent)
     // geometry properties.
     m_videoScrubber = new VideoScrubber(m_visualGroup);
     visualOuter->addWidget(m_videoScrubber);
+    m_editVideoBtn = new QPushButton(tr("Edit video…"), m_visualGroup);
+    m_editVideoBtn->setToolTip(tr("Open the video editor: set where the cue starts and "
+                                  "ends, and fade the picture and sound"));
+    visualOuter->addWidget(m_editVideoBtn, 0, Qt::AlignLeft);
 
     m_textString = new QLineEdit(m_visualGroup);
     m_textString->setPlaceholderText(tr("Text to display"));
@@ -1210,6 +1214,10 @@ Inspector::Inspector(QWidget *parent)
     connect(m_vsOutput, &QComboBox::currentIndexChanged, this, [this](int) {
         if (!m_loading)
             pushFieldEdit(QStringLiteral("sound.outputDeviceId"), m_vsOutput->currentData().toByteArray());
+    });
+    connect(m_editVideoBtn, &QPushButton::clicked, this, [this] {
+        if (auto *vc = qobject_cast<video::VideoCue *>(m_cue.data()))
+            emit editVideoRequested(vc);
     });
     connect(m_vsEditBtn, &QPushButton::clicked, this, [this] {
         if (auto *vc = qobject_cast<video::VideoCue *>(m_cue.data()))
@@ -1696,6 +1704,7 @@ void Inspector::rebuild()
         m_textString->setVisible(textCue != nullptr);
         m_videoLoop->setVisible(videoCue != nullptr);
         m_videoScrubber->setVisible(videoCue != nullptr);
+        m_editVideoBtn->setVisible(videoCue != nullptr);
         // Whole rows, so the "Text size" label doesn't linger on video cues.
         m_visualForm->setRowVisible(m_textSize, textCue != nullptr);
         m_visualForm->setRowVisible(m_textColorBtn, textCue != nullptr);

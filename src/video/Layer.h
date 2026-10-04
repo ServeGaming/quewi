@@ -28,6 +28,13 @@ public:
     double opacity() const { return m_opacity; }
     void   setOpacity(double o) { m_opacity = std::clamp(o, 0.0, 1.0); emit changed(); }
 
+    // A video's own fade in / out (PictureTiming), multiplied onto opacity
+    // when drawn. Kept apart from opacity so a Fade cue on opacity and the
+    // cue's built-in fades don't overwrite each other. Set per frame by the
+    // layer itself — no changed() (frameAvailable already repaints).
+    double envelope() const { return m_envelope; }
+    double drawnOpacity() const { return m_opacity * m_envelope; }
+
     int  zOrder() const { return m_z; }
     void setZOrder(int z) { m_z = z; emit changed(); }
 
@@ -47,6 +54,7 @@ signals:
 protected:
     QRectF m_geometry { 0.0, 0.0, 1.0, 1.0 };
     double m_opacity = 1.0;
+    double m_envelope = 1.0;
     int    m_z       = 0;
 };
 

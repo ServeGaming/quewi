@@ -11,6 +11,8 @@
 #include <memory>
 #include <vector>
 
+#include "video/PictureTiming.h"
+
 class QScreen;
 
 namespace quewi::video {
@@ -31,8 +33,13 @@ struct VideoVoiceParams {
     QRectF  geometry = {0.0, 0.0, 1.0, 1.0}; // normalised to chosen screen
     double  opacity = 1.0;
     bool    loop = false;      // Video only
+    PictureTiming timing;      // Video only: In/Out + picture fades (loop above wins)
     int     zOrder = 0;        // higher = on top
 };
+
+class VisualCue;
+// The fire-time snapshot of a video / image / text cue.
+VideoVoiceParams voiceParamsFor(const VisualCue &cue);
 
 class Compositor;
 class Layer;

@@ -11,7 +11,7 @@ session on any computer (or a fresh conversation) continues with no gaps.
 > right now, the next one would lose nothing. *Update protocol* (last section)
 > says how.
 
-Last updated: **2026-10-03**. Installed on Matthew's PC: **1.0.3**. Latest
+Last updated: **2026-10-04**. Installed on Matthew's PC: **1.0.3**. Latest
 release: **v1.0.3**. `main` is ahead of it with the 1.0.4 work below (not
 tagged — see "Next steps").
 
@@ -50,8 +50,59 @@ site (MkDocs, `docs/`) deploys to GitHub Pages on every push to `main`
 
 ## Current state — on `main`, not yet released (→ 1.0.4)
 
-All committed and pushed. **28 ctest suites, all green in CI on Windows,
-macOS and Linux (+ ASan/UBSan, TSan) at `6dabf77`.**
+All committed and pushed. **30 ctest suites** (all green in CI at `6dabf77`
+before the video editor; with it, 30/30 + selftest green on a Linux Qt 6.11
+build — see §6; CI covers Windows/macOS on the push).
+
+### 6. Video editor (2026-10-04) — Matthew's ask: "add a video track editor"
+There was none (video cues had the Inspector's scrubber + "Edit sound…").
+Built a per-cue editor, the video counterpart of the audio editor — not a
+multi-clip NLE.
+- **Model.** A video cue's In/Out *are* its sound's trims (`VideoCue::trimIn/
+  OutSeconds` forward to `sound()`; fields `trimInSeconds`/`trimOutSeconds`)
+  — one value, so picture and sound can't drift. New `pictureFadeIn/
+  OutSeconds` (payload keys; old shows load 0). `video/PictureTiming.h` is
+  the pure start/stop/envelope math (fade-in first pass only, no fade-out
+  while looping).
+- **Engine bug fixed along the way:** the picture ignored trims entirely —
+  a trimmed sound started at its trim while the picture started at 0.
+  `VideoLayer` now seeks to In (repeated once loaded: some backends drop
+  pre-load seeks; the player re-reports LoadedMedia after *every* seek, so
+  that's a one-shot), pauses + `finished()` at Out, wraps a trimmed loop by
+  hand (native Infinite loop only when untrimmed), and multiplies a per-frame
+  `Layer::envelope()` into `drawnOpacity()` (kept apart from opacity so Fade
+  cues on opacity don't fight it). `voiceParamsFor(VisualCue)` replaced the
+  two duplicated param builders (GoEngine + MainWindow). Silent-video light
+  triggers start at In and loop In→Out.
+- **UI** `ui/VideoEditorWindow` (monitor = frame at playhead × opacity ×
+  fade, dimmed outside the trim; transport; I/O/Home/End/←→/Space; fields
+  for trims, loop, picture fades/opacity, sound level/fades; Edit sound… /
+  Lighting… open the audio editor), `ui/VideoTimeline` (ruler, thumbnail
+  lane, waveform lane, IN/OUT bars, fade handles on lane tops, Shift fine
+  drag, wheel zoom), `ui/VideoThumbnailer` (own paused player; paused
+  seeks deliver a frame, ~30–70 ms each; coarse pass first). Toolbar/header
+  helpers moved out of AudioEditorWindow into `ui/EditorChrome` (shared).
+  Edits = `EditCueFieldCommand` on the show's undo stack (drags merge).
+  Opens on double-click of a video cue, Inspector **Edit video…**, **Cue →
+  Edit Video…**; one window per cue (raised if open).
+- `test_video_editor` (20 cases: timing math, cue fields/payload, fire
+  params, timeline drags/handles/seek, editor undo/follow/close; 4 need
+  `QUEWI_TEST_VIDEO_FILE` and skip in CI — they pass on a generated 12 s
+  clip, and fail if the start seek / Out handling is removed).
+- **Driven** (Linux, Xvfb, real app `--selftest-idle` + OSC): double-click
+  opened the editor with thumbnails; click+I / click+O set In 4.00 / Out
+  12.00 (frame-snapped); dragged picture fade-in 1.49 s and sound fade-out
+  1.0 s (read back over OSC); Space played from In and stopped at Out;
+  Ctrl+Z ×2 restored the trims; GO from the show started the picture at In
+  (~0.3 s load latency, as before), faded up, and stopped at Out.
+  **Not driven on Windows**, and the preview's *audio* wasn't heard (no
+  sound device in the container). Docs: `cue-types/video.md` (video editor
+  section), OSC field reference, 1.0.4 release notes.
+- Noticed, not fixed: the theme QSS logs `Unknown color name '#2a2825Hover'`
+  / `'#4a443dFocus'` at startup — token substitution replaces `bgRow` inside
+  `bgRowHover` (and `outline` inside `outlineFocus`), so those rules get a
+  bad colour. Pre-existing (`ui/Theme.cpp` load); fix = substitute longest
+  token names first.
 
 ### 0. Lighting triggers + OSC v5 for HeliOSC (2026-10-03) — Matthew's ask
 "A lighting tab where I select portions of a song that send OSC or MIDI to
@@ -230,7 +281,10 @@ offered or deleted. Stray locks with no journal are tidied if stale.
    converted video takes a couple of seconds to draw the waveform — decode,
    expected). Then **cut 1.0.4** (release checklist below). First release
    installable purely through the in-app updater.
-2. Drive the journal-lock fix on Windows with two copies (§5).
+2. Drive the journal-lock fix on Windows with two copies (§5), and the
+   video editor on his real .mov song mixes (§6): thumbnails, I/O, fades,
+   preview sound, then GO.
+2b. Theme QSS token bug (§6, last bullet).
 3. Open audit items: A12 (output matrix sliders), A5 (waveform handles),
    V3/V4/V7–V10/V12–V14 (video), M11, and low-severity audio/UI items.
 4. Queued idea: Freesound.org as a second sound-effects source (CC-licensed;
@@ -344,6 +398,16 @@ dark palettes share `quewi-dark.qss`, light is tokenised to match.
   **Headless-ish**: `quewi.exe --selftest-idle` skips recovery + Welcome and
   stays open; with his copy on 53535 it binds OSC on **53000** — script it
   with a UDP client (`tools/osc_triggers_drive.py`, `tools/osc_triggers_video.py`).
+- **Linux cloud sessions can build and run everything.** Ubuntu's Qt is 6.4
+  and download.qt.io is blocked, but conda-forge works: fetch
+  `https://conda.anaconda.org/conda-forge/linux-64/micromamba-2.3.0-0.tar.bz2`,
+  `micromamba create -p <dir> -c conda-forge qt6-main=6.11 qt6-multimedia=6.11
+  qt6-webengine=6.11 cmake ninja cxx-compiler` (webengine is what carries
+  Qt Pdf; 6.8 has none there), point `CMAKE_PREFIX_PATH`/`CC`/`CXX`/
+  `LD_LIBRARY_PATH` at it, `QT_QPA_PLATFORM=offscreen` for ctest. GUI
+  driving: `apt install xdotool`, run `Xvfb :99`, launch with its own `HOME`
+  so settings/journals are scratch; `import -window root` screenshots.
+  Never `pkill -f <path>` there — it matches your own shell; `pkill -x quewi`.
 - Commit messages with quotes: write them to a file and `git commit -F` (inline
   PowerShell here-strings with `"` break argument passing).
 - moc gotcha: `\"` inside a raw string in a `Q_OBJECT` file → empty `.moc`.

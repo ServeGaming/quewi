@@ -4,6 +4,7 @@
 
 #include <QJsonObject>
 #include <QSignalBlocker>
+#include <algorithm>
 
 namespace quewi::video {
 
@@ -84,8 +85,26 @@ audio::AudioCue *VideoCue::audioOf(cues::Cue *cue)
     return nullptr;
 }
 
+double VideoCue::trimInSeconds()  const { return m_sound->trimInSeconds(); }
+double VideoCue::trimOutSeconds() const { return m_sound->trimOutSeconds(); }
+
+PictureTiming VideoCue::pictureTiming() const
+{
+    PictureTiming t;
+    t.inSeconds      = trimInSeconds();
+    t.outSeconds     = trimOutSeconds();
+    t.fadeInSeconds  = m_pictureFadeIn;
+    t.fadeOutSeconds = m_pictureFadeOut;
+    t.loop           = m_loop;
+    return t;
+}
+
 QVariant VideoCue::field(const QString &key) const
 {
+    if (key == QLatin1String("trimInSeconds") || key == QLatin1String("trimOutSeconds"))
+        return m_sound->field(key);
+    if (key == QLatin1String("pictureFadeInSeconds"))  return m_pictureFadeIn;
+    if (key == QLatin1String("pictureFadeOutSeconds")) return m_pictureFadeOut;
     if (key == QLatin1String("filePath"))     return m_filePath;
     if (key == QLatin1String("loop"))         return m_loop;
     if (key == QLatin1String("soundEnabled")) return m_soundEnabled;
@@ -110,6 +129,21 @@ void VideoCue::setField(const QString &key, const QVariant &value)
         emitChanged();
         return;
     }
+    // The picture's In / Out are the sound's trims (its changed() re-emits ours).
+    if (key == QLatin1String("trimInSeconds") || key == QLatin1String("trimOutSeconds")) {
+        m_sound->setField(key, std::max(0.0, value.toDouble()));
+        return;
+    }
+    if (key == QLatin1String("pictureFadeInSeconds")
+        || key == QLatin1String("pictureFadeOutSeconds")) {
+        double &target = key == QLatin1String("pictureFadeInSeconds") ? m_pictureFadeIn
+                                                                       : m_pictureFadeOut;
+        const double v = std::max(0.0, value.toDouble());
+        if (qFuzzyCompare(target + 1.0, v + 1.0)) return;
+        target = v;
+        emitChanged();
+        return;
+    }
     if (key == QLatin1String("soundEnabled")) {
         if (m_soundEnabled == value.toBool()) return;
         m_soundEnabled = value.toBool();
@@ -129,6 +163,8 @@ QJsonObject VideoCue::toPayload() const
     o.insert(QStringLiteral("filePath"), m_filePath);
     o.insert(QStringLiteral("loop"), m_loop);
     o.insert(QStringLiteral("soundEnabled"), m_soundEnabled);
+    o.insert(QStringLiteral("pictureFadeInSeconds"),  m_pictureFadeIn);
+    o.insert(QStringLiteral("pictureFadeOutSeconds"), m_pictureFadeOut);
     o.insert(QStringLiteral("sound"), m_sound->toPayload());
     return o;
 }
@@ -140,6 +176,8 @@ void VideoCue::fromPayload(const QJsonObject &payload)
     m_loop     = payload.value(QStringLiteral("loop")).toBool();
     // Missing = a show from before video sound existed: keep it silent.
     m_soundEnabled = payload.value(QStringLiteral("soundEnabled")).toBool(false);
+    m_pictureFadeIn  = payload.value(QStringLiteral("pictureFadeInSeconds")).toDouble();
+    m_pictureFadeOut = payload.value(QStringLiteral("pictureFadeOutSeconds")).toDouble();
     const QSignalBlocker block(m_sound);
     if (payload.contains(QStringLiteral("sound")))
         m_sound->fromPayload(payload.value(QStringLiteral("sound")).toObject());

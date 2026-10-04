@@ -50,6 +50,7 @@
 #include "ui/MixView.h"
 #include "mix/MixCue.h"
 #include "ui/AudioEditorWindow.h"
+#include "ui/VideoEditorWindow.h"
 #include "ui/LightingDeskDialog.h"
 #include "ui/CommandPalette.h"
 #include "ui/MediaImportDialog.h"
@@ -565,6 +566,8 @@ void MainWindow::buildLayout()
     // Video cue soundtrack: "Edit sound…" and video ↔ audio conversion.
     connect(m_inspector, &ui::Inspector::editSoundRequested,
             this, [this](audio::AudioCue *sound) { openAudioEditor(sound); });
+    connect(m_inspector, &ui::Inspector::editVideoRequested,
+            this, [this](video::VideoCue *vc) { openVideoEditor(vc); });
     connect(m_inspector, &ui::Inspector::editLightTriggersRequested, this,
             [this](audio::AudioCue *sound) {
                 if (auto *editor = openAudioEditor(sound)) editor->showLightingTab();
@@ -581,8 +584,8 @@ void MainWindow::buildLayout()
                         .arg(created).arg(created == 1 ? QString() : QStringLiteral("s")), 2500);
                 }
             });
-    connect(m_cueListView, &ui::CueListView::cueDoubleClicked, this,
-        [this](cues::Cue *cue) { openAudioEditor(cue); });
+    connect(m_cueListView, &ui::CueListView::cueDoubleClicked,
+            this, &MainWindow::openEditorFor);
     // Right-click → Insert Above/Below — drops a Memo at the chosen
     // row. Memo is the no-op cue, fastest to retype into anything else
     // via the inspector. Opening a full picker dialog feels heavy for
@@ -781,6 +784,11 @@ void MainWindow::buildMenus()
     // cancel each other out — neither used to work.
     cueMenu->addAction(tr("New M&SC"),   QKeySequence(QStringLiteral("Ctrl+Alt+M")),    this, &MainWindow::insertMscCue);
     cueMenu->addSeparator();
+    cueMenu->addAction(tr("&Edit Video…"), this, [this] {
+        auto *vc = qobject_cast<video::VideoCue *>(m_cueListView ? m_cueListView->currentCue() : nullptr);
+        if (vc) openVideoEditor(vc);
+        else statusBar()->showMessage(tr("Select a video cue to edit"), 2500);
+    });
     cueMenu->addAction(tr("Con&vert Video ↔ Audio"), this, [this] {
         convertCue(m_cueListView ? m_cueListView->currentCue() : nullptr);
     });
@@ -1781,6 +1789,34 @@ QString MainWindow::mediaImportDir() const
         return QFileInfo(m_currentPath).absolutePath() + QStringLiteral("/media");
     return QStandardPaths::writableLocation(QStandardPaths::MusicLocation)
          + QStringLiteral("/quewi-imports");
+}
+
+void MainWindow::openEditorFor(cues::Cue *cue)
+{
+    if (auto *vc = qobject_cast<video::VideoCue *>(cue)) openVideoEditor(vc);
+    else openAudioEditor(cue);
+}
+
+ui::VideoEditorWindow *MainWindow::openVideoEditor(video::VideoCue *cue)
+{
+    if (!cue) return nullptr;
+    if (auto existing = m_videoEditors.value(cue)) {
+        existing->show();
+        existing->raise();
+        existing->activateWindow();
+        return existing;
+    }
+    auto *editor = new ui::VideoEditorWindow(cue, m_workspace->undoStack(), this);
+    m_videoEditors.insert(cue, editor);
+    connect(editor, &QObject::destroyed, this, [this, cue] { m_videoEditors.remove(cue); });
+    connect(editor, &ui::VideoEditorWindow::editSoundRequested,
+            this, [this](audio::AudioCue *sound) { openAudioEditor(sound); });
+    connect(editor, &ui::VideoEditorWindow::lightingRequested, this,
+            [this](audio::AudioCue *sound) {
+                if (auto *ae = openAudioEditor(sound)) ae->showLightingTab();
+            });
+    editor->show();
+    return editor;
 }
 
 ui::AudioEditorWindow *MainWindow::openAudioEditor(cues::Cue *cue)
@@ -3066,24 +3102,7 @@ static void legacy_dispatch_keep_diff_small() {
                 .arg(lfadeCue->durationSeconds()), 2000);
         }
     } else if (auto *visualCue = qobject_cast<video::VisualCue *>(cue)) {
-        video::VideoVoiceParams p;
-        p.screenIndex = visualCue->screenIndex();
-        p.geometry = QRectF(visualCue->posX(), visualCue->posY(),
-                            visualCue->posW(), visualCue->posH());
-        p.opacity = visualCue->opacity();
-        if (auto *vc = qobject_cast<video::VideoCue *>(cue)) {
-            p.kind = video::VideoVoiceParams::Video;
-            p.filePath = vc->filePath();
-            p.loop = vc->loop();
-        } else if (auto *ic = qobject_cast<video::ImageCue *>(cue)) {
-            p.kind = video::VideoVoiceParams::Image;
-            p.filePath = ic->filePath();
-        } else if (auto *tc = qobject_cast<video::TextCue *>(cue)) {
-            p.kind = video::VideoVoiceParams::Text;
-            p.text = tc->text();
-            p.fontPixelSize = tc->fontPixelSize();
-            p.textColor = tc->textColor();
-        }
+        const auto p = video::voiceParamsFor(*visualCue);
         visualCue->setCurrentVoiceId(m_videoEngine->fire(p));
         statusBar()->showMessage(tr("GO: ▶ %1 on screen %2")
             .arg(cue->name().isEmpty() ? cue->typeName() : cue->name())

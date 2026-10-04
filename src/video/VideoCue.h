@@ -1,6 +1,7 @@
 #pragma once
 
 #include "cues/Cue.h"
+#include "video/PictureTiming.h"
 
 #include <QColor>
 
@@ -66,6 +67,18 @@ public:
     // Editable through setField as "sound.<audio field>" (undoable like any
     // field) and "soundEnabled".
     audio::AudioCue *sound() const { return m_sound; }
+
+    // ── Trims and picture fades (the video editor) ─────────────────────
+    // In / Out are the soundtrack's trims — one value for picture and sound,
+    // so they can't drift apart. Fields "trimInSeconds" / "trimOutSeconds"
+    // (Out 0 = end of file) set the sound's; "pictureFadeInSeconds" /
+    // "pictureFadeOutSeconds" ramp the picture's opacity after In / before
+    // Out. The sound keeps its own fades ("sound.fadeInSeconds" …).
+    double trimInSeconds()  const;
+    double trimOutSeconds() const;
+    double pictureFadeInSeconds()  const { return m_pictureFadeIn; }
+    double pictureFadeOutSeconds() const { return m_pictureFadeOut; }
+    PictureTiming pictureTiming() const;
     bool soundEnabled() const { return m_soundEnabled; }
     // The audio cue a voice-carrying cue plays through: an AudioCue itself,
     // or a VideoCue's sound (when it's on). nullptr otherwise.
@@ -84,6 +97,8 @@ private:
     // New video cues play their sound. A show saved before video sound
     // existed loads with it OFF, so it plays exactly as it always did.
     bool    m_soundEnabled = true;
+    double  m_pictureFadeIn  = 0.0;
+    double  m_pictureFadeOut = 0.0;
 };
 
 class ImageCue : public VisualCue {

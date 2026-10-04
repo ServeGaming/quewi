@@ -29,11 +29,11 @@ class QUrl;
 
 namespace quewi::core { class Workspace; class CueList; class CueListModel; }
 namespace quewi::cues { class Cue; }
-namespace quewi::ui   { class AudioEditorWindow; class ActiveCuesPanel; class CartView; class MixView; class CueListView; class Inspector; class ShortcutManager; class TransportBar; class OscMonitor; class ScriptWindow; }
+namespace quewi::ui   { class AudioEditorWindow; class VideoEditorWindow; class ActiveCuesPanel; class CartView; class MixView; class CueListView; class Inspector; class ShortcutManager; class TransportBar; class OscMonitor; class ScriptWindow; }
 namespace quewi::osc  { class OscEngine; }
 namespace quewi::audio { class AudioEngine; class AudioCue; }
 namespace quewi::lighting { class LightingEngine; }
-namespace quewi::video { class VideoEngine; }
+namespace quewi::video { class VideoEngine; class VideoCue; }
 namespace quewi::midi  { class MidiEngine; class MidiInputEngine; }
 
 namespace quewi {
@@ -159,6 +159,10 @@ private:
     // Opens the audio editor on an audio cue (or a video's soundtrack), wired
     // for lighting triggers: Test sends, live sends flash their marker.
     ui::AudioEditorWindow *openAudioEditor(cues::Cue *cue);
+    // The video editor for a video cue — raises the one already open for it.
+    ui::VideoEditorWindow *openVideoEditor(video::VideoCue *cue);
+    // Double-click / Enter on a cue: its editor (audio or video), if it has one.
+    void openEditorFor(cues::Cue *cue);
     // Close quewi so a launched update installer (which waits for this
     // process to exit) can run. Never prompts; the save question has
     // already been asked.
@@ -315,6 +319,7 @@ private:
     QList<QPointer<core::CueListModel>> m_detachedModels;
     QList<QPointer<QWidget>>            m_detachedWindows;
     QList<QPointer<ui::CueListView>>    m_detachedCueViews;
+    QHash<video::VideoCue *, QPointer<ui::VideoEditorWindow>> m_videoEditors;
     std::unique_ptr<osc::OscEngine>     m_oscEngine;
     std::unique_ptr<audio::AudioEngine> m_audioEngine;
     std::unique_ptr<lighting::LightingEngine> m_lightingEngine;

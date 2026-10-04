@@ -18,6 +18,14 @@ soundboard you can talk through.
   against the editor's playback. **Tools → Lighting Triggers Armed** is the
   master switch.
   [Lighting triggers →](../using-quewi/lighting-triggers.md)
+- **Video editor.** Double-click a video cue to open it on a timeline: a
+  monitor showing the frame at the playhead, a strip of frames over the
+  soundtrack's waveform, In and Out points (drag them, or press **I** / **O**
+  at the playhead), and fade handles for the picture and the sound. Space
+  plays, the arrow keys step a frame, and every change is undoable. A
+  trimmed video now starts and stops its picture at the trim too, not just
+  its sound.
+  [Video editor →](../cue-types/video.md#the-video-editor-new-in-104)
 - **Video cues play their sound.** A video cue's soundtrack now goes
   through quewi's audio engine, with level, pan, fades, output and the
   full audio editor (**Edit sound…**). New video cues play their sound;

@@ -429,24 +429,7 @@ void GoEngine::doFire(cues::Cue *cue, const AudioRoute &route)
         }
     } else if (auto *visualCue = qobject_cast<video::VisualCue *>(cue)) {
         if (m_video) {
-            video::VideoVoiceParams p;
-            p.screenIndex = visualCue->screenIndex();
-            p.geometry = QRectF(visualCue->posX(), visualCue->posY(),
-                                visualCue->posW(), visualCue->posH());
-            p.opacity = visualCue->opacity();
-            if (auto *vc = qobject_cast<video::VideoCue *>(cue)) {
-                p.kind = video::VideoVoiceParams::Video;
-                p.filePath = vc->filePath();
-                p.loop = vc->loop();
-            } else if (auto *ic = qobject_cast<video::ImageCue *>(cue)) {
-                p.kind = video::VideoVoiceParams::Image;
-                p.filePath = ic->filePath();
-            } else if (auto *tc = qobject_cast<video::TextCue *>(cue)) {
-                p.kind = video::VideoVoiceParams::Text;
-                p.text = tc->text();
-                p.fontPixelSize = tc->fontPixelSize();
-                p.textColor = tc->textColor();
-            }
+            const auto p = video::voiceParamsFor(*visualCue);
             // Store the live voice id on the cue so the Inspector scrubber
             // can resolve cue -> VideoVoiceId -> VideoLayer to seek/pause.
             visualCue->setCurrentVoiceId(m_video->fire(p));
@@ -943,9 +926,10 @@ void GoEngine::startTriggers(audio::AudioCue *sound, cues::Cue *owner,
     run.owner = owner;
     run.audioVoice = audioVoice;
     run.videoVoice = videoVoice;
-    // The voice starts at the trim-in (audio) or the top (video): anything
-    // sitting right there goes out with the GO.
-    const double startPos = audioVoice != 0 ? sound->trimInSeconds() : 0.0;
+    // The voice starts at the trim-in — a silent video's picture too (its In
+    // point is the sound's trim): anything sitting right there goes out with
+    // the GO.
+    const double startPos = sound->trimInSeconds();
     const auto events = run.tracker.begin(sound->lightTriggers(), startPos);
     run.wall.start();
     m_triggerRuns.push_back(std::move(run));
@@ -994,7 +978,12 @@ void GoEngine::onTriggerTick()
                 alive  = true;
                 pos    = t.posMs / 1000.0;
                 paused = t.paused;
-                if (t.looping && t.durMs > 0) loopEnd = t.durMs / 1000.0;
+                if (t.looping && t.durMs > 0) {
+                    // A trimmed video loops between its In and Out points.
+                    loopStart = run.sound->trimInSeconds();
+                    const double out = run.sound->trimOutSeconds();
+                    loopEnd = out > 0.0 ? std::min(out, t.durMs / 1000.0) : t.durMs / 1000.0;
+                }
             }
         }
 

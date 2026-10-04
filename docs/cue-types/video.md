@@ -27,6 +27,43 @@ Fields:
 | Position x, y | 0..1 | Normalised to chosen screen |
 | Size w, h | 0..1 | Normalised to chosen screen |
 | Opacity | 0..1 | Window opacity |
+| In / Out | seconds | Where the cue starts and stops in the file (the video editor) |
+| Picture fade in / out | seconds | The picture fades up from In and down to Out |
+
+#### The video editor *(new in 1.0.4)*
+
+Double-click a video cue (or press **Edit video…** in the Inspector, or
+**Cue → Edit Video…**) to open it in the video editor.
+
+- **Monitor:** the frame at the playhead, the way the cue will show it, with
+  its opacity and picture fades applied. Before the In point or after the
+  Out point it's dimmed and labelled, because the cue never shows that part.
+- **Timeline:** a strip of frames from the video over its soundtrack's
+  waveform. The amber **IN** and **OUT** bars set where the cue starts and
+  stops. Drag them, or put the playhead somewhere and press **I** or **O**.
+  The small squares on the top edge of each lane are the fade handles: drag
+  them in to fade the picture or the sound. Hold **Shift** while dragging
+  for fine control. Click anywhere else to move the playhead. The wheel
+  zooms, Shift+wheel scrolls, and a double-click fits the whole file.
+  Lighting triggers on the soundtrack show as small marks under the ruler.
+- **Keys:** **Space** plays and pauses, **Home** / **End** jump to the In and
+  Out points, and **←** / **→** step one frame (with **Shift**, one second).
+  Play starts from the In point if the playhead is outside the trim, and
+  stops at the Out point (or goes round again with **Loop** on).
+- **Fields** under the timeline take exact values: In, Out (**End** means
+  the end of the file), loop, picture fades and opacity, and the sound's
+  level and fades. **Edit sound…** opens the soundtrack in the audio editor
+  for effects, and **Lighting…** opens its lighting triggers.
+
+The In and Out points are shared by the picture and the sound, so they
+always start and stop together. They're the same trims the audio editor
+and the Sound section use. Before 1.0.4, trimming a video's sound didn't
+trim its picture. Now it does.
+
+Every change is an ordinary cue edit: it's saved with the show, the cue
+plays it straight away, and **Undo** works in the editor or the main
+window. The editor previews on its own and doesn't touch what's on the
+projector.
 
 #### The video's sound *(new in 1.0.4)*
 

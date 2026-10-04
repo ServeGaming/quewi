@@ -33,6 +33,14 @@ add_library(quewi_ui STATIC
     OscMonitor.cpp
     WaveformWidget.h
     WaveformWidget.cpp
+    EditorChrome.h
+    EditorChrome.cpp
+    VideoEditorWindow.h
+    VideoEditorWindow.cpp
+    VideoTimeline.h
+    VideoTimeline.cpp
+    VideoThumbnailer.h
+    VideoThumbnailer.cpp
     AudioEditorWindow.h
     AudioEditorWindow.cpp
     TimelineCanvas.h

@@ -62,6 +62,10 @@ Open the address reference for the full per-cue-type tables:
 | Field | Type | Meaning |
 |---|---|---|
 | `soundEnabled` | `T` / `F` | Play the video's soundtrack through the audio engine. On for new video cues; off for shows saved before 1.0.4 |
+| `trimInSeconds` | `f` | *(1.0.4)* In point: picture and sound start this far into the file. The same value as `sound.trimInSeconds` |
+| `trimOutSeconds` | `f` | *(1.0.4)* Out point: picture and sound stop here (`0` = the end of the file). The same value as `sound.trimOutSeconds` |
+| `pictureFadeInSeconds` | `f` | *(1.0.4)* The picture fades up over this long from the In point (first time through only, when looping) |
+| `pictureFadeOutSeconds` | `f` | *(1.0.4)* The picture fades down over this long to the Out point (not when looping) |
 | `sound.<field>` | as the audio field | Any audio cue field of the soundtrack, e.g. `sound.gainDb`, `sound.pan`, `sound.fadeInSeconds`, `sound.fadeOutSeconds`, `sound.trimInSeconds`, `sound.trimOutSeconds`, `sound.outputDeviceId` |
 | `sound.lightTriggers` | `s` (JSON array) | The soundtrack's lighting triggers, as `lightTriggers` above. They run whether or not `soundEnabled` is on |
 
