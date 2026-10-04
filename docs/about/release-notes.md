@@ -1,9 +1,10 @@
 # Release notes
 
-## 1.0.4 (unreleased)
+## 1.1.0 (2026-10-04)
 
-Songs that cue the lights, video cues that play their sound, and a
-soundboard you can talk through.
+Songs that cue the lights, a stage manager's Show Mode that shows what the
+desk is doing, a real video editor with splicing, video cues that play
+their sound, and a soundboard you can talk through.
 
 ### New
 
@@ -58,7 +59,7 @@ soundboard you can talk through.
   plays, the arrow keys step a frame, and every change is undoable. A
   trimmed video now starts and stops its picture at the trim too, not just
   its sound.
-  [Video editor →](../cue-types/video.md#the-video-editor-new-in-104)
+  [Video editor →](../cue-types/video.md#the-video-editor-new-in-110)
 - **Splicing.** Cut sections out of the middle of a video: drag across
   the timeline and press **Delete**, or split it with the **Razor** tool
   (**B**) and delete a piece. **Keep only this** trims to a selection, and
@@ -69,9 +70,9 @@ soundboard you can talk through.
 - **Video cues play their sound.** A video cue's soundtrack now goes
   through quewi's audio engine, with level, pan, fades, output and the
   full audio editor (**Edit sound…**). New video cues play their sound;
-  shows saved before 1.0.4 open with it off, so they play exactly as
+  shows saved before 1.1.0 open with it off, so they play exactly as
   before until you turn it on.
-  [Video cues →](../cue-types/video.md#the-videos-sound-new-in-104)
+  [Video cues →](../cue-types/video.md#the-videos-sound-new-in-110)
 - **Convert video ↔ audio cues.** **Convert to audio cue** keeps just the
   sound; **Convert back to video cue** restores the screen, position, size
   and opacity. The cue keeps its number and identity, so Fade, Start and

@@ -36,7 +36,7 @@ Every Audio cue has these fields, all undoable and persisted:
 
 ## Lighting triggers
 
-*New in 1.0.4.* An audio cue can cue the lighting desk from points and
+*New in 1.1.0.* An audio cue can cue the lighting desk from points and
 ranges on its song: an OSC message to an ETC Eos or grandMA, a MIDI note,
 an MSC GO, or firing another cue, sent as the playhead passes each mark.
 Open them with **Lighting triggers…** in the Inspector's Audio section.

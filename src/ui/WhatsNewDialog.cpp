@@ -20,9 +20,39 @@ struct Highlight { const char *title; const char *body; };
 // Curated highlights for this release. Written to read like a person wrote
 // them — specific, second-person, no filler. Update this list each release.
 //
-// 1.0.3: the updater really works. The 1.0.2 and 1.0.1 highlights follow,
-// for anyone installing this by hand from an older version.
+// 1.1.0: songs that cue the lights, a stage manager's Show Mode, a real video
+// editor. The 1.0.3, 1.0.2 and 1.0.1 highlights follow, for anyone installing
+// this by hand from an older version.
 const Highlight kHighlights[] = {
+    { "Songs that cue the lights",
+      "Open a song in the audio editor and use the new Lighting tab: mark a point "
+      "or a range and pick what the desk should do: GO, go to a cue, bump a sub on "
+      "the beat, fire a macro. Set your desk once in Tools → Lighting Desk… "
+      "(ETC Eos, Ion, Nomad, grandMA). No OSC typing needed." },
+    { "Beats, in bulk",
+      "Give a song its tempo (type it, tap it or Detect it) and Fill with beats "
+      "drops a bump on every beat of the chorus. Shift-click or drag to select "
+      "many triggers and change them all at once; groups keep a set together." },
+    { "A stage manager's Show Mode",
+      "Ctrl+Shift+L now shows what's on standby with its notes in big type, "
+      "what's coming up, what's playing with time left, a countdown to the next "
+      "lighting hit and what the desk is doing, beside a big GO." },
+    { "See what the desk is doing",
+      "With an Eos, Ion or Nomad, quewi reads the desk's running and next cue back "
+      "and shows them in Show Mode and the new View → Lighting panel. It only reads; "
+      "it never changes the desk." },
+    { "A real video editor",
+      "Double-click a video cue: a viewer, an Inspector and a V1/A1 timeline like "
+      "Premiere or Resolve. Set In and Out, fade picture and sound, and cut "
+      "sections out of the middle with Delete or the Razor (B)." },
+    { "Video cues play their sound",
+      "A video's soundtrack now runs through quewi's audio engine, with level, "
+      "fades and effects. Convert a video cue to an audio cue (and back) when you "
+      "only need the sound." },
+    { "Talk through the soundboard",
+      "Send soundboard pads into a virtual cable that Discord or OBS uses as your "
+      "mic, with your real voice mixed in." },
+    // ── 1.0.3 ──
     { "In-app updates work now",
       "Install update used to just close quewi: the updater lost track of the "
       "file it had downloaded. Fixed and checked end to end, so from here on, "

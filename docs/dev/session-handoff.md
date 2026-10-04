@@ -48,7 +48,7 @@ site (MkDocs, `docs/`) deploys to GitHub Pages on every push to `main`
 
 ---
 
-## Current state — on `main`, not yet released (→ 1.0.4)
+## Current state — released as 1.1.0 (was going to be 1.0.4)
 
 All committed and pushed. **30 ctest suites** (all green in CI at `6dabf77`
 before the video editor; with it, 30/30 + selftest green on a Linux Qt 6.11
@@ -378,6 +378,12 @@ offered or deleted. Stray locks with no journal are tidied if stale.
   rendered cues no longer double their effects (`bouncedPath`); "Update Render"
   rewrites in place; right-click empty pad → Import from URL (yt-dlp) + trim.
 - **1.0.3** (2026-09-24) — the updater, fixed and proven (below).
+- **1.1.0** (2026-10-04) — lighting triggers (simple desk actions, Eos/MA3/
+  MSC, beat grid, Fill with beats, multi-select + groups), stage-manager Show
+  Mode + Lighting panel + Eos read-back (TCP 3032), video editor (NLE layout,
+  splicing/cuts), video cues play sound + video↔audio convert, soundboard →
+  mic, OSC v5. Colour-coded SM screen + gliding bars (Fable). Not yet on his
+  real Nomad: desk read-back, sub/fader bumps, Detect on real songs.
 
 ## The updater — PROVEN on both paths (gate 3 closed)
 - MSI path: Matthew's 1.0.2 → 1.0.3 in-app update worked end to end on

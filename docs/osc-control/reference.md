@@ -86,7 +86,7 @@ number. Each is a no-op if the cue isn't playing (no live voice), so they're
 safe to fire blind from a fader bank. Changes are applied immediately with no
 fade — perfect for a remote fader, trackpad, or rotary.
 
-From 1.0.4 these also work on **video cues**: `level` and `pan` ride the
+From 1.1.0 these also work on **video cues**: `level` and `pan` ride the
 video's soundtrack, and `seek` moves the picture *and* the soundtrack. On a
 video whose sound is turned off, `seek` still moves the picture; `level` and
 `pan` do nothing.
@@ -136,7 +136,7 @@ on). Unknown type or param are **rejected** (no silent no-op).
 | `pitch` | `semitones` (−12…12), `mix` (0–1) |
 | `tremolo` | `rate` (Hz, 0.1–20), `depth` (0–1), `stereo` (0–1; 1 = auto-pan) |
 
-From 1.0.4, `fx/...` and `fx/list` also work on a **video cue**: they edit
+From 1.1.0, `fx/...` and `fx/list` also work on a **video cue**: they edit
 and report its soundtrack's effects (the same rack **Edit sound…** opens).
 
 A cue that plays its own editor render has its effects baked into that file,
@@ -209,8 +209,8 @@ so `/quewi/cart/fire` always targets the layer currently shown. Use
 | `/quewi/cue/add` | `s` type, optional `f` number, optional `s` name | Append a new cue. Type keys: `audio`, `memo`, `osc`, `fade`, `group`, `wait`, `light`, `light-fade`, `video`, `image`, `text`, `midi`, `msc`, `start`, `stop`, `goto`, `pause`, `load`, `reset`, `devamp` |
 | `/quewi/cue/remove` | `f` cue number | Remove the cue with that number (undoable) |
 | `/quewi/cue/<num>/move` | `i` new row | Move the cue to a new 0-based row in the active cue list. Undoable. Posts `/quewi/notify/cue/moved` and `/quewi/notify/cueList/reordered` after the move. |
-| `/quewi/cue/<num>/set/<field>` | one value (`i/h/f/d/s/T/F`) | Edit a field on the cue with that number. See the full field reference at the bottom. Setting `filePath` on an audio cue (or a video cue that plays its sound) starts decoding the file straight away, like picking it in the Inspector, so the next GO plays it *(fixed in 1.0.4: before, the first GO after a remote `filePath` found the file still decoding and played nothing)*. |
-| `/quewi/cue/<num>/convert` | — | *(1.0.4)* Convert a video cue to an audio cue, or back. See [Video ↔ audio conversion](#video-audio-conversion). |
+| `/quewi/cue/<num>/set/<field>` | one value (`i/h/f/d/s/T/F`) | Edit a field on the cue with that number. See the full field reference at the bottom. Setting `filePath` on an audio cue (or a video cue that plays its sound) starts decoding the file straight away, like picking it in the Inspector, so the next GO plays it *(fixed in 1.1.0: before, the first GO after a remote `filePath` found the file still decoding and played nothing)*. |
+| `/quewi/cue/<num>/convert` | — | *(1.1.0)* Convert a video cue to an audio cue, or back. See [Video ↔ audio conversion](#video-audio-conversion). |
 
 ### Cue list / active list
 
@@ -223,7 +223,7 @@ so `/quewi/cart/fire` always targets the layer currently shown. Use
 | Address | Args | Effect |
 |---|---|---|
 | `/quewi/workspace/new` | — | Start a new empty show. **If the current show has unsaved changes, quewi shows a Save / Discard / Cancel prompt on the quewi machine** and waits for someone there to answer it; a remote can't answer it. To stay promptless, check `dirty` with `/quewi/query/workspace` and `/quewi/workspace/save` first. |
-| `/quewi/workspace/open` | optional `s` path | If a path is given, load that .quewi file — if the current show has unsaved changes, quewi first shows its Save / Discard / Cancel prompt on the quewi machine (since 1.0.4; before, they were lost silently). With no args, asks about unsaved changes and then opens the file picker, both on the quewi machine. |
+| `/quewi/workspace/open` | optional `s` path | If a path is given, load that .quewi file — if the current show has unsaved changes, quewi first shows its Save / Discard / Cancel prompt on the quewi machine (since 1.1.0; before, they were lost silently). With no args, asks about unsaved changes and then opens the file picker, both on the quewi machine. |
 | `/quewi/workspace/save` | — | Save to the current path (or open Save-As if untitled) |
 
 ### Undo / redo
@@ -237,7 +237,7 @@ so `/quewi/cart/fire` always targets the layer currently shown. Use
 
 ## Lighting triggers (v5)
 
-*New in 1.0.4.* [Lighting triggers](../using-quewi/lighting-triggers.md) are
+*New in 1.1.0.* [Lighting triggers](../using-quewi/lighting-triggers.md) are
 points and ranges on an audio cue's song that send OSC, MIDI or MSC to a
 lighting desk, or fire a cue, as the song plays past them. On a **video
 cue** the same addresses reach its soundtrack's triggers (whether or not the
@@ -423,7 +423,7 @@ The cue is swapped in place in the same row, so a remote sees
 
 ### Soundboard → mic
 
-*New in 1.0.4.* The soundboard's
+*New in 1.1.0.* The soundboard's
 [Send sounds to your mic](../using-quewi/soundboard.md#sending-sounds-to-your-mic)
 settings. They belong to the quewi computer, not the show, and are
 remembered across restarts.
@@ -522,9 +522,9 @@ When quewi is reading an Eos desk back (`feedback` on), the reply also has
 | `/quewi/query/cue <num>` | `/quewi/reply/cue` | `s` JSON of one cue. No reply if not found. |
 | `/quewi/query/playingCues` | `/quewi/reply/playingCues` | `s` JSON array of currently-playing cues: `[{id, type, number, state}, …]`. Use this to rebuild a "now playing" view after a reconnect, or to drive a Fade All button against ground truth (instead of accumulating from notify events that could have been lost). `state` matches `/quewi/notify/cue/playback`. |
 | `/quewi/query/workspace` | `/quewi/reply/workspace` | `s` JSON `{name, path, dirty, lastSavedTs}`. `dirty` is `true` when there are unsaved edits. `lastSavedTs` is Unix epoch seconds (0 if untitled). Use this to render "modified" badges and show the absolute file path. |
-| `/quewi/query/triggers/armed` | `/quewi/reply/triggers/armed` | `T` / `F` — the lighting-trigger master switch *(1.0.4, see [Lighting triggers](#lighting-triggers-v5))* |
-| `/quewi/cue/<num>/triggers/list` | `/quewi/reply/cue/triggers` | `s` JSON of the cue's lighting triggers *(1.0.4)* |
-| `/quewi/query/soundboard/mic` | `/quewi/reply/soundboard/mic` | `s` JSON of the soundboard → mic settings and device lists *(1.0.4, see [Soundboard → mic](#soundboard-mic))* |
+| `/quewi/query/triggers/armed` | `/quewi/reply/triggers/armed` | `T` / `F` — the lighting-trigger master switch *(1.1.0, see [Lighting triggers](#lighting-triggers-v5))* |
+| `/quewi/cue/<num>/triggers/list` | `/quewi/reply/cue/triggers` | `s` JSON of the cue's lighting triggers *(1.1.0)* |
+| `/quewi/query/soundboard/mic` | `/quewi/reply/soundboard/mic` | `s` JSON of the soundboard → mic settings and device lists *(1.1.0, see [Soundboard → mic](#soundboard-mic))* |
 | `/quewi/query/cueListDetails` | `/quewi/reply/cueListDetails` | `s` JSON `[{id, name, cueCount, isActive}, …]`. Richer alias for `/quewi/query/cueLists` — useful for cue-list picker UIs that need cue counts + which list is currently active without a follow-up round trip. The original `/quewi/query/cueLists` (id/name pairs) stays for backward compat. |
 
 ---
@@ -544,8 +544,8 @@ When quewi is reading an Eos desk back (`feedback` on), the reply also has
 on. `/quewi/notify/cue/*` receives just the cue ones. Any other pattern is
 matched with plain OSC rules, where `*` stops at a `/`.
 
-!!! warning "Fixed in 1.0.4: the default subscription received nothing"
-    Before 1.0.4, `/quewi/notify/*` was matched with plain OSC rules, and
+!!! warning "Fixed in 1.1.0: the default subscription received nothing"
+    Before 1.1.0, `/quewi/notify/*` was matched with plain OSC rules, and
     every notify address has at least two levels after `/quewi/notify/`, so
     the default subscription (and any remote that sent that pattern) never
     received a single notification. Remotes that worked around it with
@@ -569,9 +569,9 @@ Subscriptions live in memory only. If quewi restarts, re-subscribe. (Run a heart
 | `/quewi/notify/cue/moved` | `s i i` cue id, old row, new row | Pushed after a `/quewi/cue/<num>/move` completes. |
 | `/quewi/notify/cueList/reordered` | `s s` list id, JSON ordered ids | Pushed alongside `/notify/cue/moved` — lets a remote update its cache of row order without re-fetching every cue. |
 | `/quewi/notify/workspace/dirty` | `T` / `F` | Pushed on dirty-state transitions: `T` when the user edits anything, `F` when a save makes it clean. Pairs with the existing `/quewi/notify/workspace/changed` (full reload) for two distinct semantics. |
-| `/quewi/notify/trigger/fired` | `s d s s s` cue id, cue number, trigger id, trigger name, `"enter"` / `"exit"` | *(1.0.4)* A lighting trigger sent during playback. Points always say `"enter"`. Not pushed while triggers are disarmed, for edges set to Nothing, for Test, or for the audio editor's Send while previewing. The cue is the one the trigger is on (a video cue for a soundtrack's triggers). |
-| `/quewi/notify/triggers/armed` | `T` / `F` | *(1.0.4)* The lighting-trigger master switch changed (Tools menu or OSC). |
-| `/quewi/notify/soundboard/mic/changed` | — | *(1.0.4)* A soundboard → mic setting changed (on the quewi machine or over OSC). Re-query with `/quewi/query/soundboard/mic`. |
+| `/quewi/notify/trigger/fired` | `s d s s s` cue id, cue number, trigger id, trigger name, `"enter"` / `"exit"` | *(1.1.0)* A lighting trigger sent during playback. Points always say `"enter"`. Not pushed while triggers are disarmed, for edges set to Nothing, for Test, or for the audio editor's Send while previewing. The cue is the one the trigger is on (a video cue for a soundtrack's triggers). |
+| `/quewi/notify/triggers/armed` | `T` / `F` | *(1.1.0)* The lighting-trigger master switch changed (Tools menu or OSC). |
+| `/quewi/notify/soundboard/mic/changed` | — | *(1.1.0)* A soundboard → mic setting changed (on the quewi machine or over OSC). Re-query with `/quewi/query/soundboard/mic`. |
 
 ---
 
@@ -641,10 +641,10 @@ coerces numeric types (`i/h/f/d`) to whatever the field expects.
 | `objAzimuth` | `f` | degrees, -180 … +180 | Source azimuth |
 | `objElevation` | `f` | degrees, -90 … +90 | Source elevation |
 | `objSpread` | `f` | 0.0 … 1.0 | Source spread (0 = point, 1 = omni) |
-| `lightTriggers` | `s` (JSON array) | — | *(1.0.4)* The cue's [lighting triggers](#trigger-json). Send the whole array as a JSON string; `""` or `[]` clears them. Left out of the cue JSON when there are none. Prefer the [trigger addresses](#lighting-triggers-v5) for edits: they make one undo step per message, whereas repeated `set/lightTriggers` messages merge into one. |
-| `beatGrid` | `s` (JSON object) | — | *(1.0.4)* The song's [beat grid](../using-quewi/lighting-triggers.md#beat-grid): `{"bpm": 128, "firstBeat": 0.37, "beatsPerBar": 4}`. `bpm` 0 = none. Left out of the cue JSON when there's no grid. |
-| `cuts` | `s` (JSON array) | seconds in the file | *(1.0.4)* Sections cut out of the middle, as `[[start, end], …]`. Playback jumps over them. Overlapping cuts merge; ones shorter than 10 ms are dropped. `""` or `[]` restores them all. Left out of the cue JSON when there are none. |
-| `videoOrigin` | — | JSON object | **Read-only.** *(1.0.4)* Present on an audio cue converted from a video cue: the video's settings, restored if it's converted back. |
+| `lightTriggers` | `s` (JSON array) | — | *(1.1.0)* The cue's [lighting triggers](#trigger-json). Send the whole array as a JSON string; `""` or `[]` clears them. Left out of the cue JSON when there are none. Prefer the [trigger addresses](#lighting-triggers-v5) for edits: they make one undo step per message, whereas repeated `set/lightTriggers` messages merge into one. |
+| `beatGrid` | `s` (JSON object) | — | *(1.1.0)* The song's [beat grid](../using-quewi/lighting-triggers.md#beat-grid): `{"bpm": 128, "firstBeat": 0.37, "beatsPerBar": 4}`. `bpm` 0 = none. Left out of the cue JSON when there's no grid. |
+| `cuts` | `s` (JSON array) | seconds in the file | *(1.1.0)* Sections cut out of the middle, as `[[start, end], …]`. Playback jumps over them. Overlapping cuts merge; ones shorter than 10 ms are dropped. `""` or `[]` restores them all. Left out of the cue JSON when there are none. |
+| `videoOrigin` | — | JSON object | **Read-only.** *(1.1.0)* Present on an audio cue converted from a video cue: the video's settings, restored if it's converted back. |
 
 ### FadeCue (`type: "fade"`)
 
@@ -716,8 +716,8 @@ No type-specific fields — inherits the base only.
 | `opacity` | `f` | 0.0 … 1.0 | Surface opacity |
 | `filePath` | `s` | absolute path | Video file. The soundtrack follows it |
 | `loop` | `T` / `F` | — | Loop playback. The soundtrack follows it |
-| `soundEnabled` | `T` / `F` | — | *(1.0.4)* Play the video's soundtrack through the audio engine. On for new video cues; off for shows saved before 1.0.4 |
-| `sound.<field>` | as the audio field | — | *(1.0.4)* Any [AudioCue field](#audiocue-type-audio) of the soundtrack: `sound.gainDb`, `sound.pan`, `sound.fadeInSeconds`, `sound.fadeOutSeconds`, `sound.trimInSeconds`, `sound.trimOutSeconds`, `sound.outputDeviceId`, `sound.lightTriggers`, … (`filePath` and `loop` follow the video's own, so set those on the video) |
+| `soundEnabled` | `T` / `F` | — | *(1.1.0)* Play the video's soundtrack through the audio engine. On for new video cues; off for shows saved before 1.1.0 |
+| `sound.<field>` | as the audio field | — | *(1.1.0)* Any [AudioCue field](#audiocue-type-audio) of the soundtrack: `sound.gainDb`, `sound.pan`, `sound.fadeInSeconds`, `sound.fadeOutSeconds`, `sound.trimInSeconds`, `sound.trimOutSeconds`, `sound.outputDeviceId`, `sound.lightTriggers`, … (`filePath` and `loop` follow the video's own, so set those on the video) |
 
 In the cue JSON the soundtrack appears as a nested `"sound"` object holding
 the AudioCue fields (including `lightTriggers` when there are any).

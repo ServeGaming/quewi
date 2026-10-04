@@ -30,7 +30,7 @@ Fields:
 | In / Out | seconds | Where the cue starts and stops in the file (the video editor) |
 | Picture fade in / out | seconds | The picture fades up from In and down to Out |
 
-#### The video editor *(new in 1.0.4)*
+#### The video editor *(new in 1.1.0)*
 
 Double-click a video cue (or press **Edit video…** in the Inspector, or
 **Cue → Edit Video…**) to open it in the video editor. It's laid out like
@@ -62,7 +62,7 @@ settings on the right and the timeline along the bottom.
 
 The In and Out points are shared by the picture and the sound, so they
 always start and stop together. They're the same trims the audio editor
-and the Sound section use. Before 1.0.4, trimming a video's sound didn't
+and the Sound section use. Before 1.1.0, trimming a video's sound didn't
 trim its picture. Now it does.
 
 Every change is an ordinary cue edit: it's saved with the show, the cue
@@ -127,13 +127,13 @@ straight through them.) During the show:
 Play starts from the In point if the playhead is outside the trim, and
 stops at the Out point (or goes round again with **Loop** on).
 
-#### The video's sound *(new in 1.0.4)*
+#### The video's sound *(new in 1.1.0)*
 
 A video cue plays its file's soundtrack through quewi's audio engine, the
 same one audio cues use. Its **Sound** section in the Inspector has:
 
 - **Play the video's sound:** on for new video cues. Shows saved before
-  1.0.4 load with it **off**, so they play exactly as they used to. Tick it
+  1.1.0 load with it **off**, so they play exactly as they used to. Tick it
   to hear their soundtracks.
 - **Level, Pan, Fade in, Fade out, Output:** the same controls as an
   audio cue.
@@ -146,7 +146,7 @@ parameter fades the soundtrack, while **Opacity** fades the picture.
 
 #### Lighting triggers on a video
 
-*New in 1.0.4.* A video cue can cue the lighting desk from marks on its
+*New in 1.1.0.* A video cue can cue the lighting desk from marks on its
 soundtrack. Press **Lighting triggers…** in the Sound section. If the
 video's sound is off, the triggers still run, following the picture's
 clock. Converting to an audio cue and back keeps them. See

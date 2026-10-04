@@ -33,7 +33,7 @@ cue list if you want (e.g. a stream mix, or a second interface).
 
 ## Sending sounds to your mic
 
-*New in 1.0.4.* Stream or voice chat? The **Mic** button in the soundboard's
+*New in 1.1.0.* Stream or voice chat? The **Mic** button in the soundboard's
 toolbar plays pad sounds into your microphone, so Discord, OBS or a game
 hears them. It works the same way as Voicemod's soundboard.
 

@@ -1,6 +1,6 @@
 # Lighting triggers
 
-*New in 1.0.4.*
+*New in 1.1.0.*
 
 Lighting triggers let a song cue the lighting desk. You put marks on an
 audio cue's song, and when the playhead reaches one, quewi tells the desk

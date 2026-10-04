@@ -22,7 +22,7 @@ item or keys). With an unlock PIN set, quewi asks for it first.
 
 ## The stage manager screen
 
-*New in 1.0.4.*
+*New in 1.1.0.*
 
 ![Show Mode: standby, coming up, now playing, next lighting hit and the lighting desk, with GO, Pause, Fade All and Panic](../assets/show-mode.png){ loading=lazy }
 
@@ -35,6 +35,12 @@ item or keys). With an unlock PIN set, quewi asks for it first.
 | **NEXT LIGHTING HIT** | A countdown to the next lighting trigger in any playing song (for example **0:03.2**), what it will do on the desk ("Desk: GO"), and which song it's in, then the few after it. The **ARMED** chip turns lighting triggers on and off. Paused songs freeze their countdowns; disarmed, it says nothing will be sent. |
 | **LIGHTING DESK** | What the desk itself is doing (ETC Eos family only, see [Reading the desk back](lighting-triggers.md#reading-the-desk-back)): its **ACTIVE** cue with label, time and progress, its **PENDING** cue, its show name, and a warning when the desk is in Blind. |
 | **Transport** | **GO** (it shows the standby number, for example "GO 12"), **Pause** (it turns into **Resume**), **Fade All**, and **PANIC** at the bottom, set apart so it isn't hit by mistake. |
+
+Each area has its own colour so you can find it at a glance: **amber**
+for standby, **green** for what's playing, **lavender** for lighting hits
+and **blue** for the lighting desk. Progress bars glide rather than jump,
+including the desk's, which quewi moves on smoothly between the desk's
+own updates.
 
 The keyboard works as always: <kbd>Space</kbd> is GO and <kbd>Esc</kbd>
 is Panic, wherever you click on the screen.
