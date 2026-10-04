@@ -96,6 +96,8 @@ class CommandMenuTests : public QObject {
         view->addAction(QStringLiteral("&Soundboard"), QKeySequence(QStringLiteral("Ctrl+Shift+C")));
         auto *list = b.bar->addMenu(QStringLiteral("&List"));
         list->addAction(QStringLiteral("&New cue list…"));
+        list->addAction(QStringLiteral("&Soundboard"));            // also in View
+        list->addAction(QStringLiteral("&Mix (DCA) list"));
         list->addAction(QStringLiteral("&Rename current…"));
         list->addAction(QStringLiteral("&Remove current"));
         auto *cue = b.bar->addMenu(QStringLiteral("&Cue"));
@@ -396,6 +398,11 @@ private slots:
         const auto *view = child(tree, QStringLiteral("View"));
         QVERIFY(view && child(*view, QStringLiteral("Theme")));
         QCOMPARE(keyFor(*child(*view, QStringLiteral("Theme")), QStringLiteral("Coffee theme")), QChar('C'));
+        // An action in two menus is in both menus' key lists.
+        const auto *listNode = child(tree, QStringLiteral("List"));
+        QVERIFY(listNode && child(*listNode, QStringLiteral("Soundboard"))
+                && child(*listNode, QStringLiteral("Mix (DCA) list")));
+        QVERIFY(child(*view, QStringLiteral("Soundboard")));
         const auto *go = child(tree, QStringLiteral("Go to"));
         QVERIFY(go && child(*go, QStringLiteral("Lists")) && child(*go, QStringLiteral("Recent shows")));
         QCOMPARE(child(*go, QStringLiteral("Lists"))->children.size(), 3);
