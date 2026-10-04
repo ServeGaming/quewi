@@ -99,6 +99,20 @@ public:
     // targets in its own list first, and a trigger can't fire its own cue).
     bool sendTriggerAction(const audio::TriggerAction &action, const cues::Cue *context);
 
+    // The lighting triggers coming up in every song playing now, soonest
+    // first (Show Mode's "next hit" and the Lighting panel). Live: reads the
+    // positions the trigger runner last saw, moved on by the time since.
+    struct UpcomingTrigger {
+        QPointer<cues::Cue> owner;        // the cue that was fired
+        QUuid   triggerId;
+        QString name;
+        QString does;                     // the action's one-line summary
+        double  inSeconds = 0.0;          // from now
+        bool    exit   = false;           // a range's end
+        bool    paused = false;           // its song is paused
+    };
+    std::vector<UpcomingTrigger> upcomingTriggers(int max = 8) const;
+
 signals:
     void cueFired(quewi::cues::Cue *cue);
     // Emitted when a cue's primary effect has completed:
@@ -207,6 +221,8 @@ private:
         quint64                   videoVoice = 0;
         audio::TriggerTracker     tracker;
         QElapsedTimer             wall;
+        QElapsedTimer             sinceTick;    // for upcomingTriggers between ticks
+        bool                      paused = false;
     };
     std::vector<TriggerRun> m_triggerRuns;
     QTimer *m_triggerTimer = nullptr;

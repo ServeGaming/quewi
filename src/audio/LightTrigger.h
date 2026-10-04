@@ -160,6 +160,21 @@ struct TriggerEvent {
     bool operator==(const TriggerEvent &o) const { return index == o.index && exit == o.exit; }
 };
 
+// What's coming up in a playing song: the next edges after `pos`, soonest
+// first. `in` is real seconds from now — sections cut out don't count, and
+// an edge inside a cut never comes. A range already entered (start <= pos <
+// end) still has its exit to come. Disabled triggers and edges past `end`
+// (the trim out; < 0 = no limit) are left out.
+struct UpcomingEdge {
+    int    index = -1;      // into the triggers vector
+    bool   exit  = false;   // a range's end
+    double at    = 0.0;     // seconds in the file
+    double in    = 0.0;     // seconds from pos
+};
+std::vector<UpcomingEdge> upcomingEdges(const LightTriggers &t, double pos,
+                                        const Cuts *cuts = nullptr, double end = -1.0,
+                                        int max = 16);
+
 // Follows one playing voice and says which triggers it crossed. Pure — feed
 // it positions, it returns events — so the timing rules are unit-tested.
 //

@@ -50,6 +50,7 @@ add_library(quewi_ui STATIC
     EffectsRackWidget.h
     EffectsRackWidget.cpp
     LightTriggersPanel.h
+    ShowSnapshot.h
     LightTriggersPanel.cpp
     FillBeatsDialog.h
     FillBeatsDialog.cpp

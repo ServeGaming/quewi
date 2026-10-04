@@ -933,6 +933,7 @@ void GoEngine::startTriggers(audio::AudioCue *sound, cues::Cue *owner,
     const double startPos = sound->trimInSeconds();
     const auto events = run.tracker.begin(sound->lightTriggers(), startPos);
     run.wall.start();
+    run.sinceTick.start();
     m_triggerRuns.push_back(std::move(run));
     sendTriggerEvents(m_triggerRuns.back(), events);
 
@@ -995,6 +996,8 @@ void GoEngine::onTriggerTick()
             continue;
         }
         const double wall = run.wall.restart() / 1000.0;
+        run.paused = paused;
+        run.sinceTick.restart();
         if (!paused) {
             const auto events = run.tracker.advance(run.sound->lightTriggers(),
                                                     pos, loopStart, loopEnd, wall,
@@ -1005,6 +1008,36 @@ void GoEngine::onTriggerTick()
     }
 
     if (m_triggerRuns.empty() && m_triggerTimer) m_triggerTimer->stop();
+}
+
+std::vector<GoEngine::UpcomingTrigger> GoEngine::upcomingTriggers(int max) const
+{
+    std::vector<UpcomingTrigger> out;
+    for (const auto &run : m_triggerRuns) {
+        if (!run.sound || !run.owner) continue;
+        const auto &t = run.sound->lightTriggers();
+        const double drift = run.paused ? 0.0 : run.sinceTick.elapsed() / 1000.0;
+        const double pos = run.tracker.position() + drift;
+        const double outPt = run.sound->trimOutSeconds();
+        for (const auto &e : audio::upcomingEdges(t, pos, &run.sound->cuts(),
+                                                  outPt > 0.0 ? outPt : -1.0, max)) {
+            const auto &x = t[size_t(e.index)];
+            UpcomingTrigger u;
+            u.owner = run.owner;
+            u.triggerId = x.id;
+            u.name = x.name;
+            u.does = (e.exit ? x.exit : x.enter).summary();
+            u.inSeconds = e.in;
+            u.exit = e.exit;
+            u.paused = run.paused;
+            out.push_back(std::move(u));
+        }
+    }
+    std::sort(out.begin(), out.end(), [](const UpcomingTrigger &a, const UpcomingTrigger &b) {
+        return a.inSeconds < b.inSeconds;
+    });
+    if (max >= 0 && int(out.size()) > max) out.resize(size_t(max));
+    return out;
 }
 
 void GoEngine::sendTriggerEvents(TriggerRun &run, const std::vector<audio::TriggerEvent> &events)

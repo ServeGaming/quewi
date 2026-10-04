@@ -381,6 +381,29 @@ void TriggerAction::applyChange(const TriggerAction &before, const TriggerAction
             setField(it.key(), it.value().toVariant());
 }
 
+std::vector<UpcomingEdge> upcomingEdges(const LightTriggers &t, double pos,
+                                        const Cuts *cuts, double end, int max)
+{
+    std::vector<UpcomingEdge> out;
+    auto add = [&](int index, bool exit, double at) {
+        if (at <= pos || (end >= 0.0 && at > end)) return;
+        if (cuts && cutAt(*cuts, at)) return;
+        const double skipped = cuts ? cutSecondsBetween(*cuts, pos, at) : 0.0;
+        out.push_back({index, exit, at, (at - pos) - skipped});
+    };
+    for (int i = 0; i < int(t.size()); ++i) {
+        const auto &x = t[size_t(i)];
+        if (!x.enabled) continue;
+        add(i, false, x.start);
+        if (x.isRange()) add(i, true, x.end);
+    }
+    std::sort(out.begin(), out.end(), [](const UpcomingEdge &a, const UpcomingEdge &b) {
+        return a.at < b.at || (a.at == b.at && !a.exit && b.exit);
+    });
+    if (max >= 0 && int(out.size()) > max) out.resize(size_t(max));
+    return out;
+}
+
 QStringList triggerGroups(const LightTriggers &t)
 {
     LightTriggers sorted = t;

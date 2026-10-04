@@ -191,6 +191,25 @@ private slots:
         QCOMPARE(audio::triggerGroups(ts), QStringList{QStringLiteral("Verse")});
     }
 
+    void upcomingEdgesSkipCutsAndPast()
+    {
+        LightTrigger a = point(1.0, "a"), b = point(5.0, "b"), off = point(3.0, "off");
+        off.enabled = false;
+        LightTrigger r = point(2.0, "r");
+        r.end = 8.0;
+        const LightTriggers t{a, b, off, r};
+        const audio::Cuts cuts{audio::Cut{3.5, 4.5}};
+        const auto up = audio::upcomingEdges(t, 2.5, &cuts);
+        QCOMPARE(int(up.size()), 2);                    // b, then r's exit
+        QCOMPARE(up[0].index, 1);
+        QCOMPARE(up[0].in, 1.5);                        // 2.5 s minus the 1 s cut
+        QCOMPARE(up[1].index, 3);
+        QVERIFY(up[1].exit);
+        QCOMPARE(up[1].in, 4.5);
+        QCOMPARE(int(audio::upcomingEdges(t, 2.5, &cuts, 6.0).size()), 1);   // the trim out
+        QCOMPARE(int(audio::upcomingEdges(t, 0.0, nullptr, -1.0, 2).size()), 2);
+    }
+
     void disabledTriggersStayQuiet()
     {
         auto t = LightTriggers{point(1.0, "a"), range(2.0, 3.0, "r")};
