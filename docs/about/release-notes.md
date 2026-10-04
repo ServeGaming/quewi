@@ -26,6 +26,22 @@
   its cue list, and is labelled with it ("GO Lights  8.4  Back").
   <kbd>Mod</kbd>+<kbd>Shift</kbd>+<kbd>G</kbd> does the same. It's in Show
   Mode too, under GO, when the Matrix List is up.
+- **Back and Stop for the lights.** Beside GO Lights: **◀ Back** fires the
+  desk cue before the one running in the Matrix List's cue list
+  (<kbd>Mod</kbd>+<kbd>Shift</kbd>+<kbd>B</kbd>), and **■ Stop** presses
+  the desk's Stop key (no default shortcut). Both are in Show Mode too.
+- **The Matrix List reads more of the desk.** Follows, hangs, links, loops,
+  block and assert show under each lighting cue, and a line joins cues that
+  run on from each other. **Details** (all of them, or one row with a
+  double-click) shows every time and flag the desk records, plus its
+  effects and macros. The desk's **scenes** head their cues and fold away
+  with a click.
+- **Record lighting triggers from the desk.** In the audio editor, press
+  **● Record from desk**, play the song and run the desk as you would in
+  the show. Every cue you fire is noted at that moment of the song. When the
+  song stops you see what was caught and keep it as triggers (one undo step)
+  or throw it away. Nothing is sent to the desk.
+  [Recording triggers →](../using-quewi/lighting-triggers.md#recording-triggers-from-the-desk)
 - **Show Mode follows the Matrix List.** When it's the page you were on,
   COMING UP shows the merged order, lighting cues included, and STANDBY
   says which lighting cues go with the next GO.
@@ -33,6 +49,13 @@
   the merged list as JSON (paged), and `/quewi/notify/matrix/changed` says
   when to ask again.
   [OSC reference →](../osc-control/reference.md#matrix-list)
+
+### Fixed
+
+- **Scrolling a Matrix List (or any table) moved about sixty rows a
+  wheel notch.** Now it moves about three, as in the cue list.
+- **The GO Lights button was cut off** at some window sizes. It now keeps
+  its size and shortens a long label to fit.
 
 ## 1.1.0 (2026-10-04)
 

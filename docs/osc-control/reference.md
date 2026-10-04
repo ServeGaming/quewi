@@ -274,6 +274,10 @@ pushes `/quewi/notify/cue/changed` for the cue like any other edit.
 | `/quewi/cue/<num>/trigger/<ref>/test` | optional `s` `"exit"` | — | Send the trigger's enter action now (or its exit action with `"exit"`), exactly as playback would. Works even when triggers are disarmed, and doesn't push `trigger/fired`. |
 | `/quewi/triggers/armed` | optional `T`/`F` or `i` 0/1 | `/quewi/reply/triggers/armed` `T`/`F` | Arm or disarm all lighting triggers on this computer (the **Tools → Lighting Triggers Armed** switch; remembered across restarts). With no argument it changes nothing and just replies. |
 | `/quewi/query/triggers/armed` | — | `/quewi/reply/triggers/armed` `T`/`F` | Read the master switch. |
+| `/quewi/cue/<num>/triggers/record` | `s` `"start"` [`s` desk cue list] | — | *(next release)* Record lighting triggers from the desk against this audio or video cue **while it plays for real**: each cue the desk runs is noted at the song's position. It stops by itself when the song stops (after it has played). Needs an Eos desk being read back. Nothing is sent to the desk. |
+| `/quewi/cue/<num>/triggers/record` | `s` `"stop"` | — | Stop recording. The take waits for `keep` or `discard`. |
+| `/quewi/cue/<num>/triggers/record` | `s` `"keep"` [`s` group] | — | Add the take to the cue as **Go to cue** triggers, in one undo step, in group "Recorded" (or the name given, made unique). |
+| `/quewi/cue/<num>/triggers/record` | `s` `"discard"` | — | Throw the take away. |
 
 Notifications (see [the notifications table](#notifications-pushed-to-subscribers)):
 
@@ -281,6 +285,8 @@ Notifications (see [the notifications table](#notifications-pushed-to-subscriber
 |---|---|
 | `/quewi/notify/trigger/fired` | `s d s s s` cue id, cue number, trigger id, trigger name, `"enter"` / `"exit"` |
 | `/quewi/notify/triggers/armed` | `T` / `F` |
+| `/quewi/notify/triggers/recording` | `d T/F` cue number, recording or not *(next release)* |
+| `/quewi/notify/triggers/recorded` | `d s` cue number, JSON `[{"at": 12.4, "list": "2", "cue": "8.4", "label": "Back"}, …]`: the take, when recording stops *(next release)* |
 
 ### Trigger fields
 
@@ -557,6 +563,16 @@ else the show's first. A show with none replies `{"error": "no matrix list"}`.
 }
 ```
 
+Two more things in a row. A desk scene appears as its own row before the
+cues in it, `{"row": 9, "kind": "scene", "scene": "Trad. Hispanic",
+"firstCue": "6", "lastCue": "23"}`, and every row inside a scene has
+`"inScene": "<name>"`. A lighting cue also carries what the desk records
+for it, whenever it's set: `"upDelay"`, `"focus"`, `"colour"`, `"beam"`
+(seconds), `"link"` (the cue it links to), `"loop"`, `"mark"`, `"block"`,
+`"assert"` (as the desk writes them, for example `"M"`, `"b"`),
+`"allFade"`, `"preheat"`, `"curve"`, `"rate"`, `"timecode"`, `"effects"`
+(`["903"]`) and `"actions"` (`["M1"]` = macro 1).
+
 `/quewi/notify/matrix/changed` (`s` Matrix List id) is pushed when the
 rows change shape (a placement, the desk's list read again, the source
 list edited): query again. Standby and the desk's live cue moving don't
@@ -626,6 +642,8 @@ Subscriptions live in memory only. If quewi restarts, re-subscribe. (Run a heart
 | `/quewi/notify/triggers/armed` | `T` / `F` | *(1.1.0)* The lighting-trigger master switch changed (Tools menu or OSC). |
 | `/quewi/notify/soundboard/mic/changed` | — | *(1.1.0)* A soundboard → mic setting changed (on the quewi machine or over OSC). Re-query with `/quewi/query/soundboard/mic`. |
 | `/quewi/notify/matrix/changed` | `s` Matrix List id | *(next release)* The Matrix List's rows changed. Re-query with `/quewi/query/matrix`. |
+| `/quewi/notify/triggers/recording` | `d T/F` | *(next release)* Recording triggers from the desk started / stopped for that cue. |
+| `/quewi/notify/triggers/recorded` | `d s` | *(next release)* The take, as JSON, when recording stops. Keep or discard it with `/quewi/cue/<num>/triggers/record`. |
 
 ---
 

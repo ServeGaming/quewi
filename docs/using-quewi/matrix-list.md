@@ -62,7 +62,48 @@ for what's playing, **blue** for the desk's live cue (and a paler blue for
 its next one), and **lavender** for lighting hits inside a song.
 
 **Follow the show** (on by default) keeps standby, or the desk's live
-cue, in view as the show runs.
+cue, in view as the show runs. One notch of the mouse wheel moves about
+three rows. Touchpads scroll smoothly.
+
+### What each lighting cue does by itself
+
+Under a lighting cue, a second line says what the desk will do on its own:
+
+| Mark | Means |
+|---|---|
+| **→ runs on to the next cue in 2 s** | A follow time: the next cue (or the one it links to) starts 2 s after this one does, without a GO. A hang time reads "… 2 s after it ends". |
+| **↪ links to LX 10** | After this cue, the desk's next GO goes to LX 10 instead of the next number. |
+| **⟲ loops ×3** | The cue loops. |
+| **[B]** / **[A]** | Block / assert, as the desk has them set. |
+
+Cues that run on from each other are joined by a thin blue line down the
+left of the **LIGHTS** column, so you can see an auto-follow sequence at a
+glance, even when quewi cues sit in the middle of it.
+
+### Details
+
+Tick **Details** to see everything the desk records for every lighting cue:
+up / down / focus / colour / beam times and delays, follow and hang, mark,
+block, assert, all fade, preheat, curve, rate, timecode, part count, the
+effects it runs, and the macros it fires ("Runs M1"). quewi remembers the
+tick on this computer. To open just one row, double-click a lighting row
+(or right-click any row and choose **Show this row's details**).
+
+### Scenes
+
+The desk's scenes divide the list the way they do on the desk. A scene
+starts at a cue with a scene name and runs until the next scene starts, or
+until a cue that ends it. That can be the desk's **Scene End** flag, or a
+scene name that begins with "End", such as "End of Act 1", which closes the
+scene on that cue. Each scene gets a heading row, for example
+"▾ SCENE Trad. Hispanic  LX 6 – 23 · 18 rows", and the quewi cues inside it
+stay inside it.
+
+Click a heading to fold that scene down to just its heading, and click it
+again to open it. **Fold scenes** and **Open scenes** do every scene at
+once. Which scenes are folded is kept with the show, and changing it
+doesn't mark the show as unsaved. If the show is following the live cue
+into a folded scene, the matrix scrolls to that scene's heading.
 
 ---
 
@@ -149,14 +190,37 @@ went.
 
 GO Lights is greyed out, with the reason when you hover over it, when the
 lighting desk isn't an ETC Eos, when quewi isn't connected to it (it needs
-to know the desk's next cue), or at the end of the list.
+to know the desk's next cue), or at the end of the list. A long cue label is
+shortened to fit the button. The whole label is in its tooltip.
+
+### Back and Stop
+
+Under GO Lights, two smaller buttons:
+
+- **◀ Back** goes back one lighting cue in this Matrix List's desk cue
+  list. It fires the cue before the one running on the desk (the
+  **LX LIVE** row), and names it, for example **◀ Back 6  Chorus wash**.
+  quewi fires that cue directly (`/eos/cue/<list>/<cue>/fire`) instead of
+  pressing the desk's Back key, because the Back key only steps the desk's
+  main playback and this works for any cue list. The difference to know:
+  the cue runs in its own time, not the desk's Back time. Shortcut:
+  <kbd>Mod</kbd>+<kbd>Shift</kbd>+<kbd>B</kbd>.
+- **■ Stop** presses the desk's **Stop** key, which stops the running cue
+  on the desk's main playback. It has no shortcut by default, so it can't be
+  pressed by accident. You can give it one in **Tools → Shortcuts**.
+
+Both are greyed out, with the reason, when the desk isn't connected. Back
+is also greyed out when nothing in this desk cue list is running, or when
+the running cue is the list's first. The status bar confirms what was
+sent. Show Mode has the same two buttons under its GO Lights.
 
 In **Show Mode**, nothing can be re-placed. If the Matrix List was the page
 you were on, the stage-manager screen's **COMING UP** shows the merged
 order: each quewi cue with its lighting cues alongside ("LX 12 Sunrise"),
 and the lighting cues on their own rows in between, in blue. STANDBY also
 says which lighting cues go with the next GO, and a blue **GO Lights**
-button sits under GO, smaller than GO and well away from PANIC.
+button sits under GO, with **◀ Back** and **■ Stop** beside each other under
+it. All three are smaller than GO and well away from PANIC.
 
 ---
 

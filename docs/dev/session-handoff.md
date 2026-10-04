@@ -156,8 +156,64 @@ as a PR (not merged, no version bump — that's for main).
     real QSS (resources.qrc linked into test_matrix_view, windows platform +
     `WA_DontShowOnScreen`). Renders checked at 1280×720 and 1920×1080:
     live, desk off, empty, Show Mode with GO Lights.
-  - **Not done / not driven**: GO Lights was **never fired at the real
-    Nomad** (as instructed; fake desk only). Drag-and-drop and the picker
+  - **Round 3 (Matthew's next feedback, 2026-10-04)**:
+    - *GO Lights cut off*: fixed width 300 with the label elided (full label
+      in the tooltip). Checked at his window (1280×931 logical ≈ 1600×1164
+      at 125 %), 1280×720, 1920×1080 and 1100×720. The three text columns
+      now stretch, so there's no sideways scroll at 1100.
+    - *Back / Stop*: Back = `ui::backLightsTarget` (the cue before the
+      desk's ACTIVE one in the matrix's list, fired explicitly with
+      `/eos/cue/<l>/<c>/fire`; it runs with that cue's own time, not the
+      desk's back time). Stop = DeskDo::Stop (`/eos/key/stop` 1.0, then 0.0
+      after 50 ms). Ctrl+Shift+B; Stop has no default key. Both are also in
+      Show Mode (`ShowLightsGo.back*/stop*`). Exact datagrams are tested.
+    - *Wheel jumped ~60 rows*: `SmoothScroll` added 60 "px" to scrollbars
+      that count **rows** (ScrollPerItem tables, which the matrix and the
+      mix grid were). It now uses wheel-lines rows on per-item views, an
+      opt-in `smoothScrollRows` per notch (the matrix: 3, per-pixel), and
+      touchpad pixels as given. `SmoothScroll::stepFor` is tested.
+    - *Desk details*: the whole 31-arg record plus the fx/actions replies,
+      **read-only from his Nomad, 2026-10-04**. Mark is "M"; block is a
+      lowercase "b"; link is int 0 for none, else a string "0.99" or an int
+      3; curve is "0"; rate 100; times -1 when not set; actions "M1"; fx are
+      ints. Scene end: his show doesn't use Eos's Scene End flag (arg 29
+      always False) but names a cue "End of Trad. Hispanic", so a name
+      starting "End" closes the open scene (`isSceneEndText`). Shown inline
+      (runs on / links / loops / [B] [A]), with a Details toggle
+      (`matrix/details` QSetting) or per row, and a chain line for
+      follow/hang (forward only).
+    - *Scenes*: `matrix::addScenes` adds Row::Kind::Scene headers.
+      Collapsed scenes are `Config::collapsedScenes`, saved silently. JSON
+      rows have `kind:"scene"` and `inScene`. From his real list 2:
+      Trad. Hispanic 6–23, Brazil. Funk 25–49, Reggaeton 52–81.99,
+      Brazilian Traditonal 83–90, Latin Lovers 92–105.99, Skirts
+      106.99–108.99.
+    - *Record from desk*: `EosFeedback::cueFired` (from
+      `/eos/out/event/cue/<l>/<c>/fire` or the active cue changing, once per
+      fire, never the state reported on connect), `audio::DeskRecording`
+      (pure), and `ui::DeskTakeRecorder`. The audio editor's toolbar and
+      Lighting tab have "● Record from desk": it starts the preview, stops
+      when the song stops (not on loop or pause), then a review dialog
+      offers Keep (one undo step, group "Recorded", optional beat snap) or
+      Discard. Preview sends pause while recording. The remote can do it
+      with `/quewi/cue/<n>/triggers/record start|stop|keep|discard` plus
+      notifications (`MainWindowMatrix.cpp`). **Sub/fader bumps aren't
+      recorded**: Eos only reports fader levels to the connection that
+      configured that fader bank. **`/eos/out/event/cue/…/fire` was never
+      seen live**: 10 minutes of passive listening to his Nomad caught no
+      fires because he wasn't running cues. The active-cue-change path is
+      what the fake desk proves.
+    - Tests: new `desk_recording` (37 suites); matrix_view 15 cases;
+      matrix_model scenes; eos_cue_lists details. Under `ctest -j6`,
+      cart_view or light_triggers_ui occasionally fail on load; they pass
+      in isolation (repeat ×4) and in serial runs.
+    - Renders (QUEWI_RENDER_DIR, + QUEWI_TEST_EOS_HOST/LIST for a
+      real-desk page): live at four sizes, details+folded, the Lighting
+      tab recording, Show Mode with GO Lights/Back/Stop, and his real
+      list 2.
+  - **Not done / not driven**: GO Lights, Back and Stop were **never fired
+    at the real Nomad** (as instructed; fake desk only). Recording wasn't
+    driven by hand with a real song and real GOs. Drag-and-drop and the picker
     weren't driven by hand (no computer-use in that session), only through
     the model and the renders. The detached matrix window doesn't follow
     Show Mode's lock if it was opened before Show Mode.

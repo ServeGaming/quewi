@@ -981,6 +981,42 @@ private slots:
             panel.grab().save(QStringLiteral("%1/lighting-tab-recording-1280x360.png").arg(dir));
         }
 
+        // Opt-in: the same page over a REAL desk's list (read-only requests),
+        // QUEWI_TEST_EOS_HOST=127.0.0.1 QUEWI_TEST_EOS_LIST=2.
+        if (const QString host = qEnvironmentVariable("QUEWI_TEST_EOS_HOST"); !host.isEmpty()) {
+            core::Workspace ws2;
+            ws2.addCueList(std::make_unique<core::CueList>(QStringLiteral("Main")));
+            auto mx = std::make_unique<core::CueList>(QStringLiteral("Matrix"));
+            mx->setKind(core::CueList::Kind::Matrix);
+            m::Config c2;
+            c2.deskList = qEnvironmentVariable("QUEWI_TEST_EOS_LIST", QStringLiteral("1"));
+            mx->setMatrixConfig(c2);
+            auto *mlist = ws2.addCueList(std::move(mx));
+            osc::EosFeedback realFb;
+            osc::EosCueLists realReader(&realFb);
+            ui::MatrixView real;
+            real.setAttribute(Qt::WA_DontShowOnScreen);
+            real.setWorkspace(&ws2);
+            real.setDesk(&realReader, &realFb);
+            real.setCueList(mlist);
+            realFb.start(host, 3032);
+            QTRY_VERIFY_WITH_TIMEOUT(realReader.state(c2.deskList) == osc::EosCueLists::State::Ready, 60000);
+            QTest::qWait(500);
+            real.resize(1280, 931);
+            real.show();
+            real.rebuildNow();
+            real.pollLive();
+            QTest::qWait(200);
+            real.pollLive();
+            QTest::qWait(50);
+            real.grab().save(QStringLiteral("%1/matrix-real-desk-1280x931.png").arg(dir));
+            real.setAllScenesCollapsed(true);
+            QTest::qWait(100);
+            real.grab().save(QStringLiteral("%1/matrix-real-desk-folded-1280x931.png").arg(dir));
+            real.setAllScenesCollapsed(false);
+            realFb.stop();
+        }
+
         // The desk gone: the cached cues, and the banner saying so.
         desk.peer->abort();
         desk.server.close();

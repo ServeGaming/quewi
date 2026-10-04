@@ -281,6 +281,46 @@ cue. It's off each time you open the editor, so previewing a song doesn't
 drive the rig by surprise. Turning it off while inside a range sends that
 range's exit.
 
+### Recording triggers from the desk
+
+*New in the next release.* Instead of placing triggers by hand, you can
+run the desk along with the song and let quewi write down what you did:
+
+1. Open the song in the audio editor and go to the **Lighting** tab.
+2. Press **● Record from desk**. It's also on the editor's toolbar. The
+   song starts playing from the edit cursor, and the tab shows **● REC**.
+3. Run the lighting desk as you would in the show: GO, Back, go to a cue.
+   Each cue that runs on the desk is noted at that moment of the song, for
+   example "LX 8.4 at 0:12.40".
+4. Stop the song (or press **■ Stop recording**). quewi lists what it
+   caught and asks whether to keep it. **Keep as lighting triggers** adds
+   them to the song as **Go to cue** triggers in one undo step, grouped as
+   "Recorded" ("Recorded 2" the next time). You can also snap them to the
+   song's beat grid. **Discard** throws the take away.
+
+Good to know:
+
+- Recording only listens. Nothing is sent to the desk, and **Send while
+  previewing** pauses while you record, so quewi's own triggers can't be
+  caught as if you'd fired them.
+- It needs an ETC Eos-family desk with **Read the desk's state back** on
+  (see [Reading the desk back](#reading-the-desk-back)). If it can't record,
+  the Lighting tab says why.
+- Stopping the song always stops the recording, so it can't be left running
+  by accident. Looping the song or pausing it doesn't stop it. Cues fired
+  while the song is paused aren't noted, because they have no moment in the
+  song.
+- It records **cues** that run on any of the desk's cue lists. Sub and fader
+  bumps aren't recorded yet: Eos only reports a fader's level to the
+  connection that set up that fader bank, and quewi's read-back connection
+  doesn't set one up.
+- Timing is what quewi hears from the desk, so it lands within a few
+  hundredths of a second of the GO. Nudge a trigger in the lane if you need
+  it tighter.
+- A remote can record against a cue playing for real (not just the editor's
+  preview) with `/quewi/cue/<num>/triggers/record`. See the
+  [OSC reference](../osc-control/reference.md#lighting-triggers-v5).
+
 ---
 
 ## Beat grid

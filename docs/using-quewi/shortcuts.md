@@ -20,6 +20,8 @@ Checked against the actual wiring in `src/app/MainWindow.cpp` for 1.0.1.
 | Pause / Resume (press again to resume) | `Mod + .` |
 | Fade All — fade sound, video and lights out over 2 s | `Mod + Shift + .` |
 | GO Lights — fire the lighting desk's next cue (Matrix List only) | `Mod + Shift + G` |
+| Lights Back — the desk cue before the live one (Matrix List only) | `Mod + Shift + B` |
+| Lights Stop — the desk's Stop key (Matrix List only) | none by default (set one in Tools → Shortcuts) |
 
 These four are rebindable in **Tools → Keyboard shortcuts…** — useful for a
 footswitch or a Stream Deck that sends a particular key.
