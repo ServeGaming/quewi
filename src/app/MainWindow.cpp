@@ -589,26 +589,12 @@ void MainWindow::buildLayout()
 
     m_transport = new ui::TransportBar(central);
 
-    // Tab strip + a "+" button to add another cue list or a soundboard.
+    // Tab strip. New lists of every kind are added from the List menu.
     {
         auto *tabRow = new QHBoxLayout();
         tabRow->setContentsMargins(0, 0, 0, 0);
         tabRow->setSpacing(2);
         tabRow->addWidget(m_listTabs, 1);
-        auto *addTabBtn = new QToolButton(central);
-        addTabBtn->setText(QStringLiteral("+"));
-        addTabBtn->setToolTip(tr("Add a cue list or soundboard"));
-        addTabBtn->setCursor(Qt::PointingHandCursor);
-        addTabBtn->setAutoRaise(true);
-        auto *addMenu = new QMenu(addTabBtn);
-        addMenu->addAction(tr("New cue list"), this, &MainWindow::addCueListTab);
-        // One soundboard per show — it holds multiple switchable layers instead
-        // of multiple boards. This opens it (creating it on first use).
-        addMenu->addAction(tr("Soundboard"), this, &MainWindow::addSoundboardTab);
-        addMenu->addAction(tr("Mix (DCA) list"), this, &MainWindow::addMixListTab);
-        addTabBtn->setMenu(addMenu);
-        addTabBtn->setPopupMode(QToolButton::InstantPopup);
-        tabRow->addWidget(addTabBtn, 0);
         outer->addLayout(tabRow, 0);
     }
     outer->addWidget(m_centerStack, 1);
@@ -818,7 +804,13 @@ void MainWindow::buildMenus()
                         this, &MainWindow::addMixListTab);
 
     auto *listMenu = menuBar()->addMenu(tr("&List"));
+    // Every kind of list is added from here (the tab strip's old "+" moved in).
     listMenu->addAction(tr("&New cue list…"),    this, &MainWindow::addCueListTab);
+    // One soundboard per show — it holds multiple switchable layers instead
+    // of multiple boards. This opens it (creating it on first use).
+    listMenu->addAction(tr("&Soundboard"),       this, &MainWindow::addSoundboardTab);
+    listMenu->addAction(tr("&Mix (DCA) list"),   this, &MainWindow::addMixListTab);
+    listMenu->addSeparator();
     listMenu->addAction(tr("&Rename current…"),  this, &MainWindow::renameCueListTab);
     listMenu->addAction(tr("&Remove current"),   this, &MainWindow::removeCueListTab);
 

@@ -33,6 +33,10 @@ scene shifts. Each cue list has its own GO pointer; switching
 the active list (tab strip above the cue list) switches what GO
 fires.
 
+Add lists from the **List** menu: **New cue list…**, **Soundboard** (one
+per show, with layers) and **Mix (DCA) list**. **Rename current…** and
+**Remove current** are there too.
+
 The active cue list is the one whose next-cue indicator drives
 the transport bar. The other lists keep their own pointers in
 the background — switch back later and you're where you left off.
