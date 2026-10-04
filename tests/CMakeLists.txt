@@ -106,6 +106,19 @@ target_sources(test_show_mode_view PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/../src/app/GoEngine.cpp
 )
 
+# Reading cue lists off an Eos desk (osc::EosCueLists) against a fake desk.
+quewi_add_test(eos_cue_lists Qt6::Test Qt6::Network quewi_osc)
+# The Matrix List's intermeshing rules — pure logic, no UI.
+quewi_add_test(matrix_model Qt6::Test quewi_core)
+# A Matrix List through a real show file; old show files still open.
+quewi_add_test(matrix_persistence Qt6::Test Qt6::Sql quewi_core quewi_show)
+# The Matrix List view, what feeds it, and Show Mode's merged COMING UP.
+# Same GoEngine trick.
+quewi_add_test(matrix_view Qt6::Test Qt6::Widgets quewi_ui)
+target_sources(test_matrix_view PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/../src/app/GoEngine.cpp
+)
+
 # On Windows, Qt's DLLs need to be reachable via PATH at test runtime.
 if(WIN32)
     foreach(name ${_quewi_test_names})

@@ -241,6 +241,12 @@ void EosCueLists::finish(const QString &list, State how)
     const bool again = it->again;
     it->outstanding.clear();
     setState(list, *it, how);
+    // An incomplete read never replaces a complete one: a cue missing only
+    // because the desk stopped answering would read as deleted.
+    if (how == State::Partial && m_cues.contains(list)) {
+        if (again) startFetch(list);
+        return;
+    }
     if (m_cues.value(list) != all || !m_cues.contains(list)) {
         m_cues.insert(list, all);
         emit cuesChanged(list);
