@@ -3,6 +3,7 @@
 #include "audio/AudioFile.h"
 #include "audio/AudioTrajectory.h"
 #include "audio/BeatGrid.h"
+#include "audio/Cuts.h"
 #include "audio/LightTrigger.h"
 #include "cues/Cue.h"
 
@@ -99,6 +100,9 @@ public:
     // The song's tempo for snapping triggers to beats (see BeatGrid.h).
     // Undoable field "beatGrid" (QJsonObject, or a JSON string remotely).
     const BeatGrid &beatGrid() const { return m_beatGrid; }
+    // Sections cut out of the middle (see Cuts.h): playback jumps over them.
+    // Undoable field "cuts" ([[start, end], …], or a JSON string remotely).
+    const Cuts &cuts() const { return m_cuts; }
 
     const QJsonObject &editorModelJson() const { return m_editorModelJson; }
     void setEditorModelJson(const QJsonObject &j) { m_editorModelJson = j; emitChanged(); }
@@ -170,6 +174,7 @@ private:
     QJsonObject m_videoOrigin;
     LightTriggers m_lightTriggers;
     BeatGrid      m_beatGrid;
+    Cuts          m_cuts;
 
     std::shared_ptr<AudioFile> m_file;
     quint64                    m_currentVoiceId = 0;

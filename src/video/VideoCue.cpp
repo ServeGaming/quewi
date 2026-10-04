@@ -87,6 +87,7 @@ audio::AudioCue *VideoCue::audioOf(cues::Cue *cue)
 
 double VideoCue::trimInSeconds()  const { return m_sound->trimInSeconds(); }
 double VideoCue::trimOutSeconds() const { return m_sound->trimOutSeconds(); }
+const audio::Cuts &VideoCue::cuts() const { return m_sound->cuts(); }
 
 PictureTiming VideoCue::pictureTiming() const
 {
@@ -96,12 +97,14 @@ PictureTiming VideoCue::pictureTiming() const
     t.fadeInSeconds  = m_pictureFadeIn;
     t.fadeOutSeconds = m_pictureFadeOut;
     t.loop           = m_loop;
+    t.cuts           = m_sound->cuts();
     return t;
 }
 
 QVariant VideoCue::field(const QString &key) const
 {
-    if (key == QLatin1String("trimInSeconds") || key == QLatin1String("trimOutSeconds"))
+    if (key == QLatin1String("trimInSeconds") || key == QLatin1String("trimOutSeconds")
+        || key == QLatin1String("cuts"))
         return m_sound->field(key);
     if (key == QLatin1String("pictureFadeInSeconds"))  return m_pictureFadeIn;
     if (key == QLatin1String("pictureFadeOutSeconds")) return m_pictureFadeOut;
@@ -132,6 +135,11 @@ void VideoCue::setField(const QString &key, const QVariant &value)
     // The picture's In / Out are the sound's trims (its changed() re-emits ours).
     if (key == QLatin1String("trimInSeconds") || key == QLatin1String("trimOutSeconds")) {
         m_sound->setField(key, std::max(0.0, value.toDouble()));
+        return;
+    }
+    // Cut sections too: one list, so picture and sound skip the same spans.
+    if (key == QLatin1String("cuts")) {
+        m_sound->setField(key, value);
         return;
     }
     if (key == QLatin1String("pictureFadeInSeconds")

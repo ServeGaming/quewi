@@ -12,6 +12,8 @@ add_library(quewi_audio STATIC
     LightTrigger.h
     LightTrigger.cpp
     BeatGrid.h
+    Cuts.h
+    Cuts.cpp
     BeatGrid.cpp
     DeskCommands.h
     DeskCommands.cpp

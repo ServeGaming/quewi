@@ -79,6 +79,9 @@ public:
     double pictureFadeInSeconds()  const { return m_pictureFadeIn; }
     double pictureFadeOutSeconds() const { return m_pictureFadeOut; }
     PictureTiming pictureTiming() const;
+    // Sections cut out (the soundtrack's, field "cuts") — picture and sound
+    // jump over them together.
+    const audio::Cuts &cuts() const;
     bool soundEnabled() const { return m_soundEnabled; }
     // The audio cue a voice-carrying cue plays through: an AudioCue itself,
     // or a VideoCue's sound (when it's on). nullptr otherwise.

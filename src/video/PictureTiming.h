@@ -1,5 +1,7 @@
 #pragma once
 
+#include "audio/Cuts.h"
+
 #include <algorithm>
 
 namespace quewi::video {
@@ -17,6 +19,22 @@ struct PictureTiming {
     double fadeInSeconds  = 0.0;   // picture opacity ramp after In
     double fadeOutSeconds = 0.0;   // …and before Out
     bool   loop           = false; // loop between In and Out
+    audio::Cuts cuts;              // sections jumped over (the sound's too)
+
+    // Where to continue from when the picture is inside a cut: the cut's
+    // end; otherwise posSeconds itself.
+    double skipCuts(double posSeconds) const
+    {
+        const auto *c = audio::cutAt(cuts, posSeconds);
+        return c ? c->end : posSeconds;
+    }
+    // How long the cue plays between In and the end: trims and cuts applied.
+    double playSeconds(double durationSeconds) const
+    {
+        const double end = endSeconds(durationSeconds);
+        if (end <= inSeconds) return 0.0;
+        return (end - inSeconds) - audio::cutSecondsBetween(cuts, inSeconds, end);
+    }
 
     // Where the picture stops (or wraps): Out, or the end of the file.
     // durationSeconds <= 0 (not known yet) leaves Out as given.

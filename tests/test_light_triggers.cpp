@@ -4,6 +4,7 @@
 
 #include "audio/AudioCue.h"
 #include "audio/BeatGrid.h"
+#include "audio/Cuts.h"
 #include "audio/DeskCommands.h"
 #include <QRandomGenerator>
 #include "audio/LightTrigger.h"
@@ -386,6 +387,37 @@ private slots:
         // Silence: no tempo.
         std::vector<float> quiet(size_t(10 * sr), 0.0f);
         QCOMPARE(audio::estimateTempo(quiet.data(), quiet.size(), sr).bpm, 0.0);
+    }
+
+    // ── Cut sections (splicing) ──────────────────────────────────────────
+    void cutsMergeSplitAndSave()
+    {
+        using audio::Cut;
+        auto c = audio::addCut({}, 10.0, 12.0);
+        c = audio::addCut(c, 5.0, 6.0);
+        c = audio::addCut(c, 11.5, 14.0);                 // overlaps → merges
+        QCOMPARE(c, (audio::Cuts{Cut{5.0, 6.0}, Cut{10.0, 14.0}}));
+        QCOMPARE(audio::cutAt(c, 12.0)->end, 14.0);
+        QVERIFY(!audio::cutAt(c, 14.0));                  // end is outside
+        QCOMPARE(audio::cutSecondsBetween(c, 0.0, 11.0), 2.0);
+        c = audio::removeCut(c, 11.0, 12.0);              // restore a middle bit → splits
+        QCOMPARE(c, (audio::Cuts{Cut{5.0, 6.0}, Cut{10.0, 11.0}, Cut{12.0, 14.0}}));
+        QVERIFY(audio::addCut({}, 3.0, 3.001).empty());   // too small to be a cut
+
+        audio::AudioCue cue;
+        QUndoStack undo;
+        undo.push(new core::EditCueFieldCommand(&cue, QStringLiteral("cuts"),
+                                                cue.field(QStringLiteral("cuts")),
+                                                audio::cutsToJson(c)));
+        audio::AudioCue back;
+        back.fromPayload(cue.toPayload());
+        QCOMPARE(back.cuts(), c);
+        cue.setField(QStringLiteral("cuts"), QStringLiteral("[[1, 2]]"));   // remote JSON
+        QCOMPARE(cue.cuts(), (audio::Cuts{Cut{1.0, 2.0}}));
+        cue.setField(QStringLiteral("cuts"), QStringLiteral("nope"));       // ignored
+        QCOMPARE(cue.cuts().size(), size_t(1));
+        undo.undo();
+        QVERIFY(cue.cuts().empty());
     }
 
     void fieldsAreReachableByName()
