@@ -17,6 +17,9 @@
 #include "ui/MatrixSource.h"
 #include "ui/MatrixView.h"
 #include "ui/ShowModeView.h"
+#include "ui/Theme.h"
+
+#include <QDir>
 
 using namespace quewi;
 namespace m = core::matrix;
@@ -94,8 +97,9 @@ class MatrixViewTests : public QObject {
             a[2] = osc::Argument::s(QStringLiteral("Look ") + numbers[i]);
             a[3] = osc::Argument::i(4000);
             a[27] = osc::Argument::s(QString());
+            a[29] = osc::Argument::F();          // scene end, as the desk sends it
             a[28] = osc::Argument::s(numbers[i] == QLatin1String("1") ? QStringLiteral("Prologue") : QString());
-            r.handle({QStringLiteral("/eos/out/get/cue/1/%1/0/list/%2/%3").arg(numbers[i]).arg(i).arg(numbers.size()), a});
+            r.handle({QStringLiteral("/eos/out/get/cue/1/%1/0/list/0/31").arg(numbers[i]), a});
         }
     }
 
@@ -108,7 +112,12 @@ class MatrixViewTests : public QObject {
     }
 
 private slots:
-    void initTestCase() { QApplication::setStyle(QStringLiteral("Fusion")); }
+    void initTestCase()
+    {
+        QApplication::setStyle(QStringLiteral("Fusion"));
+        ui::Theme::load(QStringLiteral("quewi-dark"));
+        qApp->setPalette(ui::Theme::palette());
+    }
 
     void readsWhatCuesFire()
     {
@@ -345,6 +354,40 @@ private slots:
         QVERIFY(all.contains(QStringLiteral("Restore")));
         QVERIFY(all.contains(QStringLiteral("LX 9 Phone special")));
         QVERIFY(all.contains(QStringLiteral("LX 7 Blackout")));
+    }
+
+    // QUEWI_RENDER_DIR=<folder>: write a PNG of the view mid-show, to check
+    // the look (the app's QSS isn't linked into tests — palette only).
+    void renderForLooking()
+    {
+        const QString dir = qEnvironmentVariable("QUEWI_RENDER_DIR");
+        if (dir.isEmpty()) QSKIP("QUEWI_RENDER_DIR not set");
+        QDir().mkpath(dir);
+        Show s;
+        build(s);
+        osc::EosCueLists reader(nullptr);
+        reader.setSender([](const osc::Message &) {});
+        ui::MatrixView view;
+        view.resize(1280, 560);
+        view.setWorkspace(&s.ws);
+        view.setDesk(&reader, nullptr);
+        view.setCueList(s.matrix);
+        feedDesk(reader, {QStringLiteral("1"), QStringLiteral("5"), QStringLiteral("6"),
+                          QStringLiteral("6.5"), QStringLiteral("7"), QStringLiteral("8")});
+        view.rebuildNow();
+        ui::MatrixLive live;
+        live.standby = s.osc;
+        live.running = {s.song};
+        live.deskActiveList = QStringLiteral("1");
+        live.deskActiveCue = QStringLiteral("6");
+        live.deskPendingList = QStringLiteral("1");
+        live.deskPendingCue = QStringLiteral("6.5");
+        view.setLiveProvider([&live] { return live; });
+        view.show();
+        QTest::qWait(100);                   // grab() works exposed or not
+        view.pollLive();
+        QTest::qWait(80);
+        view.grab().save(dir + QStringLiteral("/matrix-view.png"));
     }
 };
 

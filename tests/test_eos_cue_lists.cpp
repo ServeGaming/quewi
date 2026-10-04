@@ -30,9 +30,11 @@ struct FakeCue {
     int     followMs = -1;
 };
 
-// A pretend Eos desk on localhost: answers the OSC Get requests the way
-// ETC's Show Control guide describes (count, then index/<i> → the cue plus
-// its /fx, /links and /actions replies), and can push notifications.
+// A pretend Eos desk on localhost: answers the OSC Get requests the way Eos
+// 3.3.9 (Nomad) was seen to on 2026-10-04 — count, then index/<i> → the cue
+// at .../list/0/31 with its index in args[0], then its /fx, /links and
+// /actions replies; an index past the end → /eos/out/get/cue/0/0 <i> — and
+// can push notifications.
 class FakeEos : public QObject {
 public:
     QTcpServer server;
@@ -91,11 +93,15 @@ public:
         }
         if (p.size() == 5 && p[2] == QLatin1String("cuelist") && p[3] == QLatin1String("index")) {
             const int i = p[4].toInt();
+            if (i >= lists.size()) {
+                send({QStringLiteral("/eos/out/get/cuelist/0"), {osc::Argument::i(i)}});
+                return;
+            }
             const QString num = lists.keys().value(i);
-            send({QStringLiteral("/eos/out/get/cuelist/%1/list/%2/%3").arg(num).arg(i).arg(lists.size()),
+            send({QStringLiteral("/eos/out/get/cuelist/%1/list/0/13").arg(num),
                   {osc::Argument::i(i), osc::Argument::s(QStringLiteral("uid-list-") + num),
                    osc::Argument::s(listLabels.value(num))}});
-            send({QStringLiteral("/eos/out/get/cuelist/%1/links/list/%2/%3").arg(num).arg(i).arg(lists.size()),
+            send({QStringLiteral("/eos/out/get/cuelist/%1/links/list/0/2").arg(num),
                   {osc::Argument::i(i), osc::Argument::s(QStringLiteral("uid-list-") + num)}});
             return;
         }
@@ -110,6 +116,17 @@ public:
             maxOutstanding = std::max(maxOutstanding, outstanding);
             if (!answerIndices) { held << a; return; }
             QTimer::singleShot(0, this, [this, a] { answerIndex(a); });
+            return;
+        }
+        // By number: /eos/get/cue/<list>/<cue>/<part> → args[0] = -1; not
+        // there → the same address back with no arguments.
+        if (p.size() == 6 && p[2] == QLatin1String("cue")) {
+            for (const auto &c : lists.value(p[3]))
+                if (c.number == p[4] && c.part == p[5].toInt()) {
+                    sendCue(p[3], c, -1);
+                    return;
+                }
+            send({QStringLiteral("/eos/out/get/cue/%1/%2/%3").arg(p[3], p[4], p[5]), {}});
         }
     }
 
@@ -122,11 +139,16 @@ public:
         const auto &cues = lists[list];
         const int n = int(cues.size());
         if (i >= n) {
-            // Gone since the count: the desk answers with no arguments.
-            send({QStringLiteral("/eos/out/get/cue/%1/0/0/list/%2/%3").arg(list).arg(i).arg(n), {}});
+            // Gone since the count: the desk answers with just the index.
+            send({QStringLiteral("/eos/out/get/cue/0/0"), {osc::Argument::i(i)}});
             return;
         }
-        const auto &c = cues[i];
+        Q_UNUSED(n);
+        sendCue(list, cues[i], i);
+    }
+
+    void sendCue(const QString &list, const FakeCue &c, int i)
+    {
         const QString base = QStringLiteral("/eos/out/get/cue/%1/%2/%3").arg(list, c.number).arg(c.part);
         std::vector<osc::Argument> args;
         args.push_back(osc::Argument::i(i));               // 0 index
@@ -151,13 +173,13 @@ public:
         args.push_back(osc::Argument::s(c.scene));         // 28 scene
         args.push_back(osc::Argument::F());                // 29 scene end
         args.push_back(osc::Argument::i(c.part));          // 30 part index
-        send({base + QStringLiteral("/list/%1/%2").arg(i).arg(n), args});
+        send({base + QStringLiteral("/list/0/31"), args});
         // The desk's follow-ups for the same cue — must be ignored.
-        send({base + QStringLiteral("/fx/list/%1/%2").arg(i).arg(n),
+        send({base + QStringLiteral("/fx/list/0/2"),
               {osc::Argument::i(i), osc::Argument::s(c.uid)}});
-        send({base + QStringLiteral("/links/list/%1/%2").arg(i).arg(n),
+        send({base + QStringLiteral("/links/list/0/2"),
               {osc::Argument::i(i), osc::Argument::s(c.uid)}});
-        send({base + QStringLiteral("/actions/list/%1/%2").arg(i).arg(n),
+        send({base + QStringLiteral("/actions/list/0/3"),
               {osc::Argument::i(i), osc::Argument::s(c.uid), osc::Argument::s(QStringLiteral("(ext)"))}});
     }
 
@@ -226,15 +248,19 @@ private slots:
         a[27] = osc::Argument::s(QStringLiteral("Wait for applause"));
         a[28] = osc::Argument::s(QStringLiteral("Act 1"));
         a[29] = osc::Argument::T();
-        r.handle({QStringLiteral("/eos/out/get/cue/2/0.5/0/list/0/3"), a});
-        r.handle({QStringLiteral("/eos/out/get/cue/2/0.5/0/fx/list/0/3"),
+        r.handle({QStringLiteral("/eos/out/get/cue/2/0.5/0/list/0/31"), a});
+        r.handle({QStringLiteral("/eos/out/get/cue/2/0.5/0/fx/list/0/2"),
                   {osc::Argument::i(0), osc::Argument::s(QStringLiteral("U1"))}});
+        // A later page of a long argument list isn't a cue of its own.
+        r.handle({QStringLiteral("/eos/out/get/cue/2/0.5/0/list/20/31"),
+                  {osc::Argument::i(7), osc::Argument::s(QStringLiteral("junk"))}});
         a[0] = osc::Argument::i(1);
         a[1] = osc::Argument::s(QStringLiteral("U2"));
         a[2] = osc::Argument::s(QStringLiteral("Part two"));
-        r.handle({QStringLiteral("/eos/out/get/cue/2/0.5/2/list/1/3"), a});
+        r.handle({QStringLiteral("/eos/out/get/cue/2/0.5/2/list/0/31"), a});
         QCOMPARE(changed.count(), 0);                       // not done yet
-        r.handle({QStringLiteral("/eos/out/get/cue/2/0/0/list/2/3"), {}});   // gone
+        // Index 2 is past the end now (deleted since the count).
+        r.handle({QStringLiteral("/eos/out/get/cue/0/0"), {osc::Argument::i(2)}});
         QCOMPARE(changed.count(), 1);
         QCOMPARE(r.state(QStringLiteral("2")), osc::EosCueLists::State::Ready);
 
@@ -254,7 +280,7 @@ private slots:
 
         // Messages for a list nobody watches, or stray replies, change nothing.
         r.handle({QStringLiteral("/eos/out/get/cue/9/count"), {osc::Argument::i(5)}});
-        r.handle({QStringLiteral("/eos/out/get/cue/2/1/0/list/0/1"), a});
+        r.handle({QStringLiteral("/eos/out/get/cue/2/1/0/list/0/31"), a});
         QCOMPARE(r.cues(QStringLiteral("2")).size(), 2);
     }
 
@@ -362,6 +388,47 @@ private slots:
         QCOMPARE(int(desk.requests.size()), asked);
     }
 
+    // One cue's label changed: only that cue is asked for again (by
+    // number), not the whole list — a desk answers ~10 GETs a second.
+    void aSmallChangeIsPatchedNotReread()
+    {
+        FakeEos desk;
+        QVector<FakeCue> cues;
+        for (int i = 1; i <= 20; ++i) cues.push_back(cue(QString::number(i), QStringLiteral("Cue %1").arg(i)));
+        desk.lists[QStringLiteral("1")] = cues;
+        osc::EosFeedback fb;
+        osc::EosCueLists r(&fb);
+        r.setTimings(50, 4000, 32);
+        r.setWatched({QStringLiteral("1")});
+        fb.start(QStringLiteral("127.0.0.1"), desk.server.serverPort());
+        QTRY_COMPARE(r.cues(QStringLiteral("1")).size(), 20);
+        QSignalSpy changed(&r, &osc::EosCueLists::cuesChanged);
+        desk.requests.clear();
+
+        desk.lists[QStringLiteral("1")][4].label = QStringLiteral("Sunrise, brighter");
+        desk.notify(QStringLiteral("1"), QStringLiteral("5"));
+        QTRY_COMPARE(changed.count(), 1);
+        QCOMPARE(r.cues(QStringLiteral("1"))[4].label, QStringLiteral("Sunrise, brighter"));
+        QCOMPARE(desk.requests, (QStringList{QStringLiteral("/eos/get/cue/1/5/0"),
+                                             QStringLiteral("/eos/get/cue/1/count")}));
+
+        // A delete told by number: patched, and the count agrees.
+        desk.requests.clear();
+        desk.lists[QStringLiteral("1")].removeAt(9);       // cue 10
+        desk.notify(QStringLiteral("1"), QStringLiteral("10"));
+        QTRY_COMPARE(changed.count(), 2);
+        QCOMPARE(r.cues(QStringLiteral("1")).size(), 19);
+        for (const auto &a : std::as_const(desk.requests)) QVERIFY(!a.contains(QLatin1String("/index/")));
+
+        // A new cue the notice didn't name: the count disagrees → full read.
+        desk.lists[QStringLiteral("1")].push_back(cue(QStringLiteral("30"), QStringLiteral("New")));
+        desk.lists[QStringLiteral("1")][0].label = QStringLiteral("Preset, again");
+        desk.notify(QStringLiteral("1"), QStringLiteral("1"));
+        QTRY_COMPARE(r.cues(QStringLiteral("1")).size(), 20);
+        QCOMPARE(r.cues(QStringLiteral("1")).last().number, QStringLiteral("30"));
+        QCOMPARE(r.cues(QStringLiteral("1")).first().label, QStringLiteral("Preset, again"));
+    }
+
     // A desk that stops answering mid-fetch: asked once more, then the
     // fetch settles as Partial with what came in — the old list isn't lost.
     void aStalledDeskEndsPartial()
@@ -394,6 +461,31 @@ private slots:
         r.refreshList(QStringLiteral("1"));
         QTRY_COMPARE(r.state(QStringLiteral("1")), osc::EosCueLists::State::Ready);
         QCOMPARE(r.cues(QStringLiteral("1")).size(), 3);
+    }
+
+    // Opt-in, against a real desk (or Nomad): QUEWI_TEST_EOS_HOST=127.0.0.1
+    // [QUEWI_TEST_EOS_LIST=2]. Read-only — it only asks. Skips in CI.
+    void realDeskIfConfigured()
+    {
+        const QString host = qEnvironmentVariable("QUEWI_TEST_EOS_HOST");
+        if (host.isEmpty()) QSKIP("set QUEWI_TEST_EOS_HOST to read a real Eos desk");
+        const QString list = qEnvironmentVariable("QUEWI_TEST_EOS_LIST", QStringLiteral("1"));
+        osc::EosFeedback fb;
+        osc::EosCueLists r(&fb);
+        r.setWatched({list});
+        fb.start(host, 3032);
+        QTRY_VERIFY_WITH_TIMEOUT(r.state(list) == osc::EosCueLists::State::Ready
+                                     || r.state(list) == osc::EosCueLists::State::Partial, 30000);
+        QCOMPARE(r.state(list), osc::EosCueLists::State::Ready);
+        const auto cues = r.cues(list);
+        QCOMPARE(int(cues.size()), r.expected(list));
+        for (const auto &c : cues) QVERIFY(!c.uid.isEmpty());
+        QTRY_VERIFY_WITH_TIMEOUT(!r.cueLists().isEmpty(), 5000);
+        qInfo("desk: %d cue lists; list %s has %d cues, first %s \"%s\", last %s",
+              int(r.cueLists().size()), qPrintable(list), int(cues.size()),
+              cues.isEmpty() ? "-" : qPrintable(cues.first().displayNumber()),
+              cues.isEmpty() ? "" : qPrintable(cues.first().label),
+              cues.isEmpty() ? "-" : qPrintable(cues.last().displayNumber()));
     }
 };
 

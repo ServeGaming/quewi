@@ -63,26 +63,38 @@ int compareEosNumbers(const QString &a, const QString &b);
 // do it — HeliOSC uses a cue-list bank instead, which only shows a window
 // around the pending cue):
 //   /eos/get/cuelist/count             → /eos/out/get/cuelist/count  <n>
-//   /eos/get/cuelist/index/<i>         → /eos/out/get/cuelist/<list>/list/<i>/<n>
+//   /eos/get/cuelist/index/<i>         → /eos/out/get/cuelist/<list>/list/0/13
+//       args: 0 index, 1 uid, 2 label, 3 playback mode, …
 //   /eos/get/cue/<list>/count          → /eos/out/get/cue/<list>/count  <n>
-//   /eos/get/cue/<list>/index/<i>      → /eos/out/get/cue/<list>/<cue>/<part>/list/<i>/<n>
+//   /eos/get/cue/<list>/index/<i>      → /eos/out/get/cue/<list>/<cue>/<part>/list/0/31
 //       args: 0 index, 1 uid, 2 label, 3 up ms, 4 up delay, 5 down ms,
 //       6 down delay, 7-12 focus/colour/beam time+delay, 13 preheat,
 //       14 curve, 15 rate, 16 mark, 17 block, 18 assert, 19 link,
 //       20 follow ms, 21 hang ms, 22 all fade, 23 loop, 24 solo,
 //       25 timecode, 26 part count, 27 notes, 28 scene, 29 scene end,
-//       30 cue part index.
-//   (the desk follows each cue with .../fx/..., .../links/..., .../actions/...
-//   replies, which are skipped). Indices are 0-based. A reply with no
-//   arguments means that cue doesn't exist (any more).
+//       30 cue part index. (-1 = not set.)
+//   Checked against Eos 3.3.9 (Nomad), 2026-10-04: indices are 0-based and
+//   travel in args[0]; the trailing list/<a>/<b> pages the ARGUMENTS (first,
+//   total), not the cues. An index past the end answers
+//   /eos/out/get/cue/0/0 <index> (/eos/out/get/cuelist/0 <index> for lists).
+//   The desk follows each cue with .../fx/..., .../links/... and
+//   .../actions/... replies, which are skipped.
 //   /eos/out/notify/cue/<list> <seq> <cues…> — something in that list
-//   changed (needs /eos/subscribe, which EosFeedback sends): the list is
-//   fetched again, whole, a moment later, so a renumber or a delete can't
-//   leave a stale cue behind.
+//   changed (needs /eos/subscribe, which EosFeedback sends). A moment later
+//   just those cues are asked for again by number (/eos/get/cue/<list>/
+//   <cue>/<part>; an empty reply = deleted) and the list's count is checked;
+//   if the count doesn't match what that leaves (a renumber the notice only
+//   half-described, a range of cues), or there were lots, the whole list is
+//   read again — so a renumber or delete can't leave a stale cue behind.
+//   (The notify format is ETC's documented one; not yet seen from a real
+//   desk — nothing was edited on one while this was written.)
 //
-// Big lists: requests go out a window at a time (32 in flight), and a fetch
-// that stalls re-asks for what's missing once before settling for what it
-// has (state Partial). Read-only: it only ever sends /eos/get/... requests.
+// Speed: a desk answers GETs one at a time — Nomad 3.3.9 took ~110 ms per
+// cue whatever the window (146 cues ≈ 17 s) — so a whole read is slow and
+// the last complete list stays up meanwhile. Requests go out a window at a
+// time (32 in flight), and a fetch that stalls re-asks for what's missing
+// once before settling for what it has (state Partial). Read-only: it only
+// ever sends /eos/get/... requests.
 class EosCueLists : public QObject {
     Q_OBJECT
 public:
@@ -144,6 +156,18 @@ private:
     void finish(const QString &list, State how);
     void onStallTick();
     void setState(const QString &list, Fetch &f, State s);
+    // A few cues changed (a notify): ask for just those.
+    struct Patch {
+        bool active = false;
+        QSet<QString> pending;               // "number/part" still to hear about
+        QHash<QString, EosCue> cues;         // the list being patched, by key
+        int   countReply = -1;
+        qint64 since = 0;
+    };
+    void startPatch(const QString &list, const QSet<QString> &numbers);
+    void finishPatchIfDone(const QString &list);
+    QHash<QString, Patch> m_patch;
+    QHash<QString, QSet<QString>> m_notified;   // list → cue numbers ("*" = all)
 
     EosFeedback *m_link = nullptr;
     std::function<void(const Message &)> m_sender;
@@ -153,7 +177,6 @@ private:
     int m_listsExpected = -1;
     QHash<QString, QVector<EosCue>> m_cues;
     QHash<QString, Fetch> m_fetch;
-    QSet<QString> m_dirty;                   // notified, fetch pending
     QTimer *m_notifyTimer = nullptr;
     QTimer *m_stallTimer = nullptr;
     int m_stallMs = 4000;

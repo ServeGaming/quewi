@@ -344,6 +344,10 @@ private:
     QSet<QUuid>      m_runningCueIds;            // from the active-cues panel
     bool matrixShowing() const;                  // the Matrix List page is up
     core::CueList *firstMatrixList() const;
+    // Keep every Matrix List's desk cue list read (not just the one on
+    // screen — remotes query them too), and remember what was read.
+    void syncMatrixWatch();
+    void onDeskCuesRead(const QString &deskList);
     QStackedWidget  *m_centerStack = nullptr;
     ui::Inspector   *m_inspector   = nullptr;
     ui::TransportBar *m_transport  = nullptr;

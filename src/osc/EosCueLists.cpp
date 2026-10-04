@@ -48,7 +48,7 @@ bool argBool(const Message &m, size_t i)
     const auto &a = m.args[i];
     if (a.tag == Argument::Tag::True) return true;
     if (a.tag == Argument::Tag::False) return false;
-    if (const auto n = toNumber(a)) return *n != 0.0;
+    if (const auto n = toNumber(a)) return *n > 0.0;        // -1 = not set
     const QString s = argText(m, i).toLower();
     return s == QLatin1String("true") || s == QLatin1String("1");
 }
@@ -59,6 +59,29 @@ bool cueBefore(const EosCue &a, const EosCue &b)
     const int c = compareEosNumbers(a.number, b.number);
     if (c != 0) return c < 0;
     return a.part < b.part;
+}
+
+// One cue reply's arguments (see the header for the layout).
+void readCueArgs(EosCue &c, const Message &m)
+{
+    c.uid = argText(m, 1);
+    c.label = argText(m, 2);
+    c.upMs = argInt(m, 3);
+    c.upDelayMs = argInt(m, 4);
+    c.downMs = argInt(m, 5);
+    c.downDelayMs = argInt(m, 6);
+    c.mark = argText(m, 16);
+    c.block = argText(m, 17);
+    c.assert_ = argText(m, 18);
+    c.link = argText(m, 19);
+    if (c.link == QLatin1String("0")) c.link.clear();     // no link
+    c.followMs = argInt(m, 20);
+    c.hangMs = argInt(m, 21);
+    c.timecode = argText(m, 25);
+    c.partCount = std::max(0, argInt(m, 26));
+    c.notes = argText(m, 27);
+    c.scene = argText(m, 28);
+    c.sceneEnd = argBool(m, 29);
 }
 
 } // namespace
@@ -113,9 +136,22 @@ EosCueLists::EosCueLists(EosFeedback *link, QObject *parent)
     m_notifyTimer->setSingleShot(true);
     m_notifyTimer->setInterval(400);
     connect(m_notifyTimer, &QTimer::timeout, this, [this] {
-        const auto dirty = m_dirty;
-        m_dirty.clear();
-        for (const auto &l : dirty) refreshList(l);
+        const auto notified = m_notified;
+        m_notified.clear();
+        for (auto it = notified.cbegin(); it != notified.cend(); ++it) {
+            const QString &l = it.key();
+            if (m_patch.value(l).active) {           // one at a time: after this one
+                m_notified[l] += it.value();
+                m_notifyTimer->start();
+                continue;
+            }
+            const auto st = m_fetch.value(l).state;
+            if (it.value().contains(QStringLiteral("*")) || !m_cues.contains(l)
+                || st == State::Fetching || it.value().size() > 40)
+                refreshList(l);
+            else
+                startPatch(l, it.value());
+        }
     });
     m_stallTimer = new QTimer(this);
     m_stallTimer->setInterval(m_stallMs / 4);
@@ -178,6 +214,8 @@ void EosCueLists::setWatched(const QStringList &lists)
         if (!m_watched.contains(l)) {
             m_cues.remove(l);
             m_fetch.remove(l);
+            m_patch.remove(l);
+            m_notified.remove(l);
         }
     for (const auto &l : m_watched)
         if (!before.contains(l) && connected()) refreshList(l);
@@ -254,10 +292,60 @@ void EosCueLists::finish(const QString &list, State how)
     if (again) startFetch(list);
 }
 
+void EosCueLists::startPatch(const QString &list, const QSet<QString> &numbers)
+{
+    auto &pt = m_patch[list];
+    pt = Patch{};
+    pt.active = true;
+    pt.since = clock().elapsed();
+    for (const auto &c : m_cues.value(list)) pt.cues.insert(c.key(), c);
+    for (const auto &n : numbers) {
+        // The cue itself and every part we know of it.
+        QSet<int> parts{0};
+        for (const auto &c : m_cues.value(list))
+            if (normalEosNumber(c.number) == n) parts.insert(c.part);
+        for (int part : parts) {
+            pt.pending.insert(n + QLatin1Char('/') + QString::number(part));
+            send(QStringLiteral("/eos/get/cue/%1/%2/%3").arg(list, n).arg(part));
+        }
+    }
+    send(QStringLiteral("/eos/get/cue/%1/count").arg(list));
+    if (!m_stallTimer->isActive()) m_stallTimer->start();
+}
+
+void EosCueLists::finishPatchIfDone(const QString &list)
+{
+    auto pt = m_patch.find(list);
+    if (pt == m_patch.end() || !pt->active || !pt->pending.isEmpty() || pt->countReply < 0) return;
+    QVector<EosCue> all;
+    for (const auto &c : std::as_const(pt->cues)) all.push_back(c);
+    const int count = pt->countReply;
+    pt->active = false;
+    if (all.size() != count) {
+        // Something we weren't told about (a new cue in a range, the other
+        // half of a renumber): read it all.
+        startFetch(list);
+        return;
+    }
+    std::stable_sort(all.begin(), all.end(), cueBefore);
+    if (all != m_cues.value(list)) {
+        m_cues.insert(list, all);
+        emit cuesChanged(list);
+    }
+}
+
 void EosCueLists::onStallTick()
 {
     const qint64 now = clock().elapsed();
     bool any = false;
+    for (auto it = m_patch.begin(); it != m_patch.end(); ++it) {
+        if (!it->active) continue;
+        any = true;
+        if (now - it->since >= m_stallMs) {
+            it->active = false;
+            startFetch(it.key());           // didn't answer: read it all
+        }
+    }
     const auto keys = m_fetch.keys();
     for (const auto &list : keys) {
         auto &f = m_fetch[list];
@@ -328,10 +416,29 @@ void EosCueLists::handle(const Message &m)
 
     if (p[2] == QLatin1String("notify") && p[3] == QLatin1String("cue") && p.size() >= 5) {
         const QString list = normalEosNumber(p[4]);
-        if (m_watched.contains(list)) {
-            m_dirty.insert(list);
-            m_notifyTimer->start();
+        if (!m_watched.contains(list)) return;
+        // Args: <seq> then the cues — numbers, or "a-b" ranges. A later page
+        // of a long list (…/list/<a>/<b>, a > 0) has no <seq> in front.
+        const bool laterPage = p.size() >= 7 && p[5] == QLatin1String("list") && p[6] != QLatin1String("0");
+        auto &set = m_notified[list];
+        for (size_t i = laterPage ? 0 : 1; i < m.args.size(); ++i) {
+            const QString t = argText(m, i).trimmed();
+            if (t.isEmpty()) continue;
+            const int dash = t.indexOf(QLatin1Char('-'), 1);
+            if (dash < 0) {
+                set.insert(normalEosNumber(t));
+                continue;
+            }
+            // A range: the cues we know in it, plus the count check that
+            // catches any new ones.
+            const QString lo = t.left(dash), hi = t.mid(dash + 1);
+            for (const auto &c : m_cues.value(list))
+                if (compareEosNumbers(c.number, lo) >= 0 && compareEosNumbers(c.number, hi) <= 0)
+                    set.insert(normalEosNumber(c.number));
+            if (set.isEmpty()) set.insert(normalEosNumber(lo));
         }
+        if (set.isEmpty()) set.insert(QStringLiteral("*"));
+        m_notifyTimer->start();
         return;
     }
     if (p[2] == QLatin1String("notify") && p[3] == QLatin1String("cuelist")) {
@@ -357,10 +464,16 @@ void EosCueLists::handle(const Message &m)
             }
             return;
         }
-        // /eos/out/get/cuelist/<n>/list/<i>/<count> (skip .../links/...)
-        if (p.size() == 8 && p[5] == QLatin1String("list")) {
-            const int idx = p[6].toInt();
-            if (!m.args.empty() && !argText(m, 1).isEmpty()) {
+        // /eos/out/get/cuelist/<n>/list/<a>/<b> — args[0] is the list's
+        // index; list/<a>/<b> pages the ARGUMENTS (a = first, b = total), so
+        // only the first page carries uid/label. Skip .../links/... and any
+        // later argument page. An index past the end comes back as
+        // /eos/out/get/cuelist/0 <index>.
+        const bool notThere = p.size() == 5 && p[4] == QLatin1String("0");
+        if ((p.size() == 8 && p[5] == QLatin1String("list") && p[6] == QLatin1String("0")) || notThere) {
+            const int idx = argInt(m, 0);
+            if (idx < 0) return;
+            if (!notThere && !argText(m, 1).isEmpty()) {
                 EosCueListInfo info;
                 info.number = normalEosNumber(p[4]);
                 info.uid = argText(m, 1);
@@ -388,9 +501,54 @@ void EosCueLists::handle(const Message &m)
     }
 
     if (p[3] != QLatin1String("cue") || p.size() < 6) return;
+
+    // An index past the end of the list (a cue deleted since the count)
+    // comes back as /eos/out/get/cue/0/0 <index> — no list in it, so it's
+    // credited to the fetch still waiting for that index.
+    if (p.size() == 6 && p[4] == QLatin1String("0") && p[5] == QLatin1String("0")) {
+        const int idx = argInt(m, 0);
+        for (auto fit = m_fetch.begin(); fit != m_fetch.end(); ++fit) {
+            if (fit->state != State::Fetching || !fit->outstanding.contains(idx)) continue;
+            fit->outstanding.remove(idx);
+            fit->empty.insert(idx);
+            fit->lastHeard = clock().elapsed();
+            pump(fit.key());
+            break;
+        }
+        return;
+    }
+
     const QString list = normalEosNumber(p[4]);
     auto it = m_fetch.find(list);
-    if (it == m_fetch.end() || it->state != State::Fetching) return;
+    if (it == m_fetch.end() || it->state != State::Fetching) {
+        // Not reading the whole list: maybe patching a few cues of it.
+        auto pt = m_patch.find(list);
+        if (pt == m_patch.end() || !pt->active) return;
+        if (p.size() == 6 && p[5] == QLatin1String("count")) {
+            pt->countReply = std::max(0, argInt(m, 0));
+        } else if (p.size() >= 7 && (p.size() == 7 || (p[7] == QLatin1String("list") && p.value(8) == QLatin1String("0")))) {
+            const QString num = normalEosNumber(p[5]);
+            const int part = p[6].toInt();
+            const QString pk = num + QLatin1Char('/') + QString::number(part);
+            if (!pt->pending.remove(pk)) return;
+            const QString key = QStringLiteral("%1/%2/%3").arg(list, num).arg(part);
+            if (m.args.size() < 2 || argText(m, 1).isEmpty()) {
+                pt->cues.remove(key);                     // deleted (or renumbered away)
+            } else {
+                EosCue c = pt->cues.value(key);
+                c.list = list;
+                c.number = p[5];
+                c.part = part;
+                readCueArgs(c, m);
+                pt->cues.insert(key, c);
+            }
+        } else {
+            return;
+        }
+        pt->since = clock().elapsed();
+        finishPatchIfDone(list);
+        return;
+    }
     auto &f = *it;
     f.lastHeard = clock().elapsed();
 
@@ -401,11 +559,14 @@ void EosCueLists::handle(const Message &m)
         return;
     }
     if (p.size() < 7) return;
-    // /eos/out/get/cue/<list>/<cue>/<part>[/list/<i>/<count>]; the desk also
-    // sends /fx/, /links/ and /actions/ replies for each cue — not ours.
+    // /eos/out/get/cue/<list>/<cue>/<part>/list/<a>/<b>. Seen on Eos 3.3.9:
+    // args[0] is the cue's index in the list (-1 when asked for by number);
+    // list/<a>/<b> pages the ARGUMENTS (list/0/31 = all 31 in this message),
+    // so a later page (a > 0) isn't a cue. The desk follows each cue with
+    // /fx/, /links/ and /actions/ replies — not ours.
     if (p.size() > 7 && p[7] != QLatin1String("list")) return;
-    int index = -1;
-    if (p.size() >= 9) index = p[8].toInt();
+    if (p.size() >= 9 && p[8] != QLatin1String("0")) return;
+    const int index = argInt(m, 0);
     if (index >= 0) f.outstanding.remove(index);
 
     if (m.args.size() < 2 || argText(m, 1).isEmpty()) {
@@ -416,23 +577,7 @@ void EosCueLists::handle(const Message &m)
         c.list = list;
         c.number = p[5];
         c.part = p[6].toInt();
-        c.uid = argText(m, 1);
-        c.label = argText(m, 2);
-        c.upMs = argInt(m, 3);
-        c.upDelayMs = argInt(m, 4);
-        c.downMs = argInt(m, 5);
-        c.downDelayMs = argInt(m, 6);
-        c.mark = argText(m, 16);
-        c.block = argText(m, 17);
-        c.assert_ = argText(m, 18);
-        c.link = argText(m, 19);
-        c.followMs = argInt(m, 20);
-        c.hangMs = argInt(m, 21);
-        c.timecode = argText(m, 25);
-        c.partCount = std::max(0, argInt(m, 26));
-        c.notes = argText(m, 27);
-        c.scene = argText(m, 28);
-        c.sceneEnd = argBool(m, 29);
+        readCueArgs(c, m);
         if (index >= 0) f.byIndex.insert(index, c);
         else f.byKey.insert(c.key(), c);
     }

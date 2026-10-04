@@ -26,7 +26,9 @@
 #include "ui/CueListView.h"
 #include "ui/MatrixView.h"
 
+#include <QDateTime>
 #include <QJsonDocument>
+#include <QSignalBlocker>
 #include <QStackedWidget>
 #include <QStatusBar>
 #include <QTabBar>
@@ -47,6 +49,35 @@ core::CueList *MainWindow::firstMatrixList() const
     return nullptr;
 }
 
+void MainWindow::syncMatrixWatch()
+{
+    if (!m_eosCueLists || !m_workspace) return;
+    QStringList want;
+    for (const auto &l : m_workspace->cueLists())
+        if (l->kind() == core::CueList::Kind::Matrix)
+            want << core::matrix::normalNumber(l->matrixConfig().deskList);
+    want.removeDuplicates();
+    m_eosCueLists->setWatched(want);
+}
+
+void MainWindow::onDeskCuesRead(const QString &deskList)
+{
+    if (!m_workspace || !m_eosCueLists
+        || m_eosCueLists->state(deskList) != osc::EosCueLists::State::Ready) return;
+    const auto now = ui::toDeskCues(m_eosCueLists->cues(deskList));
+    for (const auto &l : m_workspace->cueLists()) {
+        if (l->kind() != core::CueList::Kind::Matrix
+            || core::matrix::normalNumber(l->matrixConfig().deskList) != deskList) continue;
+        auto cfg = l->matrixConfig();
+        if (cfg.deskCache == now && cfg.deskCachedAt.isValid()) continue;
+        cfg.deskCache = now;
+        cfg.deskCachedAt = QDateTime::currentDateTime();
+        // Not an edit of yours: saved with the show next time, no "unsaved".
+        QSignalBlocker block(l.get());
+        l->setMatrixConfig(cfg);
+    }
+}
+
 void MainWindow::addMatrixListTab()
 {
     if (!m_workspace) return;
@@ -65,6 +96,7 @@ void MainWindow::addMatrixListTab()
         created->setMatrixConfig(cfg);
         list = m_workspace->addCueList(std::move(created));
         m_workspace->markModified();
+        syncMatrixWatch();
     }
     if (!list) return;
     rebuildListTabs();

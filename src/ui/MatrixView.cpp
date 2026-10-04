@@ -60,7 +60,8 @@ QString cellLine(const m::DeskCell &c)
     QString t = matrixDeskName(c.cue);
     if (!c.cue.label.isEmpty()) t += QStringLiteral("  ") + c.cue.label;
     if (!c.parts.empty())
-        t += MatrixTableModel::tr("  (+%n part(s))", nullptr, int(c.parts.size()));
+        t += c.parts.size() == 1 ? MatrixTableModel::tr("  (+1 part)")
+                                 : MatrixTableModel::tr("  (+%1 parts)").arg(c.parts.size());
     if (c.missing) t += MatrixTableModel::tr("  — not on the desk");
     return t;
 }
@@ -389,6 +390,8 @@ MatrixView::MatrixView(QWidget *parent) : QWidget(parent)
     m_deskList->setObjectName(QStringLiteral("matrixDeskList"));
     m_deskList->setEditable(true);
     m_deskList->setMinimumContentsLength(6);
+    m_deskList->setSizeAdjustPolicy(QComboBox::AdjustToContents);
+    m_deskList->setMaximumWidth(260);
     m_deskList->setToolTip(tr("The Eos cue list to read. Type a number if the desk isn't connected yet."));
     bar->addWidget(m_deskList);
     m_refresh = new QPushButton(tr("Read the desk again"), this);
@@ -695,7 +698,8 @@ void MatrixView::updateStatus()
         t = tr("Read %1 of %2 cues from desk cue list %3 — the desk stopped answering. "
                "Read the desk again to finish.").arg(m_reader->received(list)).arg(m_reader->expected(list)).arg(list);
     } else if (b.desk == MatrixBuild::Desk::Live) {
-        t = tr("Live from the desk: %n cue(s) in cue list %1.", nullptr, lx).arg(list);
+        t = (lx == 1 ? tr("Live from the desk: 1 cue in cue list %1.")
+                     : tr("Live from the desk: %1 cues in cue list %2.").arg(lx)).arg(list);
     } else if (b.desk == MatrixBuild::Desk::Cached) {
         t = tr("The desk isn't connected — showing cue list %1 as last read (%2).")
                 .arg(list, QLocale().toString(cfg.deskCachedAt, QLocale::ShortFormat));
@@ -705,7 +709,9 @@ void MatrixView::updateStatus()
     }
     int missing = 0;
     for (const auto &r : b.result.rows) for (const auto &c : r.desk) if (c.missing) ++missing;
-    if (missing > 0) t += QLatin1Char(' ') + tr("%n cue(s) marked ⚠ aren't on the desk.", nullptr, missing);
+    if (missing > 0)
+        t += QLatin1Char(' ') + (missing == 1 ? tr("1 cue marked ⚠ isn't on the desk.")
+                                              : tr("%1 cues marked ⚠ aren't on the desk.").arg(missing));
     if (!b.source) t += QLatin1Char(' ') + tr("There's no quewi cue list to interleave yet.");
     m_status->setText(t);
 }

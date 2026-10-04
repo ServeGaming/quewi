@@ -314,9 +314,13 @@ MainWindow::MainWindow(QWidget *parent)
     // The desk's cue lists, for the Matrix List — over the same connection.
     m_eosCueLists = new osc::EosCueLists(m_eosFeedback, this);
     if (m_matrixView) m_matrixView->setDesk(m_eosCueLists, m_eosFeedback);
+    connect(m_eosCueLists, &osc::EosCueLists::cuesChanged, this, &MainWindow::onDeskCuesRead);
     m_deskWatch = new QTimer(this);
     m_deskWatch->setInterval(2000);
-    connect(m_deskWatch, &QTimer::timeout, this, [this] { syncDeskFeedback(); });
+    connect(m_deskWatch, &QTimer::timeout, this, [this] {
+        syncDeskFeedback();
+        syncMatrixWatch();     // a Matrix List's desk list may have changed
+    });
     m_deskWatch->start();
     syncDeskFeedback(true);
 
@@ -1036,6 +1040,7 @@ void MainWindow::rebindModel()
             }
         }
     }
+    syncMatrixWatch();
     if (m_model->rowCount() > 0)
         m_cueListView->setCurrentIndex(m_model->index(0, 0));
 }
