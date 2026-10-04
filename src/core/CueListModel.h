@@ -65,6 +65,8 @@ public:
     // a green indicator; in `loaded` show blue; otherwise the existing
     // armed/disarmed grey is used. Call from the UI ~30 Hz.
     void setRunningCueIds(const QSet<QUuid> &running);
+    // The view's zoom: the number / wait columns' own font follows it.
+    void setFontScale(double scale);
     void setLoadedCueIds(const QSet<QUuid> &loaded);
 
     // Peak levels keyed by cue id. Polled from the audio engine at
@@ -103,6 +105,7 @@ private:
 
     QPointer<CueList> m_list;
     QSet<QUuid>       m_runningIds;
+    double            m_fontScale = 1.0;
     QSet<QUuid>       m_loadedIds;
     QHash<QUuid, QPair<float, float>> m_peaks;
 };

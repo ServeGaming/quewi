@@ -16,6 +16,7 @@
 //       cue list read, source list edited) — query again.
 
 #include "MainWindow.h"
+#include "ui/SafeKey.h"
 
 #include "GoEngine.h"
 
@@ -105,6 +106,11 @@ void MainWindow::wireMatrixView(ui::MatrixView *view)
 
 void MainWindow::goLights()
 {
+    // The safe key covers GO Lights too: it's a GO, for the desk.
+    if (!ui::SafeKey::instance()->allows(ui::SafeKey::Action::Go)) {
+        statusBar()->showMessage(ui::SafeKey::instance()->blockedMessage(ui::SafeKey::Action::Go), 3000);
+        return;
+    }
     if (!matrixShowing() || !m_goEngine) {
         statusBar()->showMessage(tr("GO Lights works from a Matrix List — open one from the List menu"), 3000);
         return;

@@ -69,8 +69,18 @@ signals:
     // Right-click on empty space (no cue under the cursor). MainWindow pops
     // a menu to create a new cue, paste, import from URL, or open preferences.
     void emptyAreaContextMenuRequested(const QPoint &globalPos);
+    void zoomChanged(double zoom);
+
+public:
+    // Zoom: the list's text (and so its rows) at 70–300 %, for anyone who
+    // needs it bigger. Ctrl+wheel, Ctrl+= / Ctrl+- / Ctrl+0 over the list.
+    // Remembered on this computer (QSettings "cueList/zoom").
+    double zoom() const { return m_zoom; }
+    void   setZoom(double z);
+    static constexpr double kMinZoom = 0.7, kMaxZoom = 3.0, kZoomStep = 0.1;
 
 protected:
+    void wheelEvent(QWheelEvent *event) override;
     void keyPressEvent(QKeyEvent *event) override;
     void currentChanged(const QModelIndex &current, const QModelIndex &previous) override;
     void dropEvent(QDropEvent *event) override;
@@ -80,6 +90,10 @@ protected:
     void dragLeaveEvent(QDragLeaveEvent *event) override;
 
 private:
+    void applyZoom();
+    void scaleColumns(double factor);
+    double m_zoom = 1.0;
+    int    m_zoomWheel = 0;            // part-notches from a high-res wheel
     void copyCuesToClipboard(const QList<cues::Cue *> &cues) const;
     void cutCuesToClipboard(const QList<cues::Cue *> &cues, int currentRow);
     void pasteCuesFromClipboard(int afterRow);

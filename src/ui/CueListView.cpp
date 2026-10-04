@@ -30,6 +30,10 @@
 #include <QStyledItemDelegate>
 #include <QUndoStack>
 #include <QUuid>
+#include <QWheelEvent>
+
+#include <algorithm>
+#include <cmath>
 
 namespace quewi::ui {
 
@@ -132,6 +136,11 @@ CueListView::CueListView(QWidget *parent)
     // hover/selection visuals. An inline override here would interleave
     // with the global rules and break the continuous-row indicator.
     setIconSize(QSize(16, 16));
+    // The zoom this computer last used (Ctrl+wheel over the list).
+    m_zoom = std::clamp(QSettings(QStringLiteral("ServeGaming"), QStringLiteral("quewi"))
+                            .value(QStringLiteral("cueList/zoom"), 1.0).toDouble(),
+                        kMinZoom, kMaxZoom);
+    if (!qFuzzyCompare(m_zoom, 1.0)) applyZoom();
     setSelectionBehavior(QAbstractItemView::SelectRows);
     setSelectionMode(QAbstractItemView::ExtendedSelection);
     // QLab-style uniform row colour with a thin divider — the old
@@ -205,6 +214,11 @@ void CueListView::setModel(QAbstractItemModel *model)
         header()->resizeSection(CueListModel::ColumnFile,    220);
         header()->resizeSection(CueListModel::ColumnLevel,    96);
         applyColumnVisibility();
+        // The widths above are for 100 %: a zoomed list widens them to match.
+        if (!qFuzzyCompare(m_zoom, 1.0)) {
+            scaleColumns(m_zoom);
+            if (auto *m = qobject_cast<CueListModel *>(model)) m->setFontScale(m_zoom);
+        }
     }
 }
 
@@ -272,8 +286,76 @@ cues::Cue *CueListView::nextCue() const
     return nullptr;
 }
 
+void CueListView::setZoom(double z)
+{
+    z = std::clamp(std::round(z * 10.0) / 10.0, kMinZoom, kMaxZoom);
+    if (qFuzzyCompare(z, m_zoom)) return;
+    const double was = m_zoom;
+    m_zoom = z;
+    scaleColumns(z / was);
+    QSettings(QStringLiteral("ServeGaming"), QStringLiteral("quewi"))
+        .setValue(QStringLiteral("cueList/zoom"), z);
+    applyZoom();
+    emit zoomChanged(z);
+    if (auto *mw = qobject_cast<QMainWindow *>(window()))
+        mw->statusBar()->showMessage(tr("Cue list zoom %1 %  (Ctrl+0 resets)")
+                                         .arg(qRound(z * 100)), 1500);
+}
+
+void CueListView::scaleColumns(double factor)
+{
+    // Every column but the last (which stretches) by the same factor, so a
+    // zoomed list's numbers and types still fit and the user's own widths
+    // keep their proportions.
+    auto *h = header();
+    for (int i = 0; i < h->count() - 1; ++i)
+        if (!h->isSectionHidden(i)) h->resizeSection(i, std::max(16, qRound(h->sectionSize(i) * factor)));
+}
+
+void CueListView::applyZoom()
+{
+    // The theme sets the list's sizes in QSS, which beats setFont(), so the
+    // zoom is a small stylesheet of its own on top (rows grow with the text).
+    if (qFuzzyCompare(m_zoom, 1.0)) {
+        setStyleSheet(QString());
+    } else {
+        setStyleSheet(QStringLiteral("QTreeView { font-size: %1px; }"
+                                     " QHeaderView::section { font-size: %2px; }")
+                          .arg(qRound(13 * m_zoom)).arg(qRound(11 * m_zoom)));
+    }
+    const int icon = qRound(16 * m_zoom);
+    setIconSize(QSize(icon, icon));
+    if (auto *m = qobject_cast<core::CueListModel *>(model())) m->setFontScale(m_zoom);
+    doItemsLayout();
+}
+
+void CueListView::wheelEvent(QWheelEvent *event)
+{
+    // Ctrl on the event, or held right now (some mice and drivers don't
+    // put it on the wheel event).
+    if ((event->modifiers() & Qt::ControlModifier)
+        || (QGuiApplication::queryKeyboardModifiers() & Qt::ControlModifier)) {
+        // Whole notches (120) step 10 %; a high-res wheel adds up to one.
+        m_zoomWheel += event->angleDelta().y();
+        const int steps = m_zoomWheel / 120;
+        if (steps != 0) {
+            m_zoomWheel -= steps * 120;
+            setZoom(m_zoom + steps * kZoomStep);
+        }
+        event->accept();
+        return;
+    }
+    QTreeView::wheelEvent(event);
+}
+
 void CueListView::keyPressEvent(QKeyEvent *event)
 {
+    if (event->modifiers() & Qt::ControlModifier) {
+        const int k = event->key();
+        if (k == Qt::Key_Equal || k == Qt::Key_Plus) { setZoom(m_zoom + kZoomStep); event->accept(); return; }
+        if (k == Qt::Key_Minus)                      { setZoom(m_zoom - kZoomStep); event->accept(); return; }
+        if (k == Qt::Key_0)                          { setZoom(1.0); event->accept(); return; }
+    }
     if (event->key() == Qt::Key_Space) {
         emit goRequested();
         event->accept();
