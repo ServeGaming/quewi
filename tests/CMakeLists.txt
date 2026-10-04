@@ -117,6 +117,8 @@ quewi_add_test(matrix_persistence Qt6::Test Qt6::Sql quewi_core quewi_show)
 quewi_add_test(matrix_view Qt6::Test Qt6::Widgets quewi_ui)
 target_sources(test_matrix_view PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/../src/app/GoEngine.cpp
+    # The app's theme (QSS + fonts), for QUEWI_RENDER_DIR renders.
+    ${CMAKE_SOURCE_DIR}/resources/resources.qrc
 )
 
 # On Windows, Qt's DLLs need to be reachable via PATH at test runtime.

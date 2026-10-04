@@ -347,6 +347,12 @@ private:
     // Keep every Matrix List's desk cue list read (not just the one on
     // screen — remotes query them too), and remember what was read.
     void syncMatrixWatch();
+    // GO Lights: fire the Matrix List's next desk cue (button, Show Mode,
+    // Ctrl+Shift+G). Only does anything while the Matrix List is up.
+    void goLights();
+    QAction *m_actGoLights = nullptr;
+    // Wire a Matrix List view (the page, or a detached one) to the window.
+    void wireMatrixView(ui::MatrixView *view);
     void onDeskCuesRead(const QString &deskList);
     QStackedWidget  *m_centerStack = nullptr;
     ui::Inspector   *m_inspector   = nullptr;

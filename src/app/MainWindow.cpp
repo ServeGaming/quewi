@@ -287,11 +287,21 @@ MainWindow::MainWindow(QWidget *parent)
     regAction("transport.pause",    "Pause",    m_actPause,   QKeySequence(QStringLiteral("Ctrl+.")));
     regAction("transport.fadeall",  "Fade All", m_actFadeAll, QKeySequence(QStringLiteral("Ctrl+Shift+.")));
 
+    // GO Lights — the Matrix List's own button for the desk's next cue. Not
+    // in a menu Show Mode locks, and a no-op unless the Matrix List is up.
+    m_actGoLights = new QAction(tr("GO Lights"), this);
+    addAction(m_actGoLights);
+    m_actGoLights->setShortcutContext(Qt::WindowShortcut);
+    connect(m_actGoLights, &QAction::triggered, this, &MainWindow::goLights);
+    regAction("transport.golights", "GO Lights (Matrix List)", m_actGoLights,
+              QKeySequence(QStringLiteral("Ctrl+Shift+G")));
+
     buildLayout();
     buildMenus();
 
     // The stage-manager screens drive the same actions as the transport.
     connect(m_showModeView, &ui::ShowModeView::goPressed, m_actGo, &QAction::trigger);
+    connect(m_showModeView, &ui::ShowModeView::goLightsPressed, this, &MainWindow::goLights);
     connect(m_showModeView, &ui::ShowModeView::pausePressed, m_actPause, &QAction::trigger);
     connect(m_showModeView, &ui::ShowModeView::fadeAllPressed, m_actFadeAll, &QAction::trigger);
     connect(m_showModeView, &ui::ShowModeView::panicPressed, m_actPanic, &QAction::trigger);
@@ -555,11 +565,7 @@ void MainWindow::buildLayout()
     // it's up); "make standby" moves the cue list's playhead.
     m_matrixView = new ui::MatrixView(central);
     m_centerStack->addWidget(m_matrixView); // index 3 = matrix view
-    connect(m_matrixView, &ui::MatrixView::statusMessage, this,
-            [this](const QString &t) { statusBar()->showMessage(t, 4000); });
-    connect(m_matrixView, &ui::MatrixView::modified, this, [this] {
-        if (m_workspace) m_workspace->markModified();
-    });
+    wireMatrixView(m_matrixView);
     connect(m_matrixView, &ui::MatrixView::standbyRequested, this, [this](const QUuid &id) {
         auto *list = m_model ? m_model->cueList() : nullptr;
         if (!list || !m_cueListView) return;
@@ -2519,7 +2525,7 @@ void MainWindow::detachCueListTab(int idx)
         view->setLocked(m_showMode);
         view->setCueList(list);
         connect(view, &ui::MatrixView::standbyRequested, m_matrixView, &ui::MatrixView::standbyRequested);
-        connect(view, &ui::MatrixView::modified, m_matrixView, &ui::MatrixView::modified);
+        wireMatrixView(view);
         win->setCentralWidget(view);
         win->resize(1000, 700);
         break;
@@ -3566,6 +3572,17 @@ ui::ShowSnapshot MainWindow::buildShowSnapshot() const
         }
     }
 
+    if (matrixShowing()) {
+        const auto t = m_matrixView->goLightsTarget();
+        ui::ShowLightsGo g;
+        g.enabled = t.ok;
+        // Two lines: the column is narrow.
+        g.text = t.ok ? tr("GO Lights  %1").arg(t.number) + (t.label.isEmpty() ? QString() : QStringLiteral("\n") + t.label)
+                      : tr("GO Lights");
+        g.reason = t.ok ? tr("Fire LX %1 on the desk (Ctrl+Shift+G)").arg(t.number) : t.reason;
+        s.lightsGo = g;
+    }
+
     const auto &desk = m_deskSeen;
     s.desk.deskName = desk.typeName();
     if (desk.type != core::LightingDesk::Type::Eos) {
@@ -3602,6 +3619,8 @@ void MainWindow::syncDeskFeedback(bool force)
     const auto desk = core::LightingDesk::load();
     if (!force && desk == m_deskSeen) return;
     m_deskSeen = desk;
+    if (m_matrixView)
+        m_matrixView->setDeskInfo(desk.type == core::LightingDesk::Type::Eos, QStringLiteral("ETC Eos"));
     if (!m_eosFeedback) return;
     if (desk.type == core::LightingDesk::Type::Eos && desk.feedback)
         m_eosFeedback->start(desk.host, desk.feedbackPort);

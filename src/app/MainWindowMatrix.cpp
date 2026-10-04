@@ -17,6 +17,8 @@
 
 #include "MainWindow.h"
 
+#include "GoEngine.h"
+
 #include "core/CueList.h"
 #include "core/Workspace.h"
 #include "cues/Cue.h"
@@ -24,6 +26,7 @@
 #include "osc/EosFeedback.h"
 #include "osc/OscEngine.h"
 #include "ui/CueListView.h"
+#include "ui/LightingDeskDialog.h"
 #include "ui/MatrixView.h"
 
 #include <QDateTime>
@@ -76,6 +79,39 @@ void MainWindow::onDeskCuesRead(const QString &deskList)
         QSignalBlocker block(l.get());
         l->setMatrixConfig(cfg);
     }
+}
+
+void MainWindow::wireMatrixView(ui::MatrixView *view)
+{
+    view->setDeskInfo(m_deskSeen.type == core::LightingDesk::Type::Eos, QStringLiteral("ETC Eos"));
+    connect(view, &ui::MatrixView::statusMessage, this,
+            [this](const QString &t) { statusBar()->showMessage(t, 4000); });
+    connect(view, &ui::MatrixView::modified, this, [this] {
+        if (m_workspace) m_workspace->markModified();
+    });
+    connect(view, &ui::MatrixView::goLightsRequested, this, &MainWindow::goLights);
+    connect(view, &ui::MatrixView::deskSettingsRequested, this, [this] {
+        if (ui::LightingDeskDialog::edit(this)) syncDeskFeedback();
+    });
+}
+
+void MainWindow::goLights()
+{
+    if (!matrixShowing() || !m_goEngine) {
+        statusBar()->showMessage(tr("GO Lights works from a Matrix List — open one from the List menu"), 3000);
+        return;
+    }
+    const auto t = m_matrixView->goLightsTarget();
+    if (!t.ok) {
+        statusBar()->showMessage(tr("GO Lights: %1").arg(t.reason), 5000);
+        return;
+    }
+    // The same send path as a lighting trigger's "Go to cue": the desk's
+    // OSC port over UDP, /eos/cue/<list>/<cue>/fire.
+    const bool ok = m_goEngine->sendDeskAction(ui::goLightsAction(t));
+    statusBar()->showMessage(ok ? tr("GO Lights → LX %1%2 (desk cue list %3)")
+                                      .arg(t.number, t.label.isEmpty() ? QString() : QStringLiteral(" ") + t.label, t.list)
+                                : tr("GO Lights: couldn't send to the desk"), 4000);
 }
 
 void MainWindow::addMatrixListTab()

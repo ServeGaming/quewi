@@ -78,6 +78,14 @@ struct ShowDeskStatus {
     bool    blind = false;          // the desk is in Blind
 };
 
+// GO Lights (the Matrix List's button for the desk's next cue), when the
+// Matrix List is the page the operator was on.
+struct ShowLightsGo {
+    bool    enabled = false;
+    QString text;               // "GO Lights  8.4  Back"
+    QString reason;             // why it's disabled / what it will fire
+};
+
 struct ShowSnapshot {
     QString showName;           // quewi's show (file name)
     QString listName;           // the cue list GO runs
@@ -94,6 +102,7 @@ struct ShowSnapshot {
     bool triggersArmed = true;
     std::vector<ShowUpcomingHit> hits;       // soonest first
     ShowDeskStatus desk;
+    std::optional<ShowLightsGo> lightsGo;     // set only when the Matrix List is up
 };
 
 } // namespace quewi::ui

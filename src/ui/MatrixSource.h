@@ -1,5 +1,6 @@
 #pragma once
 
+#include "audio/LightTrigger.h"
 #include "core/MatrixModel.h"
 
 #include <QJsonObject>
@@ -85,5 +86,24 @@ QJsonObject matrixJson(const core::CueList *matrix, const MatrixBuild &b, const 
 
 // "LX 12", "LX 12.5 P2" — a desk cue's short name on screen.
 QString matrixDeskName(const core::matrix::DeskCue &c);
+
+// GO Lights: the Matrix List's own button that fires the NEXT lighting cue
+// in its desk cue list — what the matrix marks LX NEXT:
+//   * the desk's pending cue, when it's in this list;
+//   * else the cue after the desk's active one, when that's in this list;
+//   * else (the desk is running another list) this list's first cue.
+// Sent as /eos/cue/<list>/<cue>/fire (works for any list, unlike the GO key,
+// which only drives the main playback) through the lighting desk's usual
+// send path. Disabled, with the reason, when it can't know or can't send.
+struct GoLightsTarget {
+    bool    ok = false;
+    QString list, number, label;  // when ok
+    QString reason;               // when not: why, in plain English
+    QString buttonText() const;   // "GO Lights  8.4  Back" / "GO Lights"
+};
+GoLightsTarget goLightsTarget(const MatrixBuild &b, const MatrixLive &live,
+                              bool eosDesk, bool linkLive);
+// The desk action GO Lights sends (a simple-mode "Go to cue").
+audio::TriggerAction goLightsAction(const GoLightsTarget &t);
 
 } // namespace quewi::ui

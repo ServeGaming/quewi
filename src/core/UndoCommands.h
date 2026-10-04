@@ -4,6 +4,7 @@
 #include <QVariant>
 #include <memory>
 
+#include "core/MatrixModel.h"
 #include "core/Workspace.h"
 
 namespace quewi::cues { class Cue; }
@@ -109,6 +110,24 @@ private:
     Workspace *m_ws;
     int m_from;
     int m_to;
+};
+
+// A Matrix List's hand placements changed (a drag, "Line up with…",
+// "Unlink"). Only the placements are swapped — the desk cache and settings
+// in the same config are left alone, so undoing a drag never brings back an
+// old copy of the desk's cues.
+class SetMatrixPlacementsCommand : public QUndoCommand {
+public:
+    SetMatrixPlacementsCommand(CueList *list, std::vector<matrix::ManualPlacement> before,
+                               std::vector<matrix::ManualPlacement> after, const QString &text,
+                               QUndoCommand *parent = nullptr);
+    void undo() override;
+    void redo() override;
+
+private:
+    void apply(const std::vector<matrix::ManualPlacement> &p);
+    CueList *m_list;
+    std::vector<matrix::ManualPlacement> m_before, m_after;
 };
 
 } // namespace quewi::core

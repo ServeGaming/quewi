@@ -1059,7 +1059,11 @@ void GoEngine::sendTriggerEvents(TriggerRun &run, const std::vector<audio::Trigg
 
 bool GoEngine::sendDeskAction(const audio::TriggerAction &a)
 {
-    const auto desk = core::LightingDesk::load();
+    return sendDeskAction(a, core::LightingDesk::load());
+}
+
+bool GoEngine::sendDeskAction(const audio::TriggerAction &a, const core::LightingDesk &desk)
+{
     QString why;
     const auto sends = audio::deskSends(desk, a, &why);
     if (sends.empty()) {

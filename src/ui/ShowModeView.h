@@ -204,6 +204,7 @@ public:
 
 signals:
     void goPressed();
+    void goLightsPressed();          // GO Lights (only shown for a Matrix List)
     void pausePressed();
     void fadeAllPressed();
     void panicPressed();
@@ -340,6 +341,7 @@ private:
     // Transport
     QWidget     *m_transport = nullptr;
     QPushButton *m_go = nullptr;
+    QPushButton *m_goLights = nullptr;
     QPushButton *m_pause = nullptr;
     QPushButton *m_fadeAll = nullptr;
     QPushButton *m_panic = nullptr;

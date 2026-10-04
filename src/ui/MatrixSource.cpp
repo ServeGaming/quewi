@@ -306,4 +306,68 @@ QJsonObject matrixJson(const core::CueList *matrix, const MatrixBuild &b, const 
     };
 }
 
+QString GoLightsTarget::buttonText() const
+{
+    if (!ok) return QObject::tr("GO Lights");
+    QString t = QObject::tr("GO Lights  %1").arg(number);
+    if (!label.isEmpty()) t += QStringLiteral("  ") + label;
+    return t;
+}
+
+GoLightsTarget goLightsTarget(const MatrixBuild &b, const MatrixLive &live, bool eosDesk, bool linkLive)
+{
+    GoLightsTarget t;
+    t.list = b.deskList;
+    if (!eosDesk) {
+        t.reason = QObject::tr("GO Lights needs an ETC Eos-family desk. Set one up in Tools → Lighting Desk…");
+        return t;
+    }
+    if (!linkLive) {
+        t.reason = QObject::tr("The desk isn't connected, so quewi can't tell which lighting cue is next.");
+        return t;
+    }
+    std::vector<const m::DeskCue *> cues;          // the list's cues (not parts), in order
+    for (const auto &c : b.deskCues)
+        if (c.part == 0 && m::normalNumber(c.list) == b.deskList) cues.push_back(&c);
+    auto labelOf = [&cues](const QString &n) {
+        for (const auto *c : cues)
+            if (m::normalNumber(c->number) == m::normalNumber(n)) return c->label;
+        return QString();
+    };
+    const bool pendingHere = !live.deskPendingCue.isEmpty()
+        && m::normalNumber(live.deskPendingList) == b.deskList;
+    const bool activeHere = !live.deskActiveCue.isEmpty()
+        && m::normalNumber(live.deskActiveList) == b.deskList;
+    if (pendingHere) {
+        t.number = live.deskPendingCue;
+    } else if (activeHere) {
+        for (const auto *c : cues)
+            if (osc::compareEosNumbers(c->number, live.deskActiveCue) > 0) { t.number = c->number; break; }
+        if (t.number.isEmpty()) {
+            t.reason = QObject::tr("End of desk cue list %1: nothing after LX %2.").arg(b.deskList, live.deskActiveCue);
+            return t;
+        }
+    } else if (!cues.empty()) {
+        t.number = cues.front()->number;       // the desk is on another list: start this one
+    } else {
+        t.reason = b.desk == MatrixBuild::Desk::None
+            ? QObject::tr("quewi hasn't read desk cue list %1 yet.").arg(b.deskList)
+            : QObject::tr("Desk cue list %1 has no cues.").arg(b.deskList);
+        return t;
+    }
+    t.label = labelOf(t.number);
+    t.ok = true;
+    return t;
+}
+
+audio::TriggerAction goLightsAction(const GoLightsTarget &t)
+{
+    audio::TriggerAction a;
+    a.kind = audio::TriggerAction::Kind::Desk;
+    a.deskDo = audio::TriggerAction::DeskDo::GoToCue;
+    a.number = t.number;
+    a.list = std::max(1, t.list.toInt());
+    return a;
+}
+
 } // namespace quewi::ui

@@ -1221,14 +1221,21 @@ void ShowModeView::buildUi()
         v->setContentsMargins(0, 0, 0, 0);
         v->setSpacing(10);
         m_go = button(m_transport, "smGo", tr("GO"));
+        // The Matrix List's GO Lights: the desk's next cue. Secondary to GO
+        // (smaller, the desk's blue), and only there when the Matrix List
+        // is the page you came from.
+        m_goLights = button(m_transport, "smGoLights", tr("GO Lights"));
+        m_goLights->hide();
         m_pause = button(m_transport, "smPause", tr("Pause"));
         m_fadeAll = button(m_transport, "smFadeAll", tr("Fade All"));
         m_panic = button(m_transport, "smPanic", tr("PANIC"));
         connect(m_go, &QPushButton::clicked, this, &ShowModeView::goPressed);
+        connect(m_goLights, &QPushButton::clicked, this, &ShowModeView::goLightsPressed);
         connect(m_pause, &QPushButton::clicked, this, &ShowModeView::pausePressed);
         connect(m_fadeAll, &QPushButton::clicked, this, &ShowModeView::fadeAllPressed);
         connect(m_panic, &QPushButton::clicked, this, &ShowModeView::panicPressed);
         v->addWidget(m_go, 9);
+        v->addWidget(m_goLights, 3);
         v->addWidget(m_pause, 3);
         v->addWidget(m_fadeAll, 3);
         v->addStretch(2);              // PANIC sits apart: no accidental hit
@@ -1381,7 +1388,14 @@ void ShowModeView::applyScale()
                  QString::number(px(13, s)),       // 35 heading
                  rc.hits.name(),                   // 36 hits lavender
                  rc.desk.name())                   // 37 desk blue
-            + regions;
+            + regions
+            + QStringLiteral(
+                "QPushButton#smGoLights { color:%1; background:%2; border:1px solid %3; border-radius:4px;"
+                "  font-size:%4px; font-weight:700; }"
+                "QPushButton#smGoLights:pressed { background:%3; color:%5; }"
+                "QPushButton#smGoLights:disabled { color:%6; background:transparent; border-color:%7; }")
+                  .arg(rc.desk.name(), rgba(rc.desk, 40), rc.desk.name(), QString::number(px(17, s)),
+                       tk.bgDeep.name(), tk.ink40.name(), tk.divider.name());
         setStyleSheet(qss);
 
         // Geometry that QSS can't express.
@@ -1811,6 +1825,12 @@ void ShowModeView::renderTransport()
     const bool has = m_snap.standby.has_value();
     m_go->setText(has ? QStringLiteral("GO  %1").arg(m_snap.standby->number) : tr("GO"));
     m_go->setEnabled(has);
+    m_goLights->setVisible(m_snap.lightsGo.has_value());
+    if (m_snap.lightsGo) {
+        m_goLights->setText(m_snap.lightsGo->text);
+        m_goLights->setEnabled(m_snap.lightsGo->enabled);
+        m_goLights->setToolTip(m_snap.lightsGo->reason);
+    }
     m_pause->setVisible(m_pauseAllowed);
     m_pause->setText(m_snap.paused ? tr("Resume") : tr("Pause"));
     m_pause->setEnabled(m_pauseAllowed && (m_snap.paused || !m_snap.running.empty()));

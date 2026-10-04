@@ -25,6 +25,8 @@ namespace quewi::video  { class VideoEngine; }
 namespace quewi::osc    { class OscEngine; }
 namespace quewi::midi   { class MidiEngine; }
 
+namespace quewi::core { struct LightingDesk; }
+
 namespace quewi {
 
 // Centralised cue scheduler. MainWindow asks the engine to fire a cue;
@@ -98,6 +100,10 @@ public:
     // verb. `context` is the cue whose trigger it is (it finds "fire cue"
     // targets in its own list first, and a trigger can't fire its own cue).
     bool sendTriggerAction(const audio::TriggerAction &action, const cues::Cue *context);
+    // A simple-mode action ("Go to cue", "GO"…), sent to the lighting desk in
+    // Preferences — or to `desk` (tests). Also the Matrix List's GO Lights.
+    bool sendDeskAction(const audio::TriggerAction &action);
+    bool sendDeskAction(const audio::TriggerAction &action, const core::LightingDesk &desk);
 
     // The lighting triggers coming up in every song playing now, soonest
     // first (Show Mode's "next hit" and the Lighting panel). Live: reads the
@@ -231,8 +237,6 @@ private:
                        quint64 audioVoice, quint64 videoVoice);
     void onTriggerTick();
     void sendTriggerEvents(TriggerRun &run, const std::vector<audio::TriggerEvent> &events);
-    // A simple-mode action, sent to the lighting desk in Preferences.
-    bool sendDeskAction(const audio::TriggerAction &action);
 };
 
 } // namespace quewi
