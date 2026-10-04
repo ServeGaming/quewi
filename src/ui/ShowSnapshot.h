@@ -28,6 +28,11 @@ struct ShowCueLine {
     bool    autoFollow   = false;    // the next fires when this one ends
     int     lightTriggers = 0;       // how many lighting triggers its song has
     double  firstTriggerSeconds = -1.0;   // first one, seconds after GO; < 0 = none
+    // Matrix List only (empty / false otherwise): the desk cues that go with
+    // this cue ("LX 12 Sunrise · LX 12.5"), and whether this line is a desk
+    // cue on its own (then number = "LX 14", name = its label).
+    QString deskCues;
+    bool    deskOnly = false;
 };
 
 // A cue that's playing now.
@@ -81,6 +86,7 @@ struct ShowSnapshot {
 
     std::optional<ShowCueLine> standby;      // what GO fires next
     std::vector<ShowCueLine>   comingUp;     // the few after standby, in order
+                                             // (a Matrix List: quewi and desk cues merged)
     std::optional<ShowCueLine> lastFired;    // the most recent GO
     std::vector<ShowRunningCue> running;     // playing now, newest first
 

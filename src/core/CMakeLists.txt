@@ -15,6 +15,8 @@ add_library(quewi_core STATIC
     ScriptModel.cpp
     CartGrid.h
     CartGrid.cpp
+    MatrixModel.h
+    MatrixModel.cpp
     ../cues/Cue.h
     ../cues/Cue.cpp
     ../cues/MemoCue.h

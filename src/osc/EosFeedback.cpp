@@ -258,6 +258,12 @@ void EosFeedback::handle(const Message &m)
         if (blind != m_blind) { m_blind = blind; changed = true; }
     }
     if (changed) emit stateChanged();
+    emit messageReceived(m);
+}
+
+bool EosFeedback::isConnected() const
+{
+    return m_sock && m_sock->state() == QAbstractSocket::ConnectedState;
 }
 
 void EosFeedback::setClock(std::function<qint64()> nowMs) { m_clock = std::move(nowMs); }

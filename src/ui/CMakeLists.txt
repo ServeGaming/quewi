@@ -7,6 +7,10 @@ add_library(quewi_ui STATIC
     MixGridModel.cpp
     MixView.h
     MixView.cpp
+    MatrixSource.h
+    MatrixSource.cpp
+    MatrixView.h
+    MatrixView.cpp
     ChannelEditorDialog.h
     ChannelEditorDialog.cpp
     DcaAssignDialog.h

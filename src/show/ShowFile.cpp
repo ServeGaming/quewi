@@ -299,6 +299,21 @@ bool ShowFile::load(const QString &path, core::Workspace &workspace)
                 }
         }
 
+        // Matrix Lists (new in 1.2): { "<list id>": <MatrixModel Config> }.
+        // Optional meta key — shows without it load exactly as before, and an
+        // older quewi opening a show with one just sees an empty cue list.
+        QSqlQuery mtq(db);
+        if (mtq.exec(QStringLiteral("SELECT value FROM meta WHERE key='matrix_lists_json'"))
+            && mtq.next()) {
+            const auto obj = QJsonDocument::fromJson(mtq.value(0).toString().toUtf8()).object();
+            for (const auto &list : workspace.cueLists()) {
+                const auto v = obj.value(list->id().toString());
+                if (!v.isObject()) continue;
+                list->setKind(core::CueList::Kind::Matrix);
+                list->setMatrixConfig(core::matrix::Config::fromJson(v.toObject()));
+            }
+        }
+
         db.close();
     }
     QSqlDatabase::removeDatabase(conn);
@@ -404,6 +419,19 @@ bool ShowFile::save(const QString &path, const core::Workspace &workspace)
                 mq.bindValue(1, list->id().toString());
                 mq.exec();
                 break;
+            }
+        }
+
+        // Matrix Lists: their settings and hand placements, by list id.
+        {
+            QJsonObject matrices;
+            for (const auto &list : workspace.cueLists())
+                if (list->kind() == core::CueList::Kind::Matrix)
+                    matrices.insert(list->id().toString(), list->matrixConfig().toJson());
+            if (!matrices.isEmpty()) {
+                mq.bindValue(0, QStringLiteral("matrix_lists_json"));
+                mq.bindValue(1, QString::fromUtf8(QJsonDocument(matrices).toJson(QJsonDocument::Compact)));
+                mq.exec();
             }
         }
 

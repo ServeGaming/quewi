@@ -1,5 +1,6 @@
 #pragma once
 
+#include "core/MatrixModel.h"
 #include "core/Workspace.h"
 
 #include <QObject>
@@ -31,6 +32,9 @@ public:
     //   Normal     — the cue table; cues are in the set list.
     //   Soundboard — the pad grid; cues stay out of the set list.
     //   Mix        — the DCA assignment grid; cues stay out of the set list.
+    //   Matrix     — the Matrix List: a merged running order of another
+    //                list's cues and the lighting desk's (core/MatrixModel).
+    //                Holds no cues of its own, only matrixConfig().
     //
     // Mix cues live in their own list rather than interleaved with sound cues
     // deliberately: a musical has 500+ mix cues and maybe 40 sound cues, so one
@@ -39,9 +43,14 @@ public:
     //
     // Runtime flag; persisted via the show file's meta keys, not as a cue-list
     // column.
-    enum class Kind { Normal, Soundboard, Mix };
+    enum class Kind { Normal, Soundboard, Mix, Matrix };
     Kind kind() const { return m_kind; }
     void setKind(Kind k) { m_kind = k; }
+
+    // Kind::Matrix only: which lists it interleaves and the placements made
+    // by hand. Saved in the show file's meta (matrix_lists_json).
+    const matrix::Config &matrixConfig() const { return m_matrix; }
+    void setMatrixConfig(const matrix::Config &c);
 
     int cueCount() const { return static_cast<int>(m_cues.size()); }
     cues::Cue *cueAt(int row) const;
@@ -58,11 +67,13 @@ signals:
     void aboutToRemoveCue(int row);
     void cueRemoved(int row);
     void cueChanged(int row);
+    void matrixConfigChanged();
 
 private:
     CueListId m_id;
     QString m_name;
     Kind m_kind = Kind::Normal;
+    matrix::Config m_matrix;
     std::vector<std::unique_ptr<cues::Cue>> m_cues;
 };
 

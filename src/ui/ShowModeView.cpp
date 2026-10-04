@@ -1107,6 +1107,10 @@ void ShowModeView::renderStandby()
     m_standbyName->setText(c.name);
     m_standbyMeta->setText(cueMeta(c));
     m_standbyNotes->setText(c.notes);
+    if (!c.deskCues.isEmpty())
+        m_standbyMeta->setText(m_standbyMeta->text().isEmpty()
+                                   ? c.deskCues
+                                   : m_standbyMeta->text() + QStringLiteral("  ·  ") + c.deskCues);
     if (c.lightTriggers > 0) {
         QString t = c.lightTriggers == 1 ? tr("1 lighting hit") : tr("%1 lighting hits").arg(c.lightTriggers);
         if (c.firstTriggerSeconds >= 0.0)
@@ -1132,12 +1136,15 @@ void ShowModeView::renderComingUp()
         r.lead->setText(c.number);
         r.title->setText(c.name);
         QString d = oneLine(c.notes);
-        if (d.isEmpty()) d = cueMeta(c);
+        if (d.isEmpty() && !c.deskOnly) d = cueMeta(c);
+        // A Matrix List: what the desk does with this cue rides along.
+        if (!c.deskCues.isEmpty()) d = d.isEmpty() ? c.deskCues : c.deskCues + QStringLiteral("  ·  ") + d;
         r.detail->setText(d);
         r.detail->setVisible(!d.isEmpty());
         r.trail->setText(c.autoContinue ? tr("AUTO") : c.autoFollow ? tr("FOLLOW") : QString());
         r.trail->setVisible(!r.trail->text().isEmpty());
-        setEdgeColour(r.edge, c.colour);
+        // A desk cue on its own wears the desk's dusty blue.
+        setEdgeColour(r.edge, c.deskOnly ? showRegionColours().desk : c.colour);
         setRowVisible(r, true);
     }
     m_comingEmpty->setVisible(list.empty());

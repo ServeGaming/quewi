@@ -32,8 +32,8 @@ class QUrl;
 
 namespace quewi::core { class Workspace; class CueList; class CueListModel; }
 namespace quewi::cues { class Cue; }
-namespace quewi::ui   { class AudioEditorWindow; class VideoEditorWindow; class ActiveCuesPanel; class CartView; class MixView; class CueListView; class Inspector; class ShortcutManager; class TransportBar; class OscMonitor; class ScriptWindow; class ShowModeView; class LightingPanel; }
-namespace quewi::osc  { class OscEngine; class EosFeedback; }
+namespace quewi::ui   { class AudioEditorWindow; class VideoEditorWindow; class ActiveCuesPanel; class CartView; class MixView; class CueListView; class Inspector; class ShortcutManager; class TransportBar; class OscMonitor; class ScriptWindow; class ShowModeView; class LightingPanel; class MatrixView; }
+namespace quewi::osc  { class OscEngine; class EosFeedback; class EosCueLists; }
 namespace quewi::audio { class AudioEngine; class AudioCue; }
 namespace quewi::lighting { class LightingEngine; }
 namespace quewi::video { class VideoEngine; class VideoCue; }
@@ -100,6 +100,7 @@ private slots:
     void addCueListTab();
     void addSoundboardTab();
     void addMixListTab();
+    void addMatrixListTab();
     void renameCueListTab();
     void removeCueListTab();
     void onTabSelected(int index);
@@ -242,6 +243,8 @@ private:
     // v5: lighting triggers, video conversion, soundboard → mic
     // (MainWindowOscV5.cpp). Needs the GoEngine, so it runs after it exists.
     void registerOscApiV5();
+    // The Matrix List's remote queries (MainWindowMatrix.cpp).
+    void registerOscMatrix();
     cues::Cue  *oscCueByNumber(double num) const;
     QJsonObject triggersReplyJson(cues::Cue *c) const;
     void        commitTriggers(cues::Cue *c, const audio::LightTriggers &next);
@@ -334,6 +337,13 @@ private:
     ui::CueListView *m_cueListView = nullptr;
     ui::CartView    *m_cartView    = nullptr;
     ui::MixView     *m_mixView     = nullptr;
+    // The Matrix List page (quewi + desk cues merged) and the desk cue-list
+    // reader it uses, which shares m_eosFeedback's TCP connection.
+    ui::MatrixView  *m_matrixView  = nullptr;
+    osc::EosCueLists *m_eosCueLists = nullptr;
+    QSet<QUuid>      m_runningCueIds;            // from the active-cues panel
+    bool matrixShowing() const;                  // the Matrix List page is up
+    core::CueList *firstMatrixList() const;
     QStackedWidget  *m_centerStack = nullptr;
     ui::Inspector   *m_inspector   = nullptr;
     ui::TransportBar *m_transport  = nullptr;

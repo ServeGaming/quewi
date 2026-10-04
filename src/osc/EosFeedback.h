@@ -74,6 +74,12 @@ public:
     // Feed one decoded message as if the desk sent it (tests, and the TCP path).
     void handle(const Message &m);
 
+    // Send a message to the desk over this link (nothing if it isn't up).
+    // For readers that share the connection, like EosCueLists — they only
+    // ever send /eos/get/... requests, never anything that changes the desk.
+    void sendToDesk(const Message &m) { send(m); }
+    bool isConnected() const;
+
     // Timing, overridable for tests (ms).
     void setTimings(int reconnectMs, int pingMs, int silenceMs);
     void setClock(std::function<qint64()> nowMs);   // tests: a fake clock
@@ -81,6 +87,9 @@ public:
 signals:
     void linkChanged(quewi::osc::EosFeedback::Link link);
     void stateChanged();               // any cue / show / blind change
+    // Every message the desk sends, after this class has read it (so a
+    // sibling reader — EosCueLists — shares the one TCP connection).
+    void messageReceived(const quewi::osc::Message &m);
 
 private:
     void connectNow();
