@@ -21,6 +21,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <iterator>
 
 namespace quewi::ui {
 
@@ -29,7 +30,7 @@ namespace {
 constexpr int kPollMs = 100;
 constexpr int kComingUpRows = 4;
 constexpr int kRunningRows = 3;
-constexpr int kHitRows = 3;          // after the headline hit
+constexpr int kGroupRun = 3;         // hits in a row before they fold into one line
 
 // The number/time face — tabular digits so a ticking countdown doesn't
 // jitter. The app's text face (IBM Plex Sans / Segoe UI) handles the words.
@@ -128,7 +129,15 @@ ElideLabel::ElideLabel(QWidget *parent) : QLabel(parent)
 
 void ElideLabel::setMaxLines(int lines)
 {
-    m_maxLines = std::max(1, lines);
+    lines = std::max(1, lines);
+    if (lines == m_maxLines) return;
+    m_maxLines = lines;
+    // setWordWrap() flags the size policy height-for-width; keep it off.
+    QSizePolicy sp = sizePolicy();
+    if (sp.hasHeightForWidth()) {
+        sp.setHeightForWidth(false);
+        setSizePolicy(sp);
+    }
     updateGeometry();
     update();
 }
@@ -148,6 +157,35 @@ QSize ElideLabel::minimumSizeHint() const
     return QSize(0, fm.lineSpacing() * m_maxLines + m.top() + m.bottom());
 }
 
+int ElideLabel::linesNeeded(int width, int cap) const
+{
+    if (cap <= 1 || text().isEmpty() || width <= 0) return 1;
+    QTextLayout layout(text(), font());
+    QTextOption opt;
+    opt.setWrapMode(QTextOption::WrapAtWordBoundaryOrAnywhere);
+    layout.setTextOption(opt);
+    layout.beginLayout();
+    int n = 0;
+    while (n < cap) {
+        QTextLine line = layout.createLine();
+        if (!line.isValid()) break;
+        line.setLineWidth(width);
+        ++n;
+    }
+    layout.endLayout();
+    return std::max(1, n);
+}
+
+bool ElideLabel::isElided() const
+{
+    const QRect r = contentsRect();
+    if (m_maxLines <= 1 || !wordWrap())
+        return QFontMetrics(font()).horizontalAdvance(text()) > r.width();
+    const int lh = QFontMetrics(font()).lineSpacing();
+    const int roomFor = std::clamp(lh > 0 ? r.height() / lh : 1, 1, m_maxLines);
+    return linesNeeded(r.width(), roomFor + 1) > roomFor;
+}
+
 void ElideLabel::paintEvent(QPaintEvent *)
 {
     QPainter p(this);
@@ -156,12 +194,16 @@ void ElideLabel::paintEvent(QPaintEvent *)
     p.setFont(font());
     p.setPen(palette().color(foregroundRole()));
     const auto flags = alignment();
+    const int lh = fm.lineSpacing();
     if (m_maxLines <= 1 || !wordWrap()) {
         const QString t = fm.elidedText(text(), Qt::ElideRight, r.width());
         p.drawText(r, int(flags) | Qt::TextSingleLine, t);
         return;
     }
-    // Wrap with QTextLayout, elide the last line that fits.
+    // Wrap with QTextLayout, elide the last line that fits — and only the
+    // lines the height has room for, whole. A squeezed label loses a line,
+    // never half of one.
+    const int roomFor = std::clamp(lh > 0 ? r.height() / lh : 1, 1, m_maxLines);
     QTextLayout layout(text(), font());
     QTextOption opt;
     opt.setWrapMode(QTextOption::WrapAtWordBoundaryOrAnywhere);
@@ -173,11 +215,10 @@ void ElideLabel::paintEvent(QPaintEvent *)
         if (!line.isValid()) break;
         line.setLineWidth(r.width());
         lines.push_back(line);
-        if (int(lines.size()) >= m_maxLines) break;
+        if (int(lines.size()) >= roomFor) break;
     }
     layout.endLayout();
     if (lines.empty()) return;
-    const int lh = fm.lineSpacing();
     int y = r.top();
     if (flags & Qt::AlignVCenter) y = r.top() + (r.height() - lh * int(lines.size())) / 2;
     for (size_t i = 0; i < lines.size(); ++i) {
@@ -352,6 +393,295 @@ void ThinProgressBar::paintEvent(QPaintEvent *)
     }
 }
 
+// ── Hit rows ────────────────────────────────────────────────────────────
+
+namespace {
+
+// "Beat 12" → ("Beat ", 12); "12" → ("", 12); "Lightning" → false.
+bool splitNumbered(const QString &name, QString &prefix, int &number)
+{
+    const QString t = name.trimmed();
+    int i = t.size();
+    while (i > 0 && t.at(i - 1).isDigit()) --i;
+    if (i == t.size() || t.size() - i > 6) return false;
+    prefix = t.left(i);
+    number = t.mid(i).toInt();
+    return true;
+}
+
+QString hitTitle(const ShowUpcomingHit &h)
+{
+    QString name = h.name.isEmpty() ? h.does : h.name;
+    return h.exit ? ShowModeView::tr("%1 (end)").arg(name) : name;
+}
+
+QString secondsText(double s, int decimals)
+{
+    if (s >= 60.0) return showClockText(s);
+    return ShowModeView::tr("%1 s").arg(QString::number(s, 'f', s < 10.0 ? decimals : 1));
+}
+
+} // namespace
+
+std::vector<ShowHitRow> showHitRows(const std::vector<ShowUpcomingHit> &hits)
+{
+    std::vector<ShowHitRow> rows;
+    const size_t n = hits.size();
+    size_t i = 0;
+    while (i < n) {
+        const auto &h = hits[i];
+        // How far does a run of the same thing reach? Same action, same cue,
+        // same frozen-ness, no range ends, and names that are one prefix
+        // plus a rising number (or all unnamed).
+        size_t j = i + 1;
+        QString prefix;
+        int first = 0, last = 0;
+        const bool unnamed = h.name.isEmpty();
+        const bool numbered = !unnamed && splitNumbered(h.name, prefix, first);
+        bool consecutive = true;
+        if (!h.exit && (unnamed || numbered)) {
+            last = first;
+            while (j < n) {
+                const auto &g = hits[j];
+                if (g.exit || g.does != h.does || g.cueNumber != h.cueNumber || g.paused != h.paused) break;
+                if (unnamed) {
+                    if (!g.name.isEmpty()) break;
+                } else {
+                    QString p;
+                    int num = 0;
+                    if (!splitNumbered(g.name, p, num) || p != prefix || num <= last) break;
+                    if (num != last + 1) consecutive = false;
+                    last = num;
+                }
+                ++j;
+            }
+        }
+        const size_t run = j - i;
+        ShowHitRow row;
+        row.when = showCountdownText(h.inSeconds);
+        row.firstIn = h.inSeconds;
+        row.paused = h.paused;
+        if (run < size_t(kGroupRun)) {
+            row.title = hitTitle(h);
+            row.detail = h.name.isEmpty() ? QString() : h.does;
+            row.lastIn = h.inSeconds;
+            rows.push_back(row);
+            ++i;
+            continue;
+        }
+        const auto &tail = hits[j - 1];
+        row.count = int(run);
+        row.lastIn = tail.inSeconds;
+        QStringList detail;
+        if (unnamed) {
+            row.title = h.does;
+        } else if (consecutive) {
+            row.title = QStringLiteral("%1%2–%3").arg(prefix).arg(first).arg(last);
+            if (!h.does.isEmpty()) detail << h.does;
+        } else {
+            row.title = QStringLiteral("%1 … %2").arg(h.name.trimmed(), tail.name.trimmed());
+            if (!h.does.isEmpty()) detail << h.does;
+        }
+        if (unnamed || !consecutive) detail << ShowModeView::tr("%1 hits").arg(int(run));
+        // The rhythm: "every 0.47 s" when the gaps are even, else the span.
+        double sum = 0.0, lo = 1e9, hi = 0.0;
+        for (size_t k = i + 1; k < j; ++k) {
+            const double gap = std::max(0.0, hits[k].inSeconds - hits[k - 1].inSeconds);
+            sum += gap;
+            lo = std::min(lo, gap);
+            hi = std::max(hi, gap);
+        }
+        const double mean = sum / double(run - 1);
+        const bool even = mean > 0.0 && hi - lo <= std::max(0.04, mean * 0.25);
+        if (even) detail << ShowModeView::tr("every %1").arg(secondsText(mean, 2));
+        else      detail << ShowModeView::tr("over %1").arg(secondsText(tail.inSeconds - h.inSeconds, 1));
+        row.detail = detail.join(QStringLiteral("  ·  "));
+        rows.push_back(row);
+        i = j;
+    }
+    return rows;
+}
+
+// ── HitList ─────────────────────────────────────────────────────────────
+
+HitList::HitList(QWidget *parent) : QWidget(parent)
+{
+    // Preferred height = every row with two lines; minimum nothing, so in a
+    // short card this is what gives way (the labels around it are rigid).
+    setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Preferred);
+    setAttribute(Qt::WA_TransparentForMouseEvents);
+    m_leadFont = m_titleFont = m_detailFont = font();
+    const auto &tk = Theme::tokens();
+    m_leadColour = showRegionColours().hits;
+    m_titleColour = tk.ink100;
+    m_detailColour = tk.ink40;
+    m_muted = tk.ink40;
+    m_pausedColour = tk.warn;
+}
+
+void HitList::setHits(const std::vector<ShowUpcomingHit> &hits, bool armed)
+{
+    m_rows = showHitRows(hits);
+    m_armed = armed;
+    updateGeometry();
+    update();
+}
+
+void HitList::setFonts(const QFont &lead, const QFont &title, const QFont &detail)
+{
+    m_leadFont = lead;
+    m_titleFont = title;
+    m_detailFont = detail;
+    updateGeometry();
+    update();
+}
+
+void HitList::setColours(const QColor &lead, const QColor &title, const QColor &detail,
+                         const QColor &muted, const QColor &paused)
+{
+    m_leadColour = lead;
+    m_titleColour = title;
+    m_detailColour = detail;
+    m_muted = muted;
+    m_pausedColour = paused;
+    update();
+}
+
+void HitList::setRowGap(int gapPx)
+{
+    m_gap = std::max(0, gapPx);
+    updateGeometry();
+    update();
+}
+
+// The text sets the row height, not the countdown: a mono face has tall
+// line metrics but its digits have no descenders, so the countdown sits on
+// the title's baseline and takes no more room than the title does.
+int HitList::rowHeight(bool two) const
+{
+    const int title = QFontMetrics(m_titleFont).height();
+    const int detail = QFontMetrics(m_detailFont).height();
+    return (two ? title + detail : title) + m_gap;
+}
+
+int HitList::moreHeight() const
+{
+    return QFontMetrics(m_detailFont).height() + m_gap;
+}
+
+HitList::Fit HitList::fitFor(int h) const
+{
+    Fit f;
+    const int n = int(m_rows.size());
+    if (n == 0) return f;
+    const int h2 = rowHeight(true), h1 = rowHeight(false);
+    if (n * h2 - m_gap <= h) {
+        f.two = true;
+        f.rows = n;
+        f.height = n * h2 - m_gap;
+        return f;
+    }
+    if (n * h1 - m_gap <= h) {
+        f.rows = n;
+        f.height = n * h1 - m_gap;
+        return f;
+    }
+    // Not everything fits: whole rows only, then the "+N more" line.
+    const int mh = moreHeight();
+    if (h < mh - m_gap) return f;                  // not even room to say so
+    f.rows = std::clamp((h - mh) / h1, 0, n - 1);
+    f.moreLine = true;
+    for (int k = f.rows; k < n; ++k) f.more += m_rows[size_t(k)].count;
+    f.height = f.rows * h1 + mh - m_gap;
+    return f;
+}
+
+int HitList::shownRows() const { return fitFor(height()).rows; }
+bool HitList::twoLine() const { return fitFor(height()).two; }
+int HitList::contentHeight() const { return fitFor(height()).height; }
+
+QString HitList::moreText() const
+{
+    const Fit f = fitFor(height());
+    if (!f.moreLine) return {};
+    const double last = m_rows.back().lastIn;
+    return tr("+%1 more in the next %2").arg(f.more).arg(showClockText(std::ceil(last - 1e-6)));
+}
+
+QSize HitList::sizeHint() const
+{
+    const int n = int(m_rows.size());
+    return QSize(200, n > 0 ? n * rowHeight(true) - m_gap : 0);
+}
+
+QSize HitList::minimumSizeHint() const
+{
+    return QSize(0, 0);
+}
+
+void HitList::paintEvent(QPaintEvent *)
+{
+    const Fit f = fitFor(height());
+    if (f.rows == 0 && !f.moreLine) return;
+    QPainter p(this);
+    const QFontMetrics leadFm(m_leadFont), titleFm(m_titleFont), detailFm(m_detailFont);
+    const int leadW = leadFm.horizontalAdvance(QStringLiteral("8:88.8")) + 4;
+    const int colGap = std::max(8, m_gap * 2);
+    const int x0 = leadW + colGap;
+    const int w = std::max(0, width() - x0);
+    const int rh = rowHeight(f.two);
+    const QString sep = QStringLiteral("  ·  ");
+    int y = 0;
+    for (int k = 0; k < f.rows; ++k, y += rh) {
+        const auto &row = m_rows[size_t(k)];
+        const int rowH = rh - m_gap;
+        // The countdown: on the title's baseline, right-aligned in its column.
+        const int titleBase = f.two ? y + titleFm.ascent() : y + (rowH - titleFm.height()) / 2 + titleFm.ascent();
+        p.setFont(m_leadFont);
+        p.setPen(!m_armed ? m_muted : row.paused ? m_pausedColour : m_leadColour);
+        p.drawText(leadW - leadFm.horizontalAdvance(row.when), f.two ? y + (rowH - leadFm.height()) / 2 + leadFm.ascent() : titleBase,
+                   row.when);
+        if (f.two) {
+            p.setFont(m_titleFont);
+            p.setPen(m_titleColour);
+            p.drawText(QRect(x0, y, w, titleFm.height()), Qt::AlignLeft | Qt::AlignVCenter | Qt::TextSingleLine,
+                       titleFm.elidedText(row.title, Qt::ElideRight, w));
+            if (!row.detail.isEmpty()) {
+                p.setFont(m_detailFont);
+                p.setPen(m_detailColour);
+                p.drawText(QRect(x0, y + titleFm.height(), w, detailFm.height()),
+                           Qt::AlignLeft | Qt::AlignVCenter | Qt::TextSingleLine,
+                           detailFm.elidedText(row.detail, Qt::ElideRight, w));
+            }
+            continue;
+        }
+        // One line: the title keeps its own width (up to most of the row),
+        // the action takes the rest and elides first.
+        const int baseline = titleBase;
+        int titleW = titleFm.horizontalAdvance(row.title);
+        if (!row.detail.isEmpty()) titleW = std::min(titleW, int(w * 0.6));
+        titleW = std::min(titleW, w);
+        p.setFont(m_titleFont);
+        p.setPen(m_titleColour);
+        p.drawText(x0, baseline, titleFm.elidedText(row.title, Qt::ElideRight, titleW));
+        if (!row.detail.isEmpty()) {
+            const int sepW = detailFm.horizontalAdvance(sep);
+            const int rest = w - titleW - sepW;
+            if (rest > detailFm.averageCharWidth() * 4) {
+                p.setFont(m_detailFont);
+                p.setPen(m_detailColour);
+                p.drawText(x0 + titleW, baseline, sep + detailFm.elidedText(row.detail, Qt::ElideRight, rest));
+            }
+        }
+    }
+    if (f.moreLine) {
+        p.setFont(m_detailFont);
+        p.setPen(m_muted);
+        p.drawText(QRect(x0, y, w, detailFm.height()), Qt::AlignLeft | Qt::AlignVCenter | Qt::TextSingleLine,
+                   detailFm.elidedText(moreText(), Qt::ElideRight, w));
+    }
+}
+
 // ── ShowModeView ────────────────────────────────────────────────────────
 
 ShowModeView::ShowModeView(QWidget *parent) : QWidget(parent)
@@ -359,6 +689,10 @@ ShowModeView::ShowModeView(QWidget *parent) : QWidget(parent)
     setObjectName(QStringLiteral("showModeView"));
     setFocusPolicy(Qt::NoFocus);
     setAttribute(Qt::WA_StyledBackground);
+    // An explicit (small) minimum: the cards fold to fit whatever height
+    // there is, so the layout's own minimum must never be what stops the
+    // window shrinking, or grow a window that was asked to be smaller.
+    setMinimumSize(480, 320);
     buildUi();
     m_tick = new QTimer(this);
     m_tick->setInterval(kPollMs);
@@ -524,14 +858,22 @@ ShowModeView::Row ShowModeView::makeRow(QWidget *parent, bool withBar, const cha
     for (QWidget *w : {static_cast<QWidget *>(r.lead), static_cast<QWidget *>(r.title),
                        static_cast<QWidget *>(r.detail), static_cast<QWidget *>(r.trail)})
         w->setProperty("region", QLatin1String(region));
+    // Columns: edge · lead · title · (detail, compact only) · trail.
     g->addWidget(r.edge, 0, 0, withBar ? 3 : 2, 1);
-    g->addWidget(r.lead, 0, 1, 2, 1, Qt::AlignVCenter);
-    g->addWidget(r.title, 0, 2);
-    g->addWidget(r.detail, 1, 2);
-    g->addWidget(r.trail, 0, 3, 2, 1, Qt::AlignVCenter);
     if (withBar) {
+        // A running song: the name gets the whole first line — it's what
+        // the SM reads — with the time and the remaining under it, then the bar.
+        g->addWidget(r.lead, 0, 1, Qt::AlignVCenter);
+        g->addWidget(r.title, 0, 2, 1, 3);
+        g->addWidget(r.detail, 1, 2);
+        g->addWidget(r.trail, 1, 4, Qt::AlignVCenter);
         r.bar = new ThinProgressBar(r.frame);
-        g->addWidget(r.bar, 2, 1, 1, 3);
+        g->addWidget(r.bar, 2, 1, 1, 4);
+    } else {
+        g->addWidget(r.lead, 0, 1, 2, 1, Qt::AlignVCenter);
+        g->addWidget(r.title, 0, 2);
+        g->addWidget(r.detail, 1, 2);
+        g->addWidget(r.trail, 0, 4, 2, 1, Qt::AlignVCenter);
     }
     g->setColumnStretch(2, 1);
     return r;
@@ -540,6 +882,29 @@ ShowModeView::Row ShowModeView::makeRow(QWidget *parent, bool withBar, const cha
 void ShowModeView::setRowVisible(Row &r, bool on)
 {
     r.frame->setVisible(on);
+}
+
+// Compact: "14  Act 1 curtain  ·  House to half…" on one line — the title
+// keeps its own width (shrinking only when it alone is too long), the
+// detail takes the rest and elides first.
+void ShowModeView::setRowCompact(Row &r, bool compact)
+{
+    if (r.frame->property("compact").toBool() == compact) return;
+    r.frame->setProperty("compact", compact);
+    auto *g = static_cast<QGridLayout *>(r.frame->layout());
+    g->removeWidget(r.detail);
+    if (compact) {
+        g->addWidget(r.detail, 0, 3);
+        r.title->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Fixed);
+        g->setColumnStretch(2, 0);
+        g->setColumnStretch(3, 1);
+    } else {
+        g->addWidget(r.detail, 1, 2);
+        r.title->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Fixed);
+        g->setColumnStretch(2, 1);
+        g->setColumnStretch(3, 0);
+    }
+    r.detail->setContentsMargins(compact ? 6 : 0, 0, 0, 0);
 }
 
 ShowModeView::Band ShowModeView::makeBand(QWidget *card, const char *region, const QString &heading)
@@ -552,7 +917,12 @@ ShowModeView::Band ShowModeView::makeBand(QWidget *card, const char *region, con
     b.lay = new QHBoxLayout(b.frame);
     b.lay->setContentsMargins(16, 6, 12, 6);
     b.lay->setSpacing(10);
-    b.heading = new QLabel(heading, b.frame);
+    // An eliding heading: a narrow card shortens "NEXT LIGHTING HIT" rather
+    // than pushing its chip out of the band.
+    auto *h = new ElideLabel(b.frame);
+    h->setText(heading);
+    h->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Fixed);
+    b.heading = h;
     b.heading->setProperty("role", "heading");
     b.heading->setProperty("region", QLatin1String(region));
     b.lay->addWidget(b.heading);
@@ -597,15 +967,19 @@ void ShowModeView::buildUi()
     header->addSpacing(8);
     header->addWidget(m_exit);
     root->addLayout(header);
+    m_header = header;
 
     // ── Body: the stage column + the transport column ──
     auto *body = new QHBoxLayout;
     body->setSpacing(12);
     root->addLayout(body, 1);
 
+    // The stage: STANDBY and COMING UP take the height they need (fitStage
+    // folds them when the screen is short), the lower row gets the rest.
     auto *stage = new QVBoxLayout;
     stage->setSpacing(10);
     body->addLayout(stage, 1);
+    m_stage = stage;
 
     // Standby hero: the amber band, then the cue's own colour down the edge.
     m_standbyCard = card(this, "smStandbyCard", "standby");
@@ -626,7 +1000,7 @@ void ShowModeView::buildUi()
         m_standbyEdge->setFixedWidth(8);
         h->addWidget(m_standbyEdge);
         auto *v = new QVBoxLayout;
-        v->setContentsMargins(18, 12, 18, 14);
+        v->setContentsMargins(18, 10, 18, 10);
         v->setSpacing(4);
         h->addLayout(v, 1);
 
@@ -656,30 +1030,37 @@ void ShowModeView::buildUi()
         m_standbyNotes = elide(m_standbyCard, "standbyNotes", 3);
         m_standbyNotes->setObjectName(QStringLiteral("smStandbyNotes"));
         m_standbyNotes->setAlignment(Qt::AlignLeft | Qt::AlignTop);
-        v->addSpacing(6);
+        v->addSpacing(4);
         v->addWidget(m_standbyNotes);
 
-        m_standbyEmpty = new QLabel(tr("End of the cue list — nothing on standby."), m_standbyCard);
-        m_standbyEmpty->setObjectName(QStringLiteral("smStandbyEmpty"));
-        m_standbyEmpty->setProperty("role", "standbyEmpty");
-        m_standbyEmpty->setWordWrap(true);
+        auto *empty = elide(m_standbyCard, "standbyEmpty", 2);
+        empty->setText(tr("End of the cue list — nothing on standby."));
+        empty->setObjectName(QStringLiteral("smStandbyEmpty"));
+        m_standbyEmpty = empty;
         v->addWidget(m_standbyEmpty);
         v->addStretch(1);
     }
-    stage->addWidget(m_standbyCard, 5);
+    stage->addWidget(m_standbyCard, 1);
 
     // Coming up.
     m_comingCard = card(this, "smComingCard", "coming");
+    m_comingCard->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Maximum);
     {
         auto *outer = new QVBoxLayout(m_comingCard);
         outer->setContentsMargins(0, 0, 0, 0);
         outer->setSpacing(0);
         auto band = makeBand(m_comingCard, "coming", tr("COMING UP"));
         m_comingCaps = band.heading;
+        m_comingMore = new QLabel(m_comingCard);
+        m_comingMore->setObjectName(QStringLiteral("smComingMore"));
+        m_comingMore->setProperty("role", "chip");
+        m_comingMore->setProperty("region", "coming");
+        m_comingMore->hide();
+        band.lay->addWidget(m_comingMore);
         outer->addWidget(band.frame);
         auto *v = new QVBoxLayout;
-        v->setContentsMargins(18, 8, 18, 10);
-        v->setSpacing(6);
+        v->setContentsMargins(18, 8, 18, 8);
+        v->setSpacing(5);
         outer->addLayout(v, 1);
         for (int i = 0; i < kComingUpRows; ++i) {
             m_comingRows.push_back(makeRow(m_comingCard, false, "coming"));
@@ -688,14 +1069,16 @@ void ShowModeView::buildUi()
         m_comingEmpty = new QLabel(tr("Nothing after this."), m_comingCard);
         m_comingEmpty->setProperty("role", "quiet");
         v->addWidget(m_comingEmpty);
-        v->addStretch(1);
     }
-    stage->addWidget(m_comingCard, 3);
+    stage->addWidget(m_comingCard, 0);
 
-    // Lower row: Now playing | Next lighting hit | Lighting desk.
+    // Lower row: Now playing | Next lighting hit | Lighting desk. The hits
+    // card is the widest: its rows carry a countdown, a name and an action.
+    // Spare height goes mostly here (1:3 against STANDBY): it's where the
+    // hit list grows another row.
     m_lowerRow = new QHBoxLayout;
     m_lowerRow->setSpacing(10);
-    stage->addLayout(m_lowerRow, 4);
+    stage->addLayout(m_lowerRow, 3);
 
     m_runningCard = card(this, "smRunningCard", "running");
     {
@@ -725,7 +1108,7 @@ void ShowModeView::buildUi()
         v->addWidget(m_lastFired);
     }
     m_runningCard->setObjectName(QStringLiteral("smRunning"));
-    m_lowerRow->addWidget(m_runningCard, 5);
+    m_lowerRow->addWidget(m_runningCard, 4);
 
     m_hitsCard = card(this, "smHitsCard", "hits");
     {
@@ -745,8 +1128,8 @@ void ShowModeView::buildUi()
         band.lay->addWidget(m_armed);
         outer->addWidget(band.frame);
         auto *v = new QVBoxLayout;
-        v->setContentsMargins(16, 8, 16, 10);
-        v->setSpacing(4);
+        v->setContentsMargins(16, 4, 16, 6);
+        v->setSpacing(3);
         outer->addLayout(v, 1);
         m_hitCountdown = new QLabel(m_hitsCard);
         m_hitCountdown->setObjectName(QStringLiteral("smHitCountdown"));
@@ -758,20 +1141,17 @@ void ShowModeView::buildUi()
         m_hitDoes->setObjectName(QStringLiteral("smHitDoes"));
         v->addWidget(m_hitName);
         v->addWidget(m_hitDoes);
-        v->addSpacing(6);
-        for (int i = 0; i < kHitRows; ++i) {
-            m_hitRows.push_back(makeRow(m_hitsCard, false, "hits"));
-            m_hitRows.back().edge->hide();
-            v->addWidget(m_hitRows.back().frame);
-        }
-        m_hitsState = new QLabel(m_hitsCard);
+        v->addSpacing(3);
+        // The rows after the headline: as many as fit whole, then "+N more".
+        m_hitList = new HitList(m_hitsCard);
+        m_hitList->setObjectName(QStringLiteral("smHitList"));
+        v->addWidget(m_hitList);
+        m_hitsState = elide(m_hitsCard, "quiet", 2);
         m_hitsState->setObjectName(QStringLiteral("smHitsState"));
-        m_hitsState->setProperty("role", "quiet");
-        m_hitsState->setWordWrap(true);
         v->addWidget(m_hitsState);
         v->addStretch(1);
     }
-    m_lowerRow->addWidget(m_hitsCard, 4);
+    m_lowerRow->addWidget(m_hitsCard, 5);
 
     m_deskCard = card(this, "smDeskCard", "desk");
     {
@@ -979,15 +1359,15 @@ void ShowModeView::applyScale()
                  tk.accent.name(),                 // 13
                  QString::number(px(13, s)),       // 14 small
                  tk.ink100.name(),                 // 15
-                 QString::number(px(118, s)),      // 16 standby number
+                 QString::number(px(96, s)),       // 16 standby number
                  QString::number(px(28, s)),       // 17 standby name
                  QString::number(px(14, s)))       // 18 meta
-            .arg(QString::number(px(22, s)),       // 19 notes
+            .arg(QString::number(px(20, s)),       // 19 notes
                  QString::number(px(22, s)),       // 20 row lead
                  QString::number(px(17, s)),       // 21 row title
                  QString::number(px(26, s)),       // 22 row trail
                  tk.warn.name(),                   // 23
-                 QString::number(px(44, s)),       // 24 hit countdown
+                 QString::number(px(40, s)),       // 24 hit countdown
                  QString::number(px(2, s)),        // 25 chip pad
                  rgba(tk.warn, 28),                // 26 faint warn
                  QString::number(px(36, s)))       // 27 desk active
@@ -1005,7 +1385,7 @@ void ShowModeView::applyScale()
         setStyleSheet(qss);
 
         // Geometry that QSS can't express.
-        const int col = std::clamp(int(width() * 0.21), 170, 360);
+        const int col = std::clamp(int(width() * 0.19), 170, 340);
         m_transport->setFixedWidth(col);
         m_standbyEdge->setFixedWidth(px(8, s));
         m_deskDot->setFixedSize(px(10, s), px(10, s));
@@ -1013,31 +1393,162 @@ void ShowModeView::applyScale()
         for (auto &r : m_runningRows) r.bar->setThickness(px(4, s));
         for (auto &r : m_comingRows) r.edge->setFixedWidth(px(4, s));
         for (auto &r : m_runningRows) r.edge->setFixedWidth(px(4, s));
-        for (auto *lay : m_bandLayouts) lay->setContentsMargins(px(16, s), px(6, s), px(12, s), px(6, s));
-        // The notes block gets more lines the taller the screen.
-        m_standbyNotes->setMaxLines(height() >= 1000 ? 4 : 3);
+        for (auto *lay : m_bandLayouts) lay->setContentsMargins(px(16, s), px(5, s), px(12, s), px(5, s));
+        m_stage->setSpacing(px(10, s));
+        m_lowerRow->setSpacing(px(10, s));
+
+        // The hit list paints its own text: the row faces follow the rows'
+        // stylesheet sizes (lead in mono, like every other countdown).
+        QFont lead = font();
+        lead.setFamilies({QStringLiteral("JetBrains Mono"), QStringLiteral("Cascadia Mono"), QStringLiteral("Consolas")});
+        lead.setStyleHint(QFont::Monospace);
+        lead.setPixelSize(px(17, s));
+        lead.setWeight(QFont::Bold);
+        QFont title = font();
+        title.setPixelSize(px(17, s));
+        title.setWeight(QFont::DemiBold);
+        QFont detail = font();
+        detail.setPixelSize(px(13, s));
+        m_hitList->setFonts(lead, title, detail);
+        m_hitList->setColours(rc.hits, tk.ink100, tk.ink40, tk.ink40, tk.warn);
+        m_hitList->setRowGap(px(2, s));
     }
     // Lead columns size to their widest plausible text so the titles line up
-    // (polished first, so the metrics are the stylesheet's font).
-    for (auto *w : findChildren<ElideLabel *>()) w->ensurePolished();
+    // (everything polished first, so every metric below — and the fit's —
+    // is the stylesheet's font, even before the first show).
+    for (auto *w : findChildren<QWidget *>()) w->ensurePolished();
     const QFontMetrics lead(m_comingRows.front().lead->font());
     const int leadW = lead.horizontalAdvance(QStringLiteral("888.8"));
     for (auto &r : m_comingRows) r.lead->setFixedWidth(leadW);
     for (auto &r : m_runningRows) r.lead->setFixedWidth(leadW);
     const QFontMetrics trail(m_runningRows.front().trail->font());
     for (auto &r : m_runningRows) r.trail->setFixedWidth(trail.horizontalAdvance(QStringLiteral("-88:88")) + 4);
-    const QFontMetrics hitLead(m_hitRows.front().lead->font());
-    for (auto &r : m_hitRows) {
-        r.lead->setFixedWidth(hitLead.horizontalAdvance(QStringLiteral("8:88.8")) + 4);
-        r.trail->setFixedWidth(0);
-        r.trail->hide();
+    fitStage();
+}
+
+// Fold the stage column to the height there is. STANDBY shows the notes
+// lines its text needs (up to 3, 4 on a tall screen) and COMING UP its
+// rows; the lower row keeps a floor it can't be squeezed under. When the
+// two don't fit above that floor, give way in this order: coming-up rows
+// go to one line, the notes lose a line, a coming-up row goes ("+1 more"
+// on its band), and so on — never a line cut in half.
+void ShowModeView::fitStage()
+{
+    if (m_fitting || !m_hitList) return;
+    m_fitting = true;
+    const double s = m_scale;
+    const auto rm = layout()->contentsMargins();
+
+    // Sub-layouts cache their hints until the next activation, and each
+    // widget's layout item caches the widget's hint until that widget's
+    // updateGeometry() — so a row whose own grid was just rearranged still
+    // reports its old height to the card. Flush each card's whole tree
+    // first, so every measurement below is of what's there now.
+    auto invalidateDeep = [](auto &&self, QLayout *l) -> void {
+        for (int i = 0; i < l->count(); ++i) {
+            QLayoutItem *it = l->itemAt(i);
+            if (auto *sub = it->layout()) {
+                self(self, sub);
+            } else if (auto *w = it->widget()) {
+                if (w->layout()) self(self, w->layout());
+                w->updateGeometry();
+            }
+        }
+        l->invalidate();
+    };
+    // Widths, worked out rather than read: before the first show nothing
+    // has been laid out yet, and the answer must be right from the start.
+    const int stageW = std::max(300, width() - rm.left() - rm.right() - 12 - m_transport->minimumWidth());
+    const int lowerW = stageW - 2 * m_stage->spacing();
+    // (A little under the real width: a line that only just fits is better
+    // given its own line than elided.)
+    const int notesW = std::max(80, stageW - 2 - m_standbyEdge->minimumWidth() - 36 - 12);
+    const int hitsW  = std::max(80, lowerW * 5 / 13 - 34);
+    const int deskW  = std::max(80, lowerW * 4 / 13 - 34);
+    const int notesCap = height() >= 1000 ? 4 : 3;
+    const int notesNeed = m_standbyNotes->isHidden() ? 0 : m_standbyNotes->linesNeeded(notesW, notesCap);
+    const int comingHave = int(std::min<size_t>(m_snap.comingUp.size(), m_comingRows.size()));
+    const int hitsStateLines = m_hitsState->linesNeeded(hitsW, 2);
+    const int deskDetailLines = m_deskDetail->linesNeeded(deskW, 2);
+
+    // Nothing that feeds the answer has changed since last time: done. This
+    // runs after every 100 ms render, so it has to be cheap in the common
+    // case — the key is built from the snapshot, not from layout queries.
+    const auto &d = m_snap.desk;
+    const QString key = QStringLiteral("%1 %2 %3 %4 %5 %6 | %7 %8 %9 %10 %11 %12 %13 %14 %15 %16")
+        .arg(width()).arg(height()).arg(notesNeed).arg(comingHave).arg(hitsStateLines).arg(deskDetailLines)
+        .arg(m_scale)
+        .arg(std::min<size_t>(m_snap.running.size(), m_runningRows.size())).arg(m_snap.lastFired.has_value())
+        .arg(m_snap.hits.size() > 1).arg(m_snap.hits.empty()).arg(int(d.link)).arg(d.blind)
+        .arg(d.activeLabel.isEmpty()).arg(m_snap.standby.has_value()).arg(m_hitsState->isHidden());
+    if (key == m_fitKey) {
+        m_fitting = false;
+        return;
     }
+    m_fitKey = key;
+    for (QWidget *c : {m_standbyCard, m_comingCard, m_runningCard, m_hitsCard, m_deskCard})
+        invalidateDeep(invalidateDeep, c->layout());
+
+    // The two-line status labels take the lines they need, no more.
+    m_hitsState->setMaxLines(hitsStateLines);
+    m_deskDetail->setMaxLines(deskDetailLines);
+
+    // The lower row's floor: enough for the band, the headline hit, three
+    // one-line rows (and whatever the other two cards need). On a 720-high
+    // screen this is what tips COMING UP to three rows rather than the hit
+    // list to one — the hits are what a busy song is about.
+    for (QWidget *c : {m_runningCard, m_hitsCard, m_deskCard}) c->setMinimumHeight(0);
+    int lowerMin = px(240, s);
+    for (QWidget *c : {m_runningCard, m_hitsCard, m_deskCard})
+        lowerMin = std::max(lowerMin, c->minimumSizeHint().height());
+    for (QWidget *c : {m_runningCard, m_hitsCard, m_deskCard}) c->setMinimumHeight(lowerMin);
+
+    const int headerH = m_header->sizeHint().height();
+    const int avail = height() - rm.top() - rm.bottom() - headerH - layout()->spacing()
+                      - 2 * m_stage->spacing() - lowerMin;
+
+    auto apply = [&](const StageFit &f) {
+        m_standbyNotes->setMaxLines(std::max(1, std::min(f.notesLines, std::max(1, notesNeed))));
+        for (size_t i = 0; i < m_comingRows.size(); ++i) {
+            setRowCompact(m_comingRows[i], f.comingCompact);
+            setRowVisible(m_comingRows[i], int(i) < std::min(f.comingRows, comingHave));
+        }
+        const int dropped = std::max(0, comingHave - f.comingRows);
+        m_comingMore->setText(tr("+%1 more").arg(dropped));
+        m_comingMore->setVisible(dropped > 0);
+    };
+    auto fits = [&] {
+        invalidateDeep(invalidateDeep, m_standbyCard->layout());
+        invalidateDeep(invalidateDeep, m_comingCard->layout());
+        return m_standbyCard->sizeHint().height() + m_comingCard->sizeHint().height() <= avail;
+    };
+
+    const StageFit steps[] = {
+        {notesCap, false, 4}, {notesCap, true, 4}, {2, true, 4}, {2, true, 3},
+        {1, true, 3}, {1, true, 2}, {1, true, 1}, {1, true, 0},
+    };
+    StageFit chosen = steps[std::size(steps) - 1];
+    for (const auto &f : steps) {
+        apply(f);
+        if (fits()) {
+            chosen = f;
+            break;
+        }
+    }
+    apply(chosen);
+    m_fit = chosen;
+    m_fitting = false;
 }
 
 // ── Rendering ───────────────────────────────────────────────────────────
 
 void ShowModeView::render()
 {
+    // A resize while hidden (the usual way in: resized, then shown) never
+    // reaches resizeEvent; make sure the scale matches the size first, so
+    // the fit below measures with the right fonts.
+    const double s = std::clamp(std::min(width() / 1280.0, height() / 720.0), 0.7, 3.0);
+    if (!qFuzzyCompare(s, m_scale)) applyScale();
     renderHeader();
     renderStandby();
     renderComingUp();
@@ -1045,6 +1556,7 @@ void ShowModeView::render()
     renderHits();
     renderDesk();
     renderTransport();
+    fitStage();
 }
 
 void ShowModeView::renderHeader()
@@ -1111,6 +1623,7 @@ void ShowModeView::renderStandby()
         m_standbyMeta->setText(m_standbyMeta->text().isEmpty()
                                    ? c.deskCues
                                    : m_standbyMeta->text() + QStringLiteral("  ·  ") + c.deskCues);
+    m_standbyNotes->setVisible(!c.notes.trimmed().isEmpty());   // no empty line reserved
     if (c.lightTriggers > 0) {
         QString t = c.lightTriggers == 1 ? tr("1 lighting hit") : tr("%1 lighting hits").arg(c.lightTriggers);
         if (c.firstTriggerSeconds >= 0.0)
@@ -1128,7 +1641,8 @@ void ShowModeView::renderComingUp()
     const auto &list = m_snap.comingUp;
     for (size_t i = 0; i < m_comingRows.size(); ++i) {
         auto &r = m_comingRows[i];
-        if (i >= list.size()) {
+        // Rows past what the height allows stay hidden (fitStage decides).
+        if (i >= list.size() || int(i) >= m_fit.comingRows) {
             setRowVisible(r, false);
             continue;
         }
@@ -1164,11 +1678,11 @@ void ShowModeView::renderRunning()
         const auto &rc = list[i];
         r.lead->setText(rc.cue.number);
         r.title->setText(rc.cue.name);
+        // The time, and PAUSED when it is; a loop is already the "∞" on the right.
         QStringList d;
-        d << tr("%1 elapsed").arg(showClockText(rc.elapsedSeconds));
+        d << showClockText(rc.elapsedSeconds);
         if (rc.paused) d << tr("PAUSED");
-        if (rc.looping) d << tr("LOOPING");
-        r.detail->setText(d.join(QStringLiteral("  ·  ")));
+        r.detail->setText(d.join(QStringLiteral(" · ")));
         r.detail->show();
         QString rem = showRemainingText(rc.remainingSeconds);
         if (rem.isEmpty()) rem = rc.looping ? QStringLiteral("∞") : QStringLiteral("—");
@@ -1226,22 +1740,11 @@ void ShowModeView::renderHits()
         m_hitDoes->setText(d.join(QStringLiteral("  ·  ")));
         setTone(m_hitCountdown, !armed ? "off" : h.paused ? "paused" : "live");
     }
-    for (size_t i = 0; i < m_hitRows.size(); ++i) {
-        auto &r = m_hitRows[i];
-        const size_t k = i + 1;
-        if (k >= hits.size()) {
-            setRowVisible(r, false);
-            continue;
-        }
-        const auto &h = hits[k];
-        r.lead->setText(showCountdownText(h.inSeconds));
-        QString name = h.name.isEmpty() ? h.does : h.name;
-        if (h.exit) name = tr("%1 (end)").arg(name);
-        r.title->setText(name);
-        r.detail->setText(!h.name.isEmpty() ? h.does : QString());
-        r.detail->setVisible(!r.detail->text().isEmpty());
-        setRowVisible(r, true);
-    }
+    // Everything after the headline, grouped and fitted by the list itself.
+    m_hitList->setHits(hits.size() > 1 ? std::vector<ShowUpcomingHit>(hits.begin() + 1, hits.end())
+                                       : std::vector<ShowUpcomingHit>{},
+                       armed);
+    m_hitList->setVisible(hits.size() > 1);
     // The state line under it all.
     QString state;
     if (!armed)
