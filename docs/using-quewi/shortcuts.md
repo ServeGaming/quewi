@@ -134,3 +134,26 @@ again.
   removes them, and **Alt** while dragging in the lighting lane places a
   trigger without snapping to the beat (Alt+click picks one trigger out of
   a group). See [Lighting triggers](lighting-triggers.md#editing-several-at-once).
+
+---
+
+## Bigger text in the cue list
+
+Hold <kbd>Ctrl</kbd> and scroll over the cue list to make its text (and its
+rows) bigger or smaller, from 70 % to 300 %. <kbd>Ctrl</kbd>+<kbd>=</kbd> and
+<kbd>Ctrl</kbd>+<kbd>-</kbd> do the same, and <kbd>Ctrl</kbd>+<kbd>0</kbd> puts it
+back to normal. quewi remembers the size on this computer.
+
+## Safe key
+
+**Preferences → Show Mode → Safe key** can make GO and Delete need a key held
+down, so a stray press does nothing. Pick **Shift**, **Ctrl**, **Alt** or any
+other key (a spare key, or a foot switch that sends one), then tick **Hold the
+safe key to GO** and/or **Hold the safe key to delete cues**.
+
+- With Shift as the safe key, **Shift+Space** is GO and Shift+click on a GO
+  button works; Space on its own does nothing and the status bar says
+  "Hold Shift to GO".
+- It covers GO from this computer: Space, the GO buttons and Show Mode. GO
+  from a remote (OSC, HeliOSC) isn't affected.
+

@@ -51,6 +51,8 @@ add_library(quewi_ui STATIC
     EffectsRackWidget.cpp
     LightTriggersPanel.h
     ShowSnapshot.h
+    SafeKey.h
+    SafeKey.cpp
     ShowModeView.h
     ShowModeView.cpp
     LightingPanel.h

@@ -81,6 +81,14 @@ nudge.
 
 ---
 
+## Safe key
+
+Preferences → Show Mode → **Safe key** makes GO and Delete need a key held
+down (Shift, Ctrl, Alt, or any key you choose). See
+[Keyboard shortcuts](shortcuts.md#safe-key).
+
+---
+
 ## Unlock PIN
 
 Set an **Unlock PIN** in Preferences → Show Mode to require it to *leave*

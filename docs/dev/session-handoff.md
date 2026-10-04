@@ -234,6 +234,22 @@ Voicemod-style: pads play into a virtual cable apps use as a microphone.
   OSC reference (`desk` kind + `do` table, lighting desk v5, `beatGrid`,
   `cuts`), shortcuts (editor Space), release notes 1.0.4.
 
+### 0a5. Safe key, cue-list zoom, List menu; UI overhaul dropped (2026-10-04)
+- **Safe key** (`ui/SafeKey`, QSettings `safety/safeKey|safeKeyForGo|safeKeyForDelete`,
+  Preferences → Show Mode): hold Shift/Ctrl/Alt/any key to GO / delete. Local GO
+  goes through `MainWindow::requestLocalGo` (action, transport, Show Mode, cue
+  list Space); OSC GO isn't gated. A modifier safe key turns "mod+GO key" into
+  GO via the app filter's `goChord`. Driven: plain click/Space blocked with
+  "Hold Shift to GO", Shift+Space and Shift+click fire.
+- **Cue list zoom** (`CueListView::setZoom`, `cueList/zoom`, 70–300 %):
+  Ctrl+wheel / Ctrl+= / Ctrl+- / Ctrl+0; widget QSS font-size, model font
+  scale for number/wait columns, columns scaled. Driven with Ctrl+=.
+- List menu holds New cue list / Soundboard / Mix (DCA) list (the + is gone).
+- The `ui-overhaul` branch (Gemini A+B combined redesign) was built, shown to
+  Matthew, and **deleted at his request** — he didn't like it.
+- In flight: Fable building a Spotlight-style command menu with an
+  Omarchy-style leader key; Matrix List PR #1 waits for his "merge it".
+
 ### 0a3. Stage-manager Show Mode, Lighting panel, Eos read-back (2026-10-04)
 Matthew asked for "next trigger in show mode" + "listen to the desk", a panel
 on the main screen, and a simple SM-friendly Show Mode like HeliOSC's.

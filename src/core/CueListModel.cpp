@@ -117,6 +117,14 @@ QPixmap CueListModel::iconForType(const QString &typeKey)
     return cache.value(typeKey);
 }
 
+void CueListModel::setFontScale(double scale)
+{
+    if (scale == m_fontScale) return;
+    m_fontScale = scale;
+    if (rowCount() > 0)
+        emit dataChanged(index(0, 0), index(rowCount() - 1, columnCount() - 1), {Qt::FontRole});
+}
+
 void CueListModel::setRunningCueIds(const QSet<QUuid> &running)
 {
     if (m_runningIds == running) return;
@@ -318,6 +326,7 @@ QVariant CueListModel::data(const QModelIndex &index, int role) const
                 f.setBold(true);
                 f.setPointSizeF(f.pointSizeF() + 1.0);
             }
+            if (m_fontScale != 1.0) f.setPointSizeF(f.pointSizeF() * m_fontScale);
             return f;
         }
     }

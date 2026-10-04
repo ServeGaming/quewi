@@ -1,6 +1,7 @@
 #include "ui/PreferencesDialog.h"
 
 #include "ui/LightingDeskDialog.h"
+#include "ui/SafeKey.h"
 #include "ui/Theme.h"
 #include "audio/AudioEngine.h"
 #include "core/CueListModel.h"
@@ -10,6 +11,7 @@
 
 #include <QAudioDevice>
 #include <QCheckBox>
+#include <QKeySequenceEdit>
 #include <QColorDialog>
 #include <QComboBox>
 #include <QDialogButtonBox>
@@ -687,6 +689,72 @@ QWidget *makeShowModePage(QWidget *parent)
     lockForm->addRow(QString(), smView);
 
     outer->addWidget(lockGroup);
+
+    // ── Safe key: hold it to GO / to delete cues ──────────────────────────
+    auto *safeGroup = new QGroupBox(QObject::tr("Safe key"), page);
+    safeGroup->setObjectName(QStringLiteral("prefSafeKeyGroup"));
+    auto *safeForm = new QFormLayout(safeGroup);
+    auto *safe = SafeKey::instance();
+    auto *safeGo = new QCheckBox(QObject::tr("Hold the safe key to GO"), safeGroup);
+    safeGo->setObjectName(QStringLiteral("prefSafeKeyGo"));
+    safeGo->setChecked(safe->requiredFor(SafeKey::Action::Go));
+    auto *safeDel = new QCheckBox(QObject::tr("Hold the safe key to delete cues"), safeGroup);
+    safeDel->setObjectName(QStringLiteral("prefSafeKeyDelete"));
+    safeDel->setChecked(safe->requiredFor(SafeKey::Action::Delete));
+    auto *safeKey = new QComboBox(safeGroup);
+    safeKey->setObjectName(QStringLiteral("prefSafeKey"));
+    safeKey->addItem(QObject::tr("Shift"), QStringLiteral("Shift"));
+    safeKey->addItem(QObject::tr("Ctrl"),  QStringLiteral("Ctrl"));
+    safeKey->addItem(QObject::tr("Alt"),   QStringLiteral("Alt"));
+    safeKey->addItem(QObject::tr("Another key…"), QString());
+    auto *otherKey = new QKeySequenceEdit(safeGroup);
+    otherKey->setObjectName(QStringLiteral("prefSafeKeyOther"));
+    otherKey->setMaximumSequenceLength(1);
+    otherKey->setToolTip(QObject::tr("Press the key to use: a spare key such as F12, or a foot "
+                                     "switch that sends a key"));
+    {
+        const QString cur = safe->keyName();
+        const int i = safeKey->findData(cur, Qt::UserRole, Qt::MatchFixedString);
+        if (i >= 0) {
+            safeKey->setCurrentIndex(i);
+        } else {
+            safeKey->setCurrentIndex(3);
+            otherKey->setKeySequence(QKeySequence(cur));
+        }
+        otherKey->setVisible(safeKey->currentIndex() == 3);
+    }
+    auto saveSafe = [safeGo, safeDel, safeKey, otherKey] {
+        QString name = safeKey->currentData().toString();
+        if (safeKey->currentIndex() == 3) {
+            const auto seq = otherKey->keySequence();
+            // Just the key: a modifier on it would make it a chord.
+            name = seq.isEmpty() ? QString()
+                                 : QKeySequence(seq[0].key()).toString(QKeySequence::PortableText);
+            if (name.isEmpty()) return;                  // nothing pressed yet
+        }
+        SafeKey::save(safeGo->isChecked(), safeDel->isChecked(), name);
+    };
+    QObject::connect(safeGo, &QCheckBox::toggled, safeGroup, saveSafe);
+    QObject::connect(safeDel, &QCheckBox::toggled, safeGroup, saveSafe);
+    QObject::connect(safeKey, &QComboBox::currentIndexChanged, safeGroup,
+                     [safeKey, otherKey, saveSafe](int i) {
+        otherKey->setVisible(i == 3);
+        if (i == 3) otherKey->setFocus();
+        saveSafe();
+    });
+    QObject::connect(otherKey, &QKeySequenceEdit::editingFinished, safeGroup, saveSafe);
+    auto *keyRow = new QHBoxLayout();
+    keyRow->setContentsMargins(0, 0, 0, 0);
+    keyRow->addWidget(safeKey);
+    keyRow->addWidget(otherKey, 1);
+    safeForm->addRow(QObject::tr("Safe key"), keyRow);
+    safeForm->addRow(QString(), safeGo);
+    safeForm->addRow(QString(), safeDel);
+    safeForm->addRow(QString(), makeHint(QObject::tr(
+        "When on, GO (Space, the GO buttons) and Delete only work while the safe key is held "
+        "down, so a stray press does nothing. With Shift, press Shift+Space to GO. GO from a "
+        "remote (OSC, HeliOSC) isn't affected."), safeGroup));
+    outer->addWidget(safeGroup);
 
     auto *allowGroup = new QGroupBox(
         QObject::tr("Allowed during Show Mode"), page);

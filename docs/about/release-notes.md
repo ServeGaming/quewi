@@ -1,5 +1,25 @@
 # Release notes
 
+## Unreleased
+
+### New
+
+- **Safe key.** Preferences → Show Mode → Safe key can make GO and Delete
+  need a key held down (Shift, Ctrl, Alt or any key, such as a foot switch),
+  so a stray Space or Delete does nothing.
+  [Safe key →](../using-quewi/shortcuts.md#safe-key)
+- **Bigger cue list text.** Ctrl+scroll (or Ctrl+= / Ctrl+-) over the cue
+  list zooms its text and rows from 70 % to 300 %; Ctrl+0 resets.
+- **Every kind of list from the List menu.** New cue list, Soundboard and
+  Mix (DCA) list moved from the tabs' "+" button into the List menu.
+- **Show Mode fits more.** Any number of lighting hits fit (runs of beats fold
+  into one row, "+N more" for the rest), song names show in full, and the
+  layout gives each area the room it needs.
+
+### Fixed
+
+- Reading an Eos desk back: the previous cue's time was read as its name.
+
 ## 1.1.0 (2026-10-04)
 
 Songs that cue the lights, a stage manager's Show Mode that shows what the

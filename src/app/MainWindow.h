@@ -94,6 +94,8 @@ private slots:
     void onSelectionChanged();
     void updateTitle();
     void onGoRequested();
+    // GO from this computer (not OSC): checks the safe key first.
+    void requestLocalGo();
     void showPreflight();
     void showCommandPalette();
     void toggleShowMode();

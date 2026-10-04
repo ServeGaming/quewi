@@ -60,6 +60,7 @@
 #include "ui/Notifications.h"
 #include "ui/NotificationsDialog.h"
 #include "ui/FindReplaceDialog.h"
+#include "ui/SafeKey.h"
 #include "ui/ShortcutManager.h"
 #include "ui/ShortcutsDialog.h"
 #include "ui/ScriptWindow.h"
@@ -234,7 +235,10 @@ MainWindow::MainWindow(QWidget *parent)
     m_actGo = new QAction(tr("GO"), this);
     addAction(m_actGo);
     m_actGo->setShortcutContext(Qt::WindowShortcut);
-    connect(m_actGo, &QAction::triggered, this, &MainWindow::onGoRequested);
+    // GO from this computer's keyboard / mouse (the action, the transport and
+    // Show Mode buttons, the cue list's Space) goes through the safe-key check;
+    // remote GO (OSC) calls onGoRequested directly.
+    connect(m_actGo, &QAction::triggered, this, &MainWindow::requestLocalGo);
 
     m_actPanic = new QAction(tr("Panic"), this);
     addAction(m_actPanic);
@@ -286,6 +290,28 @@ MainWindow::MainWindow(QWidget *parent)
 
     buildLayout();
     buildMenus();
+
+    // The safe key (Preferences → Show Mode). With a modifier as the safe
+    // key, "Shift+Space" has to reach GO although GO's shortcut is Space:
+    // the safe key's filter hands those chords over here.
+    {
+        auto *safe = ui::SafeKey::instance();
+        auto syncKeys = [this, safe] {
+            safe->setGoKey(m_actGo->shortcut().isEmpty() ? QKeySequence(Qt::Key_Space)
+                                                         : m_actGo->shortcut());
+        };
+        syncKeys();
+        connect(m_actGo, &QAction::changed, this, syncKeys);
+        connect(safe, &ui::SafeKey::goChord, this, [this] {
+            if (m_actGo && m_actGo->isEnabled()) onGoRequested();
+        });
+        connect(safe, &ui::SafeKey::deleteChord, this, [this] {
+            // Only where Delete itself works: the cue list, outside Show Mode.
+            if (m_showMode || !m_cueListView) return;
+            auto *fw = QApplication::focusWidget();
+            if (fw && (fw == m_cueListView || m_cueListView->isAncestorOf(fw))) deleteSelectedCue();
+        });
+    }
 
     // The stage-manager screens drive the same actions as the transport.
     connect(m_showModeView, &ui::ShowModeView::goPressed, m_actGo, &QAction::trigger);
@@ -619,7 +645,7 @@ void MainWindow::buildLayout()
     connect(m_inspector, &ui::Inspector::convertCueRequested,
             this, &MainWindow::convertCue, Qt::QueuedConnection);   // off the Inspector's stack
     connect(m_cueListView, &ui::CueListView::goRequested,
-            this, &MainWindow::onGoRequested);
+            this, &MainWindow::requestLocalGo);
     connect(m_cueListView, &ui::CueListView::filesDropped, this,
             [this](const QList<QUrl> &urls, int insertRow) {
                 const int created = insertCuesFromUrls(urls, insertRow);
@@ -1513,8 +1539,21 @@ void MainWindow::insertTextCue()
     insertCueOfType(std::move(cue), tr("Text"));
 }
 
+void MainWindow::requestLocalGo()
+{
+    if (!ui::SafeKey::instance()->allows(ui::SafeKey::Action::Go)) {
+        statusBar()->showMessage(ui::SafeKey::instance()->blockedMessage(ui::SafeKey::Action::Go), 3000);
+        return;
+    }
+    onGoRequested();
+}
+
 void MainWindow::deleteSelectedCue()
 {
+    if (!ui::SafeKey::instance()->allows(ui::SafeKey::Action::Delete)) {
+        statusBar()->showMessage(ui::SafeKey::instance()->blockedMessage(ui::SafeKey::Action::Delete), 3000);
+        return;
+    }
     auto *list = m_workspace->activeCueList();
     if (!list) return;
 

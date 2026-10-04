@@ -27,7 +27,7 @@ handoff and the docs it points to (`docs/dev/`).
 - Build: `cmake --build --preset windows-release` (after vcvars64.bat).
 - Test: `ctest` from `build/windows-release` with Qt's `bin` on PATH; and
   `quewi.exe --selftest` must exit 0.
-- All ctest suites must stay green (32 as of 2026-10-04). Verify a change actually works by driving
+- All ctest suites must stay green (34 as of 2026-10-04). Verify a change actually works by driving
   the app, not just compiling — "built but not driven" is not "done".
 
 ## Working style Matthew has asked for
