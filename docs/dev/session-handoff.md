@@ -229,7 +229,10 @@ Voicemod-style: pads play into a virtual cable apps use as a microphone.
   (`/eos/fader/<bank>/<n>/fire`); **verified by Matthew on his Nomad**
   (list 2 = page 3 fader 3). Go_CueList via newcmd does NOT work.
 - Fixed: theme @token substitution corrupted @bgRowHover etc. at random.
-- Not yet: docs for simple mode/desk/beat grid/GO list/video editor/cuts.
+- Docs updated (2026-10-04): lighting-triggers (desk setup, simple mode,
+  GO on list, custom, beat grid, fill), video.md (NLE layout, splicing, keys),
+  OSC reference (`desk` kind + `do` table, lighting desk v5, `beatGrid`,
+  `cuts`), shortcuts (editor Space), release notes 1.0.4.
 
 ### 0b. Lighting triggers, round 2 (2026-10-03) — simple mode, desk, beat grid
 Matthew can't write OSC by hand, uses ETC Nomad (on this PC, OSC UDP RX
@@ -253,8 +256,8 @@ clashing with Nomad) is fine as is (his call).
   onset fit: ±0.05 BPM, first beat ±20 ms on synthetic clicks — not tried on
   real songs), snap (Alt = off), Fill with beats (default bump sub 1, 40 % of
   a beat). UI by subagents; `tools/osc_desk_drive.py` drives desk actions.
-- Not done: nothing verified on his real Nomad yet (offered); docs page not
-  yet updated for simple mode / desk / beat grid / GO on list.
+- Not done: sub/fader bumps and Detect not verified on his real Nomad / real
+  songs yet. (Docs done 2026-10-04.)
 
 ### 4. Audit A7 closed (2026-10-03)
 The audio-thread UAF was already fixed in 0.9.91; what remained: removing the

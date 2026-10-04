@@ -55,6 +55,8 @@ Open the address reference for the full per-cue-type tables:
 | Field | Type | Meaning |
 |---|---|---|
 | `lightTriggers` | `s` (JSON array) | The cue's [lighting triggers](../using-quewi/lighting-triggers.md). `/set/lightTriggers` takes the whole array as one JSON string (`""` or `[]` clears them). In the cue JSON it's a real array, and it's left out when there are none. Shape: [Trigger JSON](reference.md#trigger-json). For per-trigger edits use the [trigger addresses](reference.md#lighting-triggers-v5). |
+| `beatGrid` | `s` (JSON object) | The song's beat grid, `{"bpm", "firstBeat", "beatsPerBar"}`. `bpm` 0 = none. |
+| `cuts` | `s` (JSON array) | Sections cut out of the middle, `[[start, end], …]` in seconds in the file. Playback jumps over them. `[]` restores them all. |
 | `videoOrigin` | JSON object | Read-only. Only on an audio cue converted from a video cue: the video's settings, used when it's converted back. |
 
 **Video cues**
@@ -67,6 +69,7 @@ Open the address reference for the full per-cue-type tables:
 | `pictureFadeInSeconds` | `f` | *(1.0.4)* The picture fades up over this long from the In point (first time through only, when looping) |
 | `pictureFadeOutSeconds` | `f` | *(1.0.4)* The picture fades down over this long to the Out point (not when looping) |
 | `sound.<field>` | as the audio field | Any audio cue field of the soundtrack, e.g. `sound.gainDb`, `sound.pan`, `sound.fadeInSeconds`, `sound.fadeOutSeconds`, `sound.trimInSeconds`, `sound.trimOutSeconds`, `sound.outputDeviceId` |
+| `cuts` | `s` (JSON array) | Sections [cut out](../cue-types/video.md#splicing-cutting-sections-out) of the middle, `[[start, end], …]`. Picture and sound both jump over them. The same value as `sound.cuts` |
 | `sound.lightTriggers` | `s` (JSON array) | The soundtrack's lighting triggers, as `lightTriggers` above. They run whether or not `soundEnabled` is on |
 
 The soundtrack's `filePath` and `loop` follow the video cue's own `filePath`

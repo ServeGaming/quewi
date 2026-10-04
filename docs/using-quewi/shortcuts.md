@@ -117,3 +117,18 @@ duplicate, and delete are blocked in Show Mode.
 Each pad can have its own key — right-click the pad → **Set keybind…**. See
 [Soundboard](soundboard.md#keybinds) for where those keys work (board only,
 anywhere in quewi, or system-wide).
+
+---
+
+## In the editors
+
+In the audio editor and the video editor, **Space plays and pauses the
+editor's preview** rather than firing GO, wherever the focus is in that
+window (except while you're typing in a text box, such as a trigger's name). Close the editor (or click the main window) to use Space as GO
+again.
+
+- Video editor keys (In / Out, Select and Razor tools, Delete to cut a
+  section…): see [The video editor](../cue-types/video.md#keys).
+- Audio editor's Lighting tab: **T** taps the tempo, and **Alt** while
+  dragging in the lighting lane places a trigger without snapping to the
+  beat. See [Lighting triggers](lighting-triggers.md#beat-grid).

@@ -8,24 +8,42 @@ soundboard you can talk through.
 ### New
 
 - **Lighting triggers.** Mark points and ranges on a song and quewi cues
-  the lighting desk as the playhead passes them: an OSC message (ETC Eos,
-  grandMA3…), a MIDI note, control change or program change, an MSC GO,
-  or another cue in the show. Ranges send one thing on the way in and
-  another on the way out. Make them in the audio editor's new **Lighting**
-  tab or straight on the timeline's lighting lane (click for a point, drag
-  for a range). Presets fill in common Eos and grandMA messages, **Test**
+  the lighting desk as the playhead passes them. Set your desk once
+  (**Tools → Lighting Desk…**: ETC Eos / Ion / Element / Nomad, grandMA3, or
+  grandMA2 over MSC), then pick what each trigger does from a list: GO, GO
+  on another cue list, Stop, Back, go to a cue, set or bump a sub or fader,
+  fire a macro, type a command line, or fire another cue in the show. No
+  OSC knowledge needed. **Custom OSC / MIDI** is there for anything else:
+  any OSC message, MIDI note, control change or program change, or MSC
+  command. Ranges do one thing on the way in and another on the way out.
+  Make them in the audio editor's new **Lighting** tab or straight on the
+  timeline's lighting lane (click for a point, drag for a range). **Test**
   sends one now, and **Send while previewing** lets you program the desk
   against the editor's playback. **Tools → Lighting Triggers Armed** is the
   master switch.
   [Lighting triggers →](../using-quewi/lighting-triggers.md)
-- **Video editor.** Double-click a video cue to open it on a timeline: a
-  monitor showing the frame at the playhead, a strip of frames over the
-  soundtrack's waveform, In and Out points (drag them, or press **I** / **O**
-  at the playhead), and fade handles for the picture and the sound. Space
+- **Beat grid.** Give a song its tempo (type it, tap it, or let quewi
+  detect it) and the timeline shows the beats, triggers snap to them, and
+  **Fill with beats…** puts a trigger on every beat or bar of a section,
+  for example bumping a sub in time with the chorus.
+  [Beat grid →](../using-quewi/lighting-triggers.md#beat-grid)
+- **Video editor.** Double-click a video cue to open it in an editor laid
+  out like Premiere Pro or DaVinci Resolve: a viewer with transport
+  controls, an Inspector with the clip, video, audio and lighting
+  settings, and a timeline with a picture track (V1) over the soundtrack
+  (A1). Set In and Out points (drag them, or press **I** / **O** at the
+  playhead) and drag fade handles for the picture and the sound. Space
   plays, the arrow keys step a frame, and every change is undoable. A
   trimmed video now starts and stops its picture at the trim too, not just
   its sound.
   [Video editor →](../cue-types/video.md#the-video-editor-new-in-104)
+- **Splicing.** Cut sections out of the middle of a video: drag across
+  the timeline and press **Delete**, or split it with the **Razor** tool
+  (**B**) and delete a piece. **Keep only this** trims to a selection, and
+  right-clicking a cut restores it. Picture, sound and lighting triggers
+  all skip the cut, and the sound joins without a click. The file itself
+  is never changed.
+  [Splicing →](../cue-types/video.md#splicing-cutting-sections-out)
 - **Video cues play their sound.** A video cue's soundtrack now goes
   through quewi's audio engine, with level, pan, fades, output and the
   full audio editor (**Edit sound…**). New video cues play their sound;
@@ -46,11 +64,17 @@ soundboard you can talk through.
   [Inspector →](../using-quewi/inspector.md#layout)
 - **OSC remote API v5** (for HeliOSC and other remotes): lighting triggers
   (list, add, edit, remove, test, arm, and a `trigger/fired`
-  notification), video ↔ audio conversion, and the soundboard → mic
-  settings.
+  notification), the lighting desk setting, beat grids, cuts, video ↔
+  audio conversion, and the soundboard → mic settings.
   [Address reference →](../osc-control/reference.md#lighting-triggers-v5)
 
 ### Fixed
+
+- **Space in the editors** plays and pauses wherever the focus is. Before,
+  it pressed whichever button you'd last clicked.
+- **Theme colours could go wrong at random.** A colour whose name started
+  with another's (such as the row hover colour) could get the wrong value
+  on some launches, so hover and selection colours were sometimes off.
 
 - **OSC notifications never arrived for default subscribers.** Subscribing
   with the default pattern `/quewi/notify/*` matched none of the

@@ -33,27 +33,32 @@ Fields:
 #### The video editor *(new in 1.0.4)*
 
 Double-click a video cue (or press **Edit video…** in the Inspector, or
-**Cue → Edit Video…**) to open it in the video editor.
+**Cue → Edit Video…**) to open it in the video editor. It's laid out like
+Premiere Pro or DaVinci Resolve: one window with the viewer at the top,
+settings on the right and the timeline along the bottom.
 
-- **Monitor:** the frame at the playhead, the way the cue will show it, with
+- **Viewer:** the frame at the playhead, the way the cue will show it, with
   its opacity and picture fades applied. Before the In point or after the
   Out point it's dimmed and labelled, because the cue never shows that part.
-- **Timeline:** a strip of frames from the video over its soundtrack's
-  waveform. The amber **IN** and **OUT** bars set where the cue starts and
-  stops. Drag them, or put the playhead somewhere and press **I** or **O**.
-  The small squares on the top edge of each lane are the fade handles: drag
-  them in to fade the picture or the sound. Hold **Shift** while dragging
-  for fine control. Click anywhere else to move the playhead. The wheel
-  zooms, Shift+wheel scrolls, and a double-click fits the whole file.
-  Lighting triggers on the soundtrack show as small marks under the ruler.
-- **Keys:** **Space** plays and pauses, **Home** / **End** jump to the In and
-  Out points, and **←** / **→** step one frame (with **Shift**, one second).
-  Play starts from the In point if the playhead is outside the trim, and
-  stops at the Out point (or goes round again with **Loop** on).
-- **Fields** under the timeline take exact values: In, Out (**End** means
-  the end of the file), loop, picture fades and opacity, and the sound's
-  level and fades. **Edit sound…** opens the soundtrack in the audio editor
-  for effects, and **Lighting…** opens its lighting triggers.
+  Under it are the transport buttons (to In, frame back, play, frame on, to
+  Out, loop), the timecode, and **Plays for**: how long the cue lasts with
+  its trims and cuts.
+- **Inspector** (right): collapsible sections with exact values.
+  - **Clip:** In, Out (**End** means the end of the file), **Loop between
+    In and Out**, Plays for, and the cuts.
+  - **Video:** Opacity and the picture's Fade in and Fade out.
+  - **Audio:** **Play the video's sound**, Level, Fade in and Fade out, and
+    **Edit sound…** (the soundtrack in the audio editor, for effects and EQ).
+  - **Lighting:** how many triggers the soundtrack has, and **Lighting
+    triggers…**
+- **Timeline:** **V1** is a strip of frames from the video; **A1** is the
+  soundtrack's waveform. The amber **IN** and **OUT** bars set where the
+  cue starts and stops: drag them, or put the playhead somewhere and press
+  **I** or **O**. The small squares on the top edge of each track are the
+  fade handles: drag them in to fade the picture or the sound. Hold
+  **Shift** while dragging for fine control. The wheel zooms around the
+  mouse, Shift+wheel scrolls, and double-clicking the ruler fits the whole
+  file. Lighting triggers show as small marks under the ruler.
 
 The In and Out points are shared by the picture and the sound, so they
 always start and stop together. They're the same trims the audio editor
@@ -61,9 +66,66 @@ and the Sound section use. Before 1.0.4, trimming a video's sound didn't
 trim its picture. Now it does.
 
 Every change is an ordinary cue edit: it's saved with the show, the cue
-plays it straight away, and **Undo** works in the editor or the main
-window. The editor previews on its own and doesn't touch what's on the
-projector.
+plays it straight away, and **Undo** works in the editor (**Ctrl+Z**) or
+the main window. The editor previews on its own and doesn't touch what's
+on the projector.
+
+##### Splicing: cutting sections out
+
+In and Out trim the ends. To take a piece out of the **middle** (a false
+start, a long intro, a verse you're not using), cut it:
+
+1. With the **Select** tool (**V**), drag across the timeline to select the
+   section. Shift-drag grows the selection; **Shift+I** and **Shift+O**
+   set its start and end at the playhead.
+2. Press **Delete** (or **Delete section** in the toolbar, or right-click
+   it).
+
+The cut shows hatched across both tracks with how much it removed, and
+**Plays for** gets shorter. Picture and sound jump straight over it
+together.
+
+The **Razor** tool (**B**) works the way it does in other editors: click
+the timeline to drop split points (**Ctrl+K** splits at the playhead),
+then click between two of them to select that piece, and press Delete.
+**Clear split points** removes them; they're only a guide and aren't saved.
+
+- **Keep only this** sets In and Out around the selection and cuts nothing:
+  the quick way to trim to one section.
+- **Right-click a cut → Restore section** brings it back.
+  **Restore all cuts** brings them all back.
+- **Esc** clears the selection.
+
+Cuts don't change the file. They're saved with the cue, every cut and
+restore can be undone, and the picture and the soundtrack share them.
+Converting the video to an audio cue keeps its cuts, and the audio cue
+skips them too. (The audio editor doesn't show cuts yet: its preview plays
+straight through them.) During the show:
+
+- the **sound** jumps over each cut with a tiny dip (a few milliseconds)
+  either side, so the join doesn't click;
+- the **picture** seeks past each cut. Depending on how the video was
+  encoded, that seek can show a brief hitch at the join; files with
+  frequent keyframes (or an editing codec such as ProRes) are smoothest;
+- **lighting triggers** inside a cut never fire.
+
+##### Keys
+
+| Key | Does |
+|---|---|
+| **Space** | Play / pause (wherever the focus is in the editor) |
+| **I** / **O** | Set In / Out at the playhead |
+| **Shift+I** / **Shift+O** | Start / end the selection at the playhead |
+| **V** / **B** | Select tool / Razor tool |
+| **Ctrl+K** | Split at the playhead |
+| **Delete** or **Backspace** | Cut out the selected section |
+| **Esc** | Clear the selection |
+| **Home** / **End** | Go to the In / Out point |
+| **←** / **→** | One frame back / on (**Shift**: one second) |
+| **Ctrl+Z** / **Ctrl+Y** | Undo / redo |
+
+Play starts from the In point if the playhead is outside the trim, and
+stops at the Out point (or goes round again with **Loop** on).
 
 #### The video's sound *(new in 1.0.4)*
 

@@ -305,10 +305,30 @@ An action's `kind` decides which other fields matter:
 | `kind` | Fields |
 |---|---|
 | `none` | — (sends nothing) |
-| `osc` | `host` (`s`), `port` (`i`, 1–65535, default 8000), `transport` (`i`: 0 UDP, 1 TCP/SLIP, 2 WebSocket), `address` (`s`), `args` (`s`, comma-separated and auto-typed like an OSC cue's `rawArgs`) |
+| `desk` | `do` (`s`, what the [lighting desk](#lighting-desk-v5) should do, below), plus `number` (`s`: cue, sub, fader, macro or sequence number; cue numbers can be decimal), `list` (`i`, 1–9999: cue list, fader page or sequence), `level` (`i`, 0–100 %), `hold` (`f`, seconds a bump stays pressed, 0.02–30), `text` (`s`, a command line) as that `do` needs |
+| `osc` | `host` (`s`, empty = the lighting desk's), `port` (`i`, 1–65535; 0 = the lighting desk's), `transport` (`i`: 0 UDP, 1 TCP/SLIP, 2 WebSocket), `address` (`s`), `args` (`s`, comma-separated and auto-typed like an OSC cue's `rawArgs`) |
 | `midi` | `midiPort` (`s`, empty = first available), `midiType` (`noteOn`, `noteOff`, `cc`, `program`, `raw`), `channel` (`i`, 1–16), `data1` (`i`, note / controller / program, 0–127), `data2` (`i`, velocity / value, 0–127), `rawHex` (`s`, e.g. `"90 3C 7F"`, used when `midiType` is `raw`) |
 | `msc` | `midiPort` (`s`), `deviceId` (`i`, 0–127; 127 = all-call), `commandFormat` (`i`, e.g. 1 Lighting, 2 Moving lights, 127 All), `command` (`i`, e.g. 1 GO, 2 STOP, 3 RESUME), `qNumber` (`s`), `qList` (`s`) |
 | `cue` | `cueId` (`s`, the UUID of the cue to fire). A trigger can't fire its own song. |
+
+`do` values for `desk`:
+
+| `do` | Does | Uses | Desks |
+|---|---|---|---|
+| `go` | GO on the main cue list | — | all |
+| `goList` | GO on another cue list. Eos: presses the GO of the fader that list is loaded on (`number` = fader, `list` = fader page; an empty `number` is an error). grandMA3: `Go+ Sequence <list>` | `number`, `list` | Eos, MA3 |
+| `stop` | Stop | — | Eos, MSC |
+| `back` | Back | — | Eos, MA3 |
+| `cue` | Go to cue `number` in list `list` | `number`, `list` | all |
+| `subLevel` | Set sub `number` to `level` | `number`, `level` | Eos |
+| `subBump` | Press sub `number`'s bump for `hold` seconds | `number`, `hold` | Eos |
+| `faderLevel` | Set fader `number` on page `list` to `level` | `number`, `list`, `level` | Eos |
+| `faderBump` | Press fader `number` on page `list` for `hold` seconds | `number`, `list`, `hold` | Eos |
+| `macro` | Fire macro `number` | `number` | Eos, MSC |
+| `command` | Type `text` on the command line and press Enter | `text` | Eos, MA3 |
+
+A `do` the current desk can't do sends nothing, and says so in the status
+bar. `/quewi/query/lightingDesk` lists the ones it can.
 
 `kind` also accepts `firecue`; `midiType` also accepts `controlchange` and
 `programchange`. Numbers are clamped to their range. Changing `kind` keeps
@@ -437,6 +457,37 @@ every device on the quewi machine, so a remote can offer a picker;
 `virtual` marks devices that look like virtual cables.
 
 ---
+
+
+### Lighting desk (v5)
+
+The desk that `desk` actions (and OSC actions with no host or port) go to:
+the **Tools → Lighting Desk…** setting. It belongs to the quewi computer,
+not the show, and is remembered across restarts.
+
+| Address | Args | Reply | Effect |
+|---|---|---|---|
+| `/quewi/query/lightingDesk` | — | `/quewi/reply/lightingDesk` `s` JSON | Read the desk setting (shape below). |
+| `/quewi/lightingDesk/set` | `s` JSON object | — | Change any of the fields at once. Fields left out keep their value. |
+| `/quewi/lightingDesk/<field>` | one value | — | Change one field. Unknown fields are ignored. |
+
+```js
+{
+  "type": "eos",            // "eos", "ma3" or "ma2msc"
+  "host": "127.0.0.1",
+  "port": 8000,
+  "ma3Prefix": "",          // grandMA3: "gma3" sends /gma3/cmd
+  "midiPort": "",           // grandMA2 / MSC: the MIDI output
+  "mscDeviceId": 127,
+  "eosFaderBank": 9,        // the OSC fader bank quewi uses for fader actions
+  "name": "ETC Eos / Ion / Element / Nomad",   // reply only
+  "summary": "…",                              // reply only
+  "actions": [ { "do": "go", "name": "GO (next cue)" }, … ]   // reply only
+}
+```
+
+`actions` lists the `do` values this desk can do, with their names, so a
+remote can offer the same choices as quewi's **What should it do?** list.
 
 ## Queries (peer → quewi, quewi replies)
 
@@ -569,6 +620,8 @@ coerces numeric types (`i/h/f/d`) to whatever the field expects.
 | `objElevation` | `f` | degrees, -90 … +90 | Source elevation |
 | `objSpread` | `f` | 0.0 … 1.0 | Source spread (0 = point, 1 = omni) |
 | `lightTriggers` | `s` (JSON array) | — | *(1.0.4)* The cue's [lighting triggers](#trigger-json). Send the whole array as a JSON string; `""` or `[]` clears them. Left out of the cue JSON when there are none. Prefer the [trigger addresses](#lighting-triggers-v5) for edits: they make one undo step per message, whereas repeated `set/lightTriggers` messages merge into one. |
+| `beatGrid` | `s` (JSON object) | — | *(1.0.4)* The song's [beat grid](../using-quewi/lighting-triggers.md#beat-grid): `{"bpm": 128, "firstBeat": 0.37, "beatsPerBar": 4}`. `bpm` 0 = none. Left out of the cue JSON when there's no grid. |
+| `cuts` | `s` (JSON array) | seconds in the file | *(1.0.4)* Sections cut out of the middle, as `[[start, end], …]`. Playback jumps over them. Overlapping cuts merge; ones shorter than 10 ms are dropped. `""` or `[]` restores them all. Left out of the cue JSON when there are none. |
 | `videoOrigin` | — | JSON object | **Read-only.** *(1.0.4)* Present on an audio cue converted from a video cue: the video's settings, restored if it's converted back. |
 
 ### FadeCue (`type: "fade"`)
