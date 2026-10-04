@@ -3406,7 +3406,7 @@ ui::ShowSnapshot MainWindow::buildShowSnapshot() const
     s.paused = m_goEngine && m_goEngine->isPaused();
     s.triggersArmed = !m_goEngine || m_goEngine->triggersArmed();
     if (m_goEngine) {
-        for (const auto &u : m_goEngine->upcomingTriggers(6)) {
+        for (const auto &u : m_goEngine->upcomingTriggers(24)) {
             ui::ShowUpcomingHit h;
             h.triggerId = u.triggerId;
             if (u.owner) {
