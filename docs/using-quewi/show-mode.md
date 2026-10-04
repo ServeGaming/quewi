@@ -1,23 +1,51 @@
 # Show Mode
 
-Show Mode locks the UI down so an operator focused on pressing
-GO can't accidentally clobber the show by hitting a stray key
-or dropping a file on the wrong window.
+Show Mode is for running the show. The window switches to a **stage
+manager screen** that shows what's on standby, what's playing, what the
+lighting desk is doing and the next lighting hit, with big GO, Pause,
+Fade All and Panic buttons. Editing is locked, so a stray key or a
+dropped file can't change the show.
 
 ---
 
 ## Turning it on
 
-Three ways:
-
-- **Menu**: File → Show Mode
+- **Menu**: Tools → Show Mode (locked)
 - **Keyboard**: <kbd>Mod</kbd>+<kbd>Shift</kbd>+<kbd>L</kbd>
-- **Over OSC**: there's no dedicated address yet; remote-control
-  rigs typically use a hardware key bound to the shortcut
+- **Automatically**: Preferences → Show Mode → "Enter Show Mode
+  automatically when opening a show"
 
-When Show Mode flips on, an amber banner appears at the top of
-the window — "SHOW MODE — editing locked" — so anyone glancing
-at the screen knows the operator can only run, not edit.
+To leave, press **Exit Show Mode** at the top right (or the same menu
+item or keys). With an unlock PIN set, quewi asks for it first.
+
+---
+
+## The stage manager screen
+
+*New in 1.0.4.*
+
+![Show Mode: standby, coming up, now playing, next lighting hit and the lighting desk, with GO, Pause, Fade All and Panic](../assets/show-mode.png){ loading=lazy }
+
+| Area | Shows |
+|---|---|
+| **Header** | The show and cue list, **Cue 12 of 40**, a **SHOW** stopwatch (click to start or pause, right-click to reset) and the time of day. |
+| **STANDBY** | What the next GO fires: its number (the biggest thing on screen), name, type, length, pre-wait, AUTO-CONTINUE / AUTO-FOLLOW, and its **notes** in large type, so the cue's notes can hold the standby call. A song with lighting triggers says how many there are and when the first one comes ("3 lighting hits · first 0:04 after GO"). The cue's colour runs down the left edge. At the end of the list it says so and GO is greyed out. |
+| **COMING UP** | The next few cues after standby, with a line of their notes. |
+| **NOW PLAYING** | Every song playing: elapsed, a big **time remaining**, a progress bar, and PAUSED / looping. The last GO is at the bottom. |
+| **NEXT LIGHTING HIT** | A countdown to the next lighting trigger in any playing song (for example **0:03.2**), what it will do on the desk ("Desk: GO"), and which song it's in, then the few after it. The **ARMED** chip turns lighting triggers on and off. Paused songs freeze their countdowns; disarmed, it says nothing will be sent. |
+| **LIGHTING DESK** | What the desk itself is doing (ETC Eos family only, see [Reading the desk back](lighting-triggers.md#reading-the-desk-back)): its **ACTIVE** cue with label, time and progress, its **PENDING** cue, its show name, and a warning when the desk is in Blind. |
+| **Transport** | **GO** (it shows the standby number, for example "GO 12"), **Pause** (it turns into **Resume**), **Fade All**, and **PANIC** at the bottom, set apart so it isn't hit by mistake. |
+
+The keyboard works as always: <kbd>Space</kbd> is GO and <kbd>Esc</kbd>
+is Panic, wherever you click on the screen.
+
+The Inspector and the Lighting panel step aside while the screen is up
+and come back when you leave Show Mode.
+
+!!! tip "Prefer the cue list?"
+    Preferences → Show Mode → untick **Use the stage manager screen**.
+    Show Mode then keeps the normal window, locked, with a banner across
+    the top.
 
 ---
 
@@ -47,16 +75,10 @@ nudge.
 
 ---
 
-## Password protection
+## Unlock PIN
 
-The first time you enter Show Mode, quewi asks if you want to
-set a password.
-
-- **Skip** — Show Mode toggles freely both ways. Useful for
-  solo testing.
-- **Set a password** (4+ characters) — required to *leave* Show
-  Mode. Entering Show Mode itself remains a single keystroke,
-  but exit asks for the password.
+Set an **Unlock PIN** in Preferences → Show Mode to require it to *leave*
+Show Mode. Entering Show Mode is still a single keystroke.
 
 Use case: backstage. Stage manager presses GO, occasionally hits
 weird key combos by accident. Without a password, a stray

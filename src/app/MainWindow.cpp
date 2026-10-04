@@ -3337,7 +3337,8 @@ ui::ShowCueLine showCueLine(const cues::Cue *c)
     l.autoFollow   = c->continueMode() == cues::ContinueMode::AutoFollow;
     if (auto *ac = video::VideoCue::audioOf(const_cast<cues::Cue *>(c))) {
         const double in  = ac->trimInSeconds();
-        const double dur = ac->field(QStringLiteral("durationSeconds")).toDouble();
+        const auto file = ac->audioFile();
+        const double dur = file ? file->durationSeconds() : 0.0;
         const double trimOut = ac->trimOutSeconds();
         const double out = trimOut > 0.0 ? (dur > 0.0 ? std::min(trimOut, dur) : trimOut) : dur;
         if (out > in)

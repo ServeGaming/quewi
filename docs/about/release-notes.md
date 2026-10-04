@@ -36,6 +36,19 @@ soundboard you can talk through.
   the timeline selects the lot. Over OSC, `triggers/group/<name>/…` edits,
   shifts or removes a whole group.
   [Editing several at once →](../using-quewi/lighting-triggers.md#editing-several-at-once)
+- **A stage manager screen for Show Mode.** Show Mode now shows what's
+  on standby (number, name and its notes in large type), what's coming
+  up, what's playing with time remaining, a countdown to the next
+  lighting hit, and what the lighting desk is doing, with large GO,
+  Pause, Fade All and Panic buttons, a show stopwatch and a clock.
+  Preferences can keep the old locked cue list instead.
+  [Show Mode →](../using-quewi/show-mode.md#the-stage-manager-screen)
+- **Lighting panel and desk read-back.** View → Lighting panel docks next
+  to the cue list with the next lighting hits counting down and an armed
+  switch. With an ETC Eos, Ion, Element or Nomad, quewi also reads the
+  desk's running and next cue back over its OSC TCP port and shows them
+  there and in Show Mode. It only reads; it never changes the desk.
+  [Lighting panel →](../using-quewi/lighting-triggers.md#the-lighting-panel)
 - **Video editor.** Double-click a video cue to open it in an editor laid
   out like Premiere Pro or DaVinci Resolve: a viewer with transport
   controls, an Inspector with the clip, video, audio and lighting

@@ -234,7 +234,31 @@ Voicemod-style: pads play into a virtual cable apps use as a microphone.
   OSC reference (`desk` kind + `do` table, lighting desk v5, `beatGrid`,
   `cuts`), shortcuts (editor Space), release notes 1.0.4.
 
-### 0a2. Trigger multi-select, bulk edit, groups (2026-10-04)
+### 0a3. Stage-manager Show Mode, Lighting panel, Eos read-back (2026-10-04)
+Matthew asked for "next trigger in show mode" + "listen to the desk", a panel
+on the main screen, and a simple SM-friendly Show Mode like HeliOSC's.
+- `audio::upcomingEdges` (cut/trim aware) + `GoEngine::upcomingTriggers()`.
+- `osc::EosFeedback`: TCP 3032, OSC 1.0 length framing, /eos/subscribe 1,
+  /eos/ping 5 s, 12 s silence watchdog, 3 s reconnect; parses
+  /eos/out/{active,pending,previous}/cue/text (label-safe parser — HeliOSC's
+  took the first number as the time), /eos/out/active/cue (0..1),
+  show/name, event/state (blind). `LightingDesk.feedback`/`feedbackPort`
+  (checkbox in the Lighting Desk window, Eos only). MainWindow polls the
+  desk setting every 2 s (`syncDeskFeedback`). query/lightingDesk has `state`.
+- `ui/ShowSnapshot.h` = the data contract; MainWindow::buildShowSnapshot.
+  Fable built `ui/ShowModeView` (stacked in place of the working screen in
+  Show Mode; docks hide/restore; pref `showmode/stageManagerView`, default on)
+  and `ui/LightingPanel` (View → Lighting panel dock, hidden by default).
+- Driven in a test copy with `scratchpad/fake_eos_tcp.py` on 3032: panel Live
+  with active/pending; Show Mode after GO: standby/notes/coming up, running
+  -0:16 with bar, hit countdown 1.4 s to Hit 3 at 4.6 s (correct), desk card.
+  **Not tried on his real Nomad** (it wasn't running). 32/32 ctest.
+- INCIDENT: a setup script hit port 8500 = Matthew's own open quewi (his
+  "LIA 2026-2027" show) — reverted with 10 verified /quewi/undo steps (6 cues,
+  cue 1 file/notes/18 triggers, cue 2 notes all back). Always check the port
+  owner (memory: osc-drive-check-port). His show still shows unsaved (*).
+
+
 Matthew asked to shift-click many beats and give them the same fader bump /
 duration, kept in a group for later bulk edits.
 - `LightTrigger::group` (JSON `group`, omitted when empty); `triggerGroups`,

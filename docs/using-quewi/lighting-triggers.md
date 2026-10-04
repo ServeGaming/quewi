@@ -45,6 +45,35 @@ cue. Every trigger that talks to "the desk" follows it.
     If triggers go missing, give Nomad a different port and set the same
     one here.
 
+### Reading the desk back
+
+*Eos family only.* With **Show what the desk is doing** ticked in the
+Lighting Desk window (it is by default), quewi also connects to the desk's
+OSC **TCP** port (3032) and reads its running cue, its next (pending) cue,
+the running cue's progress, its show name and whether it's in Blind. That
+shows up in the **Lighting panel** and in [Show Mode](show-mode.md). It only
+reads, so it never changes anything on the desk, and if the link drops quewi
+keeps trying to reconnect.
+
+On the desk, OSC TCP just needs to be allowed, which it is unless someone
+has turned it off. Nomad on the same computer works with 127.0.0.1.
+
+---
+
+## The Lighting panel
+
+**View → Lighting panel** opens a panel you can dock beside the cue list
+(either side, or along the bottom; drag its title bar) or float on another
+screen. It shows:
+
+- the desk's link and its **ACTIVE** and **PENDING** cues, with progress;
+- the **next lighting hits** in whatever's playing, each with a live
+  countdown, what it will do, and which song it's in;
+- an **ARMED** switch (the same as Tools → Lighting Triggers Armed);
+- **Desk settings…** for the Lighting Desk window.
+
+Show Mode shows the same things, larger.
+
 ---
 
 ## Points and ranges
