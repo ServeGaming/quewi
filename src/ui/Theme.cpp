@@ -1,5 +1,6 @@
 #include "ui/Theme.h"
 
+#include <QRegularExpression>
 #include <QApplication>
 #include <QFile>
 #include <QHash>
@@ -294,11 +295,24 @@ QString Theme::load(const QString &name)
         {"errBright",     t.errBright},
         {"info",          t.info},
     };
-    for (auto it = map.constBegin(); it != map.constEnd(); ++it) {
-        src.replace(QStringLiteral("@%1").arg(it.key()),
-                    it.value().name(QColor::HexRgb));
+    // Whole names only. Replacing each key in turn (in QHash order, which
+    // changes per launch) let "@bgRow" eat the front of "@bgRowHover" (and
+    // @accent/@accentSoft, @warn/@warnBright…), leaving "#2a2825Hover":
+    // hover/selected/soft colours broke at random.
+    static const QRegularExpression token(QStringLiteral("@([A-Za-z][A-Za-z0-9]*)"));
+    QString out;
+    out.reserve(src.size());
+    qsizetype last = 0;
+    for (auto m = token.globalMatch(src); m.hasNext();) {
+        const auto match = m.next();
+        const auto it = map.constFind(match.captured(1));
+        if (it == map.constEnd()) continue;          // not a token: leave as is
+        out += QStringView(src).mid(last, match.capturedStart() - last);
+        out += it.value().name(QColor::HexRgb);
+        last = match.capturedEnd();
     }
-    return src;
+    out += QStringView(src).mid(last);
+    return out;
 }
 
 const Theme::Tokens &Theme::tokens()
