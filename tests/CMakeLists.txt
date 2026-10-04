@@ -97,6 +97,13 @@ target_sources(test_lighting_desk_dialog PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/../src/app/GoEngine.cpp
 )
 
+# The stage-manager screen (Show Mode) and the dockable Lighting panel, fed
+# ShowSnapshots directly. Same GoEngine trick.
+quewi_add_test(show_mode_view Qt6::Test Qt6::Widgets quewi_ui)
+target_sources(test_show_mode_view PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/../src/app/GoEngine.cpp
+)
+
 # On Windows, Qt's DLLs need to be reachable via PATH at test runtime.
 if(WIN32)
     foreach(name ${_quewi_test_names})
