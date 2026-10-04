@@ -214,6 +214,23 @@ Voicemod-style: pads play into a virtual cable apps use as a microphone.
   **Not driven**: no virtual cable on his PC (Voicemod driver present but its
   endpoints inactive). He needs to install VB-Audio Virtual Cable and try it.
 
+### 0c. Video editor redesign + splicing (2026-10-04)
+- Remote session added the video editor (b433dde); merged. Fable redesigned
+  it NLE-style (viewer + transport, one Inspector column Clip/Video/Audio/
+  Lighting, V1/A1 timeline, Select/Razor tools) and built splicing.
+- **Cuts** (`audio/Cuts`): AudioCue field `cuts` (video cues forward it,
+  like In/Out). Mixer jumps them sample-exactly with a 3 ms dip, loops too;
+  VideoLayer seeks past them per frame; triggers inside a cut don't fire.
+  Editor: drag-select + Delete, Razor (B) splits, right-click Restore,
+  Keep only this. Driven: cut 2-4 s, playback 1.5 s -> 5.11 s in 1.6 s.
+- Space now plays/pauses from any focus in both editors (EditorChrome
+  `installEditorSpaceKey`); "+ Point here"/M use the playhead while playing.
+- **GO on another cue list** (Eos) = that list's fader GO
+  (`/eos/fader/<bank>/<n>/fire`); **verified by Matthew on his Nomad**
+  (list 2 = page 3 fader 3). Go_CueList via newcmd does NOT work.
+- Fixed: theme @token substitution corrupted @bgRowHover etc. at random.
+- Not yet: docs for simple mode/desk/beat grid/GO list/video editor/cuts.
+
 ### 0b. Lighting triggers, round 2 (2026-10-03) — simple mode, desk, beat grid
 Matthew can't write OSC by hand, uses ETC Nomad (on this PC, OSC UDP RX
 **8500**) / Ion; HeliOSC is for programming/busking, quewi optionally runs the
