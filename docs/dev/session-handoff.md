@@ -123,6 +123,44 @@ as a PR (not merged, no version bump — that's for main).
   in a widget test.
 - Docs: `using-quewi/matrix-list.md` (nav), OSC reference §Matrix List,
   release notes "Unreleased".
+- **Follow-up (Matthew used it): line up both ways, GO Lights, a page that
+  explains itself.**
+  - *Lining up*: drag a quewi row onto a lighting row → that lighting cue
+    is placed With the quewi cue (new mime `…matrix-quewi`). A quewi-on-quewi
+    drop is refused with a reason, because quewi order = GO order and is
+    never changed. Right-click offers "Line up … with…" (a searchable
+    picker) and "Unlink" on either side. **Undoable now**:
+    `core::SetMatrixPlacementsCommand` swaps only `placements`, never the
+    desk cache. A new "LINED UP" column shows "◆ Lined up by hand" against
+    fired / hit / desk-order.
+  - *GO Lights* (`ui::goLightsTarget` / `goLightsAction`, `MainWindow::goLights`):
+    fires LX NEXT = the desk's pending cue if it's in the matrix's list,
+    else the cue after the active one, else the list's first. It sends
+    `/eos/cue/<l>/<c>/fire` through `GoEngine::sendDeskAction` (now public,
+    with an overload that takes a desk), i.e. UDP to the desk's OSC port,
+    the same path as trigger "Go to cue". Disabled with a reason when the
+    desk isn't Eos, the link isn't Live, or it's the end of the list.
+    Ctrl+Shift+G (`transport.golights`, rebindable; the QAction isn't in
+    a menu, so Show Mode doesn't lock it). Show Mode: `ShowSnapshot::lightsGo`
+    → `smGoLights` under GO, in desk blue, PANIC still set apart.
+  - *Page*: a one-line summary (source · desk list + label · count · link
+    dot + host), short settings, a legend, a warn banner with a "Lighting
+    Desk…" button when the desk isn't live, an empty state, NOW / LINED UP
+    columns, whole-row tints plus a left edge stripe (`MatrixRowDelegate`,
+    `showRegionColours()`), hits indented in lavender on a deeper row,
+    38 px rows, tooltips on headers, cells and buttons.
+  - Tests (matrix_view now 12 cases): lining up from the quewi side +
+    undo/redo + refusal, the GO Lights target rules, **the exact datagram
+    `/eos/cue/1/6.5/fire` (no args) via GoEngine to a UDP fake desk**,
+    button vs row click, empty state. `QUEWI_RENDER_DIR` renders with the
+    real QSS (resources.qrc linked into test_matrix_view, windows platform +
+    `WA_DontShowOnScreen`). Renders checked at 1280×720 and 1920×1080:
+    live, desk off, empty, Show Mode with GO Lights.
+  - **Not done / not driven**: GO Lights was **never fired at the real
+    Nomad** (as instructed; fake desk only). Drag-and-drop and the picker
+    weren't driven by hand (no computer-use in that session), only through
+    the model and the renders. The detached matrix window doesn't follow
+    Show Mode's lock if it was opened before Show Mode.
 
 ### 6. Video editor (2026-10-04) — Matthew's ask: "add a video track editor"
 There was none (video cues had the Inspector's scrubber + "Edit sound…").
@@ -414,7 +452,9 @@ offered or deleted. Stray locks with no journal are tidied if stale.
 
 ### Next steps
 0. Review/merge the Matrix List PR (`feat/matrix-list`, §0a4), then drive
-   it by eye on Windows: drag placements, Show Mode COMING UP, detach;
+   it by eye on Windows: drag placements both ways + Ctrl+Z, Line up
+   with…, GO Lights on the Nomad (Ctrl+Shift+G), Show Mode COMING UP and
+   GO Lights, detach;
    edit a cue on the Nomad (label, renumber, delete, add a part) and watch
    the notify path patch the matrix.
 1. Matthew: try lighting triggers against his Eos/MA, Send-to-mic (with

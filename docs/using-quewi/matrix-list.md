@@ -39,18 +39,27 @@ usable while it reads.
 
 ## Reading it
 
+The top of the page says what you're looking at in one line, for example
+"Sound & video from **Main** · Lights from desk list **2** ‘B/O’ · 146 cues
+· ● Live from ETC Eos at 127.0.0.1". Under it you can change the cue list
+and the desk cue list, and a key explains the colours and marks. If the
+desk isn't connected, a banner says why and what to do about it. Hover over
+anything for more.
+
 | Column | Shows |
 |---|---|
-| (state) | **STANDBY** (what GO fires next), **PLAYING**, **LX LIVE** (the desk's running cue), **LX NEXT** (the desk's pending cue), or ⚠ for a lighting cue that isn't on the desk. |
+| **NOW** | **STANDBY** (what GO fires next), **PLAYING**, **LX LIVE** (the desk's running cue), **LX NEXT** (what GO Lights fires), or ⚠ for a lighting cue that isn't on the desk. |
 | **Q** | The quewi cue number. |
-| **Sound / Video** | The quewi cue. A lighting cue hit part-way through a song sits on its own row underneath, indented: "↳ hit at 0:30 · Chorus". |
-| **Lights** | The desk cue(s) for this moment: "LX 12  Sunrise". A multipart cue says how many parts it has. |
-| **Time** | The desk cue's up / down time, and its follow (F) or hang (H) if it has one. |
-| **Notes / Scene** | The quewi cue's notes, then the desk cue's scene ("Scene: Act 1") and notes. |
+| **SOUND & VIDEO** | The quewi cue. A lighting cue hit part-way through a song sits on its own row underneath, indented and in lavender: "└─ hit at 0:30 · Chorus". |
+| **LIGHTS** | The desk cue(s) for this moment: "LX 12  Sunrise". A multipart cue says how many parts it has. |
+| **DESK TIME** | The desk cue's up / down time, and its follow (F) or hang (H) if it has one. |
+| **LINED UP** | Why the lighting cue is on this row: **◆ Lined up by hand** (you did it), "Fired by Q3's GO", "Hit 0:30 into Q1", or "Follows the desk's order". |
+| **NOTES & SCENE** | The quewi cue's notes, then the desk cue's scene ("Scene: Act 1") and notes. |
 
-The colours match Show Mode: **amber** for standby, **green** for what's
-playing, **blue** for the desk's own cues and **lavender** for lighting
-hits inside a song.
+The rows that matter right now are coloured right across, with a stripe
+down the left edge, in Show Mode's colours: **amber** for standby, **green**
+for what's playing, **blue** for the desk's live cue (and a paler blue for
+its next one), and **lavender** for lighting hits inside a song.
 
 **Follow the show** (on by default) keeps standby, or the desk's live
 cue, in view as the show runs.
@@ -61,10 +70,8 @@ cue, in view as the show runs.
 
 quewi places every desk cue by the first of these that applies:
 
-1. **You put it there.** Drag a lighting cue onto a quewi cue to tie it
-   to that cue (same row), or drop it between two rows to give it a row of
-   its own after the quewi cue above. Drop it above the first cue to put
-   it at the very top. Your placements are saved with the show.
+1. **You lined it up.** See [Lining up sound and lights](#lining-up-sound-and-lights)
+   below. Your placements are saved with the show.
 2. **quewi fires it at GO.** A cue that sends the desk to that cue puts
    it on the same row: a lighting trigger at the top of a song set to
    **Go to cue**, an OSC cue sending `/eos/cue/<list>/<cue>/fire` (or
@@ -80,9 +87,6 @@ So the more of your lighting quewi fires, the less you have to place by
 hand. For the rest, a few drags early on usually settle the whole act,
 because every untied cue after a tied one follows it.
 
-To undo a placement, right-click the row and pick **Put LX 12 back
-automatically**.
-
 !!! note "When the desk changes"
     The desk tells quewi when its cues change, and quewi reads just those
     cues again. If the desk **renumbers** a cue you placed, your placement
@@ -94,19 +98,65 @@ automatically**.
 
 ---
 
+## Lining up sound and lights
+
+Lining up always moves the **lighting** cue. quewi's cue order is your GO
+order, and the Matrix List never changes it.
+
+- **Drag a lighting cue onto a quewi cue.** The lighting cue moves onto that
+  cue's row. Drop it *between* two rows to give it a row of its own after
+  the quewi cue above, or above the first cue to put it at the very top.
+- **Drag a quewi cue onto a lighting cue.** That lighting cue moves onto
+  the quewi cue's row. (Dropping a quewi cue onto another quewi cue does
+  nothing, because that would reorder your GO order. The status bar says
+  so.)
+- **Right-click** either kind of row and pick **Line up … with a quewi cue…**
+  or **Line up Q… with a lighting cue…**. A list opens that you can filter
+  by typing a number or a name.
+- **Unlink**: right-click a row that's ◆ lined up by hand and pick
+  **Unlink LX 12**. quewi then places it automatically again.
+
+Every change is one step on the show's undo list: <kbd>Mod</kbd>+<kbd>Z</kbd>
+puts it back, and <kbd>Mod</kbd>+<kbd>Y</kbd> does it again.
+
+---
+
 ## Running the show from it
 
 GO on the Matrix List is quewi's normal GO: while the page is up, its
 quewi cue list is the one GO runs, exactly as if you were on that list's
-tab. Nothing on this page fires a desk cue by itself, and clicking a row
-only selects it. To move standby, double-click a quewi cue (or right-click
-it and pick **Make this the standby cue**).
+tab. Clicking a row only selects it. To move standby, double-click a quewi
+cue (or right-click it and pick **Make Q… the standby cue**).
+
+### GO Lights
+
+The **GO Lights** button at the top right fires the lighting desk's next
+cue in this Matrix List's desk cue list: the row marked **LX NEXT**. The
+button names it, for example **GO Lights  8.4  Back**. The keyboard
+shortcut is <kbd>Mod</kbd>+<kbd>Shift</kbd>+<kbd>G</kbd>. It never fires
+from a row click, and <kbd>Space</kbd> stays quewi's GO.
+
+Which cue is "next":
+
+- the desk's pending cue, when it's in this list;
+- otherwise the cue after the desk's running cue, when that's in this list;
+- otherwise (the desk is running a different list) this list's first cue.
+
+quewi sends `/eos/cue/<list>/<cue>/fire` to the desk, the same way a
+lighting trigger's **Go to cue** does. That works for any cue list, not
+only the one on the desk's main playback. The status bar confirms what
+went.
+
+GO Lights is greyed out, with the reason when you hover over it, when the
+lighting desk isn't an ETC Eos, when quewi isn't connected to it (it needs
+to know the desk's next cue), or at the end of the list.
 
 In **Show Mode**, nothing can be re-placed. If the Matrix List was the page
 you were on, the stage-manager screen's **COMING UP** shows the merged
 order: each quewi cue with its lighting cues alongside ("LX 12 Sunrise"),
 and the lighting cues on their own rows in between, in blue. STANDBY also
-says which lighting cues go with the next GO.
+says which lighting cues go with the next GO, and a blue **GO Lights**
+button sits under GO, smaller than GO and well away from PANIC.
 
 ---
 
@@ -126,7 +176,7 @@ offline and check it against the desk later.
 
 Right-click the Matrix List's tab and pick **Detach to window**. The
 window follows the show live, like the tab. A show has one Matrix List:
-pressing **+ → Matrix List** again just takes you to it.
+choosing **List → Matrix List** again just takes you to it.
 
 ---
 
@@ -144,6 +194,5 @@ HeliOSC and other remotes can read the merged list with
   be fired from quewi, but their cue lists can't be read back.
 - Lighting is the only other department so far. The layout is built to
   take more (another desk, video servers, follow spots) later.
-- It doesn't fire desk cues itself. quewi's own cues do that, as always.
-- Placements aren't on the undo stack: drag the cue again, or use **Put
-  back automatically**.
+- It only fires desk cues when you press **GO Lights**. quewi's own cues
+  fire the desk as they always have.

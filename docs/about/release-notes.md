@@ -15,8 +15,17 @@
   Standby, what's playing and the desk's live and pending cues are
   highlighted as the show runs. Placements and the desk's cues are saved
   with the show, so it reads right with no desk connected. Add one with
-  **+ → Matrix List (sound + lights)**.
+  **List → Matrix List (sound + lights)**.
   [Matrix List →](../using-quewi/matrix-list.md)
+- **Line up sound with lights.** Drag a lighting cue onto a sound cue, or
+  a sound cue onto a lighting cue, and they share a row. Or right-click
+  either one and choose **Line up with…** or **Unlink**. quewi's cue order
+  never changes. Cues you've lined up by hand are marked ◆, and
+  <kbd>Mod</kbd>+<kbd>Z</kbd> undoes.
+- **GO Lights.** The Matrix List's own button fires the desk's next cue in
+  its cue list, and is labelled with it ("GO Lights  8.4  Back").
+  <kbd>Mod</kbd>+<kbd>Shift</kbd>+<kbd>G</kbd> does the same. It's in Show
+  Mode too, under GO, when the Matrix List is up.
 - **Show Mode follows the Matrix List.** When it's the page you were on,
   COMING UP shows the merged order, lighting cues included, and STANDBY
   says which lighting cues go with the next GO.
