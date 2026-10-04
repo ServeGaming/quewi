@@ -106,6 +106,14 @@ target_sources(test_show_mode_view PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/../src/app/GoEngine.cpp
 )
 
+# The command menu (Ctrl+K / the leader key): fuzzy ranking, what's in it,
+# mnemonics and drill-down, the leader key, Show Mode filtering. Same
+# GoEngine trick.
+quewi_add_test(command_menu Qt6::Test Qt6::Widgets quewi_ui)
+target_sources(test_command_menu PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/../src/app/GoEngine.cpp
+)
+
 # On Windows, Qt's DLLs need to be reachable via PATH at test runtime.
 if(WIN32)
     foreach(name ${_quewi_test_names})

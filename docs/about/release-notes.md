@@ -1,5 +1,25 @@
 # Release notes
 
+## Unreleased
+
+### New
+
+- **Command menu.** `Ctrl+K` is now a Spotlight-style panel over the main
+  window: fuzzy search across every menu action, the cues in the list on
+  screen (type a number or a name; `↵` stands the cue by, `Ctrl+↵` opens it
+  in its editor), the other cue lists, recent shows, Preferences pages and
+  themes, with shortcuts shown beside each result and your recent picks
+  first. It also has a **leader key** — tap **`** (backtick) for a key menu
+  of one-letter categories (**C** Cue, **L** Lights, **S** Show, **G** Go
+  to, …) and drill down by letter, Omarchy-style: **`** **C** **A** is a new
+  Audio cue, **`** **L** **D** the Lighting Desk. Hold the leader and press
+  the letter to skip a step, and pin anything to a chord with `Ctrl+P`.
+  The letters come from the menus' accelerators and stay put between runs.
+  GO, Panic, Pause and Fade All are not in the menu, `Space` does nothing
+  in it, and in Show Mode only run-safe items appear. The leader is
+  rebindable (**Preferences → Command menu**, or Keyboard shortcuts).
+  [Command menu →](../using-quewi/command-menu.md)
+
 ## 1.1.0 (2026-10-04)
 
 Songs that cue the lights, a stage manager's Show Mode that shows what the

@@ -96,6 +96,9 @@ private slots:
     void onGoRequested();
     void showPreflight();
     void showCommandPalette();
+    // The command menu. keys=false: the search view (Ctrl+K); keys=true: the
+    // key menu (leader tap), with `typed` letters applied — a leader chord.
+    void showCommandMenu(bool keys, const QString &typed = QString());
     void toggleShowMode();
     void addCueListTab();
     void addSoundboardTab();

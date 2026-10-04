@@ -75,8 +75,12 @@ add_library(quewi_ui STATIC
     ActiveCuesPanel.cpp
     PreflightDialog.h
     PreflightDialog.cpp
-    CommandPalette.h
-    CommandPalette.cpp
+    CommandMatch.h
+    CommandMatch.cpp
+    CommandMenu.h
+    CommandMenu.cpp
+    LeaderKey.h
+    LeaderKey.cpp
     ShortcutManager.h
     ShortcutManager.cpp
     ShortcutsDialog.h

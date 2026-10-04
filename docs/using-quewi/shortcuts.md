@@ -45,7 +45,22 @@ footswitch or a Stream Deck that sends a particular key.
 | Undo | `Mod + Z` |
 | Redo | `Mod + Y` (Win/Linux) · `Mod + Shift + Z` (mac) |
 | Find / replace | `Mod + F` |
-| Command palette | `Mod + K` |
+
+---
+
+## Command menu
+
+| Action | Default |
+|---|---|
+| Command menu — search | `Mod + K` |
+| Command menu — key menu (the *leader*: tap it) | `` ` `` (backtick) |
+| Jump straight to a category, or run a pinned action | hold `` ` `` + letter |
+
+In the panel: `↑` `↓` move, `↵` runs (`Mod + ↵` opens a cue in its editor),
+`Ctrl + P` pins to a chord, `Backspace` goes up a level, `Esc` closes. The
+leader and `Mod + K` are both rebindable; the leader is also set in
+**Preferences → Command menu**. In a text field the leader just types.
+See [Command menu](command-menu.md).
 
 ---
 

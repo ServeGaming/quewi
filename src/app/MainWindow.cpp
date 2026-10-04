@@ -55,7 +55,8 @@
 #include "ui/LightingPanel.h"
 #include "ui/ShowModeView.h"
 #include "osc/EosFeedback.h"
-#include "ui/CommandPalette.h"
+#include "ui/CommandMenu.h"
+#include "ui/LeaderKey.h"
 #include "ui/MediaImportDialog.h"
 #include "ui/Notifications.h"
 #include "ui/NotificationsDialog.h"
@@ -283,6 +284,13 @@ MainWindow::MainWindow(QWidget *parent)
     regAction("transport.panic",    "Panic",    m_actPanic,   QKeySequence(QStringLiteral("Esc")));
     regAction("transport.pause",    "Pause",    m_actPause,   QKeySequence(QStringLiteral("Ctrl+.")));
     regAction("transport.fadeall",  "Fade All", m_actFadeAll, QKeySequence(QStringLiteral("Ctrl+Shift+.")));
+
+    // The command menu's leader key (default `): tap for the key menu, hold +
+    // letter to jump straight to a category or a pinned action. Registers
+    // itself as "commandmenu.leader" so it's rebindable like the rest.
+    auto *leader = new ui::LeaderKey(m_shortcuts, this);
+    connect(leader, &ui::LeaderKey::tapped, this, [this] { showCommandMenu(true); });
+    connect(leader, &ui::LeaderKey::chord, this, [this](QChar c) { showCommandMenu(true, QString(c)); });
 
     buildLayout();
     buildMenus();
@@ -717,9 +725,11 @@ void MainWindow::buildMenus()
     toolsMenu->addAction(tr("&OSC Monitor…"),
                          QKeySequence(QStringLiteral("Ctrl+1")),
                          this, &MainWindow::showOscMonitor);
-    toolsMenu->addAction(tr("&Command palette…"),
-                         QKeySequence(QStringLiteral("Ctrl+K")),
-                         this, &MainWindow::showCommandPalette);
+    {
+        auto *actMenu = toolsMenu->addAction(tr("&Command menu…"), this, &MainWindow::showCommandPalette);
+        m_shortcuts->registerAction(QStringLiteral("commandmenu.open"), tr("Command menu (search)"),
+                                    actMenu, QKeySequence(QStringLiteral("Ctrl+K")));
+    }
     toolsMenu->addAction(tr("&Keyboard shortcuts…"),
                          this, &MainWindow::showShortcutsDialog);
     toolsMenu->addAction(tr("&Patch Editor…"),
@@ -1811,8 +1821,88 @@ void MainWindow::showPreflight()
 
 void MainWindow::showCommandPalette()
 {
-    ui::CommandPalette dlg(menuBar(), this);
-    dlg.exec();
+    showCommandMenu(false);
+}
+
+void MainWindow::showCommandMenu(bool keys, const QString &typed)
+{
+    // Everything the menu can reach, as values and callbacks. Transport
+    // (GO / Panic / Pause / Fade All) is deliberately not here: those
+    // aren't menu-bar actions, and the menu has no other way to fire a cue.
+    ui::CommandContext ctx;
+    ctx.menuBar = menuBar();
+    ctx.showMode = m_showMode;
+
+    if (auto *list = m_model ? m_model->cueList() : nullptr) {
+        for (int row = 0; row < list->cueCount(); ++row) {
+            auto *c = list->cueAt(row);
+            if (!c) continue;
+            ui::CommandContext::CueEntry e;
+            e.id = c->id();
+            e.number = c->number();
+            e.name = c->name();
+            e.type = c->typeName();
+            e.hasEditor = c->typeKey() == QLatin1String("audio") || c->typeKey() == QLatin1String("video");
+            ctx.cues.append(e);
+        }
+    }
+    auto cueById = [this](const QUuid &id) -> std::pair<cues::Cue *, int> {
+        auto *list = m_model ? m_model->cueList() : nullptr;
+        if (!list) return {nullptr, -1};
+        for (int row = 0; row < list->cueCount(); ++row)
+            if (auto *c = list->cueAt(row); c && c->id() == id) return {c, row};
+        return {nullptr, -1};
+    };
+    ctx.standByCue = [this, cueById](const QUuid &id) {
+        const auto [c, row] = cueById(id);
+        if (c && m_cueListView) m_cueListView->setCurrentIndex(m_model->index(row, 0));
+    };
+    ctx.editCue = [this, cueById](const QUuid &id) {
+        if (auto *c = cueById(id).first) openEditorFor(c);
+    };
+
+    if (m_workspace) {
+        const bool normalPage = !m_centerStack || m_centerStack->currentIndex() == 0;
+        for (const auto &l : m_workspace->cueLists()) {
+            ui::CommandContext::ListEntry e;
+            e.id = l->id();
+            e.name = l->name();
+            e.kind = l->kind() == core::CueList::Kind::Soundboard ? QStringLiteral("soundboard")
+                   : l->kind() == core::CueList::Kind::Mix        ? QStringLiteral("mix")
+                                                                   : QStringLiteral("cue list");
+            e.current = normalPage && l->kind() == core::CueList::Kind::Normal
+                     && m_model && l.get() == m_model->cueList();
+            ctx.lists.append(e);
+        }
+    }
+    ctx.switchList = [this](const QUuid &id) {
+        if (!m_workspace) return;
+        for (const auto &l : m_workspace->cueLists())
+            if (l->id() == id) { selectListTab(l.get()); return; }
+    };
+
+    {
+        QSettings s(QStringLiteral("ServeGaming"), QStringLiteral("quewi"));
+        for (const auto &p : s.value(QStringLiteral("ui/recentFiles")).toStringList())
+            if (QFileInfo::exists(p) && p != m_currentPath) ctx.recentShows << p;
+    }
+    ctx.openRecent = [this](const QString &p) { openRecent(p); };
+    ctx.preferencePages = ui::commandMenuPreferencePages();
+    ctx.openPreferences = [this](const QString &page) { showPreferencesPage(page); };
+
+    ui::CommandMenu menu(ctx, this);
+    if (keys) {
+        // A pinned chord runs without opening anything; otherwise the typed
+        // letter drills into the key menu.
+        if (!(!typed.isEmpty() && menu.runChord(typed.at(0)))) {
+            menu.openKeys(typed);
+            if (!menu.hasPending()) menu.exec();
+        }
+    } else {
+        menu.openSearch();
+        menu.exec();
+    }
+    if (auto fn = menu.takePending()) fn();
 }
 
 void MainWindow::showShortcutsDialog()

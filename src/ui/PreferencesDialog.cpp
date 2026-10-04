@@ -1,5 +1,7 @@
 #include "ui/PreferencesDialog.h"
 
+#include "ui/CommandMenu.h"
+#include "ui/LeaderKey.h"
 #include "ui/LightingDeskDialog.h"
 #include "ui/Theme.h"
 #include "audio/AudioEngine.h"
@@ -837,6 +839,123 @@ QWidget *makeLightingPage(QWidget *parent)
     return page;
 }
 
+
+// ── Command menu ──────────────────────────────────────────────────
+// The leader key (quewi's one-key "Super"), the hold-and-letter chords,
+// the pinned chords, and a reset for the remembered mnemonics. The
+// binding is written where the ShortcutManager keeps its overrides, so
+// Tools → Keyboard shortcuts shows the same value; the main window
+// re-reads it when it comes back to the front.
+QWidget *makeCommandMenuPage(QWidget *parent)
+{
+    auto *page  = new QWidget(parent);
+    auto *outer = new QVBoxLayout(page);
+    outer->setContentsMargins(16, 16, 16, 16);
+    outer->setSpacing(12);
+    auto s = prefSettings();
+    const QString leaderKey = QStringLiteral("shortcuts/%1").arg(QLatin1String(LeaderKey::kShortcutId));
+
+    auto *leaderGroup = new QGroupBox(QObject::tr("Leader key"), page);
+    auto *leaderForm = new QFormLayout(leaderGroup);
+
+    auto *leader = new QComboBox(leaderGroup);
+    leader->setObjectName(QStringLiteral("prefLeaderKey"));
+    struct Choice { const char *label; const char *seq; };
+    const Choice choices[] = {
+        { "` (backtick) — default", "`" },
+        { "Ctrl+Space",            "Ctrl+Space" },
+        { "F12",                   "F12" },
+        { "Pause / Break",         "Pause" },
+        { "Scroll Lock",           "ScrollLock" },
+        { "Insert",                "Ins" },
+        { "Menu key",              "Menu" },
+    };
+    const QString current = s.value(leaderKey, LeaderKey::defaultKey().toString()).toString();
+    for (const auto &c : choices) leader->addItem(QObject::tr(c.label), QKeySequence(QLatin1String(c.seq)).toString());
+    int idx = leader->findData(QKeySequence(current).toString());
+    if (idx < 0) {
+        leader->addItem(QKeySequence(current).toString(QKeySequence::NativeText), QKeySequence(current).toString());
+        idx = leader->count() - 1;
+    }
+    leader->setCurrentIndex(idx);
+    QObject::connect(leader, &QComboBox::currentIndexChanged, leaderGroup, [leader, leaderKey](int) {
+        prefSettings().setValue(leaderKey, leader->currentData().toString());
+    });
+    leaderForm->addRow(QObject::tr("Leader"), leader);
+
+    auto *chords = new QCheckBox(QObject::tr("Hold the leader and press a letter to jump straight there"), leaderGroup);
+    chords->setObjectName(QStringLiteral("prefLeaderChords"));
+    chords->setChecked(CommandMenuSettings::chordsEnabled());
+    QObject::connect(chords, &QCheckBox::toggled, leaderGroup, [](bool v) {
+        CommandMenuSettings::setChordsEnabled(v);
+    });
+    leaderForm->addRow(QString(), chords);
+    leaderForm->addRow(QString(), makeHint(QObject::tr(
+        "Tap the leader for the key menu: one letter per category (C Cue, L Lights, "
+        "S Show…), then one per item. Backspace goes up, Esc closes, and typing "
+        "anything else searches. Ctrl+K opens the search straight away. "
+        "In a text field the key just types."), leaderGroup));
+    outer->addWidget(leaderGroup);
+
+    auto *pinGroup = new QGroupBox(QObject::tr("Pinned chords"), page);
+    auto *pinLayout = new QVBoxLayout(pinGroup);
+    auto *pinList = new QListWidget(pinGroup);
+    pinList->setObjectName(QStringLiteral("prefPinnedChords"));
+    pinList->setSelectionMode(QAbstractItemView::SingleSelection);
+    auto refreshPins = [pinList] {
+        pinList->clear();
+        for (const auto &pin : CommandMenuSettings::pins()) {
+            auto *item = new QListWidgetItem(QStringLiteral("Leader + %1    %2").arg(pin.letter).arg(pin.title), pinList);
+            item->setData(Qt::UserRole, QString(pin.letter));
+        }
+        if (pinList->count() == 0) {
+            auto *item = new QListWidgetItem(QObject::tr("(none — in the command menu, select something and press Ctrl+P)"), pinList);
+            item->setFlags(Qt::NoItemFlags);
+        }
+    };
+    refreshPins();
+    pinLayout->addWidget(pinList);
+    auto *pinButtons = new QHBoxLayout();
+    auto *removePin = new QPushButton(QObject::tr("Remove"), pinGroup);
+    removePin->setObjectName(QStringLiteral("prefRemovePin"));
+    auto *clearPins = new QPushButton(QObject::tr("Clear all"), pinGroup);
+    clearPins->setObjectName(QStringLiteral("prefClearPins"));
+    pinButtons->addWidget(removePin);
+    pinButtons->addWidget(clearPins);
+    pinButtons->addStretch(1);
+    pinLayout->addLayout(pinButtons);
+    QObject::connect(removePin, &QPushButton::clicked, pinGroup, [pinList, refreshPins] {
+        auto *cur = pinList->currentItem();
+        if (!cur) return;
+        const QString letter = cur->data(Qt::UserRole).toString();
+        if (!letter.isEmpty()) CommandMenuSettings::removePin(letter.at(0));
+        refreshPins();
+    });
+    QObject::connect(clearPins, &QPushButton::clicked, pinGroup, [refreshPins] {
+        CommandMenuSettings::clearPins();
+        refreshPins();
+    });
+    outer->addWidget(pinGroup);
+
+    auto *mnGroup = new QGroupBox(QObject::tr("Mnemonics"), page);
+    auto *mnLayout = new QHBoxLayout(mnGroup);
+    auto *resetMn = new QPushButton(QObject::tr("Reset mnemonics to defaults"), mnGroup);
+    resetMn->setObjectName(QStringLiteral("prefResetMnemonics"));
+    mnLayout->addWidget(resetMn);
+    auto *clearRecent = new QPushButton(QObject::tr("Forget recent picks"), mnGroup);
+    clearRecent->setObjectName(QStringLiteral("prefClearRecentPicks"));
+    mnLayout->addWidget(clearRecent);
+    mnLayout->addStretch(1);
+    QObject::connect(resetMn, &QPushButton::clicked, mnGroup, [] { CommandMenuSettings::resetMnemonics(); });
+    QObject::connect(clearRecent, &QPushButton::clicked, mnGroup, [] { CommandMenuSettings::clearRecent(); });
+    outer->addWidget(mnGroup);
+    outer->addWidget(makeHint(QObject::tr(
+        "Letters come from the menus' underlined accelerators and are remembered "
+        "so they don't move between runs. Reset re-derives them next time the menu opens."), page));
+    outer->addStretch(1);
+    return page;
+}
+
 } // namespace
 
 PreferencesDialog::PreferencesDialog(audio::AudioEngine *audioEngine,
@@ -863,6 +982,7 @@ PreferencesDialog::PreferencesDialog(audio::AudioEngine *audioEngine,
         { tr("Lighting"),  makeLightingPage(pages) },
         { tr("Theme"),     makeThemePage(this, pages) },
         { tr("Show Mode"), makeShowModePage(pages) },
+        { tr("Command menu"), makeCommandMenuPage(pages) },
     };
     for (const auto &p : items) {
         categories->addItem(p.name);
