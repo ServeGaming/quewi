@@ -451,7 +451,11 @@ struct TreeBuilder {
                 continue;
             }
             if (isSelfAction(text)) continue;
-            addLeaf(parent, actionId(top, path, text), acceleratorOf(a->text()));
+            // An action that's in two menus (Soundboard in View and List)
+            // is one search result; each menu's key list still shows it.
+            QString id = actionId(top, path, text);
+            if (itemIndexFor(id) < 0) id = anyActionId(text);
+            addLeaf(parent, id, acceleratorOf(a->text()));
         }
     }
 
