@@ -156,6 +156,48 @@ private slots:
         QVERIFY(std::abs(L(next, 0) - src(1000 + 3500 % 1000)) < 1e-5f);
     }
 
+    // Cut sections (splicing): playback jumps over them — sample-exact, a
+    // few-ms dip at the splice so it can't click, across buffers and loops.
+    void cutSkipsItsSectionWithoutAClick()
+    {
+        const int N = 20000;
+        OfflineRenderer r(kSr, 2);
+        VoiceParams p;
+        p.cuts = {Cut{5000.0 / kSr, 8000.0 / kSr}};
+        r.fire(ramp(N), p);
+        const auto out = r.render(5300);
+        auto src = [&](int frame) { return float(frame) / float(N); };
+        QVERIFY(std::abs(L(out, 4000) - src(4000)) < 1e-5f);          // before: untouched
+        QVERIFY2(std::abs(L(out, 5050) - src(8050) * 50.f / 144.f) < 1e-4f,   // after: from the
+                 "frame 5050 plays source 8050, 50 frames into the 3 ms dip");      // cut's end
+        QVERIFY(std::abs(L(out, 5200) - src(8200)) < 1e-5f);          // past the dip: full level
+        // The splice dips to silence instead of jumping 0.25 → 0.40.
+        QVERIFY(std::abs(L(out, 4999)) < 0.01f);
+        QVERIFY(std::abs(L(out, 5000)) < 0.01f);
+        // The next buffer carries on after the cut.
+        const auto next = r.render(1000);
+        QVERIFY(std::abs(L(next, 300) - src(8000 + 5300 - 5000 + 300)) < 1e-5f);
+    }
+
+    void cutInsideALoopIsSkippedEveryPass()
+    {
+        const int N = 8000;
+        OfflineRenderer r(kSr, 2);
+        VoiceParams p;
+        p.loop = true;
+        p.trimInSeconds  = 1000.0 / kSr;
+        p.trimOutSeconds = 3000.0 / kSr;
+        p.cuts = {Cut{1500.0 / kSr, 2000.0 / kSr}};   // a pass plays 1500 frames
+        r.fire(ramp(N), p);
+        const auto out = r.render(4000);
+        auto src = [&](int frame) { return float(frame) / float(N); };
+        // Pass 1: out 0-499 = 1000-1499, out 500-1499 = 2000-2999. Pass 2 from 1500.
+        for (auto [k, f] : {std::pair{300, 1300}, std::pair{800, 2300}, std::pair{1400, 2900},
+                            std::pair{1800, 1300}, std::pair{2300, 2300}, std::pair{3300, 1300}})
+            QVERIFY2(std::abs(L(out, k) - src(f)) < 1e-5f,
+                     qPrintable(QStringLiteral("output %1 = source %2").arg(k).arg(f)));
+    }
+
     // Long files decode into a memory-mapped cache file instead of RAM. The
     // mixer must play them sample-for-sample identically — loops, trims and
     // all — and they must not count as resident RAM.

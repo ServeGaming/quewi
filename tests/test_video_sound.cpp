@@ -1,5 +1,6 @@
 #include <QTest>
 #include <QEventLoop>
+#include <QElapsedTimer>
 #include <QTimer>
 
 #include "audio/AudioCue.h"
@@ -8,6 +9,7 @@
 #include "core/UndoCommands.h"
 #include "video/CueConvert.h"
 #include "video/VideoCue.h"
+#include "video/VideoLayer.h"
 
 #include <cmath>
 
@@ -168,6 +170,30 @@ private slots:
         QVERIFY2(file->durationSeconds() > 1.0,
                  qPrintable(QStringLiteral("decoded %1 s").arg(file->durationSeconds())));
         QVERIFY(file->sampleRate() > 0);
+    }
+
+    // A playing picture jumps over a cut section, like its soundtrack does.
+    void pictureSkipsCutSections()
+    {
+        const QString path = qEnvironmentVariable("QUEWI_TEST_VIDEO_FILE");
+        if (path.isEmpty()) QSKIP("set QUEWI_TEST_VIDEO_FILE to a video (>= 6 s)");
+        video::PictureTiming t;
+        t.inSeconds = 1.5;
+        t.cuts = {audio::Cut{2.0, 4.0}};
+        video::VideoLayer layer(path, t);
+        QElapsedTimer clock;
+        clock.start();
+        qint64 pos = 0, insideCut = -1;
+        while (clock.elapsed() < 10000) {
+            QTest::qWait(10);
+            pos = layer.positionMs();
+            // A frame or two may report the cut's start before the seek lands.
+            if (pos > 2150 && pos < 3850) insideCut = pos;
+            if (pos > 4500) break;
+        }
+        QVERIFY2(pos > 4500, qPrintable(QStringLiteral("reached %1 ms").arg(pos)));
+        QVERIFY2(insideCut < 0, qPrintable(QStringLiteral("played %1 ms, inside the cut").arg(insideCut)));
+        layer.teardown();
     }
 };
 

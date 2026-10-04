@@ -295,6 +295,7 @@ quint64 GoEngine::fireSound(audio::AudioCue *audioCue, const AudioRoute &route,
         p.trimOutSeconds = audioCue->trimOutSeconds();
         p.pan            = audioCue->pan();
         p.loop           = audioCue->loop();
+        p.cuts           = audioCue->cuts();
         // Per-cue effects chain (EQ/comp/reverb/delay) built fresh
         // for this voice from the cue's saved editor rack. Empty =
         // dry. Applied as a stereo insert in the mixer.
@@ -996,7 +997,8 @@ void GoEngine::onTriggerTick()
         const double wall = run.wall.restart() / 1000.0;
         if (!paused) {
             const auto events = run.tracker.advance(run.sound->lightTriggers(),
-                                                    pos, loopStart, loopEnd, wall);
+                                                    pos, loopStart, loopEnd, wall,
+                                                    &run.sound->cuts());
             sendTriggerEvents(run, events);
         }
         ++i;

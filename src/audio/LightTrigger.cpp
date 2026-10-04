@@ -499,11 +499,12 @@ void TriggerTracker::crossed(const LightTriggers &t, double from, double to,
     // Every edge in (from, to], in time order, so a short range crossed in
     // one tick still sends enter before exit.
     std::vector<std::tuple<double, int, bool>> edges;
+    auto cut = [this](double time) { return m_cuts && cutAt(*m_cuts, time); };
     for (int i = 0; i < int(t.size()); ++i) {
         const auto &x = t[size_t(i)];
         if (!x.enabled) continue;
-        if (x.start > from && x.start <= to) edges.emplace_back(x.start, i, false);
-        if (x.isRange() && x.end > from && x.end <= to) edges.emplace_back(x.end, i, true);
+        if (x.start > from && x.start <= to && !cut(x.start)) edges.emplace_back(x.start, i, false);
+        if (x.isRange() && x.end > from && x.end <= to && !cut(x.end)) edges.emplace_back(x.end, i, true);
     }
     std::stable_sort(edges.begin(), edges.end(),
                      [](const auto &a, const auto &b) { return std::get<0>(a) < std::get<0>(b); });
@@ -557,9 +558,11 @@ std::vector<TriggerEvent> TriggerTracker::begin(const LightTriggers &t, double p
 
 std::vector<TriggerEvent> TriggerTracker::advance(const LightTriggers &t, double pos,
                                                   double loopStart, double loopEnd,
-                                                  double wallElapsed)
+                                                  double wallElapsed, const Cuts *cuts)
 {
     if (!m_started) return begin(t, pos);
+    m_cuts = cuts;
+    struct Reset { const Cuts *&p; ~Reset() { p = nullptr; } } reset{m_cuts};
     std::vector<TriggerEvent> out;
     constexpr double kEps = 1e-6;
     const bool looping = loopEnd > loopStart;

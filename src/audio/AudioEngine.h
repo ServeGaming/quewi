@@ -1,5 +1,6 @@
 #pragma once
 
+#include "audio/Cuts.h"
 #include <QAudioDevice>
 #include <QAudioFormat>
 #include <QByteArray>
@@ -40,6 +41,10 @@ struct VoiceParams {
     double trimOutSeconds = 0.0;   // 0 = play to end of file
     double pan            = 0.0;   // -1 = full L, 0 = centre, +1 = full R
     bool   loop           = false;
+    // Sections cut out (seconds in the file): playback jumps from each cut's
+    // start to its end, with a few-ms dip either side so the splice can't
+    // click. See Cuts.h.
+    Cuts   cuts;
 
     // Empty = use the current default output device.
     QByteArray outputDeviceId;

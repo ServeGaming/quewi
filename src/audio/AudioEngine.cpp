@@ -68,6 +68,8 @@ public:
             v.endFrame = static_cast<qint64>(params.trimOutSeconds * srcSr);
         }
         v.srcSampleRate = srcSr;
+        for (const auto &c : params.cuts)
+            v.cutFrames.emplace_back(c.start * srcSr, c.end * srcSr);
         v.channelGains  = params.channelGains;
         v.outputGains   = params.outputGains;
         v.peakPerChannel.fill(0.0f, m_outputChannels);
@@ -508,6 +510,10 @@ private:
         qint64   playedFrames = 0;
         qint64   endFrame = 0;
         double   srcSampleRate = 0.0;
+        // Cut sections in source frames, sorted (start, end): the read
+        // position jumps from start to end. Set at fire, never touched on
+        // the audio thread except to read.
+        std::vector<std::pair<double, double>> cutFrames;
         std::atomic<double> gain{1.0};
         std::atomic<double> currentGain{1.0};
         std::atomic<double> targetGain{1.0};
@@ -577,6 +583,7 @@ private:
             , playedFrames(other.playedFrames)
             , endFrame(other.endFrame)
             , srcSampleRate(other.srcSampleRate)
+            , cutFrames(std::move(other.cutFrames))
             , gainFadeSamples(other.gainFadeSamples)
             , gainFadeCounter(other.gainFadeCounter)
             , gainFadeFrom(other.gainFadeFrom)
@@ -617,6 +624,7 @@ private:
             playedFrames = other.playedFrames;
             endFrame = other.endFrame;
             srcSampleRate = other.srcSampleRate;
+            cutFrames = std::move(other.cutFrames);
             gainFadeSamples = other.gainFadeSamples;
             gainFadeCounter = other.gainFadeCounter;
             gainFadeFrom = other.gainFadeFrom;
@@ -810,11 +818,29 @@ qint64 AudioEngine::Mixer::readData(char *data, qint64 maxlen)
             const qint64 loopLen = effectiveEnd - startFrame;
             const bool   looping = v.loop && endKnown && loopLen > 0;
             const double basePos = static_cast<double>(v.readPos) + v.readFrac;
+            // Cut sections: frames skipped so far this buffer. Each frame's
+            // source position includes it; readPos advances by it too.
+            double cutShift = 0.0;
+            const double cutRamp = 0.003 * srcSr;   // the dip either side of a splice
+            // Land frame position `pos` past any cut it fell into: just
+            // after the cut's end, keeping the sub-step it went in by (a
+            // seek deep into a cut lands right at the end instead).
+            auto skipCuts = [&](double pos) {
+                for (const auto &[cs, ce] : v.cutFrames) {
+                    if (pos < cs) break;                 // sorted: none further
+                    if (pos >= ce) continue;
+                    const double landed = ce + std::min(pos - cs, rate);
+                    cutShift += landed - pos;
+                    pos = landed;
+                }
+                return pos;
+            };
 
             for (qint64 f = 0; f < framesWanted; ++f) {
                 if (v.finished) break;
 
-                double srcF = basePos + static_cast<double>(f) * rate;
+                double srcF = basePos + static_cast<double>(f) * rate + cutShift;
+                if (!v.cutFrames.empty()) srcF = skipCuts(srcF);
                 if (srcF >= static_cast<double>(effectiveEnd)) {
                     if (looping) {
                         // Wrap EVERY frame that crosses the end back to the
@@ -824,6 +850,9 @@ qint64 AudioEngine::Mixer::readData(char *data, qint64 maxlen)
                         srcF = static_cast<double>(startFrame)
                              + std::fmod(srcF - static_cast<double>(effectiveEnd),
                                          static_cast<double>(loopLen));
+                        // A cut right after the loop start: the jump goes
+                        // into cutShift, so later frames carry it too.
+                        if (!v.cutFrames.empty()) srcF = skipCuts(srcF);
                     } else {
                         // Stall rather than finish while decode can still
                         // extend the audio; the next buffer picks it up.
@@ -839,6 +868,12 @@ qint64 AudioEngine::Mixer::readData(char *data, qint64 maxlen)
                 ++framesWritten;
 
                 double envGain = 1.0;
+                // A few ms dip either side of a splice, so it can't click.
+                for (const auto &[cs, ce] : v.cutFrames) {
+                    const double toCut = cs - srcF, fromCut = srcF - ce;
+                    if (toCut >= 0.0 && toCut < cutRamp)     envGain *= toCut / cutRamp;
+                    if (fromCut >= 0.0 && fromCut < cutRamp) envGain *= fromCut / cutRamp;
+                }
                 // Fade-in: measured in output frames from the moment the
                 // voice started, on the first pass only.
                 const qint64 played = v.playedFrames + f;
@@ -849,8 +884,11 @@ qint64 AudioEngine::Mixer::readData(char *data, qint64 maxlen)
                 // cue's Fade Out setting used to be stored and never applied,
                 // so every cue ended hard even though the Inspector drew a ramp.
                 if (!v.loop && v.fadeOutOnStop > 0 && endKnown && rate > 0.0) {
-                    const double remainingOut =
-                        (static_cast<double>(effectiveEnd) - srcF) / rate;
+                    double ahead = static_cast<double>(effectiveEnd) - srcF;
+                    for (const auto &[cs, ce] : v.cutFrames)
+                        if (ce > srcF) ahead -= std::min(ce, double(effectiveEnd))
+                                              - std::max(cs, srcF);
+                    const double remainingOut = std::max(0.0, ahead) / rate;
                     if (remainingOut < static_cast<double>(v.fadeOutOnStop))
                         envGain *= std::max(0.0, remainingOut / static_cast<double>(v.fadeOutOnStop));
                 }
@@ -1029,7 +1067,8 @@ qint64 AudioEngine::Mixer::readData(char *data, qint64 maxlen)
             // framesWritten < framesWanted and we keep readPos parked
             // so the next buffer resumes exactly where we paused.
             // Carry the sub-frame remainder instead of truncating it.
-            const double moved = v.readFrac + static_cast<double>(framesWritten) * rate;
+            const double moved = v.readFrac + static_cast<double>(framesWritten) * rate
+                               + cutShift;
             const qint64 advanced = static_cast<qint64>(std::floor(moved));
             v.readFrac = moved - static_cast<double>(advanced);
             v.readPos += advanced;

@@ -1,5 +1,7 @@
 #pragma once
 
+#include "audio/Cuts.h"
+
 #include <QByteArray>
 #include <QJsonArray>
 #include <QJsonObject>
@@ -166,9 +168,12 @@ public:
     // the voice loops (loopEnd <= loopStart = not looping). wallElapsed is
     // the real time since the last call, when known: a move that matches it
     // is playback, not a seek, even if the UI thread stalled for a while.
+    // cuts: sections cut out of the song — a trigger inside one never fires
+    // (playback jumps over it).
     std::vector<TriggerEvent> advance(const LightTriggers &t, double pos,
                                       double loopStart = 0.0, double loopEnd = -1.0,
-                                      double wallElapsed = -1.0);
+                                      double wallElapsed = -1.0,
+                                      const Cuts *cuts = nullptr);
 
     // The voice stopped (any reason).
     std::vector<TriggerEvent> stop(const LightTriggers &t);
@@ -185,6 +190,7 @@ private:
 
     double m_pos = 0.0;
     bool   m_started = false;
+    const Cuts *m_cuts = nullptr;   // during advance() only
     std::vector<QUuid> m_inside;    // ranges currently entered
 };
 

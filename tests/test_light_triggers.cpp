@@ -126,6 +126,19 @@ private slots:
         QVERIFY(seek.advance(t, 3.0, 0, -1, 0.01).empty());
     }
 
+    void triggersInsideACutDontFire()
+    {
+        // The song plays 1.0 → 1.1 → 1.2 across a cut [1.05, 1.15): the hit
+        // at 1.1 is in the cut, the one at 1.17 isn't.
+        const LightTriggers t{point(1.1, "gone"), point(1.17, "kept")};
+        const audio::Cuts cuts{audio::Cut{1.05, 1.15}};
+        TriggerTracker tr;
+        tr.begin(t, 1.0);
+        auto ev = tr.advance(t, 1.2, 0, -1, -1, &cuts);
+        QCOMPARE(int(ev.size()), 1);
+        QCOMPARE(t[size_t(ev[0].index)].name, QStringLiteral("kept"));
+    }
+
     void disabledTriggersStayQuiet()
     {
         auto t = LightTriggers{point(1.0, "a"), range(2.0, 3.0, "r")};

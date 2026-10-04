@@ -109,6 +109,17 @@ void VideoLayer::followPosition(qint64 posMs)
     m_lastPosMs = posMs;
 
     const qint64 outMs = qint64(m_timing.outSeconds * 1000.0);
+    // A cut section: jump over it, as the soundtrack does in the mixer.
+    // (Positions reported before the seek lands just ask for it again.)
+    if (!m_timing.cuts.empty() && !m_wrapping) {
+        const double pos = posMs / 1000.0;
+        const double to  = m_timing.skipCuts(pos);
+        if (to > pos) {
+            m_lastPosMs = qint64(to * 1000.0);
+            m_player->setPosition(m_lastPosMs);
+            return;
+        }
+    }
     // Positions reported before the seek back to In lands aren't a new lap.
     if (m_wrapping) {
         if (outMs > 0 && posMs >= outMs) return;
