@@ -766,6 +766,8 @@ void MatrixRowDelegate::paint(QPainter *p, const QStyleOptionViewItem &opt, cons
         }
         o.backgroundBrush = Qt::NoBrush;
     }
+    // No per-cell focus box: the row is the unit here.
+    o.state &= ~QStyle::State_HasFocus;
     o.rect.adjust(4, 0, -2, 0);             // breathing room either side
     const bool lightsCol = index.column() == MatrixTableModel::ColLights;
     if (lightsCol) o.rect.adjust(14, 0, 0, 0);   // room for the follow line
@@ -976,12 +978,14 @@ MatrixView::MatrixView(QWidget *parent) : QWidget(parent)
     hh->setStretchLastSection(true);
     hh->setDefaultAlignment(Qt::AlignLeft | Qt::AlignVCenter);
     hh->setHighlightSections(false);
-    m_table->setColumnWidth(MatrixTableModel::ColState, 128);
-    m_table->setColumnWidth(MatrixTableModel::ColNumber, 56);
-    m_table->setColumnWidth(MatrixTableModel::ColCue, 270);
-    m_table->setColumnWidth(MatrixTableModel::ColLights, 250);
-    m_table->setColumnWidth(MatrixTableModel::ColTime, 104);
-    m_table->setColumnWidth(MatrixTableModel::ColPlaced, 190);
+    m_table->setColumnWidth(MatrixTableModel::ColState, 116);
+    m_table->setColumnWidth(MatrixTableModel::ColNumber, 52);
+    m_table->setColumnWidth(MatrixTableModel::ColTime, 100);
+    m_table->setColumnWidth(MatrixTableModel::ColPlaced, 180);
+    // The three text columns share whatever width there is, so a narrow
+    // window never scrolls sideways or cuts the notes off.
+    for (int c : {int(MatrixTableModel::ColCue), int(MatrixTableModel::ColLights), int(MatrixTableModel::ColNotes)})
+        hh->setSectionResizeMode(c, QHeaderView::Stretch);
     m_body->addWidget(m_table);
 
     auto *empty = new QWidget(m_body);

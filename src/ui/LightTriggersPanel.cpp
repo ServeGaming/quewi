@@ -958,8 +958,9 @@ LightTriggersPanel::LightTriggersPanel(QWidget *parent) : QWidget(parent)
                                "fire on the desk is noted at that moment of the song. When the song stops you see "
                                "what was caught and choose to keep it as lighting triggers. Nothing is sent to the desk."));
     m_recordBtn->setStyleSheet(QStringLiteral(
-        "QPushButton#ltRecord { padding:4px 12px; border-radius:3px; border:1px solid %1; color:%2; background:%3; }"
-        "QPushButton#ltRecord:checked { background:%4; color:%5; border-color:%4; font-weight:700; }")
+        "QPushButton#ltRecord { padding:4px 14px; border-radius:3px; border:1px solid %1; color:%2; background:%3;"
+        "  font-weight:700; min-width:150px; }"
+        "QPushButton#ltRecord:checked { background:%4; color:%5; border-color:%4; }")
         .arg(tk.outline.name(), tk.ink100.name(), tk.bgInteractive.name(), tk.errBright.name(), tk.bgDeep.name()));
     deskRow->addWidget(m_recordBtn);
     page->addLayout(deskRow);

@@ -26,6 +26,7 @@
 #include "osc/OscCue.h"
 #include "osc/OscEngine.h"
 #include "ui/MatrixSource.h"
+#include "ui/LightTriggersPanel.h"
 #include "ui/MatrixView.h"
 #include "ui/ShowModeView.h"
 #include "ui/SmoothScroll.h"
@@ -139,6 +140,13 @@ class MatrixViewTests : public QObject {
             a[28] = osc::Argument::s(cues[i].value(2));
             a[27] = osc::Argument::s(cues[i].value(3));
             a[29] = osc::Argument::F();
+            // [6] follow ms, [7] link, [8] block, [9] mark — like the real desk sends them.
+            a[20] = osc::Argument::i(cues[i].value(6).isEmpty() ? -1 : cues[i].value(6).toInt());
+            a[19] = cues[i].value(7).isEmpty() ? osc::Argument::i(0) : osc::Argument::s(cues[i].value(7));
+            a[17] = osc::Argument::s(cues[i].value(8));
+            a[16] = osc::Argument::s(cues[i].value(9));
+            a[18] = osc::Argument::s(QString());
+            a[25] = osc::Argument::s(QString());
             r.handle({QStringLiteral("/eos/out/get/cue/1/%1/0/list/0/31").arg(cues[i].value(0)), a});
         }
     }
@@ -902,7 +910,7 @@ private slots:
         FakeDeskLink desk;
         QVERIFY(desk.start());
         desk.say("/eos/out/active/cue/text", QStringLiteral("1/6 Chorus wash 4.00 100%"));
-        desk.say("/eos/out/pending/cue/text", QStringLiteral("1/6.5 Bridge 4.00 0%"));
+        desk.say("/eos/out/pending/cue/text", QStringLiteral("1/6.5 Bridge into the Brazilian traditional 4.00 0%"));
         QTRY_COMPARE(desk.fb.pending().cue, QStringLiteral("6.5"));
         osc::EosCueLists reader(&desk.fb);
         auto cfg = s.matrix->matrixConfig();
@@ -925,26 +933,52 @@ private slots:
         view.setCueList(s.matrix);
         feedDeskLabelled(reader, {
             {QStringLiteral("0.5"), QStringLiteral("Preset"), QStringLiteral("Act 1"), QStringLiteral("Walk-in state"), QStringLiteral("0")},
-            {QStringLiteral("1"), QStringLiteral("House to half"), QString(), QString(), QStringLiteral("5000")},
+            {QStringLiteral("1"), QStringLiteral("House to half"), QString(), QString(), QStringLiteral("5000"), QString(),
+             QStringLiteral("2000"), QString(), QString(), QStringLiteral("M")},
             {QStringLiteral("5"), QStringLiteral("Overture look"), QString(), QStringLiteral("Slow build"), QStringLiteral("8000"), QStringLiteral("5000")},
-            {QStringLiteral("6"), QStringLiteral("Chorus wash")},
-            {QStringLiteral("6.5"), QStringLiteral("Bridge")},
+            {QStringLiteral("6"), QStringLiteral("Chorus wash"), QString(), QString(), QString(), QString(), QString(), QStringLiteral("8"), QStringLiteral("b")},
+            {QStringLiteral("6.5"), QStringLiteral("Bridge into the Brazilian traditional")},
             {QStringLiteral("7"), QStringLiteral("Storm"), QStringLiteral("The storm"), QStringLiteral("Lightning on the thunder")},
             {QStringLiteral("8"), QStringLiteral("Flats in")},
-            {QStringLiteral("9"), QStringLiteral("Calm after")},
+            {QStringLiteral("9"), QStringLiteral("Calm after"), QStringLiteral("End of The storm")},
             {QStringLiteral("10"), QStringLiteral("Interval state"), QStringLiteral("Interval")},
         });
         ui::MatrixLive live;
         live.standby = s.osc;
         live.running = {s.song};
         view.setLiveProvider([&live] { return live; });
-        for (const QSize sz : {QSize(1280, 720), QSize(1920, 1080)}) {
+        // Matthew's window (~1600×1164 at 125 % = 1280×931), the 720p and
+        // 1080p checks, and a narrow window.
+        for (const QSize sz : {QSize(1280, 931), QSize(1280, 720), QSize(1920, 1080), QSize(1100, 720)}) {
             view.resize(sz);
             view.show();
             view.rebuildNow();
             view.pollLive();
             QTest::qWait(150);
+            view.pollLive();                      // the buttons' labels fit their laid-out width
+            QTest::qWait(50);
             view.grab().save(QStringLiteral("%1/matrix-live-%2x%3.png").arg(dir).arg(sz.width()).arg(sz.height()));
+        }
+        // One row's details open, and the storm scene folded.
+        view.resize(1280, 931);
+        view.model()->toggleRowDetails(view.build().rowOfDesk(QStringLiteral("1"), QStringLiteral("5")));
+        view.toggleScene(1);
+        QTest::qWait(100);
+        view.grab().save(QStringLiteral("%1/matrix-details-folded-1280x931.png").arg(dir));
+        view.toggleScene(1);
+        view.model()->toggleRowDetails(view.build().rowOfDesk(QStringLiteral("1"), QStringLiteral("5")));
+
+        // The audio editor's Lighting tab while recording from the desk.
+        {
+            audio::AudioCue song;
+            ui::LightTriggersPanel panel;
+            panel.setAttribute(Qt::WA_DontShowOnScreen);
+            panel.setCue(&song);
+            panel.resize(1280, 360);
+            panel.show();
+            panel.setRecordingState(true, 3, QStringLiteral("LX 8.4 Back at 0:12.40"));
+            QTest::qWait(100);
+            panel.grab().save(QStringLiteral("%1/lighting-tab-recording-1280x360.png").arg(dir));
         }
 
         // The desk gone: the cached cues, and the banner saying so.
@@ -986,7 +1020,13 @@ private slots:
         d.number = QStringLiteral("LX 8");
         d.name = QStringLiteral("Flats in");
         snap.comingUp = {d};
-        snap.lightsGo = ui::ShowLightsGo{true, QStringLiteral("GO Lights  6.5\nBridge"), QString()};
+        ui::ShowLightsGo lg;
+        lg.enabled = true;
+        lg.text = QStringLiteral("GO Lights  6.5\nBridge");
+        lg.backEnabled = true;
+        lg.backText = QStringLiteral("◀ Back  6");
+        lg.stopEnabled = true;
+        snap.lightsGo = lg;
         ui::ShowModeView sm;
         sm.setAttribute(Qt::WA_DontShowOnScreen);
         sm.resize(1280, 720);
