@@ -22,8 +22,8 @@ changed: quewi only asks it questions.
    leave **Read the desk's state back** on. (quewi talks to the desk on
    its OSC TCP port, 3032, which Eos allows by default. There's nothing
    to set up on the desk.)
-2. Press **+** at the end of the cue list tabs and pick
-   **Matrix List (sound + lights)**, or use **View → Matrix List**.
+2. Choose **List → Matrix List (sound + lights)** (also under
+   **View**).
 3. At the top of the page, choose:
     - **Sound & video from**: the quewi cue list to interleave (it starts
       as the one you were on);
