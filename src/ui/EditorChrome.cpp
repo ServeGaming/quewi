@@ -2,13 +2,19 @@
 
 #include "ui/Theme.h"
 
+#include <QAbstractSpinBox>
+#include <QApplication>
 #include <QFrame>
 #include <QHBoxLayout>
 #include <QHash>
+#include <QKeyEvent>
 #include <QLabel>
+#include <QLineEdit>
 #include <QPainter>
 #include <QPainterPath>
 #include <QPixmap>
+#include <QPlainTextEdit>
+#include <QTextEdit>
 #include <QToolBar>
 #include <QVBoxLayout>
 
@@ -225,6 +231,52 @@ EditorHeader makeEditorHeader(const QString &kindCaps, QWidget *parent)
     hl->addLayout(nameStack, 1);
     hl->addWidget(h.meta, 0, Qt::AlignVCenter);
     return h;
+}
+
+namespace {
+
+// A widget you type words into. A spin box's inner line edit doesn't count:
+// Space means nothing in a number.
+bool isTextEntry(QWidget *w)
+{
+    if (qobject_cast<QTextEdit *>(w) || qobject_cast<QPlainTextEdit *>(w)) return true;
+    if (auto *le = qobject_cast<QLineEdit *>(w))
+        return !qobject_cast<QAbstractSpinBox *>(le->parentWidget());
+    return false;
+}
+
+class SpaceKeyFilter : public QObject {
+public:
+    SpaceKeyFilter(QWidget *window, std::function<void()> toggle)
+        : QObject(window), m_window(window), m_toggle(std::move(toggle)) {}
+
+    bool eventFilter(QObject *, QEvent *e) override
+    {
+        // The application sees the key before the focused widget does.
+        if (e->type() != QEvent::KeyPress && e->type() != QEvent::ShortcutOverride) return false;
+        auto *k = static_cast<QKeyEvent *>(e);
+        if (k->key() != Qt::Key_Space || k->modifiers() != Qt::NoModifier) return false;
+        QWidget *fw = QApplication::focusWidget();
+        if (!m_window->isActiveWindow() || !fw || fw->window() != m_window || isTextEntry(fw))
+            return false;
+        if (e->type() == QEvent::ShortcutOverride) {
+            e->accept();            // ours: no shortcut, and the KeyPress comes here
+            return true;
+        }
+        if (!k->isAutoRepeat()) m_toggle();
+        return true;                // never reaches the focused button / spin box
+    }
+
+private:
+    QWidget *m_window;
+    std::function<void()> m_toggle;
+};
+
+} // namespace
+
+void installEditorSpaceKey(QWidget *window, std::function<void()> togglePlay)
+{
+    qApp->installEventFilter(new SpaceKeyFilter(window, std::move(togglePlay)));
 }
 
 } // namespace quewi::ui

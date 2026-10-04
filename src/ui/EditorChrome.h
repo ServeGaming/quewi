@@ -3,6 +3,8 @@
 #include <QIcon>
 #include <QString>
 
+#include <functional>
+
 class QLabel;
 class QToolBar;
 class QWidget;
@@ -31,5 +33,12 @@ struct EditorHeader {
     QLabel  *meta   = nullptr;
 };
 EditorHeader makeEditorHeader(const QString &kindCaps, QWidget *parent);
+
+// Space plays / pauses an editor window wherever the keyboard focus is inside
+// it. A plain key handler loses Space to whatever has focus: a focused button
+// pressed itself again, a number box (In, Level…) swallowed it. Only a real
+// text field (a name, a desk command) keeps its spaces. Lives as long as
+// `window`.
+void installEditorSpaceKey(QWidget *window, std::function<void()> togglePlay);
 
 } // namespace quewi::ui

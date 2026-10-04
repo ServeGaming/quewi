@@ -158,6 +158,11 @@ VideoEditorWindow::VideoEditorWindow(video::VideoCue *cue, QUndoStack *undo, QWi
 
     buildToolbar();
     buildCentral();
+    // Space plays / pauses whatever has focus (EditorChrome); open on the
+    // timeline so the arrows step frames instead of nudging the In box.
+    installEditorSpaceKey(this, [this] { togglePlay(); });
+    m_timeline->setFocusPolicy(Qt::StrongFocus);
+    m_timeline->setFocus();
 
     connect(m_thumbs, &VideoThumbnailer::thumbnailReady, m_timeline, &VideoTimeline::setThumbnail);
     connect(m_thumbs, &VideoThumbnailer::failed, this, [this](const QString &why) {

@@ -1,4 +1,6 @@
 #include <QTest>
+#include <QPushButton>
+#include <QDoubleSpinBox>
 
 #include <QApplication>
 #include <QElapsedTimer>
@@ -322,6 +324,46 @@ private slots:
         QVERIFY(w.playheadSeconds() >= 1.9);
         QVERIFY(waitFor([&] { return !w.isPlaying(); }, 8000));
         QVERIFY(std::abs(w.playheadSeconds() - 5.0) < 0.1);
+    }
+
+    // Space plays / pauses whatever has focus in the editor — a focused
+    // number box (In) used to swallow it, a focused button to press itself.
+    void spaceTogglesPlayFromAnyFocus()
+    {
+        if (videoFile().isEmpty()) QSKIP("set QUEWI_TEST_VIDEO_FILE to a video (>= 8 s)");
+        video::VideoCue vc;
+        vc.setField(QStringLiteral("filePath"), videoFile());
+        QUndoStack undo;
+        ui::VideoEditorWindow w(&vc, &undo);
+        w.setAttribute(Qt::WA_DeleteOnClose, false);
+        w.show();
+        w.activateWindow();
+        QVERIFY(QTest::qWaitForWindowActive(&w));
+        QVERIFY(waitFor([&] { return w.durationSeconds() > 0.0; }, 5000));
+
+        auto press = [&] {
+            QWidget *fw = QApplication::focusWidget();
+            QVERIFY(fw);
+            QTest::keyClick(fw, Qt::Key_Space);
+        };
+        press();                                           // the timeline has focus
+        QVERIFY(waitFor([&] { return w.isPlaying(); }, 3000));
+        auto *inBox = w.findChildren<QDoubleSpinBox *>().value(0);
+        QVERIFY(inBox);
+        inBox->setFocus();
+        QVERIFY(waitFor([&] { return QApplication::focusWidget() != nullptr; }, 500));
+        const double inBefore = vc.trimInSeconds();
+        press();                                           // focus in a number box
+        QVERIFY(waitFor([&] { return !w.isPlaying(); }, 1000));
+        QCOMPARE(vc.trimInSeconds(), inBefore);            // and In wasn't touched
+        for (auto *b : w.findChildren<QPushButton *>()) {  // a focused button
+            if (!b->isVisible()) continue;
+            b->setFocus();
+            break;
+        }
+        press();
+        QVERIFY(waitFor([&] { return w.isPlaying(); }, 3000));
+        w.togglePlay();
     }
 
     void thumbnailsFillTheStrip()

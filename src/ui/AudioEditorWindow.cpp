@@ -418,19 +418,13 @@ void AudioEditorWindow::buildBottomPanel() {
     connect(tapKey, &QShortcut::activated, this, doTap);
     connect(tapKey, &QShortcut::activatedAmbiguously, this, doTap);
 
-    // Space plays / pauses the editor mix. A shortcut, not keyPressEvent: a
-    // focused button eats Space first and pressed itself again. Text boxes
-    // still get their spaces (they claim the key before shortcuts).
+    // Space plays / pauses the editor mix, whatever has focus (EditorChrome).
+    installEditorSpaceKey(this, [this] { togglePlayPause(); });
     auto typing = [] {
         QWidget *fw = QApplication::focusWidget();
         return qobject_cast<QLineEdit *>(fw) || qobject_cast<QAbstractSpinBox *>(fw)
             || qobject_cast<QTextEdit *>(fw) || qobject_cast<QPlainTextEdit *>(fw);
     };
-    auto *spaceKey = new QShortcut(QKeySequence(Qt::Key_Space), this);
-    spaceKey->setContext(Qt::WindowShortcut);
-    auto doSpace = [this, typing] { if (!typing()) togglePlayPause(); };
-    connect(spaceKey, &QShortcut::activated, this, doSpace);
-    connect(spaceKey, &QShortcut::activatedAmbiguously, this, doSpace);
     // M drops a lighting marker where the song is playing.
     auto *markKey = new QShortcut(QKeySequence(Qt::Key_M), this);
     markKey->setContext(Qt::WindowShortcut);
