@@ -15,6 +15,7 @@ class QTimer;
 namespace quewi::ui {
 
 class ElideLabel;
+class HitList;
 class ThinProgressBar;
 
 // The dockable "Lighting" panel on the main cue screen: the desk's link and
@@ -55,14 +56,6 @@ private:
     void renderDesk();
     void renderHits();
 
-    struct HitRow {
-        QWidget    *frame = nullptr;
-        ElideLabel *when  = nullptr;
-        ElideLabel *name  = nullptr;
-        ElideLabel *does  = nullptr;
-    };
-    HitRow makeHitRow(QWidget *parent);
-
     ShowSnapshot m_snap;
     std::function<ShowSnapshot()> m_provider;
     QTimer *m_tick = nullptr;
@@ -94,8 +87,8 @@ private:
     QLabel      *m_hitCountdown = nullptr;
     ElideLabel  *m_hitName = nullptr;
     ElideLabel  *m_hitDoes = nullptr;
-    std::vector<HitRow> m_hitRows;
-    QLabel      *m_hitsState = nullptr;
+    HitList     *m_hitList = nullptr;      // the rows after the headline, fitted
+    ElideLabel  *m_hitsState = nullptr;
 };
 
 } // namespace quewi::ui

@@ -4,7 +4,6 @@
 #include "ui/Theme.h"
 
 #include <QBoxLayout>
-#include <QGridLayout>
 #include <QLabel>
 #include <QPushButton>
 #include <QResizeEvent>
@@ -12,12 +11,13 @@
 #include <QStyle>
 #include <QTimer>
 
+#include <algorithm>
+
 namespace quewi::ui {
 
 namespace {
 
 constexpr int kPollMs = 100;
-constexpr int kHitRows = 3;      // after the headline hit
 
 QString rgba(const QColor &c, int alpha)
 {
@@ -53,7 +53,10 @@ QHBoxLayout *band(QWidget *card, const char *region, const QString &heading)
     auto *lay = new QHBoxLayout(w);
     lay->setContentsMargins(12, 5, 8, 5);
     lay->setSpacing(8);
-    auto *l = new QLabel(heading, w);
+    // Elides, so a narrow dock shortens the heading rather than the chip.
+    auto *l = new ElideLabel(w);
+    l->setText(heading);
+    l->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Fixed);
     l->setProperty("role", "heading");
     l->setProperty("region", QLatin1String(region));
     lay->addWidget(l);
@@ -125,29 +128,10 @@ void LightingPanel::resizeEvent(QResizeEvent *e)
 {
     QWidget::resizeEvent(e);
     relayout();
+    renderHits();     // the state line's wrap depends on the width
 }
 
 // ── Building ────────────────────────────────────────────────────────────
-
-LightingPanel::HitRow LightingPanel::makeHitRow(QWidget *parent)
-{
-    HitRow r;
-    r.frame = new QWidget(parent);
-    auto *g = new QGridLayout(r.frame);
-    g->setContentsMargins(0, 0, 0, 0);
-    g->setHorizontalSpacing(8);
-    g->setVerticalSpacing(0);
-    r.when = elide(r.frame, "hitWhen");
-    r.when->setAlignment(Qt::AlignRight | Qt::AlignVCenter);
-    r.when->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Fixed);
-    r.name = elide(r.frame, "hitRowName");
-    r.does = elide(r.frame, "hitRowDoes");
-    g->addWidget(r.when, 0, 0, 2, 1, Qt::AlignVCenter);
-    g->addWidget(r.name, 0, 1);
-    g->addWidget(r.does, 1, 1);
-    g->setColumnStretch(1, 1);
-    return r;
-}
 
 void LightingPanel::buildUi()
 {
@@ -288,14 +272,12 @@ void LightingPanel::buildUi()
         head->addLayout(headText, 1);
         v->addLayout(head);
         v->addSpacing(4);
-        for (int i = 0; i < kHitRows; ++i) {
-            m_hitRows.push_back(makeHitRow(m_hitsBlock));
-            v->addWidget(m_hitRows.back().frame);
-        }
-        m_hitsState = new QLabel(m_hitsBlock);
+        // The rows after the headline: as many as fit whole, then "+N more".
+        m_hitList = new HitList(m_hitsBlock);
+        m_hitList->setObjectName(QStringLiteral("lpHitList"));
+        v->addWidget(m_hitList);
+        m_hitsState = elide(m_hitsBlock, "quiet", 3);
         m_hitsState->setObjectName(QStringLiteral("lpHitsState"));
-        m_hitsState->setProperty("role", "quiet");
-        m_hitsState->setWordWrap(true);
         v->addWidget(m_hitsState);
         v->addStretch(1);
     }
@@ -351,12 +333,7 @@ void LightingPanel::applyStyle()
         "QLabel[role=\"hitCountdown\"][tone=\"paused\"] { color:%3; }"
         "QLabel[role=\"hitCountdown\"][tone=\"off\"] { color:%2; }"
         "QLabel[role=\"hitName\"] { color:%4; font-size:14px; font-weight:600; }"
-        "QLabel[role=\"hitDoes\"] { color:%8; font-size:11px; }"
-        "QLabel[role=\"hitWhen\"] { color:%10; font-size:13px; font-weight:700; font-family:%7; }"
-        "QLabel[role=\"hitWhen\"][tone=\"paused\"] { color:%3; }"
-        "QLabel[role=\"hitWhen\"][tone=\"off\"] { color:%2; }"
-        "QLabel[role=\"hitRowName\"] { color:%4; font-size:12px; font-weight:600; }"
-        "QLabel[role=\"hitRowDoes\"] { color:%8; font-size:11px; }")
+        "QLabel[role=\"hitDoes\"] { color:%8; font-size:11px; }")
         .arg(tk.bgPanel.name(),            // 1
              tk.ink40.name(),              // 2
              tk.warn.name(),               // 3
@@ -369,10 +346,21 @@ void LightingPanel::applyStyle()
         .arg(rc.hits.name(),               // 10 hits lavender
              rc.desk.name())               // 11 desk blue
         + regions);
-    // Polish first so the metrics are the stylesheet's font, not the default.
-    for (auto &r : m_hitRows) r.when->ensurePolished();
-    const QFontMetrics fm(m_hitRows.front().when->font());
-    for (auto &r : m_hitRows) r.when->setFixedWidth(fm.horizontalAdvance(QStringLiteral("8:88.8")) + 4);
+    // The hit list paints its own text, at the dock's sizes: a 13 px mono
+    // countdown, a 12 px name, an 11 px action.
+    QFont lead = font();
+    lead.setFamilies({QStringLiteral("JetBrains Mono"), QStringLiteral("Cascadia Mono"), QStringLiteral("Consolas")});
+    lead.setStyleHint(QFont::Monospace);
+    lead.setPixelSize(13);
+    lead.setWeight(QFont::Bold);
+    QFont title = font();
+    title.setPixelSize(12);
+    title.setWeight(QFont::DemiBold);
+    QFont detail = font();
+    detail.setPixelSize(11);
+    m_hitList->setFonts(lead, title, detail);
+    m_hitList->setColours(rc.hits, tk.ink100, tk.ink60, tk.ink40, tk.warn);
+    m_hitList->setRowGap(3);
 }
 
 // Side docks stack the blocks; a bottom dock (wide and short) puts them in
@@ -486,21 +474,10 @@ void LightingPanel::renderHits()
         m_hitDoes->setText(d.join(QStringLiteral("  ·  ")));
         setTone(m_hitCountdown, !armed ? "off" : h.paused ? "paused" : "live");
     }
-    for (size_t i = 0; i < m_hitRows.size(); ++i) {
-        auto &r = m_hitRows[i];
-        const size_t k = i + 1;
-        if (k >= hits.size()) {
-            r.frame->hide();
-            continue;
-        }
-        const auto &h = hits[k];
-        r.when->setText(showCountdownText(h.inSeconds));
-        setTone(r.when, !armed ? "off" : h.paused ? "paused" : "live");
-        r.name->setText(hitTitle(h));
-        r.does->setText(!h.name.isEmpty() ? h.does : QString());
-        r.does->setVisible(!r.does->text().isEmpty());
-        r.frame->show();
-    }
+    m_hitList->setHits(hits.size() > 1 ? std::vector<ShowUpcomingHit>(hits.begin() + 1, hits.end())
+                                       : std::vector<ShowUpcomingHit>{},
+                       armed);
+    m_hitList->setVisible(hits.size() > 1);
     QString state;
     if (!armed)
         state = tr("Triggers disarmed — nothing is sent to the desk.");
@@ -510,6 +487,9 @@ void LightingPanel::renderHits()
         state = m_snap.running.empty() ? tr("Hits appear here while a song with lighting triggers plays.")
                                        : tr("No more hits in what's playing.");
     m_hitsState->setText(state);
+    // The lines it needs at this width, so a short state doesn't hold three.
+    const int stateW = std::max(80, (m_wide ? width() / 3 : width()) - 48);
+    m_hitsState->setMaxLines(m_hitsState->linesNeeded(stateW, 3));
     m_hitsState->setVisible(!state.isEmpty());
     setTone(m_hitsState, !armed ? "warn" : "quiet");
 }

@@ -133,6 +133,94 @@ class ShowModeViewTests : public QObject {
         return s;
     }
 
+    // A beat-grid fill: 24 hits a few hundred ms apart, "Beat 1".."Beat 24",
+    // all the same bump — the shape that used to run off the card.
+    static ShowSnapshot beatFill()
+    {
+        ShowSnapshot s = live();
+        s.hits.clear();
+        for (int i = 1; i <= 24; ++i)
+            s.hits.push_back(hit(qPrintable(QStringLiteral("Beat %1").arg(i)), "Desk: bump sub 3", 0.8 + 0.47 * (i - 1)));
+        s.hits.front().name = QStringLiteral("Beat 1");
+        return s;
+    }
+
+    // 24 hits that don't fold: different actions, long names, long cue
+    // names and notes — everything must elide, nothing may clip.
+    static ShowSnapshot longNames()
+    {
+        ShowSnapshot s = live();
+        s.standby->name = QStringLiteral("Thunder + blackout + the long version of this cue's name that goes on");
+        s.standby->notes = QStringLiteral(
+            "STANDBY on Elphaba's last note — \"...and nobody in all of Oz, not now, not ever\". "
+            "GO as she raises the broom above her head and the ensemble freezes. Flys come in on "
+            "the thunder, the tabs close behind her, house to half, and the band vamps until the "
+            "DSM calls the interval — this is deliberately far too long for the card.");
+        for (auto &c : s.comingUp) {
+            c.name += QStringLiteral(" — a much longer name than any sensible cue would carry");
+            c.notes += QStringLiteral(" And more notes than fit on a line, by some margin, so they elide.");
+        }
+        s.hits.clear();
+        const char *actions[] = {"Desk: GO", "Desk: bump sub 3", "Desk: sub 7 → 100 over 2.0 s", "Desk: macro 12",
+                                 "Desk: GO cue 114.5 on list 2", "Desk: sub 3 → 0"};
+        for (int i = 0; i < 24; ++i) {
+            auto h = hit(qPrintable(QStringLiteral("Lightning strike number %1 with a long descriptive name").arg(i + 1)),
+                         actions[i % 6], 1.0 + 0.9 * i);
+            h.cueName = QStringLiteral("Defying Gravity (full company, extended playout mix)");
+            s.hits.push_back(h);
+        }
+        s.desk.activeLabel = QStringLiteral("Gravity build with a label the desk operator typed in full");
+        s.desk.pendingLabel = QStringLiteral("Lightning — the long pending label");
+        return s;
+    }
+
+    // Every visible label, button and hit list inside `card` sits within
+    // the card's own rect — nothing hangs past its bottom (or side) edge.
+    static QString overflowIn(QWidget &card)
+    {
+        const QRect inner = card.rect().adjusted(1, 1, -1, -1);
+        for (QWidget *w : card.findChildren<QWidget *>()) {
+            if (!w->isVisible()) continue;
+            const bool text = qobject_cast<QLabel *>(w) || qobject_cast<HitList *>(w) || qobject_cast<QPushButton *>(w);
+            if (!text) continue;
+            const QRect r(w->mapTo(&card, QPoint(0, 0)), w->size());
+            if (!inner.contains(r))
+                return QStringLiteral("%1 \"%2\" at %3,%4 %5x%6 leaves %7 (%8x%9)")
+                    .arg(w->metaObject()->className(), w->objectName().isEmpty() ? w->property("role").toString() : w->objectName())
+                    .arg(r.x()).arg(r.y()).arg(r.width()).arg(r.height())
+                    .arg(card.objectName()).arg(card.width()).arg(card.height());
+            if (auto *hl = qobject_cast<HitList *>(w); hl && hl->contentHeight() > hl->height())
+                return QStringLiteral("hit list draws %1 px in %2 px").arg(hl->contentHeight()).arg(hl->height());
+        }
+        return {};
+    }
+
+    // Every card sits inside the view, and nothing inside a card leaves it.
+    static QString overflowIn(QWidget &view, const QStringList &cards)
+    {
+        const QRect inner = view.rect();
+        for (const QString &name : cards) {
+            auto *card = view.findChild<QWidget *>(name);
+            if (!card) return QStringLiteral("no card %1").arg(name);
+            if (!card->isVisible()) continue;
+            const QRect r(card->mapTo(&view, QPoint(0, 0)), card->size());
+            if (!inner.contains(r))
+                return QStringLiteral("%1 at %2,%3 %4x%5 leaves the view (%6x%7)")
+                    .arg(name).arg(r.x()).arg(r.y()).arg(r.width()).arg(r.height()).arg(view.width()).arg(view.height());
+            const QString o = overflowIn(*card);
+            if (!o.isEmpty()) return o;
+        }
+        return {};
+    }
+
+    static void settle(QWidget &w)
+    {
+        w.show();
+        QVERIFY(QTest::qWaitForWindowExposed(&w));
+        QTest::qWait(60);
+        QCoreApplication::processEvents();
+    }
+
     static ShowSnapshot deskFailed()
     {
         ShowSnapshot s = live();
@@ -491,6 +579,166 @@ private slots:
         QCOMPARE(settings.count(), 1);
     }
 
+    // A run of like-named, same-action hits folds into one honest row; the
+    // odd ones out, and range ends, stay their own rows.
+    void hitRowsGroup()
+    {
+        const auto fill = beatFill();
+        const std::vector<ShowUpcomingHit> after(fill.hits.begin() + 1, fill.hits.end());   // after the headline
+        const auto rows = showHitRows(after);
+        QCOMPARE(rows.size(), size_t(1));
+        QCOMPARE(rows[0].title, QStringLiteral("Beat 2–24"));
+        QCOMPARE(rows[0].detail, QStringLiteral("Desk: bump sub 3  ·  every 0.47 s"));
+        QCOMPARE(rows[0].count, 23);
+        QCOMPARE(rows[0].when, showCountdownText(fill.hits[1].inSeconds));
+        QVERIFY(std::abs(rows[0].lastIn - fill.hits.back().inSeconds) < 1e-9);
+
+        // Two beats aren't a run; a different action breaks one; an end never joins.
+        auto s = live();
+        s.hits = {hit("Beat 1", "Desk: bump sub 3", 1.0), hit("Beat 2", "Desk: bump sub 3", 1.5),
+                  hit("Beat 3", "Desk: GO", 2.0), hit("Beat 4", "Desk: bump sub 3", 2.5),
+                  hit("Beat 5", "Desk: bump sub 3", 3.0), hit("Beat 6", "Desk: bump sub 3", 3.5),
+                  hit("Strobe", "Desk: sub 3 → 0", 4.0)};
+        s.hits.back().exit = true;
+        const auto r2 = showHitRows(s.hits);
+        QCOMPARE(r2.size(), size_t(5));
+        QCOMPARE(r2[0].title, QStringLiteral("Beat 1"));
+        QCOMPARE(r2[1].title, QStringLiteral("Beat 2"));
+        QCOMPARE(r2[2].title, QStringLiteral("Beat 3"));
+        QCOMPARE(r2[2].detail, QStringLiteral("Desk: GO"));
+        QCOMPARE(r2[3].title, QStringLiteral("Beat 4–6"));
+        QCOMPARE(r2[3].count, 3);
+        QCOMPARE(r2[4].title, QStringLiteral("Strobe (end)"));
+
+        // Uneven gaps say the span instead of a rate; unnamed hits group by action.
+        s.hits = {hit("Hit 1", "Desk: GO", 1.0), hit("Hit 2", "Desk: GO", 1.3), hit("Hit 3", "Desk: GO", 4.0),
+                  hit("", "Desk: macro 1", 5.0), hit("", "Desk: macro 1", 6.0), hit("", "Desk: macro 1", 7.0)};
+        const auto r3 = showHitRows(s.hits);
+        QCOMPARE(r3.size(), size_t(2));
+        QCOMPARE(r3[0].title, QStringLiteral("Hit 1–3"));
+        QVERIFY2(r3[0].detail.contains(QStringLiteral("over 3.0 s")), qPrintable(r3[0].detail));
+        QCOMPARE(r3[1].title, QStringLiteral("Desk: macro 1"));
+        QCOMPARE(r3[1].detail, QStringLiteral("3 hits  ·  every 1.00 s"));
+        // The long-name scene has no two alike in a row: nothing folds.
+        QCOMPARE(showHitRows(longNames().hits).size(), size_t(24));
+    }
+
+    // The hits card shows the headline, then whole rows only, then says how
+    // many more there are — and the card never has anything past its edge.
+    // Checked at the sizes Matthew actually runs: 1280×720 and a windowed
+    // ~1100×700 as well as the bigger ones.
+    void nothingCutOff()
+    {
+        const QStringList cards = {QStringLiteral("smStandbyCard"), QStringLiteral("smComingCard"),
+                                   QStringLiteral("smRunning"), QStringLiteral("smHitsCard"),
+                                   QStringLiteral("smDeskCard")};
+        struct Scene { const char *name; ShowSnapshot snap; };
+        const Scene scenes[] = {
+            {"live", live()}, {"beat-fill", beatFill()}, {"long-names", longNames()},
+            {"paused-disarmed", pausedDisarmed()}, {"end", endOfList()}, {"desk-failed", deskFailed()},
+        };
+        for (const auto &sc : scenes) {
+            for (const QSize sz : {QSize(1280, 720), QSize(1100, 700), QSize(1024, 640), QSize(1920, 1080)}) {
+                ShowModeView v;
+                v.resize(sz);
+                v.setSnapshot(sc.snap);
+                settle(v);
+                // The layout's minimum must never push the window bigger
+                // than asked (a screen too small for 1920×1080 is fine).
+                QVERIFY2(v.width() <= sz.width() && v.height() <= sz.height(),
+                         qPrintable(QStringLiteral("%1: asked %2x%3, got %4x%5 (minimum %6x%7)")
+                                        .arg(QLatin1String(sc.name)).arg(sz.width()).arg(sz.height())
+                                        .arg(v.width()).arg(v.height())
+                                        .arg(v.minimumSizeHint().width()).arg(v.minimumSizeHint().height())));
+                const QString why = overflowIn(v, cards);
+                QVERIFY2(why.isEmpty(), qPrintable(QStringLiteral("%1 at %2x%3: %4").arg(QLatin1String(sc.name)).arg(sz.width()).arg(sz.height()).arg(why)));
+                auto *list = child<HitList>(v, "smHitList");
+                QVERIFY(list);
+                if (sc.snap.hits.size() > 1) {
+                    QVERIFY(list->isVisible());
+                    // Every hit after the headline is either drawn or counted.
+                    int drawn = 0;
+                    for (int i = 0; i < list->shownRows(); ++i) drawn += list->rows()[size_t(i)].count;
+                    const int total = int(sc.snap.hits.size()) - 1;
+                    if (list->shownRows() < int(list->rows().size())) {
+                        QVERIFY2(list->moreText().startsWith(QStringLiteral("+%1 more").arg(total - drawn)),
+                                 qPrintable(list->moreText()));
+                    } else {
+                        QCOMPARE(drawn, total);
+                        QVERIFY(list->moreText().isEmpty());
+                    }
+                }
+            }
+        }
+        // The standby card never reserves lines it doesn't use: a one-line
+        // note makes a shorter card than a two-line one, and the height it
+        // gives back goes to the cards below (a coming-up row, the hits).
+        ShowModeView a, b;
+        a.resize(1280, 720);
+        b.resize(1280, 720);
+        auto one = live();
+        one.standby->notes = QStringLiteral("GO on the thunder.");
+        a.setSnapshot(one);
+        b.setSnapshot(live());
+        settle(a);
+        settle(b);
+        QVERIFY(child<QWidget>(a, "smStandbyCard")->height() < child<QWidget>(b, "smStandbyCard")->height());
+        QVERIFY(child<QWidget>(a, "smComingCard")->height() + child<QWidget>(a, "smHitsCard")->height()
+                > child<QWidget>(b, "smComingCard")->height() + child<QWidget>(b, "smHitsCard")->height());
+    }
+
+    // The beat fill at 1280×720: the headline is Beat 1 and the list folds
+    // the rest into one row rather than cutting a stack of them off.
+    void beatFillFolds()
+    {
+        ShowModeView v;
+        v.resize(1280, 720);
+        v.setSnapshot(beatFill());
+        settle(v);
+        QCOMPARE(text(v, "smHitName"), QStringLiteral("Beat 1"));
+        auto *list = child<HitList>(v, "smHitList");
+        QCOMPARE(list->rows().size(), size_t(1));
+        QCOMPARE(list->shownRows(), 1);
+        QVERIFY(list->twoLine());
+        QVERIFY(list->moreText().isEmpty());
+        // 24 unalike hits: whatever fits, then "+N more in the next m:ss".
+        v.setSnapshot(longNames());
+        QTest::qWait(60);
+        QCOMPARE(list->rows().size(), size_t(23));   // 24 hits, one is the headline
+        QVERIFY(list->shownRows() >= 1);
+        QVERIFY(list->shownRows() < 23);
+        QVERIFY(!list->twoLine());
+        QVERIFY2(list->moreText().contains(QStringLiteral("in the next 0:")), qPrintable(list->moreText()));
+        QVERIFY(list->contentHeight() <= list->height());
+    }
+
+    // The dock, at a side (tall), a short side and the bottom: same rule.
+    void lightingPanelNothingCutOff()
+    {
+        const QStringList cards = {QStringLiteral("lpDeskBlock"), QStringLiteral("lpCueBlock"), QStringLiteral("lpHitsBlock")};
+        struct Scene { const char *name; ShowSnapshot snap; };
+        const Scene scenes[] = {
+            {"live", live()}, {"beat-fill", beatFill()}, {"long-names", longNames()},
+            {"paused-disarmed", pausedDisarmed()}, {"desk-failed", deskFailed()},
+        };
+        for (const auto &sc : scenes) {
+            for (const QSize sz : {QSize(300, 700), QSize(360, 500), QSize(1200, 260)}) {
+                LightingPanel p;
+                p.resize(sz);
+                p.setSnapshot(sc.snap);
+                settle(p);
+                const QString why = overflowIn(p, cards);
+                QVERIFY2(why.isEmpty(), qPrintable(QStringLiteral("%1 at %2x%3: %4").arg(QLatin1String(sc.name)).arg(sz.width()).arg(sz.height()).arg(why)));
+                auto *list = child<HitList>(p, "lpHitList");
+                QVERIFY(list);
+                if (sc.snap.hits.size() > 1) {
+                    QVERIFY(list->isVisible());
+                    QVERIFY(list->shownRows() >= 1 || !list->moreText().isEmpty());
+                }
+            }
+        }
+    }
+
     // Not an assertion: writes the design-check PNGs when asked to.
     void renderPngs()
     {
@@ -499,10 +747,11 @@ private slots:
         QDir().mkpath(dir);
         struct Scene { const char *name; ShowSnapshot snap; };
         const Scene scenes[] = {
-            {"live", live()}, {"end", endOfList()}, {"paused-disarmed", pausedDisarmed()}, {"desk-failed", deskFailed()},
+            {"live", live()}, {"beat-fill", beatFill()}, {"long-names", longNames()},
+            {"end", endOfList()}, {"paused-disarmed", pausedDisarmed()}, {"desk-failed", deskFailed()},
         };
         for (const auto &sc : scenes) {
-            for (const QSize sz : {QSize(1280, 720), QSize(1920, 1080), QSize(1024, 640)}) {
+            for (const QSize sz : {QSize(1280, 720), QSize(1100, 700), QSize(1920, 1080), QSize(1024, 640)}) {
                 ShowModeView v;
                 v.resize(sz);
                 v.setSnapshot(sc.snap);
@@ -511,7 +760,7 @@ private slots:
                 QTest::qWait(50);
                 v.grab().save(QStringLiteral("%1/show-%2-%3x%4.png").arg(dir, QLatin1String(sc.name)).arg(sz.width()).arg(sz.height()));
             }
-            for (const QSize sz : {QSize(300, 700), QSize(1200, 260)}) {
+            for (const QSize sz : {QSize(300, 700), QSize(360, 500), QSize(1200, 260)}) {
                 LightingPanel p;
                 p.resize(sz);
                 p.setSnapshot(sc.snap);
