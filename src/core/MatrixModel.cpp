@@ -81,6 +81,22 @@ QJsonObject DeskCue::toJson() const
     putIfSet(o, "follow", followSeconds);
     putIfSet(o, "hang", hangSeconds);
     if (partCount > 0) o.insert(QStringLiteral("parts"), partCount);
+    putIfSet(o, "upDelay", upDelaySeconds);
+    putIfSet(o, "focus", focusSeconds);
+    putIfSet(o, "colour", colourSeconds);
+    putIfSet(o, "beam", beamSeconds);
+    putIfSet(o, "link", link);
+    if (loop >= 0) o.insert(QStringLiteral("loop"), loop);
+    putIfSet(o, "mark", mark);
+    putIfSet(o, "block", block);
+    putIfSet(o, "assert", assertFlag);
+    if (allFade) o.insert(QStringLiteral("allFade"), true);
+    if (preheat) o.insert(QStringLiteral("preheat"), true);
+    if (!curve.isEmpty() && curve != QLatin1String("0")) o.insert(QStringLiteral("curve"), curve);
+    if (rate != 100) o.insert(QStringLiteral("rate"), rate);
+    putIfSet(o, "timecode", timecode);
+    if (!effects.isEmpty()) o.insert(QStringLiteral("effects"), QJsonArray::fromStringList(effects));
+    if (!actions.isEmpty()) o.insert(QStringLiteral("actions"), QJsonArray::fromStringList(actions));
     return o;
 }
 
@@ -100,6 +116,22 @@ DeskCue DeskCue::fromJson(const QJsonObject &o)
     c.followSeconds = secondsOr(o, "follow");
     c.hangSeconds = secondsOr(o, "hang");
     c.partCount = o.value(QStringLiteral("parts")).toInt();
+    c.upDelaySeconds = secondsOr(o, "upDelay");
+    c.focusSeconds = secondsOr(o, "focus");
+    c.colourSeconds = secondsOr(o, "colour");
+    c.beamSeconds = secondsOr(o, "beam");
+    c.link = o.value(QStringLiteral("link")).toString();
+    c.loop = o.value(QStringLiteral("loop")).toInt(-1);
+    c.mark = o.value(QStringLiteral("mark")).toString();
+    c.block = o.value(QStringLiteral("block")).toString();
+    c.assertFlag = o.value(QStringLiteral("assert")).toString();
+    c.allFade = o.value(QStringLiteral("allFade")).toBool();
+    c.preheat = o.value(QStringLiteral("preheat")).toBool();
+    c.curve = o.value(QStringLiteral("curve")).toString();
+    c.rate = o.value(QStringLiteral("rate")).toInt(100);
+    c.timecode = o.value(QStringLiteral("timecode")).toString();
+    for (const auto v : o.value(QStringLiteral("effects")).toArray()) c.effects << v.toString();
+    for (const auto v : o.value(QStringLiteral("actions")).toArray()) c.actions << v.toString();
     return c;
 }
 
@@ -151,6 +183,8 @@ QJsonObject Config::toJson() const
     if (!pl.isEmpty()) o.insert(QStringLiteral("placements"), pl);
     QJsonArray cache;
     for (const auto &c : deskCache) cache.append(c.toJson());
+    if (!collapsedScenes.isEmpty())
+        o.insert(QStringLiteral("collapsedScenes"), QJsonArray::fromStringList(collapsedScenes));
     if (!cache.isEmpty()) {
         o.insert(QStringLiteral("deskCache"), cache);
         if (deskCachedAt.isValid())
@@ -171,6 +205,8 @@ Config Config::fromJson(const QJsonObject &o)
         if (v.isObject()) c.deskCache.push_back(DeskCue::fromJson(v.toObject()));
     c.deskCachedAt = QDateTime::fromString(o.value(QStringLiteral("deskCachedAt")).toString(),
                                            Qt::ISODate);
+    for (const auto v : o.value(QStringLiteral("collapsedScenes")).toArray())
+        c.collapsedScenes << v.toString();
     return c;
 }
 
@@ -395,7 +431,74 @@ Result intermesh(const std::vector<QuewiCue> &quewi, const std::vector<DeskCue> 
         deskRows(hits[q], Row::Kind::Hit, int(q));
         deskRows(after[q + 1], Row::Kind::Desk, int(q));
     }
+    addScenes(r);
     return r;
+}
+
+bool isSceneEndText(const QString &scene)
+{
+    const QString s = scene.trimmed();
+    return s.compare(QLatin1String("End"), Qt::CaseInsensitive) == 0
+        || s.startsWith(QLatin1String("End of "), Qt::CaseInsensitive)
+        || s.startsWith(QLatin1String("End: "), Qt::CaseInsensitive)
+        || s.startsWith(QLatin1String("End - "), Qt::CaseInsensitive);
+}
+
+void addScenes(Result &r)
+{
+    // Pass 1: which row each scene starts and ends on.
+    struct Span { QString name; int from = -1, to = -1; QString first, last; };
+    std::vector<Span> spans;
+    int open = -1;                              // index into spans
+    for (size_t i = 0; i < r.rows.size(); ++i) {
+        for (const auto &c : r.rows[i].desk) {
+            if (c.missing) continue;
+            const QString text = c.cue.scene.trimmed();
+            const bool starts = !text.isEmpty() && !isSceneEndText(text);
+            const bool ends = c.cue.sceneEnd || (!text.isEmpty() && isSceneEndText(text));
+            if (starts) {
+                // A new scene: the open one (if any) ends on the row before.
+                if (open >= 0 && spans[size_t(open)].to < 0)
+                    spans[size_t(open)].to = int(i) - 1;
+                spans.push_back({text, int(i), -1, c.cue.number, c.cue.number});
+                open = int(spans.size()) - 1;
+            } else if (open >= 0 && spans[size_t(open)].to < 0) {
+                spans[size_t(open)].last = c.cue.number;
+            }
+            if (ends && open >= 0 && spans[size_t(open)].to < 0)
+                spans[size_t(open)].to = int(i);
+        }
+    }
+    if (open >= 0 && spans[size_t(open)].to < 0) spans[size_t(open)].to = int(r.rows.size()) - 1;
+    if (spans.empty()) return;
+
+    // Pass 2: rebuild the rows with a header in front of each scene.
+    std::vector<Row> out;
+    out.reserve(r.rows.size() + spans.size());
+    size_t s = 0;
+    for (size_t i = 0; i < r.rows.size(); ++i) {
+        while (s < spans.size() && spans[s].from == int(i)) {
+            Row h;
+            h.kind = Row::Kind::Scene;
+            h.quewiIndex = out.empty() ? -1 : out.back().quewiIndex;
+            h.scene = int(r.scenes.size());
+            Scene sc;
+            sc.name = spans[s].name;
+            sc.firstCue = spans[s].first;
+            sc.lastCue = spans[s].last;
+            sc.header = int(out.size());
+            sc.rows = std::max(0, spans[s].to - spans[s].from + 1);
+            r.scenes.push_back(sc);
+            out.push_back(std::move(h));
+            ++s;
+        }
+        Row row = std::move(r.rows[i]);
+        // The innermost scene that covers this row.
+        for (int k = int(r.scenes.size()) - 1; k >= 0; --k)
+            if (int(i) >= spans[size_t(k)].from && int(i) <= spans[size_t(k)].to) { row.scene = k; break; }
+        out.push_back(std::move(row));
+    }
+    r.rows = std::move(out);
 }
 
 } // namespace quewi::core::matrix

@@ -4,6 +4,7 @@
 #include <QDateTime>
 #include <QJsonObject>
 #include <QString>
+#include <QStringList>
 #include <QUuid>
 
 #include <vector>
@@ -52,9 +53,26 @@ struct DeskCue {
     bool    sceneEnd = false;   // the desk marks this cue as the end of its scene
     double  upSeconds = -1.0;   // < 0 = not set
     double  downSeconds = -1.0;
-    double  followSeconds = -1.0;
-    double  hangSeconds = -1.0;
+    double  followSeconds = -1.0;   // runs the next (or linked) cue this long after it starts
+    double  hangSeconds = -1.0;     // … or this long after it completes
     int     partCount = 0;
+    // The rest of what the desk records for a cue (details view). Strings
+    // are as the desk writes them; -1 / empty / false = not set.
+    double  upDelaySeconds = -1.0;
+    double  focusSeconds = -1.0, colourSeconds = -1.0, beamSeconds = -1.0;
+    QString link;               // "go to cue" link target ("3", "0.99"); empty = none
+    int     loop = -1;          // loop count; -1 = none
+    QString mark, block, assertFlag;   // Eos: "M", "b"/"B"/"I", "A"…
+    bool    allFade = false;
+    bool    preheat = false;
+    QString curve;              // "0" = default
+    int     rate = 100;         // %
+    QString timecode;
+    QStringList effects;        // effect numbers the cue runs
+    QStringList actions;        // external links / executes ("M1" = macro 1)
+
+    // Does it run on by itself into another cue?
+    bool autoRuns() const { return followSeconds >= 0.0 || hangSeconds >= 0.0; }
 
     QJsonObject toJson() const;
     static DeskCue fromJson(const QJsonObject &o);
@@ -106,6 +124,9 @@ struct Config {
     // desk connected (planning at home, a desk that's off).
     std::vector<DeskCue> deskCache;
     QDateTime deskCachedAt;
+    // Scenes folded shut on this page (by name). A view preference kept with
+    // the show; changing it doesn't mark the show unsaved.
+    QStringList collapsedScenes;
 
     QJsonObject toJson() const;
     // Unknown keys are ignored; a newer "version" still loads what it can.
@@ -135,10 +156,23 @@ struct Row {
         Quewi,      // a quewi cue (desk cues fired with it alongside)
         Hit,        // a desk cue hit part-way through the quewi cue above
         Desk,       // a desk cue on its own
+        Scene,      // a header: the desk's scene that starts on the next row
     };
     Kind  kind = Kind::Quewi;
-    int   quewiIndex = -1;      // Quewi: its cue; Hit: the song it's in; Desk: the cue it follows (-1 = top)
+    int   quewiIndex = -1;      // Quewi: its cue; Hit: the song it's in; Desk / Scene: the cue it follows (-1 = top)
     std::vector<DeskCell> desk; // the Lights lane (more lanes = more vectors, later)
+    int   scene = -1;           // index into Result::scenes of the scene this row is in (-1 = none)
+};
+
+// A scene on the desk: starts at a cue with a scene name and runs until the
+// next scene starts or a cue marks its end — Eos's Scene End flag, or (as
+// people often write it) a scene name beginning "End" ("End of Act 1"),
+// which closes the open scene on that cue.
+struct Scene {
+    QString name;
+    QString firstCue, lastCue;  // desk cue numbers it spans
+    int     header = -1;        // its header row
+    int     rows = 0;           // rows inside it (header not counted)
 };
 
 struct Result {
@@ -148,7 +182,13 @@ struct Result {
     struct Renumbered { int placement; QString number; int part; };
     std::vector<Renumbered> renumbered;
     std::vector<int> orphaned;  // placements whose quewi cue is gone (placed automatically)
+    std::vector<Scene> scenes;  // in order
 };
+
+// Insert the scene headers into `r` (intermesh() does this).
+void addScenes(Result &r);
+// Is this scene text an end marker ("End of Act 1", "End")?
+bool isSceneEndText(const QString &scene);
 
 // Build the rows. `desk` is the desk list's cues in the desk's order (parts
 // included); `deskKnown` = the desk list has been read (live or cached) — only

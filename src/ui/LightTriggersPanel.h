@@ -194,6 +194,16 @@ public:
     // editors' simple mode offers. Also done whenever the panel is shown.
     void refreshDesk();
 
+    // ── Record from desk ──────────────────────────────────────────────────
+    // The "● Record from desk" toggle (the editor does the recording) and its
+    // indicator: on/off, how many cues so far, the last one ("LX 8.4 at
+    // 0:12.40"), or why it can't record.
+    void setRecordingState(bool on, int count = 0, const QString &last = {});
+    void setRecordMessage(const QString &message);
+    // Keep a recorded take: adds the triggers in one undo step, grouped as
+    // `groupBase` ("Recorded", "Recorded 2"…), and selects them. Returns how many.
+    int  keepRecorded(const audio::LightTriggers &triggers, const QString &groupBase);
+
     // ── Beat grid (the strip under the desk line) ─────────────────────────
     // Every grid edit goes to the cue's "beatGrid" field through the undo
     // stack. Spin edits merge; a tap run, a Detect and Set-to-cursor are each
@@ -239,6 +249,7 @@ signals:
     void selectionChanged(const QUuid &id);               // the editor's trigger
     void selectionSetChanged(const QList<QUuid> &ids);    // the whole selection
     void deskSettingsRequested();                      // "Change…" next to the desk line
+    void recordToggled(bool on);                       // "● Record from desk"
     void snapToBeatsChanged(bool on);
     void tempoDetected(double bpm, double firstBeat, double confidence);
 
@@ -276,6 +287,8 @@ private:
     QSet<QUuid> m_flashing;
     QList<QUuid> m_rowIds;                   // table row → trigger id
 
+    QPushButton *m_recordBtn = nullptr;
+    QLabel      *m_recordStatus = nullptr;
     QLabel       *m_deskLabel = nullptr;
 
     // Beat grid strip

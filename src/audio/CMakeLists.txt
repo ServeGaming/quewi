@@ -15,6 +15,8 @@ add_library(quewi_audio STATIC
     Cuts.h
     Cuts.cpp
     BeatGrid.cpp
+    DeskRecording.h
+    DeskRecording.cpp
     DeskCommands.h
     DeskCommands.cpp
     Vbap.h

@@ -61,6 +61,14 @@ bool cueBefore(const EosCue &a, const EosCue &b)
     return a.part < b.part;
 }
 
+// A text field the desk may also send as a number: -1 (or a negative) = not set.
+QString flagText(const Message &m, size_t i)
+{
+    if (i < m.args.size())
+        if (const auto n = toNumber(m.args[i]); n && *n < 0) return {};
+    return argText(m, i).trimmed();
+}
+
 // One cue reply's arguments (see the header for the layout).
 void readCueArgs(EosCue &c, const Message &m)
 {
@@ -70,14 +78,22 @@ void readCueArgs(EosCue &c, const Message &m)
     c.upDelayMs = argInt(m, 4);
     c.downMs = argInt(m, 5);
     c.downDelayMs = argInt(m, 6);
-    c.mark = argText(m, 16);
-    c.block = argText(m, 17);
-    c.assert_ = argText(m, 18);
-    c.link = argText(m, 19);
+    c.mark = flagText(m, 16);
+    c.block = flagText(m, 17);
+    c.assert_ = flagText(m, 18);
+    c.link = flagText(m, 19);
     if (c.link == QLatin1String("0")) c.link.clear();     // no link
     c.followMs = argInt(m, 20);
     c.hangMs = argInt(m, 21);
-    c.timecode = argText(m, 25);
+    c.focusMs = argInt(m, 7);
+    c.colourMs = argInt(m, 9);
+    c.beamMs = argInt(m, 11);
+    c.preheat = argBool(m, 13);
+    c.curve = flagText(m, 14);
+    c.rate = m.args.size() > 15 ? argInt(m, 15) : 100;
+    c.allFade = argBool(m, 22);
+    c.loop = argInt(m, 23);
+    c.timecode = flagText(m, 25);
     c.partCount = std::max(0, argInt(m, 26));
     c.notes = argText(m, 27);
     c.scene = argText(m, 28);
@@ -103,7 +119,10 @@ bool EosCue::operator==(const EosCue &o) const
         && upMs == o.upMs && upDelayMs == o.upDelayMs && downMs == o.downMs
         && downDelayMs == o.downDelayMs && followMs == o.followMs && hangMs == o.hangMs
         && mark == o.mark && block == o.block && assert_ == o.assert_ && link == o.link
-        && partCount == o.partCount && timecode == o.timecode;
+        && partCount == o.partCount && timecode == o.timecode
+        && focusMs == o.focusMs && colourMs == o.colourMs && beamMs == o.beamMs
+        && preheat == o.preheat && allFade == o.allFade && curve == o.curve && rate == o.rate
+        && loop == o.loop && effects == o.effects && actions == o.actions;
 }
 
 QString normalEosNumber(const QString &n)
@@ -152,6 +171,15 @@ EosCueLists::EosCueLists(EosFeedback *link, QObject *parent)
             else
                 startPatch(l, it.value());
         }
+    });
+    m_extrasTimer = new QTimer(this);
+    m_extrasTimer->setSingleShot(true);
+    m_extrasTimer->setInterval(150);
+    connect(m_extrasTimer, &QTimer::timeout, this, [this] {
+        const auto lists = m_extrasDirty;
+        m_extrasDirty.clear();
+        for (const auto &l : lists)
+            if (m_cues.contains(l) && state(l) != State::Fetching) emit cuesChanged(l);
     });
     m_stallTimer = new QTimer(this);
     m_stallTimer->setInterval(m_stallMs / 4);
@@ -384,7 +412,14 @@ void EosCueLists::setState(const QString &list, Fetch &f, State s)
 
 QVector<EosCue> EosCueLists::cues(const QString &list) const
 {
-    return m_cues.value(normalEosNumber(list));
+    QVector<EosCue> out = m_cues.value(normalEosNumber(list));
+    for (auto &c : out) {
+        const auto it = m_extras.constFind(c.key());
+        if (it == m_extras.constEnd()) continue;
+        c.effects = it->first;
+        c.actions = it->second;
+    }
+    return out;
 }
 
 EosCueLists::State EosCueLists::state(const QString &list) const
@@ -519,6 +554,26 @@ void EosCueLists::handle(const Message &m)
     }
 
     const QString list = normalEosNumber(p[4]);
+    // A cue's effects / actions: /eos/out/get/cue/<l>/<c>/<p>/{fx,actions}/list/0/<n>,
+    // args [index, uid, items…]. (Seen on Nomad 3.3.9: fx → [i, uid, 903, 917],
+    // actions → [i, uid, "M1"].)
+    if (p.size() >= 10 && (p[7] == QLatin1String("fx") || p[7] == QLatin1String("actions"))
+        && p[8] == QLatin1String("list") && p[9] == QLatin1String("0") && m_watched.contains(list)) {
+        const QString key = QStringLiteral("%1/%2/%3").arg(list, normalEosNumber(p[5])).arg(p[6].toInt());
+        QStringList items;
+        for (size_t k = 2; k < m.args.size(); ++k) {
+            const QString t = argText(m, k).trimmed();
+            if (!t.isEmpty()) items << t;
+        }
+        auto &e = m_extras[key];
+        auto &slot = p[7] == QLatin1String("fx") ? e.first : e.second;
+        if (slot != items) {
+            slot = items;
+            m_extrasDirty.insert(list);
+            m_extrasTimer->start();
+        }
+        return;
+    }
     auto it = m_fetch.find(list);
     if (it == m_fetch.end() || it->state != State::Fetching) {
         // Not reading the whole list: maybe patching a few cues of it.

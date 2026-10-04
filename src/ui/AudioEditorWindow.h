@@ -3,6 +3,7 @@
 #include "audio/AudioCue.h"
 #include "audio/AudioEditorModel.h"
 #include "audio/AudioEditorRenderer.h"
+#include "audio/DeskRecording.h"
 #include "audio/LightTrigger.h"
 #include "ui/TimelineCanvas.h"
 #include "ui/EffectsRackWidget.h"
@@ -24,6 +25,8 @@ class QToolButton;
 class QUndoStack;
 namespace quewi::core { class Workspace; }
 
+namespace quewi::osc { class EosFeedback; }
+
 namespace quewi::ui {
 
 class LightTriggersPanel;
@@ -43,6 +46,8 @@ class LiveEffectDevice;
 //    use the show's, via setTriggerSupport — they're cue fields)
 //  • Lighting tab + marker lane: triggers that cue the desk from the song
 //  • State persisted in the cue's editorModel payload key
+class DeskTakeRecorder;
+
 class AudioEditorWindow : public QMainWindow {
     Q_OBJECT
 public:
@@ -54,6 +59,22 @@ public:
     void setTriggerSupport(core::Workspace *ws, QUndoStack *undo,
                            std::function<QStringList()> midiPorts);
     void showLightingTab();
+
+    // Record lighting triggers from the desk (the Lighting tab's and the
+    // toolbar's "● Record from desk"): reads the desk over `fb` (read-only).
+    void setDeskFeedback(osc::EosFeedback *fb);
+    // Starts the preview if it isn't playing. False (with the reason in the
+    // status bar and the Lighting tab) when the desk can't be read.
+    bool startRecordingFromDesk();
+    // Stops; with review, asks what to keep (the song stopping does this).
+    void stopRecordingFromDesk(bool review = true);
+    bool isRecordingFromDesk() const;
+    DeskTakeRecorder *deskRecorder() const { return m_recorder; }
+    // Tests: answer the "keep what was recorded?" question without a dialog.
+    // Returns true to keep; *snap = snap to the beat grid.
+    void setRecordReviewer(std::function<bool(const std::vector<audio::RecordedCue> &, bool snapAvailable,
+                                              bool *snap)> fn) { m_reviewer = std::move(fn); }
+    void reviewRecording();      // the question, now (normally after the song stops)
     // Re-reads the lighting desk in Preferences (after Preferences closes).
     void refreshLightingDesk();
 
@@ -139,6 +160,11 @@ private:
     QTabWidget        *m_bottomTabs  = nullptr;
     LightTriggersPanel *m_triggersPanel = nullptr;
     QToolButton       *m_sendTriggersBtn = nullptr;   // "Send while previewing"
+    QToolButton       *m_recordBtn = nullptr;         // "● Record from desk"
+    DeskTakeRecorder  *m_recorder = nullptr;
+    bool               m_restarting = false;          // startPlayback's own stop (loop / restart)
+    std::function<bool(const std::vector<audio::RecordedCue> &, bool, bool *)> m_reviewer;
+    void syncRecordUi();
     audio::TriggerTracker m_previewTracker;
     bool               m_previewTracking = false;
     QElapsedTimer      m_previewClock;                 // wall time between ticks

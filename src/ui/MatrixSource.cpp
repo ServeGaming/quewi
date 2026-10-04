@@ -155,6 +155,22 @@ m::DeskCue toDeskCue(const osc::EosCue &c)
     d.followSeconds = c.followMs >= 0 ? c.followMs / 1000.0 : -1.0;
     d.hangSeconds = c.hangMs >= 0 ? c.hangMs / 1000.0 : -1.0;
     d.partCount = c.partCount;
+    d.upDelaySeconds = c.upDelayMs > 0 ? c.upDelayMs / 1000.0 : -1.0;
+    d.focusSeconds = c.focusMs >= 0 ? c.focusMs / 1000.0 : -1.0;
+    d.colourSeconds = c.colourMs >= 0 ? c.colourMs / 1000.0 : -1.0;
+    d.beamSeconds = c.beamMs >= 0 ? c.beamMs / 1000.0 : -1.0;
+    d.link = c.link;
+    d.loop = c.loop;
+    d.mark = c.mark;
+    d.block = c.block;
+    d.assertFlag = c.assert_;
+    d.allFade = c.allFade;
+    d.preheat = c.preheat;
+    d.curve = c.curve;
+    d.rate = c.rate >= 0 ? c.rate : 100;
+    d.timecode = c.timecode;
+    d.effects = c.effects;
+    d.actions = c.actions;
     return d;
 }
 
@@ -243,6 +259,7 @@ QString rowKindKey(m::Row::Kind k)
     case m::Row::Kind::Quewi: return QStringLiteral("quewi");
     case m::Row::Kind::Hit:   return QStringLiteral("hit");
     case m::Row::Kind::Desk:  return QStringLiteral("desk");
+    case m::Row::Kind::Scene: return QStringLiteral("scene");
     }
     return {};
 }
@@ -258,6 +275,16 @@ QJsonObject matrixJson(const core::CueList *matrix, const MatrixBuild &b, const 
     for (int i = from; i < to; ++i) {
         const auto &r = b.result.rows[size_t(i)];
         QJsonObject o{{QStringLiteral("row"), i}, {QStringLiteral("kind"), rowKindKey(r.kind)}};
+        if (r.kind == m::Row::Kind::Scene && r.scene >= 0 && size_t(r.scene) < b.result.scenes.size()) {
+            const auto &sc = b.result.scenes[size_t(r.scene)];
+            o.insert(QStringLiteral("scene"), sc.name);
+            o.insert(QStringLiteral("firstCue"), sc.firstCue);
+            o.insert(QStringLiteral("lastCue"), sc.lastCue);
+            rows.append(o);
+            continue;
+        }
+        if (r.scene >= 0 && size_t(r.scene) < b.result.scenes.size())
+            o.insert(QStringLiteral("inScene"), b.result.scenes[size_t(r.scene)].name);
         if (r.quewiIndex >= 0 && r.kind != m::Row::Kind::Desk) {
             const auto &q = b.quewi[size_t(r.quewiIndex)];
             QJsonObject cue{{QStringLiteral("id"), q.id.toString()},
@@ -367,6 +394,53 @@ audio::TriggerAction goLightsAction(const GoLightsTarget &t)
     a.deskDo = audio::TriggerAction::DeskDo::GoToCue;
     a.number = t.number;
     a.list = std::max(1, t.list.toInt());
+    return a;
+}
+
+GoLightsTarget backLightsTarget(const MatrixBuild &b, const MatrixLive &live, bool eosDesk, bool linkLive)
+{
+    GoLightsTarget t;
+    t.list = b.deskList;
+    if (!eosDesk) {
+        t.reason = QObject::tr("Back needs an ETC Eos-family desk. Set one up in Tools → Lighting Desk…");
+        return t;
+    }
+    if (!linkLive) {
+        t.reason = QObject::tr("The desk isn't connected, so quewi can't tell which cue is running.");
+        return t;
+    }
+    if (live.deskActiveCue.isEmpty() || m::normalNumber(live.deskActiveList) != b.deskList) {
+        t.reason = QObject::tr("Nothing in desk cue list %1 is running.").arg(b.deskList);
+        return t;
+    }
+    const m::DeskCue *prev = nullptr;
+    for (const auto &c : b.deskCues) {
+        if (c.part != 0 || m::normalNumber(c.list) != b.deskList) continue;
+        if (osc::compareEosNumbers(c.number, live.deskActiveCue) >= 0) break;
+        prev = &c;
+    }
+    if (!prev) {
+        t.reason = QObject::tr("LX %1 is the first cue in desk cue list %2.").arg(live.deskActiveCue, b.deskList);
+        return t;
+    }
+    t.number = prev->number;
+    t.label = prev->label;
+    t.ok = true;
+    return t;
+}
+
+QString lightsStopReason(bool eosDesk, bool linkLive)
+{
+    if (!eosDesk) return QObject::tr("Stop needs an ETC Eos-family desk. Set one up in Tools → Lighting Desk…");
+    if (!linkLive) return QObject::tr("The desk isn't connected.");
+    return {};
+}
+
+audio::TriggerAction lightsStopAction()
+{
+    audio::TriggerAction a;
+    a.kind = audio::TriggerAction::Kind::Desk;
+    a.deskDo = audio::TriggerAction::DeskDo::Stop;
     return a;
 }
 

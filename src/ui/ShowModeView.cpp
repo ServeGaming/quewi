@@ -1226,6 +1226,19 @@ void ShowModeView::buildUi()
         // is the page you came from.
         m_goLights = button(m_transport, "smGoLights", tr("GO Lights"));
         m_goLights->hide();
+        m_lightsRow = new QWidget(m_transport);
+        {
+            auto *h = new QHBoxLayout(m_lightsRow);
+            h->setContentsMargins(0, 0, 0, 0);
+            h->setSpacing(6);
+            m_lightsBack = button(m_lightsRow, "smLightsBack", tr("◀ Back"));
+            m_lightsStop = button(m_lightsRow, "smLightsStop", tr("■ Stop"));
+            h->addWidget(m_lightsBack, 3);
+            h->addWidget(m_lightsStop, 2);
+        }
+        m_lightsRow->hide();
+        connect(m_lightsBack, &QPushButton::clicked, this, &ShowModeView::lightsBackPressed);
+        connect(m_lightsStop, &QPushButton::clicked, this, &ShowModeView::lightsStopPressed);
         m_pause = button(m_transport, "smPause", tr("Pause"));
         m_fadeAll = button(m_transport, "smFadeAll", tr("Fade All"));
         m_panic = button(m_transport, "smPanic", tr("PANIC"));
@@ -1236,6 +1249,7 @@ void ShowModeView::buildUi()
         connect(m_panic, &QPushButton::clicked, this, &ShowModeView::panicPressed);
         v->addWidget(m_go, 9);
         v->addWidget(m_goLights, 3);
+        v->addWidget(m_lightsRow, 2);
         v->addWidget(m_pause, 3);
         v->addWidget(m_fadeAll, 3);
         v->addStretch(2);              // PANIC sits apart: no accidental hit
@@ -1393,9 +1407,14 @@ void ShowModeView::applyScale()
                 "QPushButton#smGoLights { color:%1; background:%2; border:1px solid %3; border-radius:4px;"
                 "  font-size:%4px; font-weight:700; }"
                 "QPushButton#smGoLights:pressed { background:%3; color:%5; }"
-                "QPushButton#smGoLights:disabled { color:%6; background:transparent; border-color:%7; }")
+                "QPushButton#smGoLights:disabled { color:%6; background:transparent; border-color:%7; }"
+                "QPushButton#smLightsBack, QPushButton#smLightsStop { color:%8; background:transparent;"
+                "  border:1px solid %7; border-radius:4px; font-size:%9px; font-weight:600; }"
+                "QPushButton#smLightsBack:pressed, QPushButton#smLightsStop:pressed { background:%7; }"
+                "QPushButton#smLightsBack:disabled, QPushButton#smLightsStop:disabled { color:%6; }")
                   .arg(rc.desk.name(), rgba(rc.desk, 40), rc.desk.name(), QString::number(px(17, s)),
-                       tk.bgDeep.name(), tk.ink40.name(), tk.divider.name());
+                       tk.bgDeep.name(), tk.ink40.name(), tk.divider.name(), tk.ink60.name(),
+                       QString::number(px(13, s)));
         setStyleSheet(qss);
 
         // Geometry that QSS can't express.
@@ -1830,7 +1849,13 @@ void ShowModeView::renderTransport()
         m_goLights->setText(m_snap.lightsGo->text);
         m_goLights->setEnabled(m_snap.lightsGo->enabled);
         m_goLights->setToolTip(m_snap.lightsGo->reason);
+        m_lightsBack->setText(m_snap.lightsGo->backText.isEmpty() ? tr("◀ Back") : m_snap.lightsGo->backText);
+        m_lightsBack->setEnabled(m_snap.lightsGo->backEnabled);
+        m_lightsBack->setToolTip(m_snap.lightsGo->backReason);
+        m_lightsStop->setEnabled(m_snap.lightsGo->stopEnabled);
+        m_lightsStop->setToolTip(m_snap.lightsGo->stopReason);
     }
+    m_lightsRow->setVisible(m_snap.lightsGo.has_value());
     m_pause->setVisible(m_pauseAllowed);
     m_pause->setText(m_snap.paused ? tr("Resume") : tr("Pause"));
     m_pause->setEnabled(m_pauseAllowed && (m_snap.paused || !m_snap.running.empty()));

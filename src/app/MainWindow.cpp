@@ -201,6 +201,7 @@ MainWindow::MainWindow(QWidget *parent)
             [this](const QString &m) { statusBar()->showMessage(m, 2500); });
     registerOscApiV5();
     registerOscMatrix();
+    registerOscRecord();
     // Cross-list cue links: when any cue fires, fire its linked partner too.
     connect(m_goEngine.get(), &GoEngine::cueFired, this,
             [this](cues::Cue *c) { fireLinkedFor(c); });
@@ -295,6 +296,18 @@ MainWindow::MainWindow(QWidget *parent)
     connect(m_actGoLights, &QAction::triggered, this, &MainWindow::goLights);
     regAction("transport.golights", "GO Lights (Matrix List)", m_actGoLights,
               QKeySequence(QStringLiteral("Ctrl+Shift+G")));
+    m_actLightsBack = new QAction(tr("Lights Back"), this);
+    addAction(m_actLightsBack);
+    m_actLightsBack->setShortcutContext(Qt::WindowShortcut);
+    connect(m_actLightsBack, &QAction::triggered, this, &MainWindow::lightsBack);
+    regAction("transport.lightsback", "Lights Back (Matrix List)", m_actLightsBack,
+              QKeySequence(QStringLiteral("Ctrl+Shift+B")));
+    // Stop has no default key: a stray chord shouldn't stop the lights.
+    m_actLightsStop = new QAction(tr("Lights Stop"), this);
+    addAction(m_actLightsStop);
+    m_actLightsStop->setShortcutContext(Qt::WindowShortcut);
+    connect(m_actLightsStop, &QAction::triggered, this, &MainWindow::lightsStop);
+    regAction("transport.lightsstop", "Lights Stop (Matrix List)", m_actLightsStop, QKeySequence());
 
     buildLayout();
     buildMenus();
@@ -302,6 +315,8 @@ MainWindow::MainWindow(QWidget *parent)
     // The stage-manager screens drive the same actions as the transport.
     connect(m_showModeView, &ui::ShowModeView::goPressed, m_actGo, &QAction::trigger);
     connect(m_showModeView, &ui::ShowModeView::goLightsPressed, this, &MainWindow::goLights);
+    connect(m_showModeView, &ui::ShowModeView::lightsBackPressed, this, &MainWindow::lightsBack);
+    connect(m_showModeView, &ui::ShowModeView::lightsStopPressed, this, &MainWindow::lightsStop);
     connect(m_showModeView, &ui::ShowModeView::pausePressed, m_actPause, &QAction::trigger);
     connect(m_showModeView, &ui::ShowModeView::fadeAllPressed, m_actFadeAll, &QAction::trigger);
     connect(m_showModeView, &ui::ShowModeView::panicPressed, m_actPanic, &QAction::trigger);
@@ -1954,6 +1969,7 @@ ui::AudioEditorWindow *MainWindow::openAudioEditor(cues::Cue *cue)
     midi::MidiEngine *midi = m_midiEngine.get();
     editor->setTriggerSupport(m_workspace.get(), m_workspace->undoStack(),
         [midi] { return midi ? midi->outputPortNames() : QStringList(); });
+    editor->setDeskFeedback(m_eosFeedback);      // "● Record from desk" (read-only)
     QPointer<cues::Cue> ownerPtr(owner);
     connect(editor, &ui::AudioEditorWindow::testTriggerRequested, this,
             [this, ownerPtr](const audio::TriggerAction &a) {
@@ -3580,6 +3596,13 @@ ui::ShowSnapshot MainWindow::buildShowSnapshot() const
         g.text = t.ok ? tr("GO Lights  %1").arg(t.number) + (t.label.isEmpty() ? QString() : QStringLiteral("\n") + t.label)
                       : tr("GO Lights");
         g.reason = t.ok ? tr("Fire LX %1 on the desk (Ctrl+Shift+G)").arg(t.number) : t.reason;
+        const auto b = m_matrixView->backTarget();
+        g.backEnabled = b.ok;
+        g.backText = b.ok ? tr("◀ Back  %1").arg(b.number) : tr("◀ Back");
+        g.backReason = b.ok ? tr("Back to LX %1 %2 (Ctrl+Shift+B)").arg(b.number, b.label).trimmed() : b.reason;
+        g.stopReason = m_matrixView->stopReason();
+        g.stopEnabled = g.stopReason.isEmpty();
+        if (g.stopEnabled) g.stopReason = tr("Press the desk's Stop key");
         s.lightsGo = g;
     }
 

@@ -7,6 +7,7 @@
 #include <QString>
 #include <QStringList>
 #include <QVector>
+#include <QPair>
 
 #include <functional>
 
@@ -35,6 +36,13 @@ struct EosCue {
     QString mark, block, assert_, link;      // as the desk words them
     int     partCount = 0;
     QString timecode;
+    int     focusMs = -1, colourMs = -1, beamMs = -1;   // -1 = not set
+    bool    preheat = false, allFade = false;
+    QString curve;                           // "0" = default
+    int     rate = 100;
+    int     loop = -1;
+    QStringList effects;                     // from the cue's …/fx/list reply
+    QStringList actions;                     // from …/actions/list ("M1" = macro 1)
 
     QString key() const;                     // "1/12.5/0"
     QString displayNumber() const;           // "12.5", "12.5 P2"
@@ -167,6 +175,11 @@ private:
     void startPatch(const QString &list, const QSet<QString> &numbers);
     void finishPatchIfDone(const QString &list);
     QHash<QString, Patch> m_patch;
+    // Effects / actions of each cue, by key: they come in their own replies
+    // just after the cue's, and are merged in by cues().
+    QHash<QString, QPair<QStringList, QStringList>> m_extras;
+    QSet<QString> m_extrasDirty;            // lists whose extras changed after a read
+    QTimer *m_extrasTimer = nullptr;
     QHash<QString, QSet<QString>> m_notified;   // list → cue numbers ("*" = all)
 
     EosFeedback *m_link = nullptr;

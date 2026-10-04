@@ -1,5 +1,6 @@
 #pragma once
 
+#include "audio/DeskRecording.h"
 #include "audio/LightTrigger.h"
 #include "osc/OscMessage.h"
 
@@ -32,7 +33,7 @@ class QUrl;
 
 namespace quewi::core { class Workspace; class CueList; class CueListModel; }
 namespace quewi::cues { class Cue; }
-namespace quewi::ui   { class AudioEditorWindow; class VideoEditorWindow; class ActiveCuesPanel; class CartView; class MixView; class CueListView; class Inspector; class ShortcutManager; class TransportBar; class OscMonitor; class ScriptWindow; class ShowModeView; class LightingPanel; class MatrixView; }
+namespace quewi::ui   { class DeskTakeRecorder; class AudioEditorWindow; class VideoEditorWindow; class ActiveCuesPanel; class CartView; class MixView; class CueListView; class Inspector; class ShortcutManager; class TransportBar; class OscMonitor; class ScriptWindow; class ShowModeView; class LightingPanel; class MatrixView; }
 namespace quewi::osc  { class OscEngine; class EosFeedback; class EosCueLists; }
 namespace quewi::audio { class AudioEngine; class AudioCue; }
 namespace quewi::lighting { class LightingEngine; }
@@ -245,6 +246,15 @@ private:
     void registerOscApiV5();
     // The Matrix List's remote queries (MainWindowMatrix.cpp).
     void registerOscMatrix();
+    // Recording lighting triggers from the desk while a cue plays for real,
+    // for remotes: /quewi/cue/<n>/triggers/record start|stop|keep|discard.
+    void registerOscRecord();
+    void stopLiveRecord(bool notify);
+    ui::DeskTakeRecorder *m_liveRecorder = nullptr;
+    QPointer<cues::Cue>   m_liveRecordCue;
+    bool                  m_liveRecordHeard = false;   // its song has played since start
+    std::vector<audio::RecordedCue> m_liveTake;        // stopped, waiting for keep / discard
+    QTimer               *m_liveRecordWatch = nullptr;
     cues::Cue  *oscCueByNumber(double num) const;
     QJsonObject triggersReplyJson(cues::Cue *c) const;
     void        commitTriggers(cues::Cue *c, const audio::LightTriggers &next);
@@ -350,7 +360,11 @@ private:
     // GO Lights: fire the Matrix List's next desk cue (button, Show Mode,
     // Ctrl+Shift+G). Only does anything while the Matrix List is up.
     void goLights();
+    void lightsBack();          // the cue before the desk's LIVE one, in the matrix's list
+    void lightsStop();          // the desk's Stop key
     QAction *m_actGoLights = nullptr;
+    QAction *m_actLightsBack = nullptr;
+    QAction *m_actLightsStop = nullptr;
     // Wire a Matrix List view (the page, or a detached one) to the window.
     void wireMatrixView(ui::MatrixView *view);
     void onDeskCuesRead(const QString &deskList);

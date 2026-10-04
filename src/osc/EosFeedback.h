@@ -90,6 +90,11 @@ signals:
     // Every message the desk sends, after this class has read it (so a
     // sibling reader — EosCueLists — shares the one TCP connection).
     void messageReceived(const quewi::osc::Message &m);
+    // A cue just ran on the desk (someone pressed GO, Back, went to a cue…):
+    // from /eos/out/event/cue/<list>/<cue>/fire, or the active cue changing to
+    // another cue. Once per fire, never for the state the desk reports when
+    // the link comes up. (For recording lighting triggers from the desk.)
+    void cueFired(const QString &list, const QString &cue, const QString &label);
 
 private:
     void connectNow();
@@ -121,6 +126,10 @@ private:
     double     m_rate = 0.0;              // progress per second; 0 = unknown
     QString    m_showName;
     bool       m_blind = false;
+    bool       m_haveActive = false;      // the desk has said what's active since connecting
+    QString    m_lastFiredKey;
+    qint64     m_lastFiredMs = -100000;
+    void       fired(const QString &list, const QString &cue, const QString &label);
 };
 
 } // namespace quewi::osc

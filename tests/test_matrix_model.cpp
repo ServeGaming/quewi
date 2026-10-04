@@ -229,6 +229,64 @@ private slots:
         QVERIFY(Config::fromJson({}).placements.empty());
     }
 
+    // Desk scenes become header rows over the rows they cover — quewi rows
+    // inside them stay inside. A scene ends at the next scene, at a cue with
+    // Eos's Scene End flag, or at a scene name starting "End" ("End of …",
+    // how Matthew's show writes it).
+    void scenesHeadTheirRows()
+    {
+        std::vector<QuewiCue> quewi{q("1", "A", {fire("2")}), q("2", "B"), q("3", "C", {fire("9")})};
+        auto sc = [](const char *n, const char *scene, bool end = false) {
+            DeskCue c = d(n, "x");
+            c.scene = QString::fromLatin1(scene);
+            c.sceneEnd = end;
+            return c;
+        };
+        std::vector<DeskCue> desk{d("1", "pre"), sc("2", "Act 1"), d("3", "x"), sc("4", "End of Act 1"),
+                                  d("5", "between"), sc("6", "Act 2"), d("7", "x"), sc("8", "", true), d("9", "after")};
+        const auto r = intermesh(quewi, desk, Config{});
+        // Rows: LX1 | [Act 1] Q1[LX2] LX3 LX4 LX5? …
+        QStringList pic;
+        for (const auto &row : r.rows) {
+            if (row.kind == Row::Kind::Scene) { pic << QStringLiteral("[%1]").arg(r.scenes[size_t(row.scene)].name); continue; }
+            QString t = row.kind == Row::Kind::Quewi ? QStringLiteral("Q") + quewi[size_t(row.quewiIndex)].number : QString();
+            for (const auto &c : row.desk) t += QStringLiteral("LX") + c.cue.number;
+            if (row.scene >= 0) t += QLatin1Char('@') + r.scenes[size_t(row.scene)].name;
+            pic << t;
+        }
+        QCOMPARE(pic.join(QLatin1Char(' ')),
+                 QStringLiteral("LX1 [Act 1] Q1LX2@Act 1 LX3@Act 1 LX4@Act 1 LX5 [Act 2] LX6@Act 2 LX7@Act 2 LX8@Act 2 "
+                                "Q2 Q3LX9"));
+        QCOMPARE(r.scenes.size(), size_t(2));
+        QCOMPARE(r.scenes[0].firstCue, QStringLiteral("2"));
+        QCOMPARE(r.scenes[0].lastCue, QStringLiteral("4"));
+        QCOMPARE(r.scenes[0].rows, 3);
+        QCOMPARE(r.scenes[1].lastCue, QStringLiteral("8"));
+        QVERIFY(isSceneEndText(QStringLiteral("End of Trad. Hispanic")));
+        QVERIFY(!isSceneEndText(QStringLiteral("Endgame")));
+        // A scene with no end runs to the last row, and keeps quewi rows in it.
+        const auto r2 = intermesh(quewi, {sc("2", "Whole show"), d("9", "x")}, Config{});
+        QCOMPARE(r2.rows.front().kind, Row::Kind::Scene);
+        for (size_t i = 1; i < r2.rows.size(); ++i) QCOMPARE(r2.rows[i].scene, 0);
+        // The details a cue carries survive the show file.
+        DeskCue full = d("5", "Full");
+        full.link = QStringLiteral("0.99");
+        full.loop = 3;
+        full.followSeconds = 2.0;
+        full.block = QStringLiteral("b");
+        full.mark = QStringLiteral("M");
+        full.focusSeconds = 1.5;
+        full.effects = {QStringLiteral("903"), QStringLiteral("917")};
+        full.actions = {QStringLiteral("M1")};
+        full.rate = 120;
+        full.allFade = true;
+        QVERIFY(DeskCue::fromJson(full.toJson()) == full);
+        QVERIFY(full.autoRuns());
+        Config cfg;
+        cfg.collapsedScenes = {QStringLiteral("Act 1")};
+        QCOMPARE(Config::fromJson(cfg.toJson()).collapsedScenes, cfg.collapsedScenes);
+    }
+
     // A 300-row show stays quick (the view rebuilds on every edit).
     void bigShowIsQuick()
     {

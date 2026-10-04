@@ -84,6 +84,12 @@ struct ShowLightsGo {
     bool    enabled = false;
     QString text;               // "GO Lights  8.4  Back"
     QString reason;             // why it's disabled / what it will fire
+    // Back / Stop for the lights, beside it.
+    bool    backEnabled = false;
+    QString backText;           // "◀ Back  6"
+    QString backReason;
+    bool    stopEnabled = false;
+    QString stopReason;
 };
 
 struct ShowSnapshot {

@@ -11,6 +11,8 @@ add_library(quewi_ui STATIC
     MatrixSource.cpp
     MatrixView.h
     MatrixView.cpp
+    DeskTakeRecorder.h
+    DeskTakeRecorder.cpp
     ChannelEditorDialog.h
     ChannelEditorDialog.cpp
     DcaAssignDialog.h

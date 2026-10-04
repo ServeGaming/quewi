@@ -126,6 +126,8 @@ void EosFeedback::clearState()
     m_rate = 0.0;
     m_showName.clear();
     m_blind = false;
+    m_haveActive = false;
+    m_lastFiredKey.clear();
     if (had) emit stateChanged();
 }
 
@@ -230,8 +232,15 @@ void EosFeedback::handle(const Message &m)
     };
     if (a == QLatin1String("/eos/out/active/cue/text")) {
         const QString was = m_active.list + QLatin1Char('/') + m_active.cue;
+        const bool knew = m_haveActive;
         setText(m_active);
-        if (m_active.list + QLatin1Char('/') + m_active.cue != was) m_rate = 0.0;   // a new cue
+        m_haveActive = true;
+        if (m_active.list + QLatin1Char('/') + m_active.cue != was) {
+            m_rate = 0.0;                                          // a new cue
+            // A different cue is running now: it was fired. (Not the state
+            // the desk reports first thing after connecting.)
+            if (knew && !m_active.isEmpty()) fired(m_active.list, m_active.cue, m_active.label);
+        }
         if (m_active.percent >= 0 && m_active.percent / 100.0 != m_progress) {
             setProgress(m_active.percent / 100.0);
             changed = true;
@@ -253,12 +262,31 @@ void EosFeedback::handle(const Message &m)
             const bool blind = *v == 0.0;          // 0 = Blind, 1 = Live
             if (blind != m_blind) { m_blind = blind; changed = true; }
         }
+    } else if (a.startsWith(QLatin1String("/eos/out/event/cue/")) && a.endsWith(QLatin1String("/fire"))) {
+        // /eos/out/event/cue/<list>/<cue>/fire — the desk's own "cue fired".
+        const QStringList p = a.split(QLatin1Char('/'), Qt::SkipEmptyParts);
+        if (p.size() >= 7) {
+            const QString label = (p[4] == m_active.list && p[5] == m_active.cue) ? m_active.label : QString();
+            fired(p[4], p[5], label);
+        }
     } else if (a == QLatin1String("/eos/out/blind") || a == QLatin1String("/eos/out/live")) {
         const bool blind = a.endsWith(QLatin1String("blind"));
         if (blind != m_blind) { m_blind = blind; changed = true; }
     }
     if (changed) emit stateChanged();
     emit messageReceived(m);
+}
+
+void EosFeedback::fired(const QString &list, const QString &cue, const QString &label)
+{
+    // The desk can say it twice (the event and the active cue changing):
+    // once per cue within a second.
+    const QString key = list + QLatin1Char('/') + cue;
+    const qint64 t = now();
+    if (key == m_lastFiredKey && t - m_lastFiredMs < 1000) return;
+    m_lastFiredKey = key;
+    m_lastFiredMs = t;
+    emit cueFired(list, cue, label);
 }
 
 bool EosFeedback::isConnected() const

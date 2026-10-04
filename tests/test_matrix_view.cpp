@@ -28,7 +28,18 @@
 #include "ui/MatrixSource.h"
 #include "ui/MatrixView.h"
 #include "ui/ShowModeView.h"
+#include "ui/SmoothScroll.h"
 #include "ui/Theme.h"
+
+#include <QCheckBox>
+#include <QHeaderView>
+#include <QScopeGuard>
+#include <QSettings>
+
+#include <functional>
+#include <QScrollBar>
+#include <QStandardItemModel>
+#include <QWheelEvent>
 
 #include <QDir>
 
@@ -234,7 +245,8 @@ private slots:
                           QStringLiteral("6.5"), QStringLiteral("7"), QStringLiteral("8"), QStringLiteral("9")});
         QTRY_VERIFY(view.statusText().startsWith(QStringLiteral("Live from the desk")));
         const QStringList lights = column(view.model(), ui::MatrixTableModel::ColLights);
-        QCOMPARE(lights, (QStringList{QStringLiteral("LX 1  Look 1"),       // before anything: top
+        QCOMPARE(lights, (QStringList{QString(),                            // the scene "Prologue" starts
+                                      QStringLiteral("LX 1  Look 1"),       // before anything: top
                                       QStringLiteral("LX 5  Look 5"),       // with the song's GO
                                       QStringLiteral("LX 6  Look 6"),       // hit at 0:30
                                       QStringLiteral("LX 6.5  Look 6.5"),   // follows LX 6
@@ -243,10 +255,13 @@ private slots:
                                       QStringLiteral("LX 8  Look 8"),       // follows 7
                                       QStringLiteral("LX 9  Look 9")}));    // MSC
         const QStringList cue = column(view.model(), ui::MatrixTableModel::ColCue);
-        QVERIFY(cue[2].contains(QStringLiteral("0:30")));
-        QVERIFY(cue[2].contains(QStringLiteral("Chorus")));
-        QVERIFY(column(view.model(), ui::MatrixTableModel::ColNotes)[0].contains(QStringLiteral("Prologue")));
-        QCOMPARE(column(view.model(), ui::MatrixTableModel::ColTime)[1], QStringLiteral("4"));
+        QVERIFY(cue[3].contains(QStringLiteral("0:30")));
+        QVERIFY(cue[3].contains(QStringLiteral("Chorus")));
+        // The desk's scene heads the rows it covers (here: everything after it).
+        QCOMPARE(view.model()->data(view.model()->index(0, 0), ui::MatrixTableModel::KindRole).toInt(),
+                 int(m::Row::Kind::Scene));
+        QVERIFY(column(view.model(), ui::MatrixTableModel::ColState)[0].contains(QStringLiteral("Prologue")));
+        QCOMPARE(column(view.model(), ui::MatrixTableModel::ColTime)[2], QStringLiteral("4"));
 
         // The desk's cues are kept with the show for next time (not an edit).
         QCOMPARE(s.matrix->matrixConfig().deskCache.size(), size_t(7));
@@ -256,7 +271,7 @@ private slots:
         auto memo2 = std::make_unique<cues::MemoCue>();
         memo2->setField(QStringLiteral("number"), 5.0);
         s.main->insertCue(4, std::move(memo2));
-        QTRY_COMPARE(view.model()->rowCount(), 9);
+        QTRY_COMPARE(view.model()->rowCount(), 10);
     }
 
     void dragPlacesADeskCue()
@@ -620,6 +635,229 @@ private slots:
         QVERIFY(summary->text().contains(QStringLiteral("Main")));
         QVERIFY(summary->text().contains(QStringLiteral("Live from")));
         QVERIFY(summary->text().contains(QStringLiteral("127.0.0.1")));
+    }
+
+    // Back and Stop for the lights: Back fires the cue before the desk's
+    // LIVE one in the matrix's list (/eos/cue/<l>/<c>/fire), Stop presses the
+    // desk's Stop key (/eos/key/stop 1.0, then 0.0) — exactly that, to a
+    // desk on UDP. Never fired on a row click.
+    void lightsBackAndStopSendExactly()
+    {
+        Show s;
+        build(s);
+        FakeDeskLink desk;
+        QVERIFY(desk.start());
+        osc::EosCueLists reader(&desk.fb);
+        ui::MatrixView view;
+        view.setWorkspace(&s.ws);
+        view.setDesk(&reader, &desk.fb);
+        view.setCueList(s.matrix);
+        auto *back = view.findChild<QPushButton *>(QStringLiteral("matrixLightsBack"));
+        auto *stop = view.findChild<QPushButton *>(QStringLiteral("matrixLightsStop"));
+        QVERIFY(back && stop);
+        QVERIFY(!back->isEnabled() && !stop->isEnabled());   // not live yet
+        desk.say("/eos/out/active/cue/text", QStringLiteral("1/6.5 Look 6.5 4.00 100%"));
+        desk.say("/eos/out/pending/cue/text", QStringLiteral("1/7 Look 7 4.00 0%"));
+        QTRY_COMPARE(desk.fb.active().cue, QStringLiteral("6.5"));
+        feedDesk(reader, {QStringLiteral("5"), QStringLiteral("6"), QStringLiteral("6.5"), QStringLiteral("7")});
+        view.rebuildNow();
+        view.pollLive();
+        QVERIFY(back->isEnabled());
+        QVERIFY(stop->isEnabled());
+        const auto bt = view.backTarget();
+        QVERIFY(bt.ok);
+        QCOMPARE(bt.number, QStringLiteral("6"));
+        QVERIFY(back->text().contains(QStringLiteral("6")));
+        QSignalSpy backSpy(&view, &ui::MatrixView::lightsBackRequested);
+        QSignalSpy stopSpy(&view, &ui::MatrixView::lightsStopRequested);
+        emit view.table()->clicked(view.model()->index(1, 1));
+        QCOMPARE(backSpy.count() + stopSpy.count(), 0);
+        back->click();
+        stop->click();
+        QCOMPARE(backSpy.count(), 1);
+        QCOMPARE(stopSpy.count(), 1);
+
+        QUdpSocket udpDesk;
+        QVERIFY(udpDesk.bind(QHostAddress::LocalHost, 0));
+        osc::OscEngine oscEngine;
+        GoEngine engine;
+        engine.setOscEngine(&oscEngine);
+        core::LightingDesk ld;
+        ld.type = core::LightingDesk::Type::Eos;
+        ld.host = QStringLiteral("127.0.0.1");
+        ld.port = udpDesk.localPort();
+        auto next = [&udpDesk]() -> osc::Message {
+            if (!QTest::qWaitFor([&] { return udpDesk.hasPendingDatagrams(); }, 2000)) return {};
+            QByteArray d(int(udpDesk.pendingDatagramSize()), Qt::Uninitialized);
+            udpDesk.readDatagram(d.data(), d.size());
+            const auto el = osc::Codec::decode(d);
+            return el ? std::get<osc::Message>(*el) : osc::Message{};
+        };
+        QVERIFY(engine.sendDeskAction(ui::goLightsAction(bt), ld));
+        auto m1 = next();
+        QCOMPARE(m1.address, QStringLiteral("/eos/cue/1/6/fire"));
+        QVERIFY(m1.args.empty());
+        QVERIFY(engine.sendDeskAction(ui::lightsStopAction(), ld));
+        auto press = next();
+        QCOMPARE(press.address, QStringLiteral("/eos/key/stop"));
+        QCOMPARE(osc::firstNumber(press).value_or(-1), 1.0);
+        auto release = next();
+        QCOMPARE(release.address, QStringLiteral("/eos/key/stop"));
+        QCOMPARE(osc::firstNumber(release).value_or(-1), 0.0);
+        QTest::qWait(100);
+        QVERIFY(!udpDesk.hasPendingDatagrams());
+
+        // Back at the first cue, or with the desk on another list: disabled, and why.
+        ui::MatrixLive l;
+        l.deskActiveList = QStringLiteral("1");
+        l.deskActiveCue = QStringLiteral("5");
+        QVERIFY(ui::backLightsTarget(view.build(), l, true, true).reason.contains(QStringLiteral("first cue")));
+        l.deskActiveList = QStringLiteral("2");
+        QVERIFY(ui::backLightsTarget(view.build(), l, true, true).reason.contains(QStringLiteral("Nothing")));
+        QVERIFY(!ui::lightsStopReason(true, false).isEmpty());
+    }
+
+    // Links and follows read inline; Details opens the whole record for every
+    // row or one row; auto-follow chains are joined by a line; scenes fold.
+    void detailsChainsAndScenes()
+    {
+        Show s;
+        build(s);
+        osc::EosCueLists reader(nullptr);
+        reader.setSender([](const osc::Message &) {});
+        ui::MatrixView view;
+        view.setWorkspace(&s.ws);
+        view.setDesk(&reader, nullptr);
+        view.setCueList(s.matrix);
+        // Desk: 5 (Act 1 starts) follows on in 2 s → 6; 6 links to 9; 8 ends the scene.
+        reader.handle({QStringLiteral("/eos/out/get/cue/1/count"), {osc::Argument::i(5)}});
+        auto cue = [&reader](int i, const char *n, std::function<void(std::vector<osc::Argument> &)> fill) {
+            std::vector<osc::Argument> a(31, osc::Argument::i(-1));
+            a[0] = osc::Argument::i(i);
+            a[1] = osc::Argument::s(QStringLiteral("uid-") + QString::fromLatin1(n));
+            a[2] = osc::Argument::s(QStringLiteral("Look ") + QString::fromLatin1(n));
+            a[3] = osc::Argument::i(3000);
+            for (int k : {16, 17, 18, 25, 27, 28}) a[size_t(k)] = osc::Argument::s(QString());
+            a[19] = osc::Argument::i(0);
+            a[29] = osc::Argument::F();
+            fill(a);
+            reader.handle({QStringLiteral("/eos/out/get/cue/1/%1/0/list/0/31").arg(QString::fromLatin1(n)), a});
+        };
+        cue(0, "5", [](auto &a) { a[20] = osc::Argument::i(2000); a[28] = osc::Argument::s(QStringLiteral("Act 1")); });
+        cue(1, "6", [](auto &a) { a[19] = osc::Argument::s(QStringLiteral("9")); a[17] = osc::Argument::s(QStringLiteral("b")); });
+        cue(2, "7", [](auto &a) { a[16] = osc::Argument::s(QStringLiteral("M")); a[7] = osc::Argument::i(1500); });
+        cue(3, "8", [](auto &a) { a[28] = osc::Argument::s(QStringLiteral("End of Act 1")); });
+        cue(4, "9", [](auto &) {});
+        view.rebuildNow();
+        auto *model = view.model();
+        const auto &b = view.build();
+        const int r5 = b.rowOfDesk(QStringLiteral("1"), QStringLiteral("5"));
+        const int r6 = b.rowOfDesk(QStringLiteral("1"), QStringLiteral("6"));
+        const int r7 = b.rowOfDesk(QStringLiteral("1"), QStringLiteral("7"));
+        const QString l5 = model->data(model->index(r5, ui::MatrixTableModel::ColLights)).toString();
+        QVERIFY2(l5.contains(QStringLiteral("runs on to the next cue in 2 s")), qPrintable(l5));
+        const QString l6 = model->data(model->index(r6, ui::MatrixTableModel::ColLights)).toString();
+        QVERIFY(l6.contains(QStringLiteral("links to LX 9")));
+        QVERIFY(l6.contains(QStringLiteral("[B]")));
+        // The follow chain: 5 → 6 joined (5 bottom, 6 top); rows between pass through.
+        const int c5 = model->data(model->index(r5, 0), ui::MatrixTableModel::ChainRole).toInt();
+        const int c6 = model->data(model->index(r6, 0), ui::MatrixTableModel::ChainRole).toInt();
+        QVERIFY(c5 & ui::MatrixTableModel::ChainBottom);
+        QVERIFY(c6 & ui::MatrixTableModel::ChainTop);
+        for (int r = r5 + 1; r < r6; ++r)
+            QCOMPARE(model->data(model->index(r, 0), ui::MatrixTableModel::ChainRole).toInt()
+                         & (ui::MatrixTableModel::ChainTop | ui::MatrixTableModel::ChainBottom),
+                     ui::MatrixTableModel::ChainTop | ui::MatrixTableModel::ChainBottom);
+        // Details: off by default — the mark and focus time aren't shown…
+        // (The toggle is remembered in the user's real settings: put it back.)
+        QSettings settings(QStringLiteral("ServeGaming"), QStringLiteral("quewi"));
+        const QVariant wasDetails = settings.value(QStringLiteral("matrix/details"));
+        auto restore = qScopeGuard([&] {
+            if (wasDetails.isValid()) settings.setValue(QStringLiteral("matrix/details"), wasDetails);
+            else settings.remove(QStringLiteral("matrix/details"));
+        });
+        auto *details = view.findChild<QCheckBox *>(QStringLiteral("matrixDetails"));
+        details->setChecked(false);
+        QVERIFY(!model->data(model->index(r7, ui::MatrixTableModel::ColLights)).toString().contains(QStringLiteral("Mark")));
+        // …one row opened (right-click → Show this row's details)…
+        model->toggleRowDetails(r7);
+        QString l7 = model->data(model->index(r7, ui::MatrixTableModel::ColLights)).toString();
+        QVERIFY(l7.contains(QStringLiteral("Mark (M)")));
+        QVERIFY(l7.contains(QStringLiteral("Focus 1.5")));
+        QVERIFY(!model->data(model->index(r6, ui::MatrixTableModel::ColLights)).toString().contains(QStringLiteral("Up 3")));
+        // …or all of them.
+        // (a lighting row on its own opens with a double-click)
+        const int r8 = b.rowOfDesk(QStringLiteral("1"), QStringLiteral("8"));
+        emit view.table()->doubleClicked(model->index(r8, ui::MatrixTableModel::ColLights));
+        QVERIFY(model->rowDetailsOpen(r8));
+        details->setChecked(true);
+        QVERIFY(model->data(model->index(r6, ui::MatrixTableModel::ColLights)).toString().contains(QStringLiteral("Up 3")));
+        details->setChecked(false);
+
+        // The scene: a heading, folded and opened by clicking it; kept with
+        // the show without marking it unsaved.
+        QCOMPARE(b.result.scenes.size(), size_t(1));
+        const int head = b.result.scenes[0].header;
+        QCOMPARE(model->data(model->index(head, 0), ui::MatrixTableModel::KindRole).toInt(), int(m::Row::Kind::Scene));
+        QVERIFY(model->data(model->index(head, 0)).toString().contains(QStringLiteral("Act 1")));
+        s.ws.markClean();
+        emit view.table()->clicked(model->index(head, 0));
+        QVERIFY(view.table()->isRowHidden(r6));
+        QVERIFY(!view.table()->isRowHidden(head));
+        QCOMPARE(s.matrix->matrixConfig().collapsedScenes, QStringList{QStringLiteral("Act 1")});
+        QVERIFY(!s.ws.isDirty());
+        view.rebuildNow();                                   // survives a rebuild
+        QVERIFY(view.table()->isRowHidden(view.build().rowOfDesk(QStringLiteral("1"), QStringLiteral("6"))));
+        view.setAllScenesCollapsed(false);
+        QVERIFY(!view.table()->isRowHidden(r6));
+        // Remotes see the scene too.
+        const auto j = ui::matrixJson(s.matrix, view.build(), {});
+        QCOMPARE(j.value(QStringLiteral("rows")).toArray()[head].toObject().value(QStringLiteral("scene")).toString(),
+                 QStringLiteral("Act 1"));
+    }
+
+    // One wheel notch moves about three rows, not sixty: per-item views count
+    // rows, the matrix asks for three of its (tall) rows, touchpads move by
+    // their pixels.
+    void wheelMovesAFewRows()
+    {
+        QStandardItemModel items(200, 3);
+        QTableView perItem;
+        perItem.setModel(&items);
+        perItem.setAttribute(Qt::WA_DontShowOnScreen);
+        perItem.resize(400, 300);
+        perItem.show();
+        QVERIFY(QTest::qWaitForWindowExposed(&perItem) || true);
+        QCOMPARE(perItem.verticalScrollMode(), QAbstractItemView::ScrollPerItem);
+        QCOMPARE(ui::SmoothScroll::stepFor(&perItem, {}, QPoint(0, -120)), 3);     // one notch down
+        QCOMPARE(ui::SmoothScroll::stepFor(&perItem, {}, QPoint(0, 240)), -6);
+        perItem.verticalHeader()->setDefaultSectionSize(30);
+        QCOMPARE(ui::SmoothScroll::stepFor(&perItem, QPoint(0, -60), {}), 2);      // 60 px of 30 px rows
+
+        QTableView perPixel;
+        perPixel.setModel(&items);
+        perPixel.setVerticalScrollMode(QAbstractItemView::ScrollPerPixel);
+        perPixel.verticalHeader()->setDefaultSectionSize(50);
+        perPixel.setProperty("smoothScrollRows", 3);
+        perPixel.setAttribute(Qt::WA_DontShowOnScreen);
+        perPixel.resize(400, 300);
+        perPixel.show();
+        QTest::qWait(50);
+        QCOMPARE(ui::SmoothScroll::stepFor(&perPixel, {}, QPoint(0, -120)), 150);   // 3 rows of 50 px
+        QCOMPARE(ui::SmoothScroll::stepFor(&perPixel, QPoint(0, -17), {}), 17);    // touchpad pixels
+
+        // The real thing: a notch through the event filter, after the glide.
+        ui::SmoothScroll::install(qApp);
+        perPixel.verticalScrollBar()->setValue(0);
+        QWheelEvent wheel(QPointF(100, 100), perPixel.viewport()->mapToGlobal(QPointF(100, 100)), QPoint(),
+                          QPoint(0, -120), Qt::NoButton, Qt::NoModifier, Qt::NoScrollPhase, false);
+        QApplication::sendEvent(perPixel.viewport(), &wheel);
+        QTRY_COMPARE(perPixel.verticalScrollBar()->value(), 150);
+
+        // And the matrix's own table asks for three rows.
+        ui::MatrixView view;
+        QCOMPARE(view.table()->property("smoothScrollRows").toInt(), 3);
+        QCOMPARE(view.table()->verticalScrollMode(), QAbstractItemView::ScrollPerPixel);
     }
 
     // Nothing to show: the page says what to do, not an empty grid.

@@ -24,6 +24,8 @@
 #include <QMimeData>
 #include <QPainter>
 #include <QPushButton>
+#include <QScrollBar>
+#include <QSettings>
 #include <QStackedWidget>
 #include <QTableView>
 #include <QTimer>
@@ -82,6 +84,66 @@ QString cellTime(const m::DeskCell &c)
     return t;
 }
 
+// What the desk cue does by itself, inline: follow / hang chains, links,
+// loops, and the B / A badges. Empty when nothing.
+QString flagsText(const m::DeskCell &c)
+{
+    QStringList f;
+    const auto &d = c.cue;
+    const QString next = d.link.isEmpty() ? MatrixTableModel::tr("the next cue")
+                                          : MatrixTableModel::tr("LX %1").arg(d.link);
+    if (d.followSeconds >= 0.0)
+        f << MatrixTableModel::tr("→ runs on to %1 in %2 s").arg(next, secondsText(d.followSeconds));
+    else if (d.hangSeconds >= 0.0)
+        f << MatrixTableModel::tr("→ runs on to %1 %2 s after it ends").arg(next, secondsText(d.hangSeconds));
+    if (!d.link.isEmpty()) f << MatrixTableModel::tr("↪ links to LX %1").arg(d.link);
+    if (d.loop > 0) f << MatrixTableModel::tr("⟲ loops ×%1").arg(d.loop);
+    else if (d.loop == 0) f << MatrixTableModel::tr("⟲ loops");
+    if (!d.block.isEmpty()) f << QStringLiteral("[%1]").arg(d.block.toUpper() == QLatin1String("B")
+                                                         ? QStringLiteral("B") : d.block.toUpper());
+    if (!d.assertFlag.isEmpty()) f << QStringLiteral("[A]");
+    return f.join(QStringLiteral("   "));
+}
+
+// Everything else the desk records for a cue (the Details view).
+QString detailsText(const m::DeskCell &c)
+{
+    const auto &d = c.cue;
+    QStringList t;
+    auto add = [&t](const QString &name, double s) {
+        if (s >= 0.0) t << MatrixTableModel::tr("%1 %2").arg(name, secondsText(s));
+    };
+    add(MatrixTableModel::tr("Up"), d.upSeconds);
+    add(MatrixTableModel::tr("delay"), d.upDelaySeconds);
+    add(MatrixTableModel::tr("Down"), d.downSeconds);
+    add(MatrixTableModel::tr("Focus"), d.focusSeconds);
+    add(MatrixTableModel::tr("Colour"), d.colourSeconds);
+    add(MatrixTableModel::tr("Beam"), d.beamSeconds);
+    add(MatrixTableModel::tr("Follow"), d.followSeconds);
+    add(MatrixTableModel::tr("Hang"), d.hangSeconds);
+    QStringList flags;
+    if (!d.mark.isEmpty()) flags << MatrixTableModel::tr("Mark (%1)").arg(d.mark);
+    if (!d.block.isEmpty()) flags << MatrixTableModel::tr("Block (%1)").arg(d.block);
+    if (!d.assertFlag.isEmpty()) flags << MatrixTableModel::tr("Assert (%1)").arg(d.assertFlag);
+    if (d.allFade) flags << MatrixTableModel::tr("All fade");
+    if (d.preheat) flags << MatrixTableModel::tr("Preheat");
+    if (!d.curve.isEmpty() && d.curve != QLatin1String("0")) flags << MatrixTableModel::tr("Curve %1").arg(d.curve);
+    if (d.rate != 100) flags << MatrixTableModel::tr("Rate %1 %").arg(d.rate);
+    if (!d.timecode.isEmpty()) flags << MatrixTableModel::tr("Timecode %1").arg(d.timecode);
+    if (d.partCount > 0) flags << MatrixTableModel::tr("%1 parts").arg(d.partCount);
+    if (!d.effects.isEmpty()) flags << MatrixTableModel::tr("Effects %1").arg(d.effects.join(QStringLiteral(", ")));
+    if (!d.actions.isEmpty()) flags << MatrixTableModel::tr("Runs %1").arg(d.actions.join(QStringLiteral(", ")));
+    if (!d.scene.isEmpty()) flags << (d.sceneEnd ? MatrixTableModel::tr("Scene ends: %1") : MatrixTableModel::tr("Scene: %1")).arg(d.scene);
+    QString out = t.join(QStringLiteral(" · "));
+    if (!flags.isEmpty()) out += (out.isEmpty() ? QString() : QStringLiteral("\n")) + flags.join(QStringLiteral(" · "));
+    return out.isEmpty() ? MatrixTableModel::tr("(nothing else recorded)") : out;
+}
+
+QString deskKey(const m::DeskCue &c)
+{
+    return QStringLiteral("%1/%2/%3").arg(m::normalNumber(c.list), m::normalNumber(c.number)).arg(c.part);
+}
+
 // The "how it's lined up" line for one lighting cue.
 QString placedText(const m::DeskCell &c, const QString &q)
 {
@@ -125,7 +187,91 @@ void MatrixTableModel::setBuild(const MatrixBuild &b)
 {
     beginResetModel();
     m_build = b;
+    computeChains();
     endResetModel();
+}
+
+void MatrixTableModel::computeChains()
+{
+    // A desk cue with a follow or hang runs on by itself into the next cue
+    // of the list (or the one it links to): join their rows with a line.
+    const auto &rows = m_build.result.rows;
+    m_chain.assign(rows.size(), 0);
+    QHash<QString, int> rowOf;                  // desk cue number → first row
+    for (size_t r = 0; r < rows.size(); ++r)
+        for (const auto &c : rows[r].desk)
+            if (!c.missing && c.cue.part == 0 && !rowOf.contains(m::normalNumber(c.cue.number)))
+                rowOf.insert(m::normalNumber(c.cue.number), int(r));
+    std::vector<const m::DeskCue *> order;      // the desk list's cues, in order
+    for (const auto &c : m_build.deskCues)
+        if (c.part == 0) order.push_back(&c);
+    for (size_t i = 0; i < order.size(); ++i) {
+        const auto &c = *order[i];
+        if (!c.autoRuns()) continue;
+        const QString target = !c.link.isEmpty() ? m::normalNumber(c.link)
+                             : (i + 1 < order.size() ? m::normalNumber(order[i + 1]->number) : QString());
+        const int a = rowOf.value(m::normalNumber(c.number), -1);
+        const int b = rowOf.value(target, -1);
+        if (a < 0 || b < 0 || b <= a) continue;  // backwards links: shown as text only
+        m_chain[size_t(a)] |= ChainBottom | ChainMember;
+        m_chain[size_t(b)] |= ChainTop | ChainMember;
+        for (int r = a + 1; r < b; ++r) m_chain[size_t(r)] |= ChainTop | ChainBottom;
+    }
+}
+
+void MatrixTableModel::setDetails(bool on)
+{
+    if (on == m_details) return;
+    beginResetModel();
+    m_details = on;
+    endResetModel();
+}
+
+bool MatrixTableModel::rowDetailsOpen(int row) const
+{
+    if (row < 0 || row >= rowCount()) return false;
+    for (const auto &c : m_build.result.rows[size_t(row)].desk)
+        if (m_open.contains(deskKey(c.cue))) return true;
+    return false;
+}
+
+void MatrixTableModel::toggleRowDetails(int row)
+{
+    if (row < 0 || row >= rowCount()) return;
+    const auto &desk = m_build.result.rows[size_t(row)].desk;
+    if (desk.empty()) return;
+    const bool open = rowDetailsOpen(row);
+    for (const auto &c : desk) {
+        if (open) m_open.remove(deskKey(c.cue));
+        else m_open.insert(deskKey(c.cue));
+    }
+    emit dataChanged(index(row, 0), index(row, ColCount - 1));
+    emit layoutChanged();                       // the row's height changes
+}
+
+void MatrixTableModel::setCollapsedScenes(const QStringList &names)
+{
+    m_collapsed = names;
+    for (int r = 0; r < rowCount(); ++r)
+        if (m_build.result.rows[size_t(r)].kind == m::Row::Kind::Scene)
+            emit dataChanged(index(r, 0), index(r, ColCount - 1));
+}
+
+QString MatrixTableModel::lightsText(int r) const
+{
+    const auto &row = m_build.result.rows[size_t(r)];
+    const bool details = m_details || rowDetailsOpen(r);
+    QStringList lines;
+    for (const auto &c : row.desk) {
+        lines << cellLine(c);
+        if (c.missing) continue;
+        const QString f = flagsText(c);
+        if (!f.isEmpty()) lines << QStringLiteral("    ") + f;
+        if (details)
+            for (const auto &l : detailsText(c).split(QLatin1Char('\n')))
+                lines << QStringLiteral("    ") + l;
+    }
+    return lines.join(QLatin1Char('\n'));
 }
 
 void MatrixTableModel::setLive(const MatrixLive &live)
@@ -245,8 +391,32 @@ QVariant MatrixTableModel::data(const QModelIndex &index, int role) const
     bool linked = false;
     for (const auto &c : row.desk) linked |= c.how == m::How::Manual;
 
+    if (row.kind == m::Row::Kind::Scene) {
+        const m::Scene *sc = row.scene >= 0 && size_t(row.scene) < m_build.result.scenes.size()
+                                 ? &m_build.result.scenes[size_t(row.scene)] : nullptr;
+        const bool shut = sc && m_collapsed.contains(sc->name);
+        switch (role) {
+        case KindRole:  return int(row.kind);
+        case SceneRole: return row.scene;
+        case Qt::DisplayRole:
+            if (index.column() != 0 || !sc) return {};
+            return tr("%1   SCENE  %2      LX %3 – %4  ·  %5")
+                .arg(shut ? QStringLiteral("▸") : QStringLiteral("▾"), sc->name, sc->firstCue, sc->lastCue,
+                     sc->rows == 1 ? tr("1 row") : tr("%1 rows").arg(sc->rows));
+        case Qt::ToolTipRole:
+            return sc ? tr("Desk scene \"%1\": LX %2 to %3. Click to %4 it.")
+                            .arg(sc->name, sc->firstCue, sc->lastCue, shut ? tr("open") : tr("fold"))
+                      : QVariant();
+        case Qt::ForegroundRole: return tk.ink100;
+        case Qt::FontRole: { QFont f; f.setBold(true); return f; }
+        default: return {};
+        }
+    }
+
     switch (role) {
     case KindRole:   return int(row.kind);
+    case ChainRole:  return size_t(index.row()) < m_chain.size() ? m_chain[size_t(index.row())] : 0;
+    case SceneRole:  return -1;
     case EdgeRole:   { const QColor c = rowEdge(index.row()); return c.isValid() ? QVariant(c) : QVariant(); }
     case LinkedRole: return linked;
     case Qt::BackgroundRole: {
@@ -335,11 +505,8 @@ QVariant MatrixTableModel::data(const QModelIndex &index, int role) const
             return t;
         }
         return QString();
-    case ColLights: {
-        QStringList lines;
-        for (const auto &c : row.desk) lines << cellLine(c);
-        return lines.join(QLatin1Char('\n'));
-    }
+    case ColLights:
+        return lightsText(index.row());
     case ColTime: {
         QStringList lines;
         for (const auto &c : row.desk) lines << cellTime(c);
@@ -353,11 +520,8 @@ QVariant MatrixTableModel::data(const QModelIndex &index, int role) const
     case ColNotes: {
         QStringList parts;
         if (q && row.kind == m::Row::Kind::Quewi && !q->notes.isEmpty()) parts << q->notes.simplified();
-        for (const auto &c : row.desk) {
-            if (!c.cue.scene.isEmpty())
-                parts << (c.cue.sceneEnd ? tr("Scene ends: %1") : tr("Scene: %1")).arg(c.cue.scene);
+        for (const auto &c : row.desk)
             if (!c.cue.notes.isEmpty()) parts << c.cue.notes.simplified();
-        }
         return parts.join(QStringLiteral("  ·  "));
     }
     }
@@ -371,6 +535,7 @@ Qt::ItemFlags MatrixTableModel::flags(const QModelIndex &index) const
     if (!index.isValid()) return f | Qt::ItemIsDropEnabled;
     f |= Qt::ItemIsDropEnabled;
     const auto &row = m_build.result.rows[size_t(index.row())];
+    if (row.kind == m::Row::Kind::Scene) return f;
     if (!row.desk.empty() || row.kind == m::Row::Kind::Quewi) f |= Qt::ItemIsDragEnabled;
     return f;
 }
@@ -445,6 +610,10 @@ std::vector<m::DeskCue> MatrixTableModel::lightsAt(int row, QString *why) const
         return {};
     }
     const auto &r = m_build.result.rows[size_t(row)];
+    if (r.kind == m::Row::Kind::Scene) {
+        if (why) *why = tr("That's a scene heading. Drop a quewi cue onto a lighting cue's row to line them up.");
+        return {};
+    }
     if (r.kind == m::Row::Kind::Quewi) {
         if (why) *why = tr("quewi's cue order is GO order, so the matrix won't move quewi cues. "
                            "Drop it onto a lighting cue's row instead, or reorder cues in the cue list.");
@@ -566,6 +735,22 @@ void MatrixTableModel::unlink(const std::vector<m::DeskCue> &cues)
 
 void MatrixRowDelegate::paint(QPainter *p, const QStyleOptionViewItem &opt, const QModelIndex &index) const
 {
+    const auto &tk = Theme::tokens();
+    const auto rc = showRegionColours();
+    if (index.data(MatrixTableModel::KindRole).toInt() == int(m::Row::Kind::Scene)) {
+        // A scene: a band across the table, like the desk's own cue list.
+        const QRect r = opt.rect;
+        p->fillRect(r, showMix(tk.bgPanel, tk.bgDeep, 0.65));
+        p->fillRect(QRect(r.left(), r.top(), r.width(), 2), showMix(tk.bgPanel, rc.desk, 0.6));
+        QFont f = opt.font;
+        f.setBold(true);
+        f.setLetterSpacing(QFont::PercentageSpacing, 104);
+        p->setFont(f);
+        p->setPen(tk.ink100);
+        p->drawText(r.adjusted(14, 2, -10, 0), Qt::AlignVCenter | Qt::AlignLeft,
+                    index.data(Qt::DisplayRole).toString());
+        return;
+    }
     QStyleOptionViewItem o(opt);
     initStyleOption(&o, index);
     // The row tint fills the whole row, selected or not, so the region colour
@@ -582,7 +767,28 @@ void MatrixRowDelegate::paint(QPainter *p, const QStyleOptionViewItem &opt, cons
         o.backgroundBrush = Qt::NoBrush;
     }
     o.rect.adjust(4, 0, -2, 0);             // breathing room either side
+    const bool lightsCol = index.column() == MatrixTableModel::ColLights;
+    if (lightsCol) o.rect.adjust(14, 0, 0, 0);   // room for the follow line
     QStyledItemDelegate::paint(p, o, index);
+    // Auto-follow chains: a line joining cues that run on from each other.
+    if (lightsCol) {
+        const int bits = index.data(MatrixTableModel::ChainRole).toInt();
+        if (bits) {
+            const QColor line = rc.desk;
+            const int x = opt.rect.left() + 9;
+            const int mid = opt.rect.top() + std::min(opt.rect.height() / 2, 19);
+            if (bits & MatrixTableModel::ChainTop) p->fillRect(QRect(x - 1, opt.rect.top(), 2, mid - opt.rect.top()), line);
+            if (bits & MatrixTableModel::ChainBottom) p->fillRect(QRect(x - 1, mid, 2, opt.rect.bottom() - mid + 1), line);
+            if (bits & MatrixTableModel::ChainMember) {
+                p->save();
+                p->setRenderHint(QPainter::Antialiasing);
+                p->setPen(Qt::NoPen);
+                p->setBrush(line);
+                p->drawEllipse(QPointF(x, mid), 3.5, 3.5);
+                p->restore();
+            }
+        }
+    }
     // The region colour down the left edge of the row (like Show Mode's cards).
     if (index.column() == 0) {
         const QVariant edge = index.data(MatrixTableModel::EdgeRole);
@@ -593,7 +799,10 @@ void MatrixRowDelegate::paint(QPainter *p, const QStyleOptionViewItem &opt, cons
 
 QSize MatrixRowDelegate::sizeHint(const QStyleOptionViewItem &opt, const QModelIndex &index) const
 {
+    if (index.data(MatrixTableModel::KindRole).toInt() == int(m::Row::Kind::Scene))
+        return QSize(40, 34);
     QSize s = QStyledItemDelegate::sizeHint(opt, index);
+    if (index.column() == MatrixTableModel::ColLights) s.rwidth() += 14;
     s.rheight() = std::max(s.height() + 12, 38);
     s.rwidth() += 12;
     return s;
@@ -626,19 +835,36 @@ MatrixView::MatrixView(QWidget *parent) : QWidget(parent)
     headText->addWidget(m_summary);
     head->addLayout(headText, 1);
 
+    // The lights' transport: GO Lights (the obvious one), then Back and Stop,
+    // smaller and neutral, on their own line below it.
     auto *goCol = new QVBoxLayout;
-    goCol->setSpacing(3);
+    goCol->setSpacing(5);
     m_goLights = new QPushButton(tr("GO Lights"), this);
     m_goLights->setObjectName(QStringLiteral("matrixGoLights"));
     m_goLights->setFocusPolicy(Qt::NoFocus);      // Space stays quewi's GO
     m_goLights->setCursor(Qt::PointingHandCursor);
-    m_goLights->setMinimumWidth(240);
+    m_goLights->setFixedWidth(300);
     goCol->addWidget(m_goLights);
+    auto *small = new QHBoxLayout;
+    small->setSpacing(6);
+    m_lightsBack = new QPushButton(tr("◀ Back"), this);
+    m_lightsBack->setObjectName(QStringLiteral("matrixLightsBack"));
+    m_lightsBack->setFocusPolicy(Qt::NoFocus);
+    m_lightsStop = new QPushButton(tr("■ Stop"), this);
+    m_lightsStop->setObjectName(QStringLiteral("matrixLightsStop"));
+    m_lightsStop->setFocusPolicy(Qt::NoFocus);
+    m_lightsStop->setFixedWidth(92);
+    small->addWidget(m_lightsBack, 1);
+    small->addWidget(m_lightsStop, 0);
+    goCol->addLayout(small);
     m_goLightsHint = new QLabel(this);
     m_goLightsHint->setObjectName(QStringLiteral("matrixGoLightsHint"));
     m_goLightsHint->setAlignment(Qt::AlignCenter);
+    m_goLightsHint->setWordWrap(true);
+    m_goLightsHint->setFixedWidth(300);
     goCol->addWidget(m_goLightsHint);
     head->addLayout(goCol, 0);
+    head->setAlignment(goCol, Qt::AlignTop);
     root->addLayout(head);
 
     // ── Settings ──
@@ -668,6 +894,20 @@ MatrixView::MatrixView(QWidget *parent) : QWidget(parent)
     m_refresh->setObjectName(QStringLiteral("matrixRefresh"));
     m_refresh->setToolTip(tr("Ask the desk for this cue list again (quewi also re-reads cues the desk says changed)."));
     bar->addWidget(m_refresh);
+    bar->addSpacing(12);
+    m_details = new QCheckBox(tr("Details"), this);
+    m_details->setObjectName(QStringLiteral("matrixDetails"));
+    m_details->setToolTip(tr("Show everything the desk records for each lighting cue (times, mark, block, "
+                             "effects, macros…). Double-click one lighting row to open just that one."));
+    bar->addWidget(m_details);
+    m_collapseAll = new QPushButton(tr("Fold scenes"), this);
+    m_collapseAll->setObjectName(QStringLiteral("matrixCollapseAll"));
+    m_collapseAll->setToolTip(tr("Fold every desk scene down to its heading. Click a heading to open it."));
+    bar->addWidget(m_collapseAll);
+    m_expandAll = new QPushButton(tr("Open scenes"), this);
+    m_expandAll->setObjectName(QStringLiteral("matrixExpandAll"));
+    m_expandAll->setToolTip(tr("Open every desk scene."));
+    bar->addWidget(m_expandAll);
     bar->addStretch(1);
     m_follow = new QCheckBox(tr("Follow the show"), this);
     m_follow->setObjectName(QStringLiteral("matrixFollow"));
@@ -723,6 +963,11 @@ MatrixView::MatrixView(QWidget *parent) : QWidget(parent)
     m_table->setShowGrid(false);
     m_table->setAlternatingRowColors(false);
     m_table->setContextMenuPolicy(Qt::CustomContextMenu);
+    // Per-pixel, three rows a wheel notch (the app's SmoothScroll glides it;
+    // per-item it moved ~60 rows a notch). Touchpads scroll by their pixels.
+    m_table->setVerticalScrollMode(QAbstractItemView::ScrollPerPixel);
+    m_table->setProperty("smoothScrollRows", 3);
+    m_table->verticalScrollBar()->setSingleStep(20);
     m_table->verticalHeader()->setVisible(false);
     m_table->verticalHeader()->setSectionResizeMode(QHeaderView::ResizeToContents);
     m_table->verticalHeader()->setMinimumSectionSize(38);
@@ -792,9 +1037,30 @@ MatrixView::MatrixView(QWidget *parent) : QWidget(parent)
         const auto &row = build().result.rows[size_t(i.row())];
         if (row.kind == m::Row::Kind::Quewi && row.quewiIndex >= 0)
             emit standbyRequested(build().quewi[size_t(row.quewiIndex)].id);
+        else if (!row.desk.empty())
+            m_model->toggleRowDetails(i.row());
     });
     connect(m_table, &QWidget::customContextMenuRequested, this, &MatrixView::contextMenuAt);
     connect(m_goLights, &QPushButton::clicked, this, &MatrixView::goLightsRequested);
+    connect(m_lightsBack, &QPushButton::clicked, this, &MatrixView::lightsBackRequested);
+    connect(m_lightsStop, &QPushButton::clicked, this, &MatrixView::lightsStopRequested);
+    {
+        QSettings s(QStringLiteral("ServeGaming"), QStringLiteral("quewi"));
+        m_details->setChecked(s.value(QStringLiteral("matrix/details"), false).toBool());
+        m_model->setDetails(m_details->isChecked());
+    }
+    connect(m_details, &QCheckBox::toggled, this, [this](bool on) {
+        m_model->setDetails(on);
+        QSettings(QStringLiteral("ServeGaming"), QStringLiteral("quewi")).setValue(QStringLiteral("matrix/details"), on);
+        applyCollapse();
+    });
+    connect(m_collapseAll, &QPushButton::clicked, this, [this] { setAllScenesCollapsed(true); });
+    connect(m_expandAll, &QPushButton::clicked, this, [this] { setAllScenesCollapsed(false); });
+    connect(m_table, &QTableView::clicked, this, [this](const QModelIndex &i) {
+        if (!i.isValid()) return;
+        const int sc = i.data(MatrixTableModel::SceneRole).toInt();
+        if (sc >= 0) toggleScene(sc);
+    });
     connect(m_source, &QComboBox::activated, this, [this](int i) {
         if (m_updatingCombos) return;
         const QUuid id = m_source->itemData(i).toUuid();
@@ -860,7 +1126,8 @@ void MatrixView::restyle()
         "  font-size:17px; font-weight:700; letter-spacing:0.03em; padding:10px 18px; min-height:40px; }"
         "QPushButton#matrixGoLights:pressed { background:%9; }"
         "QPushButton#matrixGoLights:disabled { background:%3; color:%10; border-color:%4; }"
-        "QLabel#matrixGoLightsHint { color:%10; font-size:11px; }")
+        "QLabel#matrixGoLightsHint { color:%10; font-size:11px; }"
+        "QPushButton#matrixLightsBack, QPushButton#matrixLightsStop { font-size:12px; padding:4px 10px; min-height:22px; }")
         .arg(tk.ink100.name(), tk.ink60.name(), tk.bgPanel.name(), tk.divider.name(),
              showMix(tk.bgPanel, tk.warn, 0.14).name(), showMix(tk.bgPanel, tk.warn, 0.55).name(),
              rc.desk.name(), tk.bgDeep.name(), tk.accentSoft.name())
@@ -1047,6 +1314,7 @@ void MatrixView::rebuildNow()
             keep = build().quewi[size_t(row.quewiIndex)].id;
     }
     m_model->setBuild(b);
+    applyCollapse();
     if (!keep.isNull()) {
         const int r = b.rowOfQuewi(keep);
         if (r >= 0) m_table->setCurrentIndex(m_model->index(r, MatrixTableModel::ColCue));
@@ -1211,18 +1479,56 @@ GoLightsTarget MatrixView::goLightsTarget() const
     return ui::goLightsTarget(build(), m_model->live(), m_eosDesk, live);
 }
 
+GoLightsTarget MatrixView::backTarget() const
+{
+    const bool live = m_feedback && m_feedback->link() == osc::EosFeedback::Link::Live;
+    // Back is about what the DESK is running, not the GO Lights target.
+    MatrixLive l = m_model->live();
+    if (m_feedback) {
+        l.deskActiveList = m_feedback->active().list;
+        l.deskActiveCue = m_feedback->active().cue;
+    }
+    return ui::backLightsTarget(build(), l, m_eosDesk, live);
+}
+
+QString MatrixView::stopReason() const
+{
+    const bool live = m_feedback && m_feedback->link() == osc::EosFeedback::Link::Live;
+    return ui::lightsStopReason(m_eosDesk, live);
+}
+
 void MatrixView::updateGoLights()
 {
     const auto t = goLightsTarget();
-    m_goLights->setText(t.buttonText());
+    // Never cut off: a long label is shortened to fit, the full one is in the tooltip.
+    {
+        const QFontMetrics fm(m_goLights->font());
+        m_goLights->setText(fm.elidedText(t.buttonText(), Qt::ElideRight, m_goLights->width() - 36));
+    }
+    const auto bt = backTarget();
+    {
+        QString text = bt.ok ? tr("◀ Back  %1").arg(bt.number) + (bt.label.isEmpty() ? QString() : QStringLiteral("  ") + bt.label)
+                             : tr("◀ Back");
+        const QFontMetrics fm(m_lightsBack->font());
+        m_lightsBack->setText(fm.elidedText(text, Qt::ElideRight, std::max(60, m_lightsBack->width() - 24)));
+        m_lightsBack->setEnabled(bt.ok && m_list);
+        m_lightsBack->setToolTip(bt.ok ? tr("Go back to LX %1%2 in desk cue list %3 (fires it with its own time). "
+                                            "Ctrl+Shift+B does the same.")
+                                             .arg(bt.number, bt.label.isEmpty() ? QString() : QStringLiteral(" ") + bt.label, bt.list)
+                                       : bt.reason);
+    }
+    const QString stopWhy = stopReason();
+    m_lightsStop->setEnabled(stopWhy.isEmpty() && m_list);
+    m_lightsStop->setToolTip(stopWhy.isEmpty() ? tr("Press the desk's Stop key: stops the running lighting cue "
+                                                    "on the desk's main playback. (No shortcut, so it can't be hit by accident; "
+                                                    "you can give it one in Tools → Shortcuts.)")
+                                               : stopWhy);
     m_goLights->setEnabled(t.ok && m_list);
     const QString list = m_list ? m::normalNumber(m_list->matrixConfig().deskList) : QString();
     m_goLights->setToolTip(t.ok ? tr("Fire LX %1%2 on the desk now (desk cue list %3). Ctrl+Shift+G does the same.")
                                       .arg(t.number, t.label.isEmpty() ? QString() : QStringLiteral(" ") + t.label, list)
                                 : t.reason);
     m_goLightsHint->setText(t.ok ? tr("Ctrl+Shift+G  ·  desk cue list %1").arg(list) : t.reason);
-    m_goLightsHint->setWordWrap(!t.ok);
-    m_goLightsHint->setMaximumWidth(std::max(240, m_goLights->width()));
 }
 
 void MatrixView::pollLive()
@@ -1256,6 +1562,9 @@ void MatrixView::pollLive()
 void MatrixView::followTo(int row)
 {
     if (!m_follow->isChecked() || row < 0 || row >= m_model->rowCount()) return;
+    // Inside a folded scene: its heading is what's on screen.
+    const int sc = build().result.rows[size_t(row)].scene;
+    if (sc >= 0 && m_table->isRowHidden(row)) row = build().result.scenes[size_t(sc)].header;
     m_table->scrollTo(m_model->index(row, MatrixTableModel::ColCue), QAbstractItemView::PositionAtCenter);
 }
 
@@ -1344,6 +1653,11 @@ void MatrixView::contextMenuAt(const QPoint &pos)
             if (!m_locked)
                 menu.addAction(tr("Line up Q%1 with a lighting cue…").arg(q), this, [this, id] { pickLightsFor(id); });
         }
+        if (!row.desk.empty()) {
+            const int r = i.row();
+            menu.addAction(m_model->rowDetailsOpen(r) ? tr("Hide this row's details") : tr("Show this row's details"),
+                           this, [this, r] { m_model->toggleRowDetails(r); });
+        }
         if (!m_locked) {
             for (const auto &c : row.desk) {
                 const auto cue = c.cue;
@@ -1361,6 +1675,62 @@ void MatrixView::contextMenuAt(const QPoint &pos)
     auto *again = menu.addAction(tr("Read the desk again"), m_refresh, &QPushButton::click);
     again->setEnabled(m_reader != nullptr);
     menu.exec(m_table->viewport()->mapToGlobal(pos));
+}
+
+bool MatrixView::sceneCollapsed(int scene) const
+{
+    if (!m_list || scene < 0 || size_t(scene) >= build().result.scenes.size()) return false;
+    return m_list->matrixConfig().collapsedScenes.contains(build().result.scenes[size_t(scene)].name);
+}
+
+void MatrixView::saveCollapsed(const QStringList &names)
+{
+    if (!m_list) return;
+    auto cfg = m_list->matrixConfig();
+    if (cfg.collapsedScenes == names) return;
+    cfg.collapsedScenes = names;
+    QSignalBlocker block(m_list);              // a view preference: no "unsaved", no rebuild
+    m_list->setMatrixConfig(cfg);
+    applyCollapse();
+}
+
+void MatrixView::toggleScene(int scene)
+{
+    if (!m_list || scene < 0 || size_t(scene) >= build().result.scenes.size()) return;
+    QStringList names = m_list->matrixConfig().collapsedScenes;
+    const QString n = build().result.scenes[size_t(scene)].name;
+    if (names.contains(n)) names.removeAll(n);
+    else names << n;
+    saveCollapsed(names);
+}
+
+void MatrixView::setAllScenesCollapsed(bool collapsed)
+{
+    QStringList names;
+    if (collapsed)
+        for (const auto &s : build().result.scenes) names << s.name;
+    saveCollapsed(names);
+}
+
+void MatrixView::applyCollapse()
+{
+    const auto &b = build();
+    const QStringList shut = m_list ? m_list->matrixConfig().collapsedScenes : QStringList();
+    m_model->setCollapsedScenes(shut);
+    m_table->clearSpans();
+    for (size_t r = 0; r < b.result.rows.size(); ++r) {
+        const auto &row = b.result.rows[r];
+        if (row.kind == m::Row::Kind::Scene) {
+            m_table->setSpan(int(r), 0, 1, MatrixTableModel::ColCount);
+            m_table->setRowHidden(int(r), false);
+            continue;
+        }
+        const bool hide = row.scene >= 0 && shut.contains(b.result.scenes[size_t(row.scene)].name);
+        m_table->setRowHidden(int(r), hide);
+    }
+    const bool any = !b.result.scenes.empty();
+    m_collapseAll->setVisible(any);
+    m_expandAll->setVisible(any);
 }
 
 void MatrixView::showEvent(QShowEvent *e)

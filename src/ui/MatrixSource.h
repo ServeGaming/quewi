@@ -106,4 +106,16 @@ GoLightsTarget goLightsTarget(const MatrixBuild &b, const MatrixLive &live,
 // The desk action GO Lights sends (a simple-mode "Go to cue").
 audio::TriggerAction goLightsAction(const GoLightsTarget &t);
 
+// BACK for the lights: the cue before the desk's LIVE cue in this matrix's
+// desk list, fired explicitly (/eos/cue/<list>/<cue>/fire) — that works on any
+// cue list, where the desk's Back key only steps the main playback. Note it
+// runs with that cue's own timing, not the desk's back time. Disabled with a
+// reason when nothing in this list is running, or it's the first cue.
+GoLightsTarget backLightsTarget(const MatrixBuild &b, const MatrixLive &live,
+                                bool eosDesk, bool linkLive);
+// STOP for the lights: the desk's Stop key (press + release), which stops the
+// running cue(s) on its main playback. Empty reason = can be sent.
+QString lightsStopReason(bool eosDesk, bool linkLive);
+audio::TriggerAction lightsStopAction();
+
 } // namespace quewi::ui

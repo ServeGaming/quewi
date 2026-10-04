@@ -26,7 +26,11 @@
 #include "osc/EosFeedback.h"
 #include "osc/OscEngine.h"
 #include "ui/CueListView.h"
+#include "audio/AudioCue.h"
+#include "audio/AudioEngine.h"
+#include "ui/DeskTakeRecorder.h"
 #include "ui/LightingDeskDialog.h"
+#include "video/VideoCue.h"
 #include "ui/MatrixView.h"
 
 #include <QDateTime>
@@ -34,7 +38,9 @@
 #include <QSignalBlocker>
 #include <QStackedWidget>
 #include <QStatusBar>
+#include <QJsonArray>
 #include <QTabBar>
+#include <QTimer>
 
 namespace quewi {
 
@@ -90,6 +96,8 @@ void MainWindow::wireMatrixView(ui::MatrixView *view)
         if (m_workspace) m_workspace->markModified();
     });
     connect(view, &ui::MatrixView::goLightsRequested, this, &MainWindow::goLights);
+    connect(view, &ui::MatrixView::lightsBackRequested, this, &MainWindow::lightsBack);
+    connect(view, &ui::MatrixView::lightsStopRequested, this, &MainWindow::lightsStop);
     connect(view, &ui::MatrixView::deskSettingsRequested, this, [this] {
         if (ui::LightingDeskDialog::edit(this)) syncDeskFeedback();
     });
@@ -112,6 +120,38 @@ void MainWindow::goLights()
     statusBar()->showMessage(ok ? tr("GO Lights → LX %1%2 (desk cue list %3)")
                                       .arg(t.number, t.label.isEmpty() ? QString() : QStringLiteral(" ") + t.label, t.list)
                                 : tr("GO Lights: couldn't send to the desk"), 4000);
+}
+
+void MainWindow::lightsBack()
+{
+    if (!matrixShowing() || !m_goEngine) {
+        statusBar()->showMessage(tr("Lights Back works from a Matrix List — open one from the List menu"), 3000);
+        return;
+    }
+    const auto t = m_matrixView->backTarget();
+    if (!t.ok) {
+        statusBar()->showMessage(tr("Lights Back: %1").arg(t.reason), 5000);
+        return;
+    }
+    const bool ok = m_goEngine->sendDeskAction(ui::goLightsAction(t));
+    statusBar()->showMessage(ok ? tr("Lights Back → LX %1%2 (desk cue list %3)")
+                                      .arg(t.number, t.label.isEmpty() ? QString() : QStringLiteral(" ") + t.label, t.list)
+                                : tr("Lights Back: couldn't send to the desk"), 4000);
+}
+
+void MainWindow::lightsStop()
+{
+    if (!matrixShowing() || !m_goEngine) {
+        statusBar()->showMessage(tr("Lights Stop works from a Matrix List — open one from the List menu"), 3000);
+        return;
+    }
+    const QString why = m_matrixView->stopReason();
+    if (!why.isEmpty()) {
+        statusBar()->showMessage(tr("Lights Stop: %1").arg(why), 5000);
+        return;
+    }
+    const bool ok = m_goEngine->sendDeskAction(ui::lightsStopAction());
+    statusBar()->showMessage(ok ? tr("Lights Stop → the desk's Stop key") : tr("Lights Stop: couldn't send to the desk"), 4000);
 }
 
 void MainWindow::addMatrixListTab()
@@ -222,6 +262,110 @@ void MainWindow::registerOscMatrix()
                            [=](const osc::Message &m) { answer(m, true); });
     // (/quewi/notify/matrix/changed is pushed from buildLayout, where the
     // view is made — this runs before it exists.)
+}
+
+// ── Recording lighting triggers from the desk, for remotes ─────────────────
+//   /quewi/cue/<num>/triggers/record start [<list s>]   record while that cue plays
+//   /quewi/cue/<num>/triggers/record stop               stop; the take waits
+//   /quewi/cue/<num>/triggers/record keep [<group s>]   add it as triggers (one undo step)
+//   /quewi/cue/<num>/triggers/record discard
+// Notifications:
+//   /quewi/notify/triggers/recording <num d> <T/F>
+//   /quewi/notify/triggers/recorded  <num d> <json s>   the take, when it stops
+// Recording stops by itself when the cue's song stops (after it has played).
+
+void MainWindow::stopLiveRecord(bool notify)
+{
+    if (!m_liveRecorder || !m_liveRecorder->isRecording()) return;
+    m_liveRecorder->stop();
+    if (m_liveRecordWatch) m_liveRecordWatch->stop();
+    m_liveTake = m_liveRecorder->takes();
+    m_liveRecorder->clear();
+    if (!notify) return;
+    const double num = m_liveRecordCue ? m_liveRecordCue->number() : 0.0;
+    QJsonArray takes;
+    for (const auto &t : m_liveTake)
+        takes.append(QJsonObject{{QStringLiteral("at"), t.at}, {QStringLiteral("list"), t.list},
+                                 {QStringLiteral("cue"), t.cue}, {QStringLiteral("label"), t.label}});
+    pushOscNotify(QStringLiteral("/quewi/notify/triggers/recording"), {osc::Argument::d(num), osc::Argument::F()});
+    pushOscNotify(QStringLiteral("/quewi/notify/triggers/recorded"),
+                  {osc::Argument::d(num),
+                   osc::Argument::s(QString::fromUtf8(QJsonDocument(takes).toJson(QJsonDocument::Compact)))});
+    statusBar()->showMessage(tr("Recorded %1 desk cue(s) on cue %2 — keep or discard from the remote")
+                                 .arg(m_liveTake.size()).arg(num), 6000);
+}
+
+void MainWindow::registerOscRecord()
+{
+    m_liveRecorder = new ui::DeskTakeRecorder(this);
+    // Where the recorded cue's song is (file seconds), from its playing voice.
+    m_liveRecorder->setPlayhead([this]() -> double {
+        auto *ac = m_liveRecordCue ? video::VideoCue::audioOf(m_liveRecordCue.data()) : nullptr;
+        if (!ac || !m_audioEngine || ac->currentVoiceId() == 0) return -1.0;
+        for (const auto &v : m_audioEngine->activeVoices())
+            if (v.id == ac->currentVoiceId())
+                return m_audioEngine->isPaused(v.id) ? -1.0 : v.positionSeconds;
+        return -1.0;
+    });
+    m_liveRecordWatch = new QTimer(this);
+    m_liveRecordWatch->setInterval(250);
+    connect(m_liveRecordWatch, &QTimer::timeout, this, [this] {
+        if (!m_liveRecorder->isRecording()) { m_liveRecordWatch->stop(); return; }
+        if (!m_liveRecorder->isRecording()) return;
+        auto *ac = m_liveRecordCue ? video::VideoCue::audioOf(m_liveRecordCue.data()) : nullptr;
+        const bool playing = ac && ac->currentVoiceId() != 0;
+        if (playing) m_liveRecordHeard = true;
+        else if (m_liveRecordHeard || !m_liveRecordCue) stopLiveRecord(true);   // the song ended
+    });
+
+    m_oscEngine->subscribe(QStringLiteral("/quewi/cue/*/triggers/record"), [this](const osc::Message &m) {
+        const auto parts = m.address.split(QChar('/'), Qt::SkipEmptyParts);
+        bool ok = false;
+        const double num = parts.value(2).toDouble(&ok);
+        if (!ok) return;
+        QString verb, extra;
+        for (const auto &a : m.args)
+            if (a.tag == osc::Argument::Tag::String) {
+                if (verb.isEmpty()) verb = std::get<QString>(a.value).trimmed().toLower();
+                else extra = std::get<QString>(a.value).trimmed();
+            }
+        QMetaObject::invokeMethod(this, [this, num, verb, extra] {
+            auto *c = oscCueByNumber(num);
+            auto *ac = c ? video::VideoCue::audioOf(c) : nullptr;
+            if (!c) return;
+            if (verb == QLatin1String("start")) {
+                if (!qobject_cast<audio::AudioCue *>(c) && !qobject_cast<video::VideoCue *>(c)) return;
+                stopLiveRecord(false);
+                m_liveTake.clear();
+                m_liveRecorder->setFeedback(m_eosFeedback);
+                m_liveRecordCue = c;
+                m_liveRecordHeard = ac && ac->currentVoiceId() != 0;
+                if (!m_liveRecorder->start(extra)) {
+                    statusBar()->showMessage(tr("Can't record from the desk: %1").arg(m_liveRecorder->whyNot()), 6000);
+                    pushOscNotify(QStringLiteral("/quewi/notify/triggers/recording"),
+                                  {osc::Argument::d(num), osc::Argument::F()});
+                    return;
+                }
+                m_liveRecordWatch->start();
+                statusBar()->showMessage(tr("● Recording desk cues against cue %1").arg(num), 4000);
+                pushOscNotify(QStringLiteral("/quewi/notify/triggers/recording"), {osc::Argument::d(num), osc::Argument::T()});
+            } else if (verb == QLatin1String("stop")) {
+                stopLiveRecord(true);
+            } else if (verb == QLatin1String("keep") && !m_liveTake.empty() && m_liveRecordCue == c) {
+                auto *sound = qobject_cast<video::VideoCue *>(c) ? qobject_cast<video::VideoCue *>(c)->sound()
+                                                                : qobject_cast<audio::AudioCue *>(c);
+                if (!sound) return;
+                auto next = sound->lightTriggers();
+                const QString group = audio::uniqueGroupName(next, extra.isEmpty() ? tr("Recorded") : extra);
+                for (auto &t : audio::DeskRecording::toTriggers(m_liveTake, group)) next.push_back(t);
+                commitTriggers(c, next);
+                m_liveTake.clear();
+                statusBar()->showMessage(tr("Kept the recorded desk cues on cue %1 (Ctrl+Z undoes)").arg(num), 5000);
+            } else if (verb == QLatin1String("discard")) {
+                m_liveTake.clear();
+            }
+        }, Qt::QueuedConnection);
+    });
 }
 
 } // namespace quewi

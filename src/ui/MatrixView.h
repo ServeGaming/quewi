@@ -42,7 +42,10 @@ public:
         KindRole = Qt::UserRole,       // int(Row::Kind)
         EdgeRole,                      // QColor: the row's region colour (left edge)
         LinkedRole,                    // bool: something on this row is lined up by hand
+        ChainRole,                     // int: auto-follow line through this row (Chain* bits)
+        SceneRole,                     // int: the scene index of a Scene header row (-1 otherwise)
     };
+    enum ChainBits { ChainTop = 1, ChainBottom = 2, ChainMember = 4 };
     static constexpr const char *kDeskMime  = "application/x-quewi-matrix-desk";
     static constexpr const char *kQuewiMime = "application/x-quewi-matrix-quewi";
     static constexpr const char *kMime = kDeskMime;   // (older name)
@@ -56,6 +59,14 @@ public:
     void setLocked(bool locked) { m_locked = locked; }
     const MatrixBuild &build() const { return m_build; }
     const MatrixLive &live() const { return m_live; }
+
+    // Details: every desk cue's full record (all rows), or just the rows
+    // you opened (by desk cue key, so it survives a rebuild).
+    void setDetails(bool on);
+    bool details() const { return m_details; }
+    void toggleRowDetails(int row);
+    bool rowDetailsOpen(int row) const;
+    void setCollapsedScenes(const QStringList &names);
 
     int rowCount(const QModelIndex &parent = {}) const override;
     int columnCount(const QModelIndex &parent = {}) const override;
@@ -96,6 +107,8 @@ signals:
 
 private:
     QString stateText(int row) const;
+    QString lightsText(int row) const;
+    void    computeChains();
     QColor  rowTint(int row) const;
     QColor  rowEdge(int row) const;
     void    commit(const core::matrix::Config &next, const QString &text);
@@ -105,6 +118,10 @@ private:
     QPointer<core::CueList> m_list;
     QPointer<QUndoStack> m_undo;
     bool m_locked = false;
+    bool m_details = false;
+    QSet<QString> m_open;              // desk cue keys with details opened
+    std::vector<int> m_chain;          // per row: ChainBits
+    QStringList m_collapsed;           // scene names shut (for the header's ▸/▾)
 };
 
 // Comfortable rows, and the region colour down each live row's left edge.
@@ -148,6 +165,12 @@ public:
     QTableView *table() const { return m_table; }
     QString statusText() const { return m_statusText; }
     GoLightsTarget goLightsTarget() const;
+    GoLightsTarget backTarget() const;
+    QString stopReason() const;
+    // Scenes: fold one (by index into build().result.scenes) or all.
+    void toggleScene(int scene);
+    void setAllScenesCollapsed(bool collapsed);
+    bool sceneCollapsed(int scene) const;
 
     void rebuildNow();
     void pollLive();                        // also run by the timer
@@ -157,6 +180,8 @@ signals:
     void modified();                        // settings: the show changed
     void statusMessage(const QString &text);
     void goLightsRequested();               // the GO Lights button
+    void lightsBackRequested();             // Back (the cue before the desk's LIVE one)
+    void lightsStopRequested();             // Stop (the desk's Stop key)
     void deskSettingsRequested();           // "Set up the lighting desk…"
 
 protected:
@@ -176,6 +201,8 @@ private:
     void pickQuewiFor(const core::matrix::DeskCue &cue);
     void pickLightsFor(const QUuid &quewiCue);
     void restyle();
+    void applyCollapse();
+    void saveCollapsed(const QStringList &names);
 
     QPointer<core::Workspace> m_ws;
     QPointer<core::CueList> m_list;
@@ -204,7 +231,12 @@ private:
     QPushButton *m_refresh = nullptr;
     QCheckBox   *m_follow = nullptr;
     QPushButton *m_goLights = nullptr;
+    QPushButton *m_lightsBack = nullptr;
+    QPushButton *m_lightsStop = nullptr;
     QLabel      *m_goLightsHint = nullptr;
+    QCheckBox   *m_details = nullptr;
+    QPushButton *m_collapseAll = nullptr;
+    QPushButton *m_expandAll = nullptr;
     QTimer      *m_rebuildTimer = nullptr;
     QTimer      *m_liveTimer = nullptr;
     QString      m_statusText;

@@ -278,6 +278,49 @@ private slots:
         QCOMPARE(cues[1].part, 2);
         QCOMPARE(cues[1].displayNumber(), QStringLiteral("0.5 P2"));
 
+        // The rest of the record (seen on Nomad 3.3.9): focus time, preheat,
+        // curve, rate, mark 'M', block 'b', link as a string or a number,
+        // all fade, loop; and effects / actions in their own replies.
+        std::vector<osc::Argument> b(31, osc::Argument::i(-1));
+        b[0] = osc::Argument::i(0);
+        b[1] = osc::Argument::s(QStringLiteral("U9"));
+        b[2] = osc::Argument::s(QStringLiteral("Detail"));
+        b[3] = osc::Argument::i(2000);
+        b[7] = osc::Argument::i(1500);
+        b[13] = osc::Argument::T();
+        b[14] = osc::Argument::s(QStringLiteral("0"));
+        b[15] = osc::Argument::i(100);
+        b[16] = osc::Argument::s(QStringLiteral("M"));
+        b[17] = osc::Argument::s(QStringLiteral("b"));
+        b[18] = osc::Argument::s(QString());
+        b[19] = osc::Argument::s(QStringLiteral("0.99"));
+        b[22] = osc::Argument::T();
+        b[23] = osc::Argument::i(3);
+        b[25] = osc::Argument::s(QString());
+        b[26] = osc::Argument::i(0);
+        b[27] = osc::Argument::s(QString());
+        b[28] = osc::Argument::s(QString());
+        b[29] = osc::Argument::F();
+        r.setWatched({QStringLiteral("2"), QStringLiteral("3")});
+        sent.clear();
+        r.handle({QStringLiteral("/eos/out/get/cue/3/count"), {osc::Argument::i(1)}});
+        r.handle({QStringLiteral("/eos/out/get/cue/3/7/0/list/0/31"), b});
+        r.handle({QStringLiteral("/eos/out/get/cue/3/7/0/fx/list/0/4"),
+                  {osc::Argument::i(0), osc::Argument::s(QStringLiteral("U9")), osc::Argument::i(903), osc::Argument::i(917)}});
+        r.handle({QStringLiteral("/eos/out/get/cue/3/7/0/actions/list/0/3"),
+                  {osc::Argument::i(0), osc::Argument::s(QStringLiteral("U9")), osc::Argument::s(QStringLiteral("M1"))}});
+        const auto d = r.cues(QStringLiteral("3"));
+        QCOMPARE(d.size(), 1);
+        QCOMPARE(d[0].focusMs, 1500);
+        QVERIFY(d[0].preheat);
+        QCOMPARE(d[0].mark, QStringLiteral("M"));
+        QCOMPARE(d[0].block, QStringLiteral("b"));
+        QCOMPARE(d[0].link, QStringLiteral("0.99"));
+        QVERIFY(d[0].allFade);
+        QCOMPARE(d[0].loop, 3);
+        QCOMPARE(d[0].effects, (QStringList{QStringLiteral("903"), QStringLiteral("917")}));
+        QCOMPARE(d[0].actions, QStringList{QStringLiteral("M1")});
+
         // Messages for a list nobody watches, or stray replies, change nothing.
         r.handle({QStringLiteral("/eos/out/get/cue/9/count"), {osc::Argument::i(5)}});
         r.handle({QStringLiteral("/eos/out/get/cue/2/1/0/list/0/31"), a});
@@ -402,6 +445,7 @@ private slots:
         r.setWatched({QStringLiteral("1")});
         fb.start(QStringLiteral("127.0.0.1"), desk.server.serverPort());
         QTRY_COMPARE(r.cues(QStringLiteral("1")).size(), 20);
+        QTest::qWait(400);        // the cues' effects / actions replies settle
         QSignalSpy changed(&r, &osc::EosCueLists::cuesChanged);
         desk.requests.clear();
 

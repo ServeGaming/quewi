@@ -121,6 +121,14 @@ target_sources(test_matrix_view PRIVATE
     ${CMAKE_SOURCE_DIR}/resources/resources.qrc
 )
 
+# Recording lighting triggers from the desk: the take, the Eos link's "cue
+# fired", timing against a playhead with a fake desk, keeping a take. Same
+# GoEngine trick.
+quewi_add_test(desk_recording Qt6::Test Qt6::Widgets Qt6::Network quewi_ui)
+target_sources(test_desk_recording PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/../src/app/GoEngine.cpp
+)
+
 # On Windows, Qt's DLLs need to be reachable via PATH at test runtime.
 if(WIN32)
     foreach(name ${_quewi_test_names})
