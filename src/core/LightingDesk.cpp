@@ -55,6 +55,8 @@ QJsonObject LightingDesk::toJson() const
         {QStringLiteral("midiPort"),     midiPort},
         {QStringLiteral("mscDeviceId"),  mscDeviceId},
         {QStringLiteral("eosFaderBank"), eosFaderBank},
+        {QStringLiteral("feedback"),     feedback},
+        {QStringLiteral("feedbackPort"), feedbackPort},
     };
 }
 
@@ -68,6 +70,8 @@ LightingDesk LightingDesk::fromJson(const QJsonObject &o)
     d.midiPort     = o.value(QStringLiteral("midiPort")).toString();
     d.mscDeviceId  = std::clamp(o.value(QStringLiteral("mscDeviceId")).toInt(d.mscDeviceId), 0, 0x7F);
     d.eosFaderBank = std::clamp(o.value(QStringLiteral("eosFaderBank")).toInt(d.eosFaderBank), 1, 99);
+    d.feedback     = o.value(QStringLiteral("feedback")).toBool(d.feedback);
+    d.feedbackPort = std::clamp(o.value(QStringLiteral("feedbackPort")).toInt(d.feedbackPort), 1, 65535);
     return d;
 }
 
@@ -80,8 +84,10 @@ LightingDesk LightingDesk::load()
     s.endGroup();
     // QSettings hands numbers back as strings from the registry/ini.
     for (const auto key : {QStringLiteral("port"), QStringLiteral("mscDeviceId"),
-                           QStringLiteral("eosFaderBank")})
+                           QStringLiteral("eosFaderBank"), QStringLiteral("feedbackPort")})
         if (o.contains(key)) o.insert(key, o.value(key).toVariant().toInt());
+    if (o.contains(QStringLiteral("feedback")))
+        o.insert(QStringLiteral("feedback"), o.value(QStringLiteral("feedback")).toVariant().toBool());
     return fromJson(o);
 }
 

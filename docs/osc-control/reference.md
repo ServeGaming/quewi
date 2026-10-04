@@ -485,6 +485,8 @@ not the show, and is remembered across restarts.
   "midiPort": "",           // grandMA2 / MSC: the MIDI output
   "mscDeviceId": 127,
   "eosFaderBank": 9,        // the OSC fader bank quewi uses for fader actions
+  "feedback": true,         // Eos: read the desk's state back over TCP
+  "feedbackPort": 3032,     // Eos's OSC TCP port
   "name": "ETC Eos / Ion / Element / Nomad",   // reply only
   "summary": "…",                              // reply only
   "actions": [ { "do": "go", "name": "GO (next cue)" }, … ]   // reply only
@@ -493,6 +495,21 @@ not the show, and is remembered across restarts.
 
 `actions` lists the `do` values this desk can do, with their names, so a
 remote can offer the same choices as quewi's **What should it do?** list.
+
+When quewi is reading an Eos desk back (`feedback` on), the reply also has
+`state`: what the desk itself says it's doing.
+
+```js
+"state": {
+  "link": "live",           // "connecting", "live" or "failed"
+  "detail": "",             // why it failed / what it's doing
+  "showName": "Into the Woods",
+  "blind": false,
+  "progress": 0.42,         // the active cue, 0..1 (-1 = unknown)
+  "active":  { "list": "1", "cue": "12", "label": "Chorus wash", "time": "5.00", "percent": 42 },
+  "pending": { "list": "1", "cue": "13", "label": "Blackout", "time": "3.00", "percent": 0 }
+}
+```
 
 ## Queries (peer → quewi, quewi replies)
 

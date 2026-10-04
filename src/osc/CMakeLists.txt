@@ -14,6 +14,8 @@ add_library(quewi_osc STATIC
     OscQueryServer.cpp
     OscCue.h
     OscCue.cpp
+    EosFeedback.h
+    EosFeedback.cpp
 )
 target_include_directories(quewi_osc PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/..)
 target_link_libraries(quewi_osc PUBLIC

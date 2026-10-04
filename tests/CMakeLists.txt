@@ -19,6 +19,8 @@ quewi_add_test(osc_codec    Qt6::Test Qt6::Gui quewi_osc)
 quewi_add_test(osc_pattern  Qt6::Test quewi_osc)
 quewi_add_test(osc_slip     Qt6::Test quewi_osc)
 quewi_add_test(osc_loopback Qt6::Test Qt6::Network quewi_osc)
+# Reading an Eos desk's state back over TCP 3032 (a fake desk on localhost).
+quewi_add_test(eos_feedback Qt6::Test Qt6::Network quewi_osc)
 quewi_add_test(audio_smoke  Qt6::Test Qt6::Multimedia quewi_audio)
 # The real-time mixer rendered offline (audio::OfflineRenderer): fades,
 # loops, stops and pause checked sample by sample.

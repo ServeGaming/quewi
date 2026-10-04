@@ -675,6 +675,17 @@ QWidget *makeShowModePage(QWidget *parent)
     });
     lockForm->addRow(QString(), autoEnter);
 
+    auto *smView = new QCheckBox(
+        QObject::tr("Use the stage manager screen (standby, notes, timers, lighting)"),
+        lockGroup);
+    smView->setObjectName(QStringLiteral("prefStageManagerView"));
+    smView->setToolTip(QObject::tr("Off: Show Mode keeps the normal cue list, locked"));
+    smView->setChecked(s.value(QStringLiteral("showmode/stageManagerView"), true).toBool());
+    QObject::connect(smView, &QCheckBox::toggled, lockGroup, [](bool v) {
+        prefSettings().setValue(QStringLiteral("showmode/stageManagerView"), v);
+    });
+    lockForm->addRow(QString(), smView);
+
     outer->addWidget(lockGroup);
 
     auto *allowGroup = new QGroupBox(

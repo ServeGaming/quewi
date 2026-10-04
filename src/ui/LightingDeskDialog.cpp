@@ -4,6 +4,7 @@
 #include "ui/Theme.h"
 
 #include <QButtonGroup>
+#include <QCheckBox>
 #include <QComboBox>
 #include <QDialogButtonBox>
 #include <QEvent>
@@ -160,6 +161,30 @@ LightingDeskDialog::LightingDeskDialog(QWidget *parent)
     oscGrid->addWidget(m_prefix, 4, 1);
     oscLay->addLayout(oscGrid);
 
+    // Eos: read the desk's running / pending cue back for Show Mode and the
+    // Lighting panel, over TCP to the same address.
+    m_feedback = new QCheckBox(tr("Show what the desk is doing (its running and next cue)"), m_oscGroup);
+    m_feedback->setObjectName(QStringLiteral("deskFeedback"));
+    m_feedback->setChecked(m_loaded.feedback);
+    m_feedback->setToolTip(tr("quewi connects to the desk's OSC TCP port and reads its state. "
+                              "It never changes anything on the desk"));
+    m_feedbackPort = new QSpinBox(m_oscGroup);
+    m_feedbackPort->setObjectName(QStringLiteral("deskFeedbackPort"));
+    m_feedbackPort->setRange(1, 65535);
+    m_feedbackPort->setValue(m_loaded.feedbackPort);
+    m_feedbackPort->setPrefix(tr("TCP "));
+    m_feedbackPort->setToolTip(tr("Eos's OSC TCP port: 3032 unless it's been changed"));
+    m_feedbackRow = new QWidget(m_oscGroup);
+    {
+        auto *h = new QHBoxLayout(m_feedbackRow);
+        h->setContentsMargins(0, 0, 0, 0);
+        h->addWidget(m_feedback, 1);
+        h->addWidget(m_feedbackPort);
+    }
+    connect(m_feedback, &QCheckBox::toggled, m_feedbackPort, &QWidget::setEnabled);
+    m_feedbackPort->setEnabled(m_loaded.feedback);
+    oscLay->addWidget(m_feedbackRow);
+
     m_ownPortNote = makeNote(QString(), m_oscGroup);
     m_ownPortNote->setObjectName(QStringLiteral("deskOwnPortNote"));
     oscLay->addWidget(m_ownPortNote);
@@ -234,6 +259,8 @@ LightingDeskDialog::LightingDeskDialog(QWidget *parent)
     // The steps quote the port / device ID, so keep them in step.
     connect(m_port, &QSpinBox::valueChanged, this, &LightingDeskDialog::rebuildSteps);
     connect(m_deviceId, &QSpinBox::valueChanged, this, &LightingDeskDialog::rebuildSteps);
+    connect(m_feedback, &QCheckBox::toggled, this, &LightingDeskDialog::rebuildSteps);
+    connect(m_feedbackPort, &QSpinBox::valueChanged, this, &LightingDeskDialog::rebuildSteps);
 
     selectType(m_loaded.type);
     refreshForType();
@@ -326,6 +353,7 @@ void LightingDeskDialog::refreshForType()
     m_mscGroup->setVisible(!osc);
     m_prefixLabel->setVisible(type == Type::Ma3);
     m_prefix->setVisible(type == Type::Ma3);
+    m_feedbackRow->setVisible(type == Type::Eos);
 
     m_ownPortNote->setText(tr(
         "quewi sends to this address and port. It's not quewi's own OSC port "
@@ -375,6 +403,10 @@ void LightingDeskDialog::rebuildSteps()
                      .arg(m_port->value())
               << tr("The IP address to enter above is the desk's own. For Nomad running on this "
                     "computer, use 127.0.0.1.");
+        if (m_feedback->isChecked())
+            steps << tr("To show the desk's running cue in quewi, leave OSC TCP on (it is unless "
+                        "someone turned it off) — quewi reads it on port %1.")
+                         .arg(m_feedbackPort->value());
         break;
     case Type::Ma3:
         title = tr("On the desk (grandMA3)");
@@ -425,6 +457,8 @@ core::LightingDesk LightingDeskDialog::currentDesk() const
     d.midiPort  = (m_midiPort->currentIndex() == 0 && midiText == m_midiPort->itemText(0))
                       ? QString() : midiText;
     d.mscDeviceId = m_deviceId->value();
+    d.feedback  = m_feedback->isChecked();
+    d.feedbackPort = m_feedbackPort->value();
     return d;
 }
 
@@ -436,6 +470,7 @@ void LightingDeskDialog::save()
     const auto cur = currentDesk();
     d.type = cur.type; d.host = cur.host; d.port = cur.port; d.ma3Prefix = cur.ma3Prefix;
     d.midiPort = cur.midiPort; d.mscDeviceId = cur.mscDeviceId;
+    d.feedback = cur.feedback; d.feedbackPort = cur.feedbackPort;
     d.save();
     accept();
 }

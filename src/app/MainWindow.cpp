@@ -52,6 +52,9 @@
 #include "ui/AudioEditorWindow.h"
 #include "ui/VideoEditorWindow.h"
 #include "ui/LightingDeskDialog.h"
+#include "ui/LightingPanel.h"
+#include "ui/ShowModeView.h"
+#include "osc/EosFeedback.h"
 #include "ui/CommandPalette.h"
 #include "ui/MediaImportDialog.h"
 #include "ui/Notifications.h"
@@ -198,6 +201,13 @@ MainWindow::MainWindow(QWidget *parent)
     // Cross-list cue links: when any cue fires, fire its linked partner too.
     connect(m_goEngine.get(), &GoEngine::cueFired, this,
             [this](cues::Cue *c) { fireLinkedFor(c); });
+    // Show Mode's "last GO": the most recent cue fired from the list GO runs.
+    connect(m_goEngine.get(), &GoEngine::cueFired, this, [this](cues::Cue *c) {
+        auto *list = m_workspace ? m_workspace->activeCueList() : nullptr;
+        if (!list || !c) return;
+        for (int r = 0; r < list->cueCount(); ++r)
+            if (list->cueAt(r) == c) { m_lastFiredCue = c; return; }
+    });
     connect(m_goEngine.get(), &GoEngine::gotoRequested, this,
             [this](core::CueId id) {
                 // Search the list the cue view is showing — m_model's rows are
@@ -276,6 +286,33 @@ MainWindow::MainWindow(QWidget *parent)
 
     buildLayout();
     buildMenus();
+
+    // The stage-manager screens drive the same actions as the transport.
+    connect(m_showModeView, &ui::ShowModeView::goPressed, m_actGo, &QAction::trigger);
+    connect(m_showModeView, &ui::ShowModeView::pausePressed, m_actPause, &QAction::trigger);
+    connect(m_showModeView, &ui::ShowModeView::fadeAllPressed, m_actFadeAll, &QAction::trigger);
+    connect(m_showModeView, &ui::ShowModeView::panicPressed, m_actPanic, &QAction::trigger);
+    connect(m_showModeView, &ui::ShowModeView::exitRequested, this, [this] {
+        if (!m_actShowMode || !m_showMode) return;
+        m_actShowMode->setChecked(false);
+        toggleShowMode();                 // asks for the PIN if one is set
+    });
+    connect(m_showModeView, &ui::ShowModeView::armedToggled,
+            m_goEngine.get(), &GoEngine::setTriggersArmed);
+    connect(m_lightingPanel, &ui::LightingPanel::armedToggled,
+            m_goEngine.get(), &GoEngine::setTriggersArmed);
+    connect(m_lightingPanel, &ui::LightingPanel::deskSettingsRequested, this, [this] {
+        if (ui::LightingDeskDialog::edit(this)) syncDeskFeedback();
+    });
+
+    // Reading the desk back. The setting can change from Preferences, the
+    // audio editor or a remote, so it's watched rather than pushed.
+    m_eosFeedback = new osc::EosFeedback(this);
+    m_deskWatch = new QTimer(this);
+    m_deskWatch->setInterval(2000);
+    connect(m_deskWatch, &QTimer::timeout, this, [this] { syncDeskFeedback(); });
+    m_deskWatch->start();
+    syncDeskFeedback(true);
 
     resetWorkspace();
     statusBar()->showMessage(tr("Ready"));
@@ -407,7 +444,14 @@ void MainWindow::buildLayout()
     // The actual content area is a margined container so the panes sit
     // as floating cards on the deep-bg canvas.
     auto *content = new QWidget(central);
-    centralCol->addWidget(content, 1);
+    // Show Mode swaps the whole working screen for the stage-manager view.
+    m_modeStack = new QStackedWidget(central);
+    m_modeStack->addWidget(content);
+    m_showModeView = new ui::ShowModeView(m_modeStack);
+    m_showModeView->setObjectName(QStringLiteral("showModeView"));
+    m_showModeView->setSnapshotProvider([this] { return buildShowSnapshot(); });
+    m_modeStack->addWidget(m_showModeView);
+    centralCol->addWidget(m_modeStack, 1);
     auto *outer = new QVBoxLayout(content);
     outer->setContentsMargins(8, 8, 8, 8);
     outer->setSpacing(8);
@@ -514,6 +558,20 @@ void MainWindow::buildLayout()
     // Width hint for first launch — Qt clamps to size hints otherwise.
     // 420 matches the original splitter ratio (800 : 480 → 480 ≈ 38 %).
     m_inspectorDock->resize(420, m_inspectorDock->height());
+
+    // Lighting: the desk's running / pending cue and the next lighting hits.
+    // Off until asked for (View → Lighting panel); any side or the bottom.
+    m_lightingPanel = new ui::LightingPanel(this);
+    m_lightingPanel->setSnapshotProvider([this] { return buildShowSnapshot(); });
+    m_lightingDock = new QDockWidget(tr("Lighting"), this);
+    m_lightingDock->setObjectName(QStringLiteral("lightingDock"));
+    m_lightingDock->setWidget(m_lightingPanel);
+    m_lightingDock->setAllowedAreas(Qt::AllDockWidgetAreas);
+    m_lightingDock->setFeatures(QDockWidget::DockWidgetMovable
+                                | QDockWidget::DockWidgetFloatable
+                                | QDockWidget::DockWidgetClosable);
+    addDockWidget(Qt::RightDockWidgetArea, m_lightingDock);
+    m_lightingDock->hide();
 
     m_activePanel = new ui::ActiveCuesPanel(central);
     m_activePanel->setAudioEngine(m_audioEngine.get());
@@ -693,7 +751,7 @@ void MainWindow::buildMenus()
     // and keep their place but send nothing to the desk — for rehearsing
     // without the rig.
     toolsMenu->addAction(tr("Lighting &Desk…"), this,
-                         [this] { ui::LightingDeskDialog::edit(this); });
+                         [this] { if (ui::LightingDeskDialog::edit(this)) syncDeskFeedback(); });
     auto *armTriggers = toolsMenu->addAction(tr("Lighting &Triggers Armed"));
     armTriggers->setCheckable(true);
     armTriggers->setChecked(m_goEngine->triggersArmed());
@@ -741,6 +799,11 @@ void MainWindow::buildMenus()
         insp->setText(tr("&Inspector panel"));
         insp->setShortcut(QKeySequence(QStringLiteral("Ctrl+I")));
         viewMenu->addAction(insp);
+    }
+    if (m_lightingDock) {
+        auto *light = m_lightingDock->toggleViewAction();
+        light->setText(tr("&Lighting panel"));
+        viewMenu->addAction(light);
     }
     viewMenu->addAction(tr("&Reset panel layout"), this,
                        &MainWindow::resetLayout);
@@ -2077,7 +2140,30 @@ void MainWindow::applyShowMode()
         }
     }
     if (m_actShowMode) m_actShowMode->setEnabled(true); // always allow toggle
-    if (m_showModeStrip) m_showModeStrip->setVisible(m_showMode);
+
+    // The stage-manager screen (Preferences → Show Mode can keep the old
+    // locked cue list instead). It takes the whole window: the docks step
+    // aside and come back on the way out.
+    QSettings viewSettings(QStringLiteral("ServeGaming"), QStringLiteral("quewi"));
+    const bool smView = m_showMode
+        && viewSettings.value(QStringLiteral("showmode/stageManagerView"), true).toBool();
+    if (m_modeStack) m_modeStack->setCurrentIndex(smView ? 1 : 0);
+    if (smView) {
+        if (m_showModeHiddenDocks.isEmpty())
+            for (auto *dock : {m_inspectorDock, m_lightingDock})
+                if (dock && dock->isVisible()) {
+                    m_showModeHiddenDocks.append(dock);
+                    dock->hide();
+                }
+    } else {
+        for (const auto &dock : m_showModeHiddenDocks) if (dock) dock->show();
+        m_showModeHiddenDocks.clear();
+    }
+    if (m_showModeView) {
+        m_showModeView->setPauseAllowed(viewSettings.value(QStringLiteral("showmode/allowPause"),
+                                                           true).toBool());
+    }
+    if (m_showModeStrip) m_showModeStrip->setVisible(m_showMode && !smView);
     // Window-level drag-drop also dies in Show Mode — otherwise the
     // operator could drop a file anywhere on the window outside the
     // cue list and bypass the lock. setAcceptDrops false makes Qt
@@ -3218,7 +3304,164 @@ void MainWindow::resetLayout()
         m_inspectorDock->show();
         m_inspectorDock->resize(420, m_inspectorDock->height());
     }
+    if (m_lightingDock) {
+        m_lightingDock->setFloating(false);
+        addDockWidget(Qt::RightDockWidgetArea, m_lightingDock);
+        m_lightingDock->hide();
+    }
     resize(1280, 800);
+}
+
+// ---------- Stage-manager screens ------------------------------------------
+
+namespace {
+QString cueNumberText(double n)
+{
+    QString s = QString::number(n, 'f', 3);
+    while (s.endsWith(QLatin1Char('0'))) s.chop(1);
+    if (s.endsWith(QLatin1Char('.'))) s.chop(1);
+    return s;
+}
+
+ui::ShowCueLine showCueLine(const cues::Cue *c)
+{
+    ui::ShowCueLine l;
+    l.id = c->id();
+    l.number = cueNumberText(c->number());
+    l.type = c->typeName();
+    l.name = c->name().isEmpty() ? l.type : c->name();
+    l.notes = c->notes().trimmed();
+    l.colour = c->color();
+    l.preWaitSeconds = c->preWait();
+    l.autoContinue = c->continueMode() == cues::ContinueMode::AutoContinue;
+    l.autoFollow   = c->continueMode() == cues::ContinueMode::AutoFollow;
+    if (auto *ac = video::VideoCue::audioOf(const_cast<cues::Cue *>(c))) {
+        const double in  = ac->trimInSeconds();
+        const double dur = ac->field(QStringLiteral("durationSeconds")).toDouble();
+        const double trimOut = ac->trimOutSeconds();
+        const double out = trimOut > 0.0 ? (dur > 0.0 ? std::min(trimOut, dur) : trimOut) : dur;
+        if (out > in)
+            l.durationSeconds = (out - in) - audio::cutSecondsBetween(ac->cuts(), in, out);
+        const auto &t = ac->lightTriggers();
+        l.lightTriggers = int(std::count_if(t.begin(), t.end(),
+                                            [](const audio::LightTrigger &x) { return x.enabled; }));
+        // A hit right on the trim-in goes out with the GO: start just before it.
+        const auto first = audio::upcomingEdges(t, in - 1e-6, &ac->cuts(), out > 0.0 ? out : -1.0, 1);
+        if (!first.empty()) l.firstTriggerSeconds = std::max(0.0, first.front().in);
+    }
+    return l;
+}
+} // namespace
+
+ui::ShowSnapshot MainWindow::buildShowSnapshot() const
+{
+    ui::ShowSnapshot s;
+    s.showName = m_currentPath.isEmpty() ? tr("Untitled") : QFileInfo(m_currentPath).completeBaseName();
+    auto *list = m_workspace ? m_workspace->activeCueList() : nullptr;
+    if (list) {
+        s.listName = list->name();
+        s.cueCount = list->cueCount();
+        cues::Cue *standby = m_cueListView ? m_cueListView->nextCue() : nullptr;
+        int row = -1;
+        for (int r = 0; r < list->cueCount(); ++r)
+            if (list->cueAt(r) == standby) { row = r; break; }
+        if (row >= 0) {
+            s.position = row + 1;
+            s.standby = showCueLine(standby);
+            for (int r = row + 1; r < list->cueCount() && s.comingUp.size() < 4; ++r)
+                if (auto *c = list->cueAt(r)) s.comingUp.push_back(showCueLine(c));
+        }
+        if (m_lastFiredCue) s.lastFired = showCueLine(m_lastFiredCue);
+
+        // Playing now: songs (audio cues and video soundtracks) with a voice.
+        if (m_audioEngine) {
+            QHash<quint64, audio::ActiveVoice> voices;
+            for (const auto &v : m_audioEngine->activeVoices()) voices.insert(v.id, v);
+            for (int r = 0; r < list->cueCount(); ++r) {
+                auto *c = list->cueAt(r);
+                auto *ac = c ? video::VideoCue::audioOf(c) : nullptr;
+                if (!ac) continue;
+                const auto it = voices.constFind(ac->currentVoiceId());
+                if (it == voices.constEnd() || ac->currentVoiceId() == 0) continue;
+                ui::ShowRunningCue run;
+                run.cue = showCueLine(c);
+                const double in = ac->trimInSeconds();
+                run.elapsedSeconds = std::max(0.0, it->positionSeconds - in
+                                         - audio::cutSecondsBetween(ac->cuts(), in, it->positionSeconds));
+                run.looping = it->loop;
+                run.paused = m_audioEngine->isPaused(it->id);
+                if (!run.looping && run.cue.durationSeconds > 0.0) {
+                    run.remainingSeconds = std::max(0.0, run.cue.durationSeconds - run.elapsedSeconds);
+                    run.progress = std::clamp(run.elapsedSeconds / run.cue.durationSeconds, 0.0, 1.0);
+                }
+                s.running.push_back(std::move(run));
+            }
+            std::sort(s.running.begin(), s.running.end(),
+                      [](const ui::ShowRunningCue &a, const ui::ShowRunningCue &b) {
+                          return a.elapsedSeconds < b.elapsedSeconds;   // newest first
+                      });
+        }
+    }
+    s.paused = m_goEngine && m_goEngine->isPaused();
+    s.triggersArmed = !m_goEngine || m_goEngine->triggersArmed();
+    if (m_goEngine) {
+        for (const auto &u : m_goEngine->upcomingTriggers(6)) {
+            ui::ShowUpcomingHit h;
+            h.triggerId = u.triggerId;
+            if (u.owner) {
+                h.cueNumber = cueNumberText(u.owner->number());
+                h.cueName = u.owner->name().isEmpty() ? u.owner->typeName() : u.owner->name();
+            }
+            h.name = u.name;
+            h.does = u.does;
+            h.inSeconds = u.inSeconds;
+            h.exit = u.exit;
+            h.paused = u.paused;
+            s.hits.push_back(std::move(h));
+        }
+    }
+
+    const auto &desk = m_deskSeen;
+    s.desk.deskName = desk.typeName();
+    if (desk.type != core::LightingDesk::Type::Eos) {
+        s.desk.detail = tr("Only ETC Eos desks report what they're doing");
+    } else if (!desk.feedback) {
+        s.desk.detail = tr("Turned off in Lighting Desk settings");
+    } else if (m_eosFeedback) {
+        const auto *fb = m_eosFeedback;
+        using L = ui::ShowDeskStatus::Link;
+        switch (fb->link()) {
+        case osc::EosFeedback::Link::Off:        s.desk.link = L::Off; break;
+        case osc::EosFeedback::Link::Connecting: s.desk.link = L::Connecting; break;
+        case osc::EosFeedback::Link::Live:       s.desk.link = L::Live; break;
+        case osc::EosFeedback::Link::Failed:     s.desk.link = L::Failed; break;
+        }
+        s.desk.address = QStringLiteral("%1:%2").arg(fb->host()).arg(fb->port());
+        s.desk.detail = fb->detail();
+        s.desk.showName = fb->showName();
+        s.desk.activeList = fb->active().list;
+        s.desk.activeCue = fb->active().cue;
+        s.desk.activeLabel = fb->active().label;
+        s.desk.activeTime = fb->active().time;
+        s.desk.activeProgress = fb->activeProgress();
+        s.desk.pendingList = fb->pending().list;
+        s.desk.pendingCue = fb->pending().cue;
+        s.desk.pendingLabel = fb->pending().label;
+        s.desk.blind = fb->blind();
+    }
+    return s;
+}
+
+void MainWindow::syncDeskFeedback(bool force)
+{
+    const auto desk = core::LightingDesk::load();
+    if (!force && desk == m_deskSeen) return;
+    m_deskSeen = desk;
+    if (!m_eosFeedback) return;
+    if (desk.type == core::LightingDesk::Type::Eos && desk.feedback)
+        m_eosFeedback->start(desk.host, desk.feedbackPort);
+    else
+        m_eosFeedback->stop();
 }
 
 // ---------- Drag and drop ------------------------------------------------

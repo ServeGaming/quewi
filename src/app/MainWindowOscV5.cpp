@@ -37,6 +37,7 @@
 #include "core/CueList.h"
 #include "core/UndoCommands.h"
 #include "core/Workspace.h"
+#include "osc/EosFeedback.h"
 #include "osc/OscEngine.h"
 #include "ui/MicRouting.h"
 #include "video/VideoCue.h"
@@ -460,9 +461,27 @@ void MainWindow::registerOscApiV5()
     });
 
     // ── Lighting desk (Preferences → Lighting) ──────────────────────────
-    auto deskJson = [] {
+    auto deskJson = [this] {
         const auto desk = core::LightingDesk::load();
         QJsonObject o = desk.toJson();
+        // What the desk itself says it's doing (Eos, over TCP).
+        if (m_eosFeedback && m_eosFeedback->link() != osc::EosFeedback::Link::Off) {
+            static const char *links[] = {"off", "connecting", "live", "failed"};
+            const auto cueJson = [](const osc::EosCueText &t) {
+                return QJsonObject{{QStringLiteral("list"), t.list}, {QStringLiteral("cue"), t.cue},
+                                   {QStringLiteral("label"), t.label}, {QStringLiteral("time"), t.time},
+                                   {QStringLiteral("percent"), t.percent}};
+            };
+            o.insert(QStringLiteral("state"), QJsonObject{
+                {QStringLiteral("link"), QString::fromLatin1(links[int(m_eosFeedback->link())])},
+                {QStringLiteral("detail"), m_eosFeedback->detail()},
+                {QStringLiteral("showName"), m_eosFeedback->showName()},
+                {QStringLiteral("blind"), m_eosFeedback->blind()},
+                {QStringLiteral("progress"), m_eosFeedback->activeProgress()},
+                {QStringLiteral("active"), cueJson(m_eosFeedback->active())},
+                {QStringLiteral("pending"), cueJson(m_eosFeedback->pending())},
+            });
+        }
         o.insert(QStringLiteral("name"), desk.typeName());
         o.insert(QStringLiteral("summary"), desk.summary());
         QJsonArray can;

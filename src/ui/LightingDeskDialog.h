@@ -5,6 +5,7 @@
 #include <QDialog>
 
 class QButtonGroup;
+class QCheckBox;
 class QComboBox;
 class QDialogButtonBox;
 class QFrame;
@@ -63,6 +64,9 @@ private:
     QLabel           *m_hostError   = nullptr;
     QLabel           *m_hostNote    = nullptr;   // "127.0.0.1 is this computer…"
     QSpinBox         *m_port        = nullptr;
+    QCheckBox        *m_feedback    = nullptr;
+    QSpinBox         *m_feedbackPort = nullptr;
+    QWidget          *m_feedbackRow = nullptr;
     QLabel           *m_prefixLabel = nullptr;
     QLineEdit        *m_prefix      = nullptr;
     QLabel           *m_ownPortNote = nullptr;

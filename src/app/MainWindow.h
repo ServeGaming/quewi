@@ -5,6 +5,9 @@
 
 #include <QJsonObject>
 #include <QMainWindow>
+#include <QPointer>
+#include "core/LightingDesk.h"
+#include "ui/ShowSnapshot.h"
 #include <QSet>
 #include <QString>
 #include <QUuid>
@@ -29,8 +32,8 @@ class QUrl;
 
 namespace quewi::core { class Workspace; class CueList; class CueListModel; }
 namespace quewi::cues { class Cue; }
-namespace quewi::ui   { class AudioEditorWindow; class VideoEditorWindow; class ActiveCuesPanel; class CartView; class MixView; class CueListView; class Inspector; class ShortcutManager; class TransportBar; class OscMonitor; class ScriptWindow; }
-namespace quewi::osc  { class OscEngine; }
+namespace quewi::ui   { class AudioEditorWindow; class VideoEditorWindow; class ActiveCuesPanel; class CartView; class MixView; class CueListView; class Inspector; class ShortcutManager; class TransportBar; class OscMonitor; class ScriptWindow; class ShowModeView; class LightingPanel; }
+namespace quewi::osc  { class OscEngine; class EosFeedback; }
 namespace quewi::audio { class AudioEngine; class AudioCue; }
 namespace quewi::lighting { class LightingEngine; }
 namespace quewi::video { class VideoEngine; class VideoCue; }
@@ -376,6 +379,22 @@ private:
     bool     m_showMode = false;
     // Actions Show Mode disabled, with the enabled state to restore on exit.
     QList<QPair<QPointer<QAction>, bool>> m_showModeLocked;
+
+    // Stage-manager Show Mode and the Lighting panel. Both poll
+    // buildShowSnapshot(); the desk's own state comes from m_eosFeedback.
+    QStackedWidget     *m_modeStack = nullptr;      // 0 = the normal screen, 1 = Show Mode
+    ui::ShowModeView   *m_showModeView = nullptr;
+    QDockWidget        *m_lightingDock = nullptr;
+    ui::LightingPanel  *m_lightingPanel = nullptr;
+    osc::EosFeedback   *m_eosFeedback = nullptr;
+    core::LightingDesk  m_deskSeen;                 // as last read from Preferences
+    QTimer             *m_deskWatch = nullptr;
+    QPointer<cues::Cue> m_lastFiredCue;
+    // Docks Show Mode hid, to bring back on the way out.
+    QList<QPointer<QDockWidget>> m_showModeHiddenDocks;
+    ui::ShowSnapshot buildShowSnapshot() const;
+    // Starts / stops reading the desk back when the desk setting changes.
+    void syncDeskFeedback(bool force = false);
 
     QString m_currentPath;
     QString m_journalPath;

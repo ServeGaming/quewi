@@ -25,6 +25,10 @@ struct LightingDesk {
     int     mscDeviceId = 0x7F;   // MSC: 0x7F = all-call
     int     eosFaderBank = 9;     // Eos OSC fader-bank slot quewi uses, so it
                                   // doesn't re-page a remote's (HeliOSC uses 1)
+    // Eos only: read the desk's state back (active / pending cue) over TCP
+    // to the same host — osc::EosFeedback. Port 3032 is Eos's OSC TCP port.
+    bool    feedback = true;
+    int     feedbackPort = 3032;
 
     static QString typeKey(Type t);
     static Type    typeFromKey(const QString &key);
