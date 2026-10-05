@@ -83,7 +83,25 @@ jobs:
         # Linux). offscreen is built into Qt and works on every platform.
         env:
           QT_QPA_PLATFORM: offscreen
-        run: ctest --preset ${{ runner.os == 'Windows' && 'windows' || runner.os == 'macOS' && 'macos' || 'linux' }}-debug
+        # --output-on-failure: without it a red test says only "Failed", and
+        # the reason (FAIL! / Loc: / Actual vs Expected) is lost with the runner.
+        run: ctest --preset ${{ runner.os == 'Windows' && 'windows' || runner.os == 'macOS' && 'macos' || 'linux' }}-debug --output-on-failure
+
+      # The shipped build itself must start, open its window, and quit clean on
+      # every OS — macOS and Linux are otherwise only ever compiled, never run.
+      - name: App self-test (Release)
+        if: matrix.build_type == 'Release'
+        shell: bash
+        env:
+          QT_QPA_PLATFORM: offscreen
+        run: |
+          case "$RUNNER_OS" in
+            Windows) BIN=build/windows-release/quewi.exe ;;
+            macOS)   BIN=$(find build/macos-release -path '*quewi.app/Contents/MacOS/quewi' -type f | head -1) ;;
+            *)       BIN=$(find build/linux-release -maxdepth 3 -type f -name quewi -perm -u+x | head -1) ;;
+          esac
+          echo "self-test binary: $BIN"
+          "$BIN" --selftest
 
   # AddressSanitizer + UndefinedBehaviorSanitizer gate. This is the durable
   # answer to "no crashes for 1.0": every use-after-free / out-of-bounds /

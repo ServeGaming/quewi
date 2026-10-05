@@ -137,6 +137,10 @@ private slots:
 
 public:
     bool loadShowFromPath(const QString &path);
+    // --screenshot-tour <dir>: a demo show, a picture of each main screen,
+    // and fit.txt (text that doesn't fit), then quit. For looking at the
+    // macOS / Linux builds from CI. See MainWindowTour.cpp.
+    void runScreenshotTour(const QString &dir);
     // Offer to recover unsaved work left by a crash. main() calls this once,
     // before the Welcome dialog. Returns true if a show was recovered.
     bool recoverFromJournalIfPresent();

@@ -4,6 +4,7 @@ set(QUEWI_APP_SOURCES
     MainWindow.h
     MainWindowOscV5.cpp
     MainWindowMatrix.cpp
+    MainWindowTour.cpp
     GoEngine.cpp
     GoEngine.h
     UpdateChecker.cpp

@@ -587,6 +587,11 @@ private slots:
         view.setWorkspace(&s.ws);
         view.setDesk(&reader, &desk.fb);
         view.setCueList(s.matrix);
+        // Shown at a real size: the button labels are fitted to the width
+        // they're actually given (a hidden widget's is a placeholder).
+        view.resize(1400, 800);
+        view.show();
+        QVERIFY(QTest::qWaitForWindowExposed(&view));
         auto *button = view.findChild<QPushButton *>(QStringLiteral("matrixGoLights"));
         QVERIFY(button);
         QVERIFY(!button->isEnabled());                       // not live yet
@@ -599,7 +604,12 @@ private slots:
         view.rebuildNow();
         view.pollLive();
         QVERIFY(button->isEnabled());
-        QCOMPARE(button->text(), QStringLiteral("GO Lights  6.5  Look 6.5"));
+        // The label is fitted to the button, so a wider font (macOS, or the
+        // offscreen test platform) may shorten the cue's name with "…" — the
+        // number never goes, and the tooltip always has the whole thing.
+        QVERIFY2(button->text().startsWith(QStringLiteral("GO Lights  6.5")), qPrintable(button->text()));
+        QVERIFY(QStringLiteral("GO Lights  6.5  Look 6.5").startsWith(button->text().chopped(button->text().endsWith(QChar(0x2026)) ? 1 : 0)));
+        QVERIFY2(button->toolTip().contains(QStringLiteral("6.5 Look 6.5")), qPrintable(button->toolTip()));
         // The NEXT marker is on the same cue the button fires.
         const int next = view.build().rowOfDesk(QStringLiteral("1"), QStringLiteral("6.5"));
         QVERIFY(view.model()->data(view.model()->index(next, 0)).toString().contains(QStringLiteral("LX NEXT")));
@@ -660,6 +670,9 @@ private slots:
         view.setWorkspace(&s.ws);
         view.setDesk(&reader, &desk.fb);
         view.setCueList(s.matrix);
+        view.resize(1400, 800);
+        view.show();
+        QVERIFY(QTest::qWaitForWindowExposed(&view));
         auto *back = view.findChild<QPushButton *>(QStringLiteral("matrixLightsBack"));
         auto *stop = view.findChild<QPushButton *>(QStringLiteral("matrixLightsStop"));
         QVERIFY(back && stop);

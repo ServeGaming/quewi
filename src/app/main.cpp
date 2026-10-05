@@ -149,8 +149,12 @@ int main(int argc, char *argv[])
         QStringLiteral("Open the main window, process events briefly, then exit 0. Used by CI cold-start gate."));
     QCommandLineOption selftestIdleOpt(QStringLiteral("selftest-idle"),
         QStringLiteral("Open the main window and stay idle (for idle-RSS gates)."));
+    QCommandLineOption tourOpt(QStringLiteral("screenshot-tour"),
+        QStringLiteral("Build a demo show, save a picture of each main screen to <dir>, then exit."),
+        QStringLiteral("dir"));
     parser.addOption(selftestOpt);
     parser.addOption(selftestIdleOpt);
+    parser.addOption(tourOpt);
     parser.process(app);
 
     QSettings s(QStringLiteral("ServeGaming"), QStringLiteral("quewi"));
@@ -206,7 +210,7 @@ int main(int argc, char *argv[])
     //   - the user disabled it via the "Show on launch" checkbox;
     //   - we're running --selftest (CI cold-start gate).
     const auto positional = parser.positionalArguments();
-    const bool selftest = parser.isSet(selftestOpt) || parser.isSet(selftestIdleOpt);
+    const bool selftest = parser.isSet(selftestOpt) || parser.isSet(selftestIdleOpt) || parser.isSet(tourOpt);
 
     // Crash recovery first — before the Welcome dialog or a show passed on
     // the command line, either of which would otherwise replace the
@@ -234,7 +238,7 @@ int main(int argc, char *argv[])
     if (w.isQuittingForUpdate()) return 0;
 
     w.show();
-    if (!parser.isSet(selftestOpt)) w.runStartupChecks();
+    if (!selftest) w.runStartupChecks();
 
     // First-run-after-update toast. If the version stored in
     // QSettings differs from the binary's version, this is either
@@ -279,6 +283,10 @@ int main(int argc, char *argv[])
 
     if (parser.isSet(selftestOpt)) {
         QTimer::singleShot(200, &app, &QCoreApplication::quit);
+    }
+    if (parser.isSet(tourOpt)) {
+        const QString dir = parser.value(tourOpt);
+        QTimer::singleShot(300, &w, [&w, dir] { w.runScreenshotTour(dir); });
     }
     return app.exec();
 }

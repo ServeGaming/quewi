@@ -1165,9 +1165,14 @@ void ShowModeView::buildUi()
         m_deskDot->setFixedSize(10, 10);
         m_deskLink = elide(m_deskCard, "deskLink");
         m_deskLink->setObjectName(QStringLiteral("smDeskLink"));
-        m_deskLink->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Fixed);
+        // The heading keeps its words; the link line ("ETC Eos / Ion / Nomad
+        // · Failed") takes what's left and shortens itself instead (whole
+        // text in its tooltip). Fixed here cut the heading to "LIGHTING…".
+        m_deskCaps->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Fixed);
+        m_deskLink->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Fixed);
+        m_deskLink->setAlignment(Qt::AlignRight | Qt::AlignVCenter);
         band.lay->addWidget(m_deskDot);
-        band.lay->addWidget(m_deskLink);
+        band.lay->addWidget(m_deskLink, 100);
         outer->addWidget(band.frame);
         auto *v = new QVBoxLayout;
         v->setContentsMargins(16, 8, 16, 10);
@@ -1503,6 +1508,17 @@ void ShowModeView::fitStage()
     const int comingHave = int(std::min<size_t>(m_snap.comingUp.size(), m_comingRows.size()));
     const int hitsStateLines = m_hitsState->linesNeeded(hitsW, 2);
     const int deskDetailLines = m_deskDetail->linesNeeded(deskW, 2);
+    // A running song's name takes a second line rather than lose its end:
+    // the column is narrow, and a wider system font (macOS's) or a long
+    // title would otherwise cut "Defying Gravity" to "Defying Gra…".
+    {
+        const int runW = std::max(60, lowerW * 4 / 13 - 34 - m_runningRows.front().lead->width()
+                                          - px(4, s) - 2 * 10 - 4);
+        for (auto &r : m_runningRows) {
+            r.title->setWordWrap(true);
+            r.title->setMaxLines(r.title->linesNeeded(runW, 2));
+        }
+    }
 
     // Nothing that feeds the answer has changed since last time: done. This
     // runs after every 100 ms render, so it has to be cheap in the common
@@ -1802,6 +1818,9 @@ void ShowModeView::renderDesk()
     QString link = showDeskLinkText(d.link);
     if (on && !d.deskName.isEmpty()) link = QStringLiteral("%1 · %2").arg(d.deskName, link);
     m_deskLink->setText(link);
+    m_deskLink->setToolTip(link);
+    m_deskLink->ensurePolished();
+    m_deskLink->setMaximumWidth(m_deskLink->sizeHint().width());   // room to spare: no wider than its words
     m_deskDot->setStyleSheet(QStringLiteral("background:%1; border-radius:%2px;")
                                  .arg(showDeskLinkColour(d.link).name())
                                  .arg(m_deskDot->width() / 2));
