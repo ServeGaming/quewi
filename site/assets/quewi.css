@@ -1,0 +1,51 @@
+/* quewi documentation — Material theme overrides
+ *
+ * Conservative: just override the primary/accent colour to quewi's
+ * amber, keep Material's tested contrast tokens for everything
+ * else. The previous version hard-overrode bg / fg variables in
+ * slate mode, which broke Material's nested color tokens and
+ * left some text in low-contrast grey-on-grey.
+ */
+
+:root {
+  --md-primary-fg-color:        #D7A24E;
+  --md-primary-fg-color--light: #E0AD58;
+  --md-primary-fg-color--dark:  #BD8A3C;
+  --md-accent-fg-color:         #D7A24E;
+}
+
+/* Primary header reads better against amber when text is the
+ * warm-dark bgDeep token from the app, not pure white. */
+[data-md-color-scheme="default"] .md-header {
+  background-color: #D7A24E;
+  color: #1F1D1B;
+}
+[data-md-color-scheme="default"] .md-tabs {
+  background-color: #BD8A3C;
+}
+
+/* Code blocks: bump contrast slightly for inline code in light
+ * mode — Material's default light-grey-on-grey can be hard to
+ * read against the page. */
+[data-md-color-scheme="default"] .md-typeset code {
+  background-color: #f5f0e6;
+  color: #3A352F;
+}
+
+/* Headings slightly tighter than default — we have a lot of
+ * tables and the default h2 top margin makes them feel detached
+ * from the section title. */
+.md-typeset h1 {
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+.md-typeset h2 {
+  font-weight: 600;
+  margin-top: 1.8em;
+}
+
+/* Tables: slightly tighter padding (lots of reference tables). */
+.md-typeset table:not([class]) th,
+.md-typeset table:not([class]) td {
+  padding: 8px 12px;
+}

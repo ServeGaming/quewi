@@ -290,7 +290,7 @@ void LightingPanel::applyStyle()
 {
     const auto &tk = Theme::tokens();
     const auto rc = showRegionColours();
-    const QString mono = QStringLiteral("'JetBrains Mono','Cascadia Mono','Consolas',monospace");
+    const QString mono = QStringLiteral("'JetBrains Mono','Cascadia Mono','Consolas','SF Mono','Menlo','DejaVu Sans Mono','Liberation Mono',monospace");
 
     QString regions;
     const struct { const char *name; QColor colour; } regionList[] = {{"desk", rc.desk}, {"hits", rc.hits}};
@@ -349,7 +349,8 @@ void LightingPanel::applyStyle()
     // The hit list paints its own text, at the dock's sizes: a 13 px mono
     // countdown, a 12 px name, an 11 px action.
     QFont lead = font();
-    lead.setFamilies({QStringLiteral("JetBrains Mono"), QStringLiteral("Cascadia Mono"), QStringLiteral("Consolas")});
+    lead.setFamilies({QStringLiteral("JetBrains Mono"), QStringLiteral("Cascadia Mono"), QStringLiteral("Consolas"),
+                         QStringLiteral("SF Mono"), QStringLiteral("Menlo"), QStringLiteral("DejaVu Sans Mono")});
     lead.setStyleHint(QFont::Monospace);
     lead.setPixelSize(13);
     lead.setWeight(QFont::Bold);

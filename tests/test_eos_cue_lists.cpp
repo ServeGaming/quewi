@@ -418,9 +418,12 @@ private slots:
         l[1].number = QStringLiteral("2.5");
         l.removeLast();
         desk.notify(QStringLiteral("1"), QStringLiteral("2-3"));
-        QTRY_COMPARE(changed.count(), 1);
+        // Wait for the result, not a count of signals: the first read's
+        // late effects/actions replies can emit cuesChanged too (on a slow
+        // CI Mac that made count()==1 come true before the re-read landed).
+        QTRY_COMPARE(r.cues(QStringLiteral("1")).size(), 2);
+        QVERIFY(changed.count() >= 1);
         const auto cues = r.cues(QStringLiteral("1"));
-        QCOMPARE(cues.size(), 2);
         QCOMPARE(cues[1].number, QStringLiteral("2.5"));
         QCOMPARE(cues[1].uid, QStringLiteral("uid-2-0"));
 

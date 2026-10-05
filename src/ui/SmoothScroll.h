@@ -24,9 +24,14 @@ namespace quewi::ui {
 // `smoothScrollRows` is set — that many rows of the view (measured at the
 // middle of the viewport, so tall rows still move N rows). Item views left
 // in ScrollPerItem mode have a scrollbar counted in ROWS, not pixels; a notch
-// there moves the system's wheel-lines (3) rows rather than "60". Touchpads
-// that report pixelDelta scroll by exactly those pixels (or the matching
-// fraction of a row, per-item).
+// there moves the system's wheel-lines (3) rows rather than "60".
+//
+// Trackpads (a pixelDelta, or a scroll phase — macOS and Linux) aren't
+// animated: the device and the system's momentum are already smooth, so the
+// scrollbar follows each event at once, pixel for pixel. In a per-item view
+// the pixels become rows by the row height, with the leftover fraction
+// carried to the next event (so a 100-event swipe moves its real distance,
+// not 100 rows).
 //
 // stepFor() is the pure arithmetic, exposed for tests.
 class SmoothScroll : public QObject {

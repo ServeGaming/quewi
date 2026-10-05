@@ -117,6 +117,55 @@ int SmoothScroll::stepFor(QAbstractScrollArea *area, QPoint pixelDelta, QPoint a
     return int(std::lround(-notches * kPixelStepFallback));
 }
 
+namespace {
+// Part-rows a trackpad has moved a per-item view but not yet scrolled,
+// per scrollbar. Carried between events so a slow swipe still adds up.
+QHash<QScrollBar *, double> g_rowRest;
+
+// A trackpad (pixel deltas, or scroll phases from macOS / Linux): the
+// device and the system's momentum already move smoothly, dozens of small
+// events a gesture, so follow it directly instead of easing on top of it.
+// Returns false for events with nothing vertical in them (a gesture's
+// begin / end markers, sideways swipes) so Qt handles those as usual.
+bool followTrackpad(QAbstractScrollArea *area, QScrollBar *bar, QWheelEvent *wheel)
+{
+    if (wheel->phase() == Qt::ScrollBegin) g_rowRest.remove(bar);
+    const int px = wheel->pixelDelta().y();
+    const int angle = wheel->angleDelta().y();
+    if (px == 0 && angle == 0) return false;
+
+    // A mouse glide still running would fight the fingers.
+    if (auto it = g_anims.constFind(bar); it != g_anims.constEnd() && it->anim)
+        it->anim->stop();
+
+    auto *view = qobject_cast<QAbstractItemView *>(area);
+    if (view && view->verticalScrollMode() == QAbstractItemView::ScrollPerItem) {
+        // The scrollbar counts rows. Turn the pixels into rows and keep the
+        // fraction for the next event: rounding each tiny event up to a
+        // whole row sent a 100-event swipe flying 100 rows.
+        if (!g_rowRest.contains(bar))
+            QObject::connect(bar, &QObject::destroyed, [bar] { g_rowRest.remove(bar); });
+        double &rest = g_rowRest[bar];
+        if (px != 0) {
+            rest += -double(px) / std::max(1, rowHeightAtMiddle(view));
+        } else {
+            const int lines = std::max(1, QApplication::styleHints()->wheelScrollLines());
+            rest += -angle / 120.0 * lines;
+        }
+        // Toward zero; the rest waits. The nudge stops ten 0.1s summing to
+        // 0.9999… and losing a row to float dust.
+        const int rows = int(rest + (rest > 0 ? 1e-6 : -1e-6));
+        rest -= rows;
+        if (rows != 0) bar->setValue(bar->value() + rows);
+    } else {
+        const int step = SmoothScroll::stepFor(area, QPoint(0, px), QPoint(0, angle));
+        bar->setValue(bar->value() + step);
+    }
+    wheel->accept();
+    return true;
+}
+} // namespace
+
 void SmoothScroll::install(QObject *appOrParent)
 {
     static QPointer<SmoothScroll> instance;
@@ -149,6 +198,11 @@ bool SmoothScroll::eventFilter(QObject *watched, QEvent *event)
 
     auto *bar = area->verticalScrollBar();
     if (!bar || !bar->isVisible()) return false;
+
+    // Trackpads go straight through; only a mouse wheel's whole notches
+    // (angle only, no scroll phase — every Windows mouse) glide.
+    if (!wheel->pixelDelta().isNull() || wheel->phase() != Qt::NoScrollPhase)
+        return followTrackpad(area, bar, wheel);
 
     const int delta = -stepFor(area, wheel->pixelDelta(), wheel->angleDelta());
     if (delta == 0) return false;

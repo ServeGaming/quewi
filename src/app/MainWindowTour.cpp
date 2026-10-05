@@ -48,6 +48,8 @@ void checkFit(QWidget *top, const QString &shot, QTextStream &out)
                 << " px, has " << b->contentsRect().width() << "\n";
     }
     for (auto *l : top->findChildren<QLabel *>()) {
+        // An ElideLabel shortens itself with "…" by design (tooltip has it all).
+        if (l->inherits("quewi::ui::ElideLabel")) continue;
         if (!l->isVisible() || l->wordWrap() || l->text().isEmpty() || l->textFormat() == Qt::RichText
             || Qt::mightBeRichText(l->text()) || l->text().contains(QLatin1Char('\n')))
             continue;
@@ -167,6 +169,9 @@ void MainWindow::runScreenshotTour(const QString &dirPath)
     if (m_workspace) m_workspace->markClean();
     if (m_journalTimer) m_journalTimer->stop();
     clearJournal();      // and no crash-recovery copy of it left behind
+    settle(300);         // a write already queued lands now; clear that one too
+    if (m_workspace) m_workspace->markClean();
+    clearJournal();
     QApplication::exit(0);
 }
 

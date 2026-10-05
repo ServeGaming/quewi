@@ -115,6 +115,11 @@ elseif(APPLE)
         MACOSX_BUNDLE_SHORT_VERSION_STRING  "${PROJECT_VERSION}"
         MACOSX_BUNDLE_COPYRIGHT             "© ServeGaming"
         MACOSX_BUNDLE_ICON_FILE             "${_quewi_bundle_icon_file}"
+        # Our own template (CMake's default + mic / local-network
+        # privacy strings, LSMinimumSystemVersion, high-DPI, and the
+        # .quewi document type for Finder double-click). The
+        # MACOSX_BUNDLE_* values above are substituted into it.
+        MACOSX_BUNDLE_INFO_PLIST            "${CMAKE_SOURCE_DIR}/resources/macos/Info.plist.in"
     )
     get_target_property(_qmake_exec Qt6::qmake IMPORTED_LOCATION)
     get_filename_component(_qt_bin_dir "${_qmake_exec}" DIRECTORY)

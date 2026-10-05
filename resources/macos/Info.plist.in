@@ -1,0 +1,106 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+    quewi's macOS Info.plist template. Based on CMake's default
+    MacOSXBundleInfo.plist.in, so every MACOSX_BUNDLE_... target property
+    set in src/app/CMakeLists.txt still lands here (CMake runs this file
+    through configure_file when it builds the bundle - so don't write a
+    dollar-brace sequence anywhere in this file except a real variable).
+
+    Added on top of the CMake default:
+      - privacy strings (microphone, local network) so macOS shows a
+        consent prompt instead of silently denying the access;
+      - high-DPI + minimum macOS version (Qt 6.8 needs macOS 12);
+      - the .quewi show-file document type, so Finder double-click and
+        drag-onto-Dock open shows in quewi.
+-->
+<plist version="1.0">
+<dict>
+	<key>CFBundleDevelopmentRegion</key>
+	<string>en</string>
+	<key>CFBundleExecutable</key>
+	<string>${MACOSX_BUNDLE_EXECUTABLE_NAME}</string>
+	<key>CFBundleGetInfoString</key>
+	<string>${MACOSX_BUNDLE_INFO_STRING}</string>
+	<key>CFBundleIconFile</key>
+	<string>${MACOSX_BUNDLE_ICON_FILE}</string>
+	<key>CFBundleIdentifier</key>
+	<string>${MACOSX_BUNDLE_GUI_IDENTIFIER}</string>
+	<key>CFBundleInfoDictionaryVersion</key>
+	<string>6.0</string>
+	<key>CFBundleLongVersionString</key>
+	<string>${MACOSX_BUNDLE_LONG_VERSION_STRING}</string>
+	<key>CFBundleName</key>
+	<string>${MACOSX_BUNDLE_BUNDLE_NAME}</string>
+	<key>CFBundlePackageType</key>
+	<string>APPL</string>
+	<key>CFBundleShortVersionString</key>
+	<string>${MACOSX_BUNDLE_SHORT_VERSION_STRING}</string>
+	<key>CFBundleSignature</key>
+	<string>????</string>
+	<key>CFBundleVersion</key>
+	<string>${MACOSX_BUNDLE_BUNDLE_VERSION}</string>
+	<key>CSResourcesFileMapped</key>
+	<true/>
+	<key>NSHumanReadableCopyright</key>
+	<string>${MACOSX_BUNDLE_COPYRIGHT}</string>
+
+	<!-- Same as Qt's own default macOS plist template. -->
+	<key>NSPrincipalClass</key>
+	<string>NSApplication</string>
+	<key>NSSupportsAutomaticGraphicsSwitching</key>
+	<true/>
+	<key>NSHighResolutionCapable</key>
+	<true/>
+	<key>LSMinimumSystemVersion</key>
+	<string>12.0</string>
+
+	<!-- Privacy strings. Without these macOS denies the access with no
+	     prompt (microphone) or blocks LAN traffic (local network, 15+). -->
+	<key>NSMicrophoneUsageDescription</key>
+	<string>quewi uses the microphone when you route a live mic through a cue or the soundboard.</string>
+	<key>NSLocalNetworkUsageDescription</key>
+	<string>quewi talks to lighting desks, sound consoles and remotes on your network over OSC, Art-Net and TCP.</string>
+
+	<!-- .quewi show files: quewi owns and edits them. -->
+	<key>CFBundleDocumentTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleTypeName</key>
+			<string>quewi Show</string>
+			<key>CFBundleTypeRole</key>
+			<string>Editor</string>
+			<key>LSHandlerRank</key>
+			<string>Owner</string>
+			<key>LSItemContentTypes</key>
+			<array>
+				<string>com.servegaming.quewi.show</string>
+			</array>
+			<key>CFBundleTypeExtensions</key>
+			<array>
+				<string>quewi</string>
+			</array>
+		</dict>
+	</array>
+	<key>UTExportedTypeDeclarations</key>
+	<array>
+		<dict>
+			<key>UTTypeIdentifier</key>
+			<string>com.servegaming.quewi.show</string>
+			<key>UTTypeDescription</key>
+			<string>quewi Show</string>
+			<key>UTTypeConformsTo</key>
+			<array>
+				<string>public.data</string>
+			</array>
+			<key>UTTypeTagSpecification</key>
+			<dict>
+				<key>public.filename-extension</key>
+				<array>
+					<string>quewi</string>
+				</array>
+			</dict>
+		</dict>
+	</array>
+</dict>
+</plist>

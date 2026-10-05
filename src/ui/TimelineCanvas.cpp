@@ -1034,15 +1034,61 @@ void TimelineCanvas::mouseDoubleClickEvent(QMouseEvent *e) {
 }
 
 void TimelineCanvas::wheelEvent(QWheelEvent *e) {
-    // Ctrl+wheel = zoom (snaps for predictable feel).
+    const QPoint px    = e->pixelDelta();
+    const QPoint angle = e->angleDelta();
+    // A trackpad (macOS, Linux) sends pixel deltas and/or scroll phases:
+    // dozens of small events a gesture, then "momentum" ones after the
+    // fingers lift. A mouse wheel sends whole 120-unit notches with no phase.
+    const bool trackpad = !px.isNull() || e->phase() != Qt::NoScrollPhase;
+    if (e->phase() == Qt::ScrollBegin) m_zoomWheel = 0;
+    e->accept();
+
+    // Ctrl+wheel (Command on macOS) = zoom.
     if (e->modifiers() & Qt::ControlModifier) {
-        double factor = (e->angleDelta().y() > 0) ? 0.8 : 1.25;
-        setFramesPerPixel(m_framesPerPixel * factor);
+        // Momentum would keep zooming after the user stopped.
+        if (e->phase() == Qt::ScrollMomentum) return;
+        if (!px.isNull()) {
+            // Trackpad: zoom smoothly with the fingers, one 0.8x step per
+            // 100 px of travel, and never more than one step per event so a
+            // fast flick can't jump.
+            const double steps = std::clamp(px.y() / 100.0, -1.0, 1.0);
+            if (steps != 0.0) setFramesPerPixel(m_framesPerPixel * std::pow(0.8, steps));
+            return;
+        }
+        // Wheel: one step (0.8x in, 1.25x out) per whole notch, so a mouse
+        // snaps exactly as it always has and a high-res wheel's part-notches
+        // add up to one. Zero-delta events (a gesture's begin/end) do nothing.
+        m_zoomWheel += angle.y();
+        const int steps = m_zoomWheel / 120;
+        if (steps != 0) {
+            m_zoomWheel -= steps * 120;
+            setFramesPerPixel(m_framesPerPixel * std::pow(0.8, steps));
+        }
         return;
     }
 
-    // Plain / Shift wheel = smooth pan. Re-target the running animation
-    // each tick so rapid rolls stack into a single longer glide.
+    // Plain wheel = vertical pan, Shift+wheel = horizontal pan. macOS turns
+    // Shift+wheel into a horizontal delta itself and trackpads swipe
+    // sideways, so the horizontal amount is the x delta when there is one
+    // and the y delta under Shift otherwise.
+    const bool shift = e->modifiers().testFlag(Qt::ShiftModifier);
+    const QPoint d = trackpad && !px.isNull() ? px : angle;
+    const int dx = d.x() != 0 ? d.x() : (shift ? d.y() : 0);
+    const int dy = shift ? 0 : d.y();
+    if (dx == 0 && dy == 0) return;
+
+    if (trackpad) {
+        // The trackpad (and the system's momentum) already moves smoothly;
+        // follow it pixel for pixel rather than easing on top of it.
+        if (m_scrollAnim) m_scrollAnim->stop();
+        const int f = px.isNull() ? 2 : 1;   // angle-only precise devices: as the wheel's vertical rate
+        if (m_hbar && dx) m_hbar->setValue(m_hbar->value() - dx);
+        if (m_vbar && dy) m_vbar->setValue(m_vbar->value() - dy / f);
+        return;
+    }
+
+    // Mouse wheel = smooth pan. Re-target the running animation each tick
+    // so rapid rolls stack into a single longer glide.
     auto smoothTo = [this](QScrollBar *bar, int target) {
         if (!bar) return;
         target = qBound(bar->minimum(), target, bar->maximum());
@@ -1058,10 +1104,8 @@ void TimelineCanvas::wheelEvent(QWheelEvent *e) {
         m_scrollAnim->setEndValue(target);
         m_scrollAnim->start();
     };
-
-    const int dy = e->angleDelta().y();
-    if (e->modifiers() & Qt::ShiftModifier) {
-        if (m_hbar) smoothTo(m_hbar, m_hbar->value() - dy);
+    if (dx != 0) {
+        if (m_hbar) smoothTo(m_hbar, m_hbar->value() - dx);
     } else {
         if (m_vbar) smoothTo(m_vbar, m_vbar->value() - dy / 2);
     }

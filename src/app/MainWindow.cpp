@@ -967,7 +967,16 @@ void MainWindow::buildMenus()
     cueMenu->addSeparator();
     cueMenu->addAction(tr("Toggle &Arm"), QKeySequence(Qt::Key_E),
                        this, &MainWindow::toggleArmSelectedCue);
-    cueMenu->addAction(tr("&Delete"), QKeySequence::Delete, this, &MainWindow::deleteSelectedCue);
+    {
+        QAction *del = cueMenu->addAction(tr("&Delete"), QKeySequence::Delete, this, &MainWindow::deleteSelectedCue);
+#ifdef Q_OS_MACOS
+        // A MacBook's "delete" key is Backspace (forward Delete is fn+delete),
+        // so Backspace deletes cues too, as it does in Finder and QLab.
+        del->setShortcuts({QKeySequence(QKeySequence::Delete), QKeySequence(Qt::Key_Backspace)});
+#else
+        Q_UNUSED(del);
+#endif
+    }
 
     // The bare-letter cue keys (M, A, F, W, E…), Delete and friends act on the
     // cue list, so they're live only while the cue list has focus. Window-wide,

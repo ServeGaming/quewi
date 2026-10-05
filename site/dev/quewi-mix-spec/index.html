@@ -1,0 +1,3120 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="Theatre cueing software — open-source, cross-platform, OSC-controllable. Documentation covering install, cue authoring, show running, OSC remote control, and integration with lighting / video / MIDI systems.">
+      
+      
+      
+        <link rel="canonical" href="https://servegaming.github.io/quewi/dev/quewi-mix-spec/">
+      
+      
+      
+      
+        
+      
+      
+      <link rel="icon" href="../../assets/images/favicon.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.7">
+    
+    
+      
+        <title>quewi Mix — design spec - quewi documentation</title>
+      
+    
+    
+      <link rel="stylesheet" href="../../assets/stylesheets/main.ec1eaa64.min.css">
+      
+        
+        <link rel="stylesheet" href="../../assets/stylesheets/palette.ab4e12ef.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Inter:300,300i,400,400i,700,700i%7CJetBrains+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Inter";--md-code-font:"JetBrains Mono"}</style>
+      
+    
+    
+      <link rel="stylesheet" href="../../assets/quewi.css">
+    
+    <script>__md_scope=new URL("../..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="slate" data-md-color-primary="amber" data-md-color-accent="amber">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#quewi-mix-design-spec" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow md-header--lifted" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href="../.." title="quewi documentation" class="md-header__button md-logo" aria-label="quewi documentation" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            quewi documentation
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              quewi Mix — design spec
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: dark)" data-md-color-scheme="slate" data-md-color-primary="amber" data-md-color-accent="amber"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 18c-.89 0-1.74-.2-2.5-.55C11.56 16.5 13 14.42 13 12s-1.44-4.5-3.5-5.45C10.26 6.2 11.11 6 12 6a6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: light)" data-md-color-scheme="default" data-md-color-primary="amber" data-md-color-accent="amber"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a4 4 0 0 0-4 4 4 4 0 0 0 4 4 4 4 0 0 0 4-4 4 4 0 0 0-4-4m0 10a6 6 0 0 1-6-6 6 6 0 0 1 6-6 6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+          <a href="javascript:void(0)" class="md-search__icon md-icon" title="Share" aria-label="Share" data-clipboard data-clipboard-text="" data-md-component="search-share" tabindex="-1">
+            
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M18 16.08c-.76 0-1.44.3-1.96.77L8.91 12.7c.05-.23.09-.46.09-.7s-.04-.47-.09-.7l7.05-4.11c.54.5 1.25.81 2.04.81a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3c0 .24.04.47.09.7L8.04 9.81C7.5 9.31 6.79 9 6 9a3 3 0 0 0-3 3 3 3 0 0 0 3 3c.79 0 1.5-.31 2.04-.81l7.12 4.15c-.05.21-.08.43-.08.66 0 1.61 1.31 2.91 2.92 2.91s2.92-1.3 2.92-2.91A2.92 2.92 0 0 0 18 16.08"/></svg>
+          </a>
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+        <div class="md-search__suggest" data-md-component="search-suggest"></div>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/ServeGaming/quewi" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M252.8 8C114.1 8 8 113.3 8 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C436.2 457.8 504 362.9 504 252 504 113.3 391.5 8 252.8 8M105.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
+  </div>
+  <div class="md-source__repository">
+    ServeGaming/quewi
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+    
+      
+<nav class="md-tabs" aria-label="Tabs" data-md-component="tabs">
+  <div class="md-grid">
+    <ul class="md-tabs__list">
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../.." class="md-tabs__link">
+        
+  
+  
+    
+  
+  Home
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../getting-started/install/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  Getting started
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../using-quewi/cue-types/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  Using quewi
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../cue-types/audio/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  Cue type reference
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../osc-control/overview/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  OSC remote control
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../integration/lighting/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  Integration
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../support/troubleshooting/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  Support
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../reference/file-format/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  Reference
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../about/release-notes/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  About
+
+        </a>
+      </li>
+    
+  
+
+      
+    </ul>
+  </div>
+</nav>
+    
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+  
+
+
+<nav class="md-nav md-nav--primary md-nav--lifted" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href="../.." title="quewi documentation" class="md-nav__button md-logo" aria-label="quewi documentation" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    quewi documentation
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/ServeGaming/quewi" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M252.8 8C114.1 8 8 113.3 8 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C436.2 457.8 504 362.9 504 252 504 113.3 391.5 8 252.8 8M105.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
+  </div>
+  <div class="md-source__repository">
+    ServeGaming/quewi
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../.." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Home
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_2" >
+        
+          
+          <label class="md-nav__link" for="__nav_2" id="__nav_2_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Getting started
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_2">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Getting started
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../getting-started/install/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Install
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../getting-started/quickstart/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Quickstart
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../getting-started/concepts/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Concepts
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_3" >
+        
+          
+          <label class="md-nav__link" for="__nav_3" id="__nav_3_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Using quewi
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Using quewi
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../using-quewi/cue-types/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Cue types overview
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../using-quewi/transport/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Transport (GO / Panic / Pause)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../using-quewi/soundboard/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Soundboard
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../media-import/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Import from URL (YouTube etc.)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../using-quewi/mix/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    quewi Mix (DCA mixing)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../using-quewi/show-mode/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Show Mode
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../using-quewi/preflight/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Pre-flight
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../using-quewi/shortcuts/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Keyboard shortcuts
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../using-quewi/command-menu/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Command menu
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../using-quewi/inspector/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Inspector & editing
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../using-quewi/lighting-triggers/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Lighting triggers
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../using-quewi/matrix-list/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Matrix List (sound + lights)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_4" >
+        
+          
+          <label class="md-nav__link" for="__nav_4" id="__nav_4_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Cue type reference
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_4">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Cue type reference
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../cue-types/audio/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Audio cue
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../cue-types/video/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Video cue
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../cue-types/light/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Light cue
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../cue-types/fade/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Fade cue
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../cue-types/wait/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Wait cue
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../cue-types/group/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Group cue
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../cue-types/osc/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    OSC cue
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../cue-types/midi/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    MIDI / MSC cue
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../cue-types/control-cues/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Control cues (start / stop / goto / …)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../cue-types/memo/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Memo cue
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_5" >
+        
+          
+          <label class="md-nav__link" for="__nav_5" id="__nav_5_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    OSC remote control
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_5_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_5">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    OSC remote control
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../osc-control/overview/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Overview
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../osc-control/reference/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Address reference
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../osc-control/field-reference/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Per-cue field reference
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../osc-control/recipes/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Recipes
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_6" >
+        
+          
+          <label class="md-nav__link" for="__nav_6" id="__nav_6_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Integration
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_6_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_6">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Integration
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../integration/lighting/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Lighting (sACN / Art-Net / DMX)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../integration/audio/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Audio routing
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../integration/video/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Video output
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../integration/midi/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    MIDI Show Control
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_7" >
+        
+          
+          <label class="md-nav__link" for="__nav_7" id="__nav_7_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Support
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_7_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_7">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Support
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../support/troubleshooting/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Troubleshooting
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../support/macos-gatekeeper/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    macOS Gatekeeper
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../support/updates/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    In-app updates
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../support/faq/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    FAQ
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../support/macos-signing-setup/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    macOS signing setup (maintainers)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_8" >
+        
+          
+          <label class="md-nav__link" for="__nav_8" id="__nav_8_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Reference
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_8_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_8">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Reference
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/file-format/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    File format
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/osc-coverage/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    OSC coverage matrix
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/performance-budgets/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Performance budgets
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/qlab-parity-roadmap/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    QLab parity roadmap
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_9" >
+        
+          
+          <label class="md-nav__link" for="__nav_9" id="__nav_9_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    About
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_9_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_9">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    About
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../about/release-notes/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Release notes
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../about/license/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    License
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../about/credits/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Credits
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#where-it-is" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Where it is
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#thesis" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Thesis
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#the-principle-we-inherit" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The principle we inherit
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#scope" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Scope
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Scope">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#console-targets-decided" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Console targets — decided
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#hardware-access-changes-the-plan" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Hardware access changes the plan
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#first-hardware-session-dm7" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        First hardware session (DM7)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#architecture" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Architecture
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Architecture">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#show-model" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Show model
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#mix-cues" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Mix cues
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#console-link" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Console link
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#deployment-landmines-x32" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Deployment landmines (X32)
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Deployment landmines (X32)">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#1-scene-recall-silently-reverts-our-dca-assignments" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        1. Scene recall silently reverts our DCA assignments
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#2-channel-links-cause-moves-the-operator-didnt-ask-for" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2. Channel links cause moves the operator didn't ask for
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#3-only-four-xremote-clients-exist-total" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        3. Only FOUR /xremote clients exist, total
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#do-not-reuse-oscengine-for-the-console" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Do not reuse OscEngine for the console
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#sequencing" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Sequencing
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#open-questions" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Open questions
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#dm7-traps-that-are-already-decided" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        DM7 traps that are already decided
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#non-goals" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Non-goals
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+  
+
+
+<h1 id="quewi-mix-design-spec">quewi Mix — design spec<a class="headerlink" href="#quewi-mix-design-spec" title="Permanent link">&para;</a></h1>
+<p>Status: <strong>phase 1 in progress.</strong> Drafted 2026-07-15.
+Console protocol details live in a companion doc (<code>console-protocols.md</code>);
+this file is the <em>what</em> and <em>why</em>, not the <em>how consoles talk</em>.</p>
+<h2 id="where-it-is">Where it is<a class="headerlink" href="#where-it-is" title="Permanent link">&para;</a></h2>
+<p>Built and tested (no UI yet — nothing is user-reachable):</p>
+<table>
+<thead>
+<tr>
+<th></th>
+<th></th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>mix/X32Value</code></td>
+<td>Value encodings. The pure layer where the protocol's traps live: DCA1 = bit 0, inverted EQ Q, <code>f=0</code> is −∞, 1024 vs 161 step grids, three zero-pad widths.</td>
+</tr>
+<tr>
+<td><code>mix/ConsoleLink</code></td>
+<td>Protocol-agnostic base. Owns the assignment cache and hands subclasses <code>(previous, next)</code> so one call serves a bitmask and a per-pair boolean. <code>applyCue()</code> mutes everything the cue doesn't name.</td>
+</tr>
+<tr>
+<td><code>mix/X32Link</code></td>
+<td>X32/M32 over UDP. Two-socket confirmation, <code>/xremote</code> keepalive + loss detection, Scene Safe bit 5, channel links, scene-recall resync.</td>
+</tr>
+<tr>
+<td><code>mix/Dm7Value</code></td>
+<td>DM7 line framing, dB ×100, the 27 legal pan values.</td>
+</tr>
+<tr>
+<td><code>mix/Dm7Link</code></td>
+<td>DM7 over TCP/RCP. Diff-based pair writes, split mode, <code>OK</code> vs <code>NOTIFY</code>, keepalive, model-gated capabilities.</td>
+</tr>
+<tr>
+<td><code>mix/MixShow</code></td>
+<td>Channels, actors, backups, ensembles. Compiled into <code>quewi_core</code> (like <code>cues/</code>) so <code>Workspace</code> can own one.</td>
+</tr>
+<tr>
+<td><code>mix/MixCue</code></td>
+<td>Per-cue DCA assignments, stored DCA-first, ensembles resolved at fire time.</td>
+</tr>
+<tr>
+<td>persistence</td>
+<td><code>mix_json</code> + <code>mix_list_ids</code> meta keys; <code>"mix"</code> in the cue registry. Round-tripped through real SQLite.</td>
+</tr>
+<tr>
+<td><code>CueList::Kind::Mix</code></td>
+<td>Third variant beside <code>Normal</code> / <code>Soundboard</code>.</td>
+</tr>
+<tr>
+<td><code>PatchManager::Category::MixingConsole</code></td>
+<td>Model only — deliberately not in the patch editor UI until it has a field editor.</td>
+</tr>
+</tbody>
+</table>
+<p>Not started: the DCA cue grid, the fader surface, everything from phase 3 on.
+<strong>Nothing here is reachable from the UI yet</strong> — the engine works, but a user
+can't get at it.</p>
+<p><strong>The abstraction is proven.</strong> <code>Dm7Link</code> was built second, on purpose, and one
+<code>ConsoleLink</code> call now drives two opposite wire forms with no changes to the
+base class: X32 writes a whole bitmask and ignores <code>previous</code>; DM7 sends only
+the differing pairs. Both are asserted by test. Had DM7 waited until phase 7,
+we'd have been retrofitting an X32-shaped interface.</p>
+<p><strong>Tests are mutation-checked, not just green.</strong> The DCA bit order, the
+two-socket arrangement, and the dual-suite test main were each verified to
+actually fail when broken — a passing test that cannot fail is worse than none.
+<code>test_dm7_link</code> was flaky on first write (fixed <code>qWait()</code> racing TCP delivery;
+the suite reported 0 failures while exiting non-zero) and was fixed with
+retry-until-observed assertions, not re-run until green.</p>
+<h2 id="thesis">Thesis<a class="headerlink" href="#thesis" title="Permanent link">&para;</a></h2>
+<p>quewi does playback. TheatreMix does live mixing. They are the two halves of
+one job, and today every theatre sound op runs both and bolts them together —
+TheatreMix literally ships a feature whose only purpose is firing QLab cues
+from the console.</p>
+<p>quewi Mix closes that gap: <strong>one application, one show file, both halves.</strong></p>
+<h2 id="the-principle-we-inherit">The principle we inherit<a class="headerlink" href="#the-principle-we-inherit" title="Permanent link">&para;</a></h2>
+<p>TheatreMix's best decision is a restraint: <strong>it assigns and labels DCAs but
+never recalls DCA fader levels.</strong> The software does the bookkeeping — which
+mics are live in this scene, on which faders, everything else muted — and the
+human keeps the mix.</p>
+<p>We copy this. Non-negotiable. A theatre mix is a performance; automating the
+levels would make quewi Mix useless to the exact people it's for.</p>
+<h2 id="scope">Scope<a class="headerlink" href="#scope" title="Permanent link">&para;</a></h2>
+<p>Full TheatreMix feature parity, across Behringer/Midas <strong>and</strong> Yamaha, plus an
+on-screen fader surface (which TheatreMix doesn't have — it requires a physical
+surface).</p>
+<p>This is a large project. See <em>Sequencing</em> for how it lands incrementally.</p>
+<h3 id="console-targets-decided">Console targets — decided<a class="headerlink" href="#console-targets-decided" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th></th>
+<th>Target</th>
+<th>Why</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Behringer / Midas</td>
+<td><strong>X32 / M32</strong></td>
+<td>Publicly documented protocol; X32-Edit and emulators speak it, so we can develop without hardware. Cheapest and most common desk in the schools/community market.</td>
+</tr>
+<tr>
+<td>Yamaha</td>
+<td><strong>DM7</strong></td>
+<td>The user has one with regular hands-on access.</td>
+</tr>
+</tbody>
+</table>
+<p><strong>DM7 is the best Yamaha we could have drawn.</strong> 24 DCAs, confirmed
+<code>InCh/DCA/Assign</code> (120×24), and — unlike CL/QL and TF — <strong>confirmed EQ and HPF</strong>
+(<code>InCh/PEQ/Band/*</code>, <code>InCh/HPF/Freq</code>). Channel profiles (phase 3) are therefore
+possible on Yamaha, which looked doubtful when CL/QL was the assumed target.</p>
+<p>Not targets: TF and CL/QL (different capability tables, and we have neither),
+and anything TheatreMix doesn't support either — see <em>Non-goals</em>.</p>
+<h3 id="hardware-access-changes-the-plan">Hardware access changes the plan<a class="headerlink" href="#hardware-access-changes-the-plan" title="Permanent link">&para;</a></h3>
+<p>Yamaha has <strong>no offline editor that speaks the protocol</strong> — the CL/QL and TF
+Editors are RCP clients, not servers, and don't listen on 49280. Normally that
+would force Yamaha to the end of the queue and a mock-console build.</p>
+<p>Regular DM7 access removes that constraint, so <strong>Yamaha does not have to be
+last</strong>. It also makes one specific hour of hardware time the highest-leverage
+work in the project: see <em>First hardware session</em>.</p>
+<h2 id="first-hardware-session-dm7">First hardware session (DM7)<a class="headerlink" href="#first-hardware-session-dm7" title="Permanent link">&para;</a></h2>
+<p>Do this <strong>before</strong> freezing the <code>ConsoleLink</code> base class.</p>
+<p>The published Yamaha parameter dumps are <strong>stale</strong> — they're <code>prminfo</code> captures
+from older firmware, and we proved they under-report (they show no DCA-assign on
+TF, yet TheatreMix ships TF support at firmware ≥4.00). Absence in the dump
+proves nothing. TheatreMix's firmware floors (TF ≥4.00, CL/QL ≥5.10, DM7 ≥1.52,
+X32 ≥2.12) are very likely the versions where the needed parameters landed.</p>
+<p>So: <strong>get ground truth from the actual desk on its actual firmware</strong> rather than
+building against a table that was already out of date when we found it.</p>
+<p><strong><code>tools/dm7_probe.py &lt;DM7_IP&gt;</code> runs the whole capture</strong> and writes
+<code>dm7_session.log</code>. All writes target Ch 1 / DCA 1 and are restored; nothing
+stores a scene. Run it on a rehearsal or blank scene, not a show file.</p>
+<p>Priority if time is short:
+1. <strong>Test B — <code>prmnum</code> / <code>prminfo</code>.</strong> The self-description query is officially
+   documented (for DME7; ⚠️ unproven on consoles). If a DM7 accepts it, we
+   enumerate the live desk at connect time and <strong>retire this entire class of
+   error permanently.</strong> One command. Do this first.
+2. <strong>Test E — PEQ gain scaling.</strong> Three sources disagree. 10× errors otherwise.
+3. <strong>Test F — do the "absent" params exist?</strong> Dynamics and delay are missing
+   from both the dump and the official spec, yet the console has them. This is
+   the exact mistake class the TF correction exposed. Decides phase 4's scope.
+4. <strong>Test I — <code>NOTIFY</code> on a DCA assign.</strong> Proves the product's core capture
+   loop, and reveals whether connecting DM7 Editor kills our socket.</p>
+<h2 id="architecture">Architecture<a class="headerlink" href="#architecture" title="Permanent link">&para;</a></h2>
+<p>The existing codebase already has the extension points this needs. Use them
+rather than building a parallel show model.</p>
+<h3 id="show-model">Show model<a class="headerlink" href="#show-model" title="Permanent link">&para;</a></h3>
+<p><code>Workspace</code> owns <code>CueList</code>s, <code>PatchManager</code>, <code>ScriptModel</code>, <code>CartGrid</code>. Add a
+sibling:</p>
+<div class="language-text highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>Workspace::mix() -&gt; MixShow*
+</span></code></pre></div>
+<p><code>MixShow</code> owns the things that are <em>not</em> per-cue:</p>
+<ul>
+<li><strong>Channels</strong> — up to 48 controlled channels. Name, colour, console strip
+  number, assigned actor, backup channel, profile set.</li>
+<li><strong>DCAs</strong> — 8–16 depending on console.</li>
+<li><strong>Ensembles</strong> — named channel groups assigned as a unit.</li>
+<li><strong>Actors</strong> — per-performer processing, portable across shows.</li>
+<li><strong>Profiles</strong> — per-channel EQ/dynamics/gain/HPF presets.</li>
+<li><strong>Positions</strong> — named acting positions (delay + pan, optional bus sends).</li>
+<li><strong>FX buses</strong> — which buses exist and what they're called.</li>
+</ul>
+<h3 id="mix-cues">Mix cues<a class="headerlink" href="#mix-cues" title="Permanent link">&para;</a></h3>
+<p><code>CueList::Kind</code> is already <code>{ Normal, Soundboard }</code> — a Soundboard list renders
+a pad grid instead of a cue table and stays out of the set list. Add
+<code>Kind::Mix</code>: renders the DCA grid, stays out of the set list, has its own GO.</p>
+<p><strong>A separate list is the right call, not a compromise.</strong> A musical has 500+ mix
+cues and maybe 40 sound cues. Interleaved, the sound cues would be invisible in
+a wall of DCA moves. The two lists mirror how the job is actually run.</p>
+<p><code>MixCue : cues::Cue</code>, <code>typeKey() == "mix"</code>. Payload:</p>
+<ul>
+<li>DCA assignment map (channel → DCA), the substance of the cue</li>
+<li>per-channel level offsets (−15..+5 dB)</li>
+<li>position / profile / FX-bus selections</li>
+<li>FX bus mute states</li>
+<li>optional snippet/scene recall</li>
+</ul>
+<p>It inherits number, name, notes, colour, pre/post-wait, and the undo stack for
+free.</p>
+<h3 id="console-link">Console link<a class="headerlink" href="#console-link" title="Permanent link">&para;</a></h3>
+<p>A console is a <strong>patch</strong> — named, reusable, ships with the show file. Add
+<code>PatchManager::Category::MixingConsole</code> with fields for make/model/host/port.</p>
+<div class="language-text highlight"><pre><span></span><code><span id="__span-1-1"><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a>class ConsoleLink : public QObject      // abstract
+</span><span id="__span-1-2"><a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a>    connect() / disconnect() / state()
+</span><span id="__span-1-3"><a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a>    setDcaAssignment(channel, dcaMask)
+</span><span id="__span-1-4"><a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a>    setDcaLabel(dca, name, colour)
+</span><span id="__span-1-5"><a id="__codelineno-1-5" name="__codelineno-1-5" href="#__codelineno-1-5"></a>    setChannelMute(channel, muted)
+</span><span id="__span-1-6"><a id="__codelineno-1-6" name="__codelineno-1-6" href="#__codelineno-1-6"></a>    ... profiles, positions, sends, meters
+</span><span id="__span-1-7"><a id="__codelineno-1-7" name="__codelineno-1-7" href="#__codelineno-1-7"></a>  signals:
+</span><span id="__span-1-8"><a id="__codelineno-1-8" name="__codelineno-1-8" href="#__codelineno-1-8"></a>    surfaceChanged(...)   // console-originated change → live edit capture
+</span><span id="__span-1-9"><a id="__codelineno-1-9" name="__codelineno-1-9" href="#__codelineno-1-9"></a>    metersUpdated(...)
+</span><span id="__span-1-10"><a id="__codelineno-1-10" name="__codelineno-1-10" href="#__codelineno-1-10"></a>    connectionStateChanged(...)
+</span></code></pre></div>
+<p>Implementations: <code>X32Link</code>, <code>Dm7Link</code>. <strong>The abstraction must be written against
+two real protocols before it's trusted</strong> — an interface designed around X32
+alone will be an X32 interface wearing a hat. The two are about as different as
+they get, which is good news for the abstraction and bad news for anyone who
+designs it in a hurry:</p>
+<table>
+<thead>
+<tr>
+<th></th>
+<th>X32 / M32</th>
+<th>Yamaha DM7</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Transport</td>
+<td><strong>UDP</strong> 10023</td>
+<td><strong>TCP</strong> 49280</td>
+</tr>
+<tr>
+<td>Encoding</td>
+<td>binary OSC 1.0</td>
+<td><strong>ASCII, LF-terminated</strong></td>
+</tr>
+<tr>
+<td>DCA membership</td>
+<td><strong>8-bit bitmask on the channel</strong>, replace-not-toggle</td>
+<td><strong>one boolean per (channel, DCA)</strong></td>
+</tr>
+<tr>
+<td>Change notify</td>
+<td><code>/xremote</code>, <strong>10 s timeout, renew</strong></td>
+<td><strong>unsolicited <code>NOTIFY</code>, always on</strong></td>
+</tr>
+<tr>
+<td>Self-echo</td>
+<td>❌ <strong>none</strong> — needs a two-socket trick</td>
+<td>✅ <code>OK</code> vs <code>NOTIFY</code> distinguishes</td>
+</tr>
+<tr>
+<td>DCAs</td>
+<td><strong>8</strong></td>
+<td><strong>24</strong></td>
+</tr>
+<tr>
+<td>Input metering</td>
+<td>✅ <code>/meters/1</code> (96 floats)</td>
+<td>✅ 120 ch, 3 pickoffs</td>
+</tr>
+<tr>
+<td>Discovery</td>
+<td>✅ <code>/xinfo</code> broadcast</td>
+<td>❌ none — type an IP</td>
+</tr>
+<tr>
+<td>Delivery guarantee</td>
+<td>❌ UDP, no acks</td>
+<td>✅ TCP</td>
+</tr>
+<tr>
+<td>Channels</td>
+<td>32 (every variant)</td>
+<td><strong>120</strong> / 72 on Compact</td>
+</tr>
+<tr>
+<td>EQ per input</td>
+<td>4 bands</td>
+<td>4 bands (+HPF <strong>and</strong> LPF)</td>
+</tr>
+</tbody>
+</table>
+<p>Consequences that must shape the base class, not be bolted on later:</p>
+<ul>
+<li><strong>State sync is not cheap.</strong> DM7's per-pair boolean means a full sync is
+  <strong>120 × 24 = 2880 messages</strong>. Rate-limiting and caching are load-bearing.</li>
+<li><strong><code>setDcaAssignment</code> must speak the caller's language</strong> — "channel 4 belongs
+  to DCAs 1 and 3" — and let each link decide the wire form. X32 needs
+  read-modify-write on a mask (<code>new = old | 1&lt;&lt;(dca-1)</code>, DCA1 = bit 0); DM7
+  sends one message per pair. Neither shape should leak upward.</li>
+<li><strong>Confirmation is per-protocol.</strong> DM7 gets it free (<code>OK</code> = my echo, <code>NOTIFY</code> =
+  someone else's — that distinction is also what makes loop-free live capture
+  possible). X32 gets it only via the two-socket trick: register <code>/xremote</code> on
+  socket A, send every set from socket B, and the console relays your own change
+  back to A because it thinks B is a different client. Over UDP with no acks,
+  <strong>a silently-dropped mute is otherwise undetectable.</strong> Never fire-and-forget.</li>
+<li><strong>Mute is <code>on</code>, not <code>mute</code>, on both.</strong> <code>1</code> = unmuted. At least the inversion
+  is consistent across the two.</li>
+</ul>
+<h2 id="deployment-landmines-x32">Deployment landmines (X32)<a class="headerlink" href="#deployment-landmines-x32" title="Permanent link">&para;</a></h2>
+<p>Found in research, and they change the <em>product</em>, not just the code. All three
+need an answer in the UI before we ship, not a discovery at someone's tech.</p>
+<h3 id="1-scene-recall-silently-reverts-our-dca-assignments">1. Scene recall silently reverts our DCA assignments<a class="headerlink" href="#1-scene-recall-silently-reverts-our-dca-assignments" title="Permanent link">&para;</a></h3>
+<p>The X32 Scene Safe bitmap has <strong>bit 5 = "Groups (DCA assign, Mute group
+assign)"</strong>. If the operator — or our own scene-recall verb — recalls a scene
+without bit 5 safed, <strong>every assignment quewi Mix made is silently undone.</strong>
+Mid-show, no error.</p>
+<p>This is exactly the class of thing that makes a tool untrustworthy. Minimum: we
+check the safe bits on connect and refuse to run, loudly, until Groups is safed.
+Better: we offer to set it.</p>
+<h3 id="2-channel-links-cause-moves-the-operator-didnt-ask-for">2. Channel links cause moves the operator didn't ask for<a class="headerlink" href="#2-channel-links-cause-moves-the-operator-didnt-ask-for" title="Permanent link">&para;</a></h3>
+<p><code>/config/chlink/1-2</code>…<code>/31-32</code>. If a pair is linked, writing one channel's fader
+or mute <strong>moves its partner</strong>. Read <code>/config/chlink/*</code> at startup or produce
+mystery double-moves nobody can explain.</p>
+<h3 id="3-only-four-xremote-clients-exist-total">3. Only FOUR <code>/xremote</code> clients exist, total<a class="headerlink" href="#3-only-four-xremote-clients-exist-total" title="Permanent link">&para;</a></h3>
+<p>X32-Edit, a tablet, any Companion instance, and quewi all compete for four
+slots. In a real rig those are scarce. <strong>Failing to register must be visible</strong> —
+silently not receiving console changes is the worst possible failure mode for a
+live-capture feature.</p>
+<p>Also read before assuming behaviour: <code>/-prefs/dcamute</code>, <code>/-prefs/hardmute</code>,
+<code>/-prefs/invertmutes</code>.</p>
+<p>Build X32 first (it's testable without hardware), but <strong>review the DM7 protocol
+before freezing the base class.</strong></p>
+<h3 id="do-not-reuse-oscengine-for-the-console">Do not reuse OscEngine for the console<a class="headerlink" href="#do-not-reuse-oscengine-for-the-console" title="Permanent link">&para;</a></h3>
+<p>X32 speaks OSC over UDP, so this is tempting. It's wrong: <code>OscEngine</code> sends
+from <code>m_udpOut</code> and listens on <code>m_udpIn</code>, but the X32 replies to the <em>source
+port</em> of each request — replies would arrive on the outbound socket and never
+be read. <code>ConsoleLink</code> owns its own socket.</p>
+<p>Reuse <code>OscCodec</code> for encode/decode. That part is genuinely shared.</p>
+<h2 id="sequencing">Sequencing<a class="headerlink" href="#sequencing" title="Permanent link">&para;</a></h2>
+<p>Each phase is shippable. Nothing here is worth building if phase 1 isn't good.</p>
+<ol>
+<li><strong>Dev harness.</strong> The DM7 hardware capture above, plus something to build
+   against for each protocol. X32 is solved for free —
+   <a href="https://github.com/pmaillot/X32-Behringer">pmaillot's emulator</a> speaks
+   FW 4.06, holds 4 <code>/xremote</code> clients like the real desk, and runs on
+   <code>127.0.0.1:10023</code>. DM7 needs a mock we write from the hardware capture.
+   ⚠️ The X32 emulator is a dev harness, <strong>not a conformance oracle</strong> — known to
+   store some values without relaying them. Validate on iron before shipping.</li>
+<li><strong>The spine.</strong> MixShow model, <code>Kind::Mix</code> list, MixCue, console patch,
+   <code>ConsoleLink</code> + <code>X32Link</code>. DCA assign / label / auto-mute. The cue grid with
+   change colours. Connect, fire cues, see faders move. <em>This alone is what
+   people buy TheatreMix for.</em></li>
+<li><strong>DM7.</strong> <code>Dm7Link</code> against the reviewed abstraction. Deliberately early:
+   the second implementation is what proves the abstraction, and doing it while
+   phase 1 is still fresh is far cheaper than retrofitting at phase 7. It also
+   forces the UI to handle 24 DCAs vs 8 before that assumption calcifies.</li>
+<li><strong>Show operation.</strong> Live edit capture, active-cue info window, cue markers.</li>
+<li><strong>Channel processing.</strong> Profiles, actor settings, backup channels + floating
+   spare. (Confirmed possible on DM7; would have been doubtful on CL/QL.)</li>
+<li><strong>Design features.</strong> Positions (delay/pan), FX assignments, FX bus mutes,
+   level offsets with live capture.</li>
+<li><strong>Monitoring &amp; tooling.</strong> Meter subscription, silent/clip detection,
+   utilization timeline, recast find-and-replace, HTML export.</li>
+<li><strong>On-screen fader surface.</strong> Second monitor / touchscreen.</li>
+<li><strong>OSC surface.</strong> Expose mix control so HeliOSC drives it.</li>
+</ol>
+<p>Moving DM7 from last to second is the main change hardware access buys us. The
+old order deferred the riskiest unknown to the end, which is the wrong end.</p>
+<h2 id="open-questions">Open questions<a class="headerlink" href="#open-questions" title="Permanent link">&para;</a></h2>
+<ul>
+<li><del><strong>Metering on DM7.</strong></del> <strong>Resolved: it works.</strong> DM7 has full 120-channel input
+  metering with three pickoffs, like TF and unlike CL/QL. Silent/clip detection
+  (phase 6) is possible on <strong>both</strong> targets.
+  ⚠️ X32 meter values are linear with headroom <strong>up to 8.0 (+18 dBFS)</strong> — clip
+  detection must not assume ≤1.0. ⚠️ DM7's meter→dB scaling is disputed
+  (<code>mtrinfo</code> declares 0–127, the table spans 0–255); calibrate with a known tone.</li>
+<li>🔴 <strong>DM7 PEQ Band Gain scaling — three sources disagree.</strong> The community dump
+  says scale 1, Yamaha's official spec says 10, and the −1800…1800 range against
+  ±18.00 dB implies 100. Yamaha's own revision note says <em>"Corrected values for
+  PEQ Band Gain"</em>, so they knew it was wrong and may have half-fixed it.
+  <strong>Blocks phase 4 EQ writes.</strong> Wrong = gains off by 10×. Test E in the probe.</li>
+<li><strong>Mute polarity.</strong> <code>Fader/On</code> (1 = unmuted) is confirmed on both. But DM7's
+  <code>MuteGrpCtrl/On</code> defaults to 0 while <code>Fader/On</code> defaults to 1, implying
+  <em>opposite</em> polarity, and the official spec's "0: OFF, 1: ON" is ambiguous
+  about whether ON means the mute is engaged. <strong>Undocumented. Verify — getting
+  it backwards mutes the cast mid-show.</strong></li>
+<li><strong>Dynamics / channel delay on DM7.</strong> Absent from both the dump <em>and</em> the
+  official spec, yet the console plainly has them and the spec exposes
+  <code>LinkParams/Dyna1|Dyna2|Delay</code>. Hypothesis: they live in the table's missing
+  index block 122–155. <strong>Decides how complete phase 4 can be.</strong> Test F.</li>
+<li><strong>Console client limits.</strong> DM7 allows only <strong>3</strong> Editor/StageMix devices. If
+  an RCP client consumes one of those slots, the UI must say so. Evidence
+  suggests it doesn't; unverified.</li>
+<li><strong>Channel count.</strong> TheatreMix caps at 48. Is that a protocol limit, a
+  workflow limit, or a licensing one? DM7 exposes <strong>120</strong>. Don't inherit the cap
+  without knowing why it exists.</li>
+</ul>
+<h2 id="dm7-traps-that-are-already-decided">DM7 traps that are already decided<a class="headerlink" href="#dm7-traps-that-are-already-decided" title="Permanent link">&para;</a></h2>
+<p>Not open questions — findings to build against:</p>
+<ul>
+<li><strong>Split mode.</strong> DM7 can run as two independent mixers, partitioning channels,
+  DCAs and mute groups. <strong>Read <code>MIXER:Setup/Unit/Split/On</code> + <code>DCA/StartCh</code> +
+  <code>DCA/Num</code> before touching any DCA index</strong>, or we corrupt a split console.</li>
+<li><strong>Don't hardcode 120.</strong> DM7 vs DM7 Compact differ <em>only</em> in input count
+  (120 vs 72). Everything else — 24 DCAs, 12 mute groups, all buses — is
+  identical, so the core logic is model-independent. Probe the count.</li>
+<li><strong>Pan is not continuous.</strong> Only <strong>27 legal values</strong> (steps of 5, plus ±63 at
+  the ends). Quantise before sending.</li>
+<li><strong><code>scpmode sstype "text"</code> before any scene verb</strong>, and scene numbers are
+  quoted strings (<code>"4.00"</code>), not integers.</li>
+<li><strong>Enable <code>scpmode keepalive</code>.</strong> Yamaha's own rationale is our exact failure
+  mode: a crashed client leaves the console believing it's still connected and
+  <strong>blocks reconnection</strong>. Companion defaults it off; a show tool wants it on.</li>
+<li><strong><code>scpmode encoding utf8</code></strong> if names may be non-ASCII, or they mangle.</li>
+<li><strong>Gate capability on <code>devinfo version</code> + <code>devinfo paramsetver</code>.</strong> This is the
+  structural answer to stale tables: ask the desk what it is rather than trust
+  any table. If <code>prminfo</code> also works, ask it what it <em>has</em>.</li>
+<li><del><strong>X32 DCA membership shape.</strong></del> <strong>Resolved.</strong> 8-bit bitmask on the channel,
+  <code>/ch/NN/grp/dca</code>, <strong>DCA1 = bit 0 = value 1</strong>. The protocol doc never states
+  which bit is DCA1; it was verified against real production scene files by
+  correlating 22 channels' names to their bitmaps (MSB-first reads perfectly,
+  LSB-first is nonsense), plus the emulator's renderer. Replace-not-toggle, so
+  read-modify-write.</li>
+</ul>
+<h2 id="non-goals">Non-goals<a class="headerlink" href="#non-goals" title="Permanent link">&para;</a></h2>
+<ul>
+<li>Recalling DCA fader levels. See <em>The principle we inherit</em>.</li>
+<li>Consoles TheatreMix doesn't support either: X-Air, M-Air, WING Rack,
+  SQ-Rack, <strong>Qu Classic (Qu-16/24/32)</strong>, CQ, Mackie DL, QSC TouchMix, Yamaha
+  DM3, TF-Rack. These lack the DCA count or the physical surface the workflow
+  needs.</li>
+</ul>
+<p>⚠️ Note the Qu trap: TheatreMix <em>does</em> support the <strong>new</strong> Qu-5/6/7 (and D
+  variants) at firmware ≥1.1.1, but not the older Qu Classic. Same product name,
+  different desk. Don't conflate them.
+- Replacing the console's own scene system. Snippet/scene recall exists so the
+  console's scenes stay free for what quewi Mix doesn't cover.</p>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+  <script>var tabs=__md_get("__tabs");if(Array.isArray(tabs))e:for(var set of document.querySelectorAll(".tabbed-set")){var labels=set.querySelector(".tabbed-labels");for(var tab of tabs)for(var label of labels.getElementsByTagName("label"))if(label.innerText.trim()===tab){var input=document.getElementById(label.htmlFor);input.checked=!0;continue e}}</script>
+
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden>
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8z"/></svg>
+  Back to top
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+</div>
+      
+        
+<div class="md-social">
+  
+    
+    
+    
+    
+      
+      
+    
+    <a href="https://github.com/ServeGaming/quewi" target="_blank" rel="noopener" title="github.com" class="md-social__link">
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M252.8 8C114.1 8 8 113.3 8 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C436.2 457.8 504 362.9 504 252 504 113.3 391.5 8 252.8 8M105.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "../..", "features": ["navigation.instant", "navigation.tracking", "navigation.tabs", "navigation.tabs.sticky", "navigation.sections", "navigation.expand", "navigation.indexes", "navigation.top", "search.suggest", "search.highlight", "search.share", "content.code.copy", "content.code.annotate", "content.tabs.link", "toc.follow"], "search": "../../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
+    
+    
+      <script src="../../assets/javascripts/bundle.d7400e89.min.js"></script>
+      
+    
+  </body>
+</html>

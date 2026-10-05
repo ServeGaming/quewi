@@ -36,7 +36,7 @@ constexpr int kGroupRun = 3;         // hits in a row before they fold into one 
 // jitter. The app's text face (IBM Plex Sans / Segoe UI) handles the words.
 QString monoFamilies()
 {
-    return QStringLiteral("'JetBrains Mono','Cascadia Mono','Consolas',monospace");
+    return QStringLiteral("'JetBrains Mono','Cascadia Mono','Consolas','SF Mono','Menlo','DejaVu Sans Mono','Liberation Mono',monospace");
 }
 
 QString rgba(const QColor &c, int alpha)
@@ -1438,7 +1438,8 @@ void ShowModeView::applyScale()
         // The hit list paints its own text: the row faces follow the rows'
         // stylesheet sizes (lead in mono, like every other countdown).
         QFont lead = font();
-        lead.setFamilies({QStringLiteral("JetBrains Mono"), QStringLiteral("Cascadia Mono"), QStringLiteral("Consolas")});
+        lead.setFamilies({QStringLiteral("JetBrains Mono"), QStringLiteral("Cascadia Mono"), QStringLiteral("Consolas"),
+                         QStringLiteral("SF Mono"), QStringLiteral("Menlo"), QStringLiteral("DejaVu Sans Mono")});
         lead.setStyleHint(QFont::Monospace);
         lead.setPixelSize(px(17, s));
         lead.setWeight(QFont::Bold);

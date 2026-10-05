@@ -91,6 +91,12 @@ target_sources(test_cue_list_zoom PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/../src/app/GoEngine.cpp
 )
 
+# Trackpad vs mouse wheel: timeline zoom / pan and the app's smooth scroll.
+quewi_add_test(wheel_input Qt6::Test Qt6::Widgets quewi_ui)
+target_sources(test_wheel_input PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/../src/app/GoEngine.cpp
+)
+
 # The safe key: hold it to GO / delete (Preferences → Show Mode).
 quewi_add_test(safe_key Qt6::Test Qt6::Widgets quewi_ui)
 target_sources(test_safe_key PRIVATE

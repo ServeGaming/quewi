@@ -40,7 +40,7 @@ jobs:
       - name: Install Ninja (Linux/macOS)
         if: runner.os != 'Windows'
         run: |
-          if [ "$RUNNER_OS" = "Linux" ]; then sudo apt-get update && sudo apt-get install -y ninja-build; fi
+          if [ "$RUNNER_OS" = "Linux" ]; then sudo apt-get update && sudo apt-get install -y ninja-build libasound2-dev; fi
           if [ "$RUNNER_OS" = "macOS" ]; then brew install ninja; fi
         shell: bash
 
@@ -120,7 +120,7 @@ jobs:
           modules: qtmultimedia qtwebsockets qtpdf
 
       - name: Install Ninja
-        run: sudo apt-get update && sudo apt-get install -y ninja-build
+        run: sudo apt-get update && sudo apt-get install -y ninja-build libasound2-dev
 
       - name: Configure (ASan + UBSan)
         run: cmake --preset linux-asan
@@ -166,7 +166,7 @@ jobs:
           modules: qtmultimedia qtwebsockets qtpdf
 
       - name: Install Ninja
-        run: sudo apt-get update && sudo apt-get install -y ninja-build
+        run: sudo apt-get update && sudo apt-get install -y ninja-build libasound2-dev
 
       - name: Configure (TSan)
         run: cmake --preset linux-tsan

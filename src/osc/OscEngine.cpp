@@ -150,7 +150,17 @@ bool OscEngine::listenUdp(quint16 port)
                 this, &OscEngine::onUdpReadyRead);
     }
     if (m_udpIn->state() == QAbstractSocket::BoundState) m_udpIn->close();
+#ifdef Q_OS_WIN
+    // Windows: shared on purpose — an Eos Nomad on the same PC listens on the
+    // same port, and the two must both get their messages.
     return m_udpIn->bind(QHostAddress::AnyIPv4, port);
+#else
+    // macOS / Linux: Qt's default here is SO_REUSEADDR / SO_REUSEPORT, so a
+    // second quewi would bind the same port "successfully" and the two would
+    // split the remote's messages between them. Refuse instead, so the caller
+    // falls back to another port and says so.
+    return m_udpIn->bind(QHostAddress::AnyIPv4, port, QAbstractSocket::DontShareAddress);
+#endif
 }
 
 quint16 OscEngine::udpPort() const

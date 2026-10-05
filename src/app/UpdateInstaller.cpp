@@ -818,8 +818,14 @@ bool UpdateInstaller::launchInstaller(const QString &msiPath,
         // path they were running before — no manual file-management,
         // no duplicate AppImages cluttering Downloads.
         const QByteArray appImage = qgetenv("APPIMAGE");
-        if (!appImage.isEmpty() && QFileInfo::exists(appImage)) {
-            const QString runningPath = QString::fromLocal8Bit(appImage);
+        const QString runningPath = QString::fromLocal8Bit(appImage);
+        // Only when the swap can work: the AppImage and its folder writable
+        // (one in /opt or /usr/local isn't). Otherwise the helper's mv would
+        // fail after quewi had already quit, leaving nothing running — fall
+        // through to xdg-open instead.
+        if (!appImage.isEmpty() && QFileInfo::exists(runningPath)
+            && QFileInfo(runningPath).isWritable()
+            && QFileInfo(QFileInfo(runningPath).absolutePath()).isWritable()) {
             const QString helperPath  = QDir::tempPath()
                 + QStringLiteral("/quewi-update-")
                 + QString::number(QCoreApplication::applicationPid())
@@ -845,8 +851,10 @@ bool UpdateInstaller::launchInstaller(const QString &msiPath,
                    // update would silently no-op while the app has already quit.
                    << "SRC=\"" << QString(msiPath).replace('"', "\\\"") << "\"\n"
                    << "DST=\"" << QString(runningPath).replace('"', "\\\"") << "\"\n"
-                   << "mv -f \"$SRC\" \"$DST\"\n"
-                   << "chmod +x \"$DST\"\n"
+                   // If the swap fails anyway, start the old one again
+                   // rather than leave the operator with no quewi at all.
+                   << "if ! mv -f \"$SRC\" \"$DST\"; then rm -f \"$0\"; exec \"$DST\"; fi\n"
+                   << "chmod +x \"$DST\" || true\n"
                    << "rm -f \"$0\"\n"
                    << "exec \"$DST\"\n";
                 h.close();
