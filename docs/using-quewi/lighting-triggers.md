@@ -283,7 +283,7 @@ range's exit.
 
 ### Recording triggers from the desk
 
-*New in the next release.* Instead of placing triggers by hand, you can
+*New in 1.2.0.* Instead of placing triggers by hand, you can
 run the desk along with the song and let quewi write down what you did:
 
 1. Open the song in the audio editor and go to the **Lighting** tab.

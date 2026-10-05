@@ -1,6 +1,6 @@
 # Matrix List
 
-*New in the next release (not in 1.1.0).*
+*New in 1.2.0.*
 
 A Matrix List is the whole show in one running order: quewi's sound and
 video cues and your lighting desk's cues, interleaved, one row per
@@ -192,6 +192,20 @@ GO Lights is greyed out, with the reason when you hover over it, when the
 lighting desk isn't an ETC Eos, when quewi isn't connected to it (it needs
 to know the desk's next cue), or at the end of the list. A long cue label is
 shortened to fit the button. The whole label is in its tooltip.
+
+### GO Both
+
+While a Matrix List is on screen, a **GO Both** button sits beside the
+green **GO** at the bottom of the window. One press fires quewi's next cue
+*and* the lighting desk's next cue (the one GO Lights would fire), so a
+sound cue and the lighting cue it goes with leave together. If only one of
+them is up next, it fires that one and the status bar says what went.
+
+GO Both has no shortcut out of the box, so it can't be hit by accident:
+give it one in **Help → Keyboard shortcuts…** (*GO Both: sound + lights*).
+<kbd>Space</kbd> stays the plain GO. The [safe key](shortcuts.md#safe-key),
+when it's on for GO, covers GO Both too. On any other page the button is
+hidden.
 
 ### Back and Stop
 

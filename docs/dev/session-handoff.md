@@ -11,9 +11,10 @@ session on any computer (or a fresh conversation) continues with no gaps.
 > right now, the next one would lose nothing. *Update protocol* (last section)
 > says how.
 
-Last updated: **2026-10-04**. Installed on Matthew's PC: **1.0.3**. Latest
-release: **v1.0.3**. `main` is ahead of it with the 1.0.4 work below (not
-tagged — see "Next steps").
+Last updated: **2026-10-05**. Latest release: **v1.1.0**; **1.2.0** is
+being cut from `feat/matrix-list` (Matthew said "merge it and release the
+next version as 1.2.0", 2026-10-05). macOS / Linux state and open items:
+**`docs/dev/cross-platform.md`** — read it before any Mac/Linux work.
 
 ---
 
@@ -53,6 +54,28 @@ site (MkDocs, `docs/`) deploys to GitHub Pages on every push to `main`
 All committed and pushed. **30 ctest suites** (all green in CI at `6dabf77`
 before the video editor; with it, 30/30 + selftest green on a Linux Qt 6.11
 build — see §6; CI covers Windows/macOS on the push).
+
+### 0a6. GO Both + the first in-depth macOS / Linux pass (2026-10-05)
+- **GO Both** (Matthew: "a go for both button next to the green go button on
+  the bottom"): `TransportBar` `goBothButton`, shown only while a Matrix List
+  is the page (`MainWindow::updateGoBoth`, driven by
+  `MatrixView::goLightsStateChanged` + the centre stack's page change).
+  `MainWindow::goBoth()` checks the safe key once, reads the GO Lights target
+  *before* the sound GO moves standby, then fires both. Action
+  `transport.goboth`, no default key. Test: `test_transport_bar`. Seen in the
+  screenshot tour; not yet pressed against a real desk.
+- **Mac/Linux pass** — everything is in `docs/dev/cross-platform.md` (what was
+  broken, what's fixed, how it was checked, 10 open items for cloud sessions,
+  what needs Matthew). Headlines: Linux MIDI had never worked (no ALSA in the
+  AppImage); macOS had no mic / Local Network usage strings; CI had been red
+  on main since the safe-key commit (font-width + timing test fragility, not
+  product bugs, except two real clipped labels in Show Mode).
+- **New tooling**: `quewi --screenshot-tour <dir>` (`MainWindowTour.cpp`);
+  the release workflow smoke-tests its DMG/AppImage and uploads `tour-macos` /
+  `tour-linux`; CI prints test failures and runs `--selftest` on Release
+  builds; WSL distro `quewi-test` = local CI-equivalent Linux box.
+- `--selftest-idle` no longer runs startup checks (update prompts).
+- Test count: **42**.
 
 ### 0a4. Matrix List — sound + lights in one running order (2026-10-04, branch `feat/matrix-list`, PR, not on main)
 Matthew: "grab the cue list from ETC like HeliOSC does and have that as a
@@ -601,6 +624,11 @@ offered or deleted. Stray locks with no journal are tidied if stale.
   rendered cues no longer double their effects (`bouncedPath`); "Update Render"
   rewrites in place; right-click empty pad → Import from URL (yt-dlp) + trim.
 - **1.0.3** (2026-09-24) — the updater, fixed and proven (below).
+- **1.2.0** (2026-10-05) — Matrix List (Eos cue list interleaved with quewi's;
+  line up both ways; GO Lights / Back / Stop; GO Both; scenes, links, Details;
+  Record from desk), command menu + leader key, safe key, cue-list zoom, List
+  menu holds every list kind; first Mac/Linux pass (Linux MIDI, mac
+  permissions + Finder open, trackpads, mac keys).
 - **1.1.0** (2026-10-04) — lighting triggers (simple desk actions, Eos/MA3/
   MSC, beat grid, Fill with beats, multi-select + groups), stage-manager Show
   Mode + Lighting panel + Eos read-back (TCP 3032), video editor (NLE layout,

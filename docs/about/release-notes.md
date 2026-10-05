@@ -1,6 +1,11 @@
 # Release notes
 
-## Unreleased
+## 1.2.0 (2026-10-05)
+
+The Matrix List puts sound and lights in one running order, with GO Lights
+and GO Both; a command menu with a leader key; a safe key for GO and Delete;
+bigger cue list text; and the first real pass at the macOS and Linux builds:
+MIDI on Linux, macOS permissions, trackpads and keys.
 
 ### New
 
@@ -26,6 +31,10 @@
   its cue list, and is labelled with it ("GO Lights  8.4  Back").
   <kbd>Mod</kbd>+<kbd>Shift</kbd>+<kbd>G</kbd> does the same. It's in Show
   Mode too, under GO, when the Matrix List is up.
+- **GO Both.** With a Matrix List on screen, a **GO Both** button beside
+  the green GO fires quewi's next cue and the desk's next lighting cue in
+  one press. No default shortcut; give it one in Keyboard shortcuts.
+  [GO Both →](../using-quewi/matrix-list.md#go-both)
 - **Back and Stop for the lights.** Beside GO Lights: **◀ Back** fires the
   desk cue before the one running in the Matrix List's cue list
   (<kbd>Mod</kbd>+<kbd>Shift</kbd>+<kbd>B</kbd>), and **■ Stop** presses
@@ -75,6 +84,40 @@
 - **Show Mode fits more.** Any number of lighting hits fit (runs of beats fold
   into one row, "+N more" for the rest), song names show in full, and the
   layout gives each area the room it needs.
+
+### macOS and Linux
+
+The Mac and Linux builds had been built and shipped but barely run. This
+release is the first in-depth pass:
+
+- **Linux: MIDI works.** The AppImage was built without ALSA, so MIDI
+  devices never appeared. It's built in now, and a release can't ship
+  without it.
+- **macOS: permissions.** quewi now asks for the microphone before using it
+  (soundboard "Send to mic", live mic routing) and tells macOS it talks to
+  devices on your network (lighting desks, consoles, remotes), so macOS 15
+  asks once instead of silently blocking it.
+- **macOS: open a show from Finder.** Double-clicking a `.quewi` file, or
+  dropping one on quewi's Dock icon, opens it (asking to save first, as
+  dragging onto the window does).
+- **macOS: projector windows stay up** when you click into another app.
+- **macOS: keys.** The MacBook's delete key deletes cues. The safe key's
+  choices read ⇧ Shift, ⌘ Command, ⌥ Option and ⌃ Control (new), and
+  Ctrl+Space, which is Spotlight on a Mac, is no longer offered as the
+  command menu's leader there.
+- **Trackpads.** Scrolling a list follows your fingers instead of flying
+  a hundred rows; zooming the timeline is smooth instead of jumping, and
+  sideways swipes and Shift-scroll pan it; ⌘-scroll zoom on the cue list
+  stops when your fingers lift, and pinch zooms it.
+- **Two quewis on one Mac or Linux machine** no longer share an OSC port
+  (and split your remote's messages between them); the second one moves to
+  another port and says so.
+- **Linux: in-app updates** no longer close quewi without reopening it when
+  the AppImage sits in a folder quewi can't write to.
+- **Show Mode with a wider font** (as on a Mac): a running song's name takes
+  a second line instead of being cut off, and the LIGHTING DESK heading
+  keeps its words.
+- quewi needs macOS 12 or later (it said 11, but couldn't run there).
 
 ### Fixed
 - **Scrolling a Matrix List (or any table) moved about sixty rows a
