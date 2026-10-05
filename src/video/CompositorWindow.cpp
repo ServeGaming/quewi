@@ -38,6 +38,14 @@ CompositorWindow::CompositorWindow(int screenIndex, QWidget *parent)
 {
     setAttribute(Qt::WA_DeleteOnClose, false);
     setAttribute(Qt::WA_OpaquePaintEvent, true);
+#ifdef Q_OS_MACOS
+    // On macOS a Qt::Tool window is an NSPanel, and AppKit hides panels
+    // whenever their app isn't the active one — so the projector would go
+    // to desktop the moment the operator clicked another app (a console
+    // editor, a browser). This keeps it up regardless. Set before the
+    // native window exists so Qt applies it when it creates the panel.
+    setAttribute(Qt::WA_MacAlwaysShowToolWindow, true);
+#endif
     setStyleSheet(QStringLiteral("background:#000000;"));
     // Follow display changes. These windows persist across the whole show
     // (hold-black keeps them alive after a cue ends), so without this they'd

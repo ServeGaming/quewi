@@ -73,7 +73,8 @@ signals:
 
 public:
     // Zoom: the list's text (and so its rows) at 70–300 %, for anyone who
-    // needs it bigger. Ctrl+wheel, Ctrl+= / Ctrl+- / Ctrl+0 over the list.
+    // needs it bigger. Ctrl+wheel, Ctrl+= / Ctrl+- / Ctrl+0 over the list,
+    // or a trackpad pinch (macOS).
     // Remembered on this computer (QSettings "cueList/zoom").
     double zoom() const { return m_zoom; }
     void   setZoom(double z);
@@ -81,6 +82,7 @@ public:
 
 protected:
     void wheelEvent(QWheelEvent *event) override;
+    bool viewportEvent(QEvent *event) override;   // trackpad pinch = zoom
     void keyPressEvent(QKeyEvent *event) override;
     void currentChanged(const QModelIndex &current, const QModelIndex &previous) override;
     void dropEvent(QDropEvent *event) override;
@@ -94,6 +96,7 @@ private:
     void scaleColumns(double factor);
     double m_zoom = 1.0;
     int    m_zoomWheel = 0;            // part-notches from a high-res wheel
+    double m_zoomPinch = 0.0;          // part-steps of a trackpad pinch
     void copyCuesToClipboard(const QList<cues::Cue *> &cues) const;
     void cutCuesToClipboard(const QList<cues::Cue *> &cues, int currentRow);
     void pasteCuesFromClipboard(int afterRow);

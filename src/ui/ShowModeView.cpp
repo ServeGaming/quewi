@@ -36,7 +36,7 @@ constexpr int kGroupRun = 3;         // hits in a row before they fold into one 
 // jitter. The app's text face (IBM Plex Sans / Segoe UI) handles the words.
 QString monoFamilies()
 {
-    return QStringLiteral("'JetBrains Mono','Cascadia Mono','Consolas',monospace");
+    return QStringLiteral("'JetBrains Mono','Cascadia Mono','Consolas','SF Mono','Menlo','DejaVu Sans Mono','Liberation Mono',monospace");
 }
 
 QString rgba(const QColor &c, int alpha)
@@ -1165,9 +1165,14 @@ void ShowModeView::buildUi()
         m_deskDot->setFixedSize(10, 10);
         m_deskLink = elide(m_deskCard, "deskLink");
         m_deskLink->setObjectName(QStringLiteral("smDeskLink"));
-        m_deskLink->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Fixed);
+        // The heading keeps its words; the link line ("ETC Eos / Ion / Nomad
+        // · Failed") takes what's left and shortens itself instead (whole
+        // text in its tooltip). Fixed here cut the heading to "LIGHTING…".
+        m_deskCaps->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Fixed);
+        m_deskLink->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Fixed);
+        m_deskLink->setAlignment(Qt::AlignRight | Qt::AlignVCenter);
         band.lay->addWidget(m_deskDot);
-        band.lay->addWidget(m_deskLink);
+        band.lay->addWidget(m_deskLink, 100);
         outer->addWidget(band.frame);
         auto *v = new QVBoxLayout;
         v->setContentsMargins(16, 8, 16, 10);
@@ -1221,14 +1226,35 @@ void ShowModeView::buildUi()
         v->setContentsMargins(0, 0, 0, 0);
         v->setSpacing(10);
         m_go = button(m_transport, "smGo", tr("GO"));
+        // The Matrix List's GO Lights: the desk's next cue. Secondary to GO
+        // (smaller, the desk's blue), and only there when the Matrix List
+        // is the page you came from.
+        m_goLights = button(m_transport, "smGoLights", tr("GO Lights"));
+        m_goLights->hide();
+        m_lightsRow = new QWidget(m_transport);
+        {
+            auto *h = new QHBoxLayout(m_lightsRow);
+            h->setContentsMargins(0, 0, 0, 0);
+            h->setSpacing(6);
+            m_lightsBack = button(m_lightsRow, "smLightsBack", tr("◀ Back"));
+            m_lightsStop = button(m_lightsRow, "smLightsStop", tr("■ Stop"));
+            h->addWidget(m_lightsBack, 3);
+            h->addWidget(m_lightsStop, 2);
+        }
+        m_lightsRow->hide();
+        connect(m_lightsBack, &QPushButton::clicked, this, &ShowModeView::lightsBackPressed);
+        connect(m_lightsStop, &QPushButton::clicked, this, &ShowModeView::lightsStopPressed);
         m_pause = button(m_transport, "smPause", tr("Pause"));
         m_fadeAll = button(m_transport, "smFadeAll", tr("Fade All"));
         m_panic = button(m_transport, "smPanic", tr("PANIC"));
         connect(m_go, &QPushButton::clicked, this, &ShowModeView::goPressed);
+        connect(m_goLights, &QPushButton::clicked, this, &ShowModeView::goLightsPressed);
         connect(m_pause, &QPushButton::clicked, this, &ShowModeView::pausePressed);
         connect(m_fadeAll, &QPushButton::clicked, this, &ShowModeView::fadeAllPressed);
         connect(m_panic, &QPushButton::clicked, this, &ShowModeView::panicPressed);
         v->addWidget(m_go, 9);
+        v->addWidget(m_goLights, 3);
+        v->addWidget(m_lightsRow, 2);
         v->addWidget(m_pause, 3);
         v->addWidget(m_fadeAll, 3);
         v->addStretch(2);              // PANIC sits apart: no accidental hit
@@ -1381,7 +1407,19 @@ void ShowModeView::applyScale()
                  QString::number(px(13, s)),       // 35 heading
                  rc.hits.name(),                   // 36 hits lavender
                  rc.desk.name())                   // 37 desk blue
-            + regions;
+            + regions
+            + QStringLiteral(
+                "QPushButton#smGoLights { color:%1; background:%2; border:1px solid %3; border-radius:4px;"
+                "  font-size:%4px; font-weight:700; }"
+                "QPushButton#smGoLights:pressed { background:%3; color:%5; }"
+                "QPushButton#smGoLights:disabled { color:%6; background:transparent; border-color:%7; }"
+                "QPushButton#smLightsBack, QPushButton#smLightsStop { color:%8; background:transparent;"
+                "  border:1px solid %7; border-radius:4px; font-size:%9px; font-weight:600; }"
+                "QPushButton#smLightsBack:pressed, QPushButton#smLightsStop:pressed { background:%7; }"
+                "QPushButton#smLightsBack:disabled, QPushButton#smLightsStop:disabled { color:%6; }")
+                  .arg(rc.desk.name(), rgba(rc.desk, 40), rc.desk.name(), QString::number(px(17, s)),
+                       tk.bgDeep.name(), tk.ink40.name(), tk.divider.name(), tk.ink60.name(),
+                       QString::number(px(13, s)));
         setStyleSheet(qss);
 
         // Geometry that QSS can't express.
@@ -1400,7 +1438,8 @@ void ShowModeView::applyScale()
         // The hit list paints its own text: the row faces follow the rows'
         // stylesheet sizes (lead in mono, like every other countdown).
         QFont lead = font();
-        lead.setFamilies({QStringLiteral("JetBrains Mono"), QStringLiteral("Cascadia Mono"), QStringLiteral("Consolas")});
+        lead.setFamilies({QStringLiteral("JetBrains Mono"), QStringLiteral("Cascadia Mono"), QStringLiteral("Consolas"),
+                         QStringLiteral("SF Mono"), QStringLiteral("Menlo"), QStringLiteral("DejaVu Sans Mono")});
         lead.setStyleHint(QFont::Monospace);
         lead.setPixelSize(px(17, s));
         lead.setWeight(QFont::Bold);
@@ -1470,6 +1509,17 @@ void ShowModeView::fitStage()
     const int comingHave = int(std::min<size_t>(m_snap.comingUp.size(), m_comingRows.size()));
     const int hitsStateLines = m_hitsState->linesNeeded(hitsW, 2);
     const int deskDetailLines = m_deskDetail->linesNeeded(deskW, 2);
+    // A running song's name takes a second line rather than lose its end:
+    // the column is narrow, and a wider system font (macOS's) or a long
+    // title would otherwise cut "Defying Gravity" to "Defying Gra…".
+    {
+        const int runW = std::max(60, lowerW * 4 / 13 - 34 - m_runningRows.front().lead->width()
+                                          - px(4, s) - 2 * 10 - 4);
+        for (auto &r : m_runningRows) {
+            r.title->setWordWrap(true);
+            r.title->setMaxLines(r.title->linesNeeded(runW, 2));
+        }
+    }
 
     // Nothing that feeds the answer has changed since last time: done. This
     // runs after every 100 ms render, so it has to be cheap in the common
@@ -1619,6 +1669,10 @@ void ShowModeView::renderStandby()
     m_standbyName->setText(c.name);
     m_standbyMeta->setText(cueMeta(c));
     m_standbyNotes->setText(c.notes);
+    if (!c.deskCues.isEmpty())
+        m_standbyMeta->setText(m_standbyMeta->text().isEmpty()
+                                   ? c.deskCues
+                                   : m_standbyMeta->text() + QStringLiteral("  ·  ") + c.deskCues);
     m_standbyNotes->setVisible(!c.notes.trimmed().isEmpty());   // no empty line reserved
     if (c.lightTriggers > 0) {
         QString t = c.lightTriggers == 1 ? tr("1 lighting hit") : tr("%1 lighting hits").arg(c.lightTriggers);
@@ -1646,12 +1700,15 @@ void ShowModeView::renderComingUp()
         r.lead->setText(c.number);
         r.title->setText(c.name);
         QString d = oneLine(c.notes);
-        if (d.isEmpty()) d = cueMeta(c);
+        if (d.isEmpty() && !c.deskOnly) d = cueMeta(c);
+        // A Matrix List: what the desk does with this cue rides along.
+        if (!c.deskCues.isEmpty()) d = d.isEmpty() ? c.deskCues : c.deskCues + QStringLiteral("  ·  ") + d;
         r.detail->setText(d);
         r.detail->setVisible(!d.isEmpty());
         r.trail->setText(c.autoContinue ? tr("AUTO") : c.autoFollow ? tr("FOLLOW") : QString());
         r.trail->setVisible(!r.trail->text().isEmpty());
-        setEdgeColour(r.edge, c.colour);
+        // A desk cue on its own wears the desk's dusty blue.
+        setEdgeColour(r.edge, c.deskOnly ? showRegionColours().desk : c.colour);
         setRowVisible(r, true);
     }
     m_comingEmpty->setVisible(list.empty());
@@ -1762,6 +1819,9 @@ void ShowModeView::renderDesk()
     QString link = showDeskLinkText(d.link);
     if (on && !d.deskName.isEmpty()) link = QStringLiteral("%1 · %2").arg(d.deskName, link);
     m_deskLink->setText(link);
+    m_deskLink->setToolTip(link);
+    m_deskLink->ensurePolished();
+    m_deskLink->setMaximumWidth(m_deskLink->sizeHint().width());   // room to spare: no wider than its words
     m_deskDot->setStyleSheet(QStringLiteral("background:%1; border-radius:%2px;")
                                  .arg(showDeskLinkColour(d.link).name())
                                  .arg(m_deskDot->width() / 2));
@@ -1804,6 +1864,18 @@ void ShowModeView::renderTransport()
     const bool has = m_snap.standby.has_value();
     m_go->setText(has ? QStringLiteral("GO  %1").arg(m_snap.standby->number) : tr("GO"));
     m_go->setEnabled(has);
+    m_goLights->setVisible(m_snap.lightsGo.has_value());
+    if (m_snap.lightsGo) {
+        m_goLights->setText(m_snap.lightsGo->text);
+        m_goLights->setEnabled(m_snap.lightsGo->enabled);
+        m_goLights->setToolTip(m_snap.lightsGo->reason);
+        m_lightsBack->setText(m_snap.lightsGo->backText.isEmpty() ? tr("◀ Back") : m_snap.lightsGo->backText);
+        m_lightsBack->setEnabled(m_snap.lightsGo->backEnabled);
+        m_lightsBack->setToolTip(m_snap.lightsGo->backReason);
+        m_lightsStop->setEnabled(m_snap.lightsGo->stopEnabled);
+        m_lightsStop->setToolTip(m_snap.lightsGo->stopReason);
+    }
+    m_lightsRow->setVisible(m_snap.lightsGo.has_value());
     m_pause->setVisible(m_pauseAllowed);
     m_pause->setText(m_snap.paused ? tr("Resume") : tr("Pause"));
     m_pause->setEnabled(m_pauseAllowed && (m_snap.paused || !m_snap.running.empty()));

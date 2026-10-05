@@ -226,6 +226,7 @@ private:
     QScrollBar *m_hbar = nullptr;
     QScrollBar *m_vbar = nullptr;
     QPointer<QPropertyAnimation> m_scrollAnim;
+    int    m_zoomWheel = 0;   // part-notches of Ctrl+wheel, so a high-res wheel adds up to a step
 
     // Drag state
     struct DragState {

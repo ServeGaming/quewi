@@ -8,6 +8,12 @@
 #include <QAudioSink>
 #include <QAudioSource>
 #include <QHash>
+#ifdef Q_OS_MACOS
+#  include <QCoreApplication>
+#  if QT_CONFIG(permissions)
+#    include <QPermissions>
+#  endif
+#endif
 #include <QMediaDevices>
 #include <QTimer>
 #include <QtMath>
@@ -1570,6 +1576,45 @@ bool AudioEngine::setLiveInput(const QByteArray &inputDeviceId,
     clearLiveInput();
     m_lastError.clear();
 
+#ifdef Q_OS_MACOS
+#if QT_CONFIG(permissions)
+    // macOS won't hand us any audio until the user allows microphone access
+    // (the prompt text is NSMicrophoneUsageDescription in Info.plist). An
+    // unapproved QAudioSource just records silence, so ask first.
+    if (auto *app = QCoreApplication::instance()) {
+        QMicrophonePermission micPermission;
+        switch (app->checkPermission(micPermission)) {
+        case Qt::PermissionStatus::Granted:
+            break;
+        case Qt::PermissionStatus::Undetermined: {
+            m_micPermissionPending = true;
+            const quint64 serial = ++m_micRequestSerial;
+            app->requestPermission(micPermission, this,
+                [this, serial, inputDeviceId, outputDeviceId, gainDb](const QPermission &p) {
+                    // Superseded by clearLiveInput() or a newer setLiveInput().
+                    if (serial != m_micRequestSerial || !m_micPermissionPending) return;
+                    m_micPermissionPending = false;
+                    if (p.status() == Qt::PermissionStatus::Granted) {
+                        setLiveInput(inputDeviceId, outputDeviceId, gainDb);  // reports its own errors
+                    } else {
+                        m_lastError = tr("Microphone access was denied. Allow quewi under "
+                                         "System Settings > Privacy & Security > Microphone.");
+                        emit engineError(m_lastError);
+                    }
+                });
+            m_lastError = tr("waiting for you to allow microphone access in the macOS prompt");
+            return false;
+        }
+        case Qt::PermissionStatus::Denied:
+            m_lastError = tr("Microphone access is turned off for quewi. Allow it under "
+                             "System Settings > Privacy & Security > Microphone.");
+            emit engineError(m_lastError);
+            return false;
+        }
+    }
+#endif // QT_CONFIG(permissions)
+#endif // Q_OS_MACOS
+
     QAudioDevice in;
     for (const auto &dev : QMediaDevices::audioInputs())
         if (dev.id() == inputDeviceId) { in = dev; break; }
@@ -1639,6 +1684,12 @@ void AudioEngine::setLiveInputGain(double gainDb)
 
 void AudioEngine::clearLiveInput()
 {
+    // Cancel a pending macOS mic-permission request (its answer becomes a
+    // no-op). Never set on other platforms.
+    if (m_micPermissionPending) {
+        m_micPermissionPending = false;
+        ++m_micRequestSerial;
+    }
     if (m_liveSource) {
         if (m_liveIo) disconnect(m_liveIo, nullptr, this, nullptr);
         m_liveSource->stop();

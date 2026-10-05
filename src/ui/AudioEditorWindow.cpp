@@ -1,4 +1,10 @@
 #include "ui/AudioEditorWindow.h"
+#include "ui/DeskTakeRecorder.h"
+
+#include <QCheckBox>
+#include <QDialog>
+#include <QDialogButtonBox>
+#include <QListWidget>
 #include "ui/EditorChrome.h"
 
 #include "ui/LightTriggersPanel.h"
@@ -171,6 +177,20 @@ void AudioEditorWindow::buildToolbar() {
                                  + m_sink->processedUSecs() * m_model->sampleRate() / 1000000);
     });
     tb->addWidget(m_sendTriggersBtn);
+
+    // Record from desk — the same toggle as the Lighting tab's.
+    m_recordBtn = new QToolButton(tb);
+    m_recordBtn->setObjectName(QStringLiteral("editorRecordFromDesk"));
+    m_recordBtn->setText(tr("● Record from desk"));
+    m_recordBtn->setCheckable(true);
+    m_recordBtn->setToolTip(tr("Play the song and fire cues on the lighting desk: each becomes a lighting "
+                               "trigger at that moment (you choose to keep them when the song stops). "
+                               "Nothing is sent to the desk."));
+    connect(m_recordBtn, &QToolButton::toggled, this, [this](bool on) {
+        if (on) startRecordingFromDesk();
+        else stopRecordingFromDesk(true);
+    });
+    tb->addWidget(m_recordBtn);
 
     tb->addWidget(toolbarDivider(tb));
 
@@ -395,6 +415,22 @@ void AudioEditorWindow::buildBottomPanel() {
     m_timeline->setSnapToBeats(m_triggersPanel->snapToBeats());
     connect(m_triggersPanel, &LightTriggersPanel::snapToBeatsChanged,
             m_timeline, &TimelineCanvas::setSnapToBeats);
+    // Record from desk: the recorder notes each desk cue at the preview's
+    // playhead (nothing while paused or stopped).
+    m_recorder = new DeskTakeRecorder(this);
+    m_recorder->setPlayhead([this] {
+        const qint64 f = currentPlayFrame();
+        return (f < 0 || m_paused) ? -1.0 : double(f) * secondsPerFrame();
+    });
+    connect(m_recorder, &DeskTakeRecorder::recorded, this, [this](const audio::RecordedCue &c) {
+        const QString last = tr("LX %1 at %2").arg(c.cue, audio::DeskRecording::timeText(c.at));
+        m_triggersPanel->setRecordingState(true, int(m_recorder->takes().size()), last);
+        statusBar()->showMessage(tr("● Recorded %1").arg(last), 3000);
+    });
+    connect(m_triggersPanel, &LightTriggersPanel::recordToggled, this, [this](bool on) {
+        if (on) startRecordingFromDesk();
+        else stopRecordingFromDesk(true);
+    });
     m_triggersPanel->setPlayheadProvider([this] {
         const qint64 f = currentPlayFrame();
         return f < 0 ? -1.0 : double(f) * secondsPerFrame();
@@ -562,7 +598,9 @@ void AudioEditorWindow::sendPreviewEvents(const std::vector<audio::TriggerEvent>
         if (ev.index < 0 || ev.index >= int(triggers.size())) continue;
         const auto &t = triggers[size_t(ev.index)];
         const auto &action = ev.exit ? t.exit : t.enter;
-        if (!action.isNone()) emit testTriggerRequested(action);
+        // While recording from the desk nothing is sent: the desk's own cues
+        // are what's being recorded, and an echo of ours would be caught too.
+        if (!action.isNone() && !isRecordingFromDesk()) emit testTriggerRequested(action);
         flashTrigger(t.id);
     }
 }
@@ -626,7 +664,9 @@ void AudioEditorWindow::onStop() { stopPlayback(); }
 void AudioEditorWindow::onLoopToggled(bool on) { m_looping = on; }
 
 void AudioEditorWindow::startPlayback() {
+    m_restarting = true;              // a loop or restart isn't the end of a recording
     stopPlayback();
+    m_restarting = false;
 
     // DRY render (no effects). The active track's effect chain is applied in
     // real time by LiveEffectDevice during playback, so EQ / compressor edits
@@ -681,6 +721,12 @@ void AudioEditorWindow::stopPlayback() {
     // show where the next GO will start from.
     m_timeline->setPlayheadFrame(-1);
     statusBar()->showMessage(tr("Stopped"));
+    // The song stopped: so does recording from the desk — then the question.
+    if (!m_restarting && isRecordingFromDesk()) {
+        m_recorder->stop();
+        syncRecordUi();
+        QTimer::singleShot(0, this, &AudioEditorWindow::reviewRecording);
+    }
 }
 
 void AudioEditorWindow::onPlaybackTick() {
@@ -850,6 +896,12 @@ bool AudioEditorWindow::promptSaveIfDirty() {
 }
 
 void AudioEditorWindow::closeEvent(QCloseEvent *e) {
+    // Recording: stop now and ask before the window goes.
+    if (isRecordingFromDesk()) {
+        m_recorder->stop();
+        syncRecordUi();
+        reviewRecording();
+    }
     stopPlayback();
     // Auto-save the editable multitrack session into the cue so regions,
     // tracks, gains, fades AND the effects rack round-trip on reopen and
@@ -892,6 +944,124 @@ void AudioEditorWindow::keyPressEvent(QKeyEvent *e) {
         return;
     }
     QMainWindow::keyPressEvent(e);
+}
+
+// ── Record from desk ─────────────────────────────────────────────────────────
+
+void AudioEditorWindow::setDeskFeedback(osc::EosFeedback *fb)
+{
+    if (m_recorder) m_recorder->setFeedback(fb);
+}
+
+bool AudioEditorWindow::isRecordingFromDesk() const
+{
+    return m_recorder && m_recorder->isRecording();
+}
+
+void AudioEditorWindow::syncRecordUi()
+{
+    const bool on = isRecordingFromDesk();
+    if (m_recordBtn && m_recordBtn->isChecked() != on) {
+        QSignalBlocker block(m_recordBtn);
+        m_recordBtn->setChecked(on);
+    }
+    if (m_recordBtn) m_recordBtn->setText(on ? tr("■ Stop recording") : tr("● Record from desk"));
+    if (m_triggersPanel)
+        m_triggersPanel->setRecordingState(on, m_recorder ? int(m_recorder->takes().size()) : 0);
+}
+
+bool AudioEditorWindow::startRecordingFromDesk()
+{
+    if (!m_recorder || !m_cue) return false;
+    const QString why = m_recorder->whyNot();
+    if (!why.isEmpty()) {
+        syncRecordUi();
+        m_triggersPanel->setRecordMessage(why);
+        statusBar()->showMessage(tr("Can't record from the desk: %1").arg(why), 8000);
+        return false;
+    }
+    showLightingTab();
+    if (!m_isPlaying) startPlayback();
+    else if (m_paused) togglePlayPause();
+    if (!m_isPlaying) {                       // the preview didn't start
+        syncRecordUi();
+        return false;
+    }
+    m_recorder->start();
+    syncRecordUi();
+    statusBar()->showMessage(tr("● Recording from the desk — fire cues as the song plays; "
+                                "stopping the song stops recording"));
+    return true;
+}
+
+void AudioEditorWindow::stopRecordingFromDesk(bool review)
+{
+    if (!isRecordingFromDesk()) { syncRecordUi(); return; }
+    m_recorder->stop();
+    syncRecordUi();
+    if (review) reviewRecording();
+}
+
+void AudioEditorWindow::reviewRecording()
+{
+    if (!m_recorder || !m_cue) return;
+    const auto takes = m_recorder->takes();
+    m_recorder->clear();
+    if (takes.empty()) {
+        statusBar()->showMessage(tr("Nothing was recorded from the desk"), 4000);
+        return;
+    }
+    const bool gridSet = m_cue->beatGrid().isSet();
+    bool snap = false;
+    bool keep = false;
+    if (m_reviewer) {
+        keep = m_reviewer(takes, gridSet, &snap);
+    } else {
+        QDialog d(this);
+        d.setWindowTitle(tr("Recorded from the desk"));
+        auto *v = new QVBoxLayout(&d);
+        auto *intro = new QLabel(takes.size() == 1
+                                     ? tr("1 cue was fired on the desk while the song played:")
+                                     : tr("%1 cues were fired on the desk while the song played:").arg(takes.size()), &d);
+        intro->setWordWrap(true);
+        v->addWidget(intro);
+        auto *list = new QListWidget(&d);
+        for (const auto &t : takes) {
+            QString line = QStringLiteral("%1     Go to cue %2").arg(audio::DeskRecording::timeText(t.at), t.cue);
+            if (!t.list.isEmpty()) line += tr(" (list %1)").arg(t.list);
+            if (!t.label.isEmpty()) line += QStringLiteral("     ") + t.label;
+            list->addItem(line);
+        }
+        v->addWidget(list, 1);
+        auto *snapBox = new QCheckBox(tr("Snap them to the beat grid"), &d);
+        snapBox->setEnabled(gridSet);
+        if (!gridSet) snapBox->setToolTip(tr("This song has no beat grid (TEMPO is Off)."));
+        v->addWidget(snapBox);
+        auto *note = new QLabel(tr("Kept, they become lighting triggers on this song, grouped as \"Recorded\" "
+                                   "(one undo step). Played back, they send \"Go to cue\" to the desk."), &d);
+        note->setWordWrap(true);
+        v->addWidget(note);
+        auto *bb = new QDialogButtonBox(&d);
+        auto *keepBtn = bb->addButton(tr("Keep as lighting triggers"), QDialogButtonBox::AcceptRole);
+        bb->addButton(tr("Discard"), QDialogButtonBox::RejectRole);
+        keepBtn->setDefault(true);
+        connect(bb, &QDialogButtonBox::accepted, &d, &QDialog::accept);
+        connect(bb, &QDialogButtonBox::rejected, &d, &QDialog::reject);
+        v->addWidget(bb);
+        d.resize(520, 420);
+        keep = d.exec() == QDialog::Accepted;
+        snap = snapBox->isChecked();
+    }
+    if (!keep) {
+        statusBar()->showMessage(tr("Discarded what was recorded from the desk"), 4000);
+        return;
+    }
+    const auto grid = m_cue->beatGrid();
+    const auto triggers = audio::DeskRecording::toTriggers(takes, {}, snap ? &grid : nullptr);
+    const int n = m_triggersPanel->keepRecorded(triggers, tr("Recorded"));
+    showLightingTab();
+    statusBar()->showMessage(n == 1 ? tr("Kept 1 recorded trigger (Ctrl+Z undoes)")
+                                    : tr("Kept %1 recorded triggers (Ctrl+Z undoes)").arg(n), 6000);
 }
 
 } // namespace quewi::ui

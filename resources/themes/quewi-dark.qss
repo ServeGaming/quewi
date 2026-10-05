@@ -799,3 +799,25 @@ QProgressBar::chunk {
 
 /* ============================ Dialog button box ============================ */
 QDialogButtonBox { button-layout: 0; }
+
+/* GO Both: sound + lights in one press (Matrix List only). The hero GO's
+   green body with a desk-blue edge, so it reads as "GO, and the desk too". */
+QPushButton#goBothButton {
+    background: @running;
+    color: @bgDeep;
+    border: 3px solid @loaded;
+    border-radius: 6px;
+    font-size: 18px;
+    font-weight: 800;
+    letter-spacing: 0.04em;
+    padding: 9px 18px;
+    min-height: 64px;
+    min-width: 120px;
+}
+QPushButton#goBothButton:pressed { background: @accentSoft; color: @bgDeep; }
+QPushButton#goBothButton:disabled,
+QPushButton#goBothButton[state="disabled"] {
+    background: @bgPanel;
+    color: @ink40;
+    border-color: @divider;
+}

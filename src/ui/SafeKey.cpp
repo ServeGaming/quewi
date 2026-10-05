@@ -62,6 +62,8 @@ Qt::KeyboardModifier SafeKey::modifier() const
     if (m_keyName.compare(QLatin1String("Shift"), Qt::CaseInsensitive) == 0) return Qt::ShiftModifier;
     if (m_keyName.compare(QLatin1String("Ctrl"), Qt::CaseInsensitive) == 0)  return Qt::ControlModifier;
     if (m_keyName.compare(QLatin1String("Alt"), Qt::CaseInsensitive) == 0)   return Qt::AltModifier;
+    // The Mac's physical Control key (Qt calls Command "Ctrl" there).
+    if (m_keyName.compare(QLatin1String("Control"), Qt::CaseInsensitive) == 0) return Qt::MetaModifier;
     return Qt::NoModifier;
 }
 
@@ -84,9 +86,15 @@ bool SafeKey::isHeld() const
 
 QString SafeKey::blockedMessage(Action a) const
 {
+    QString key = m_keyName;
+#ifdef Q_OS_MACOS
+    if (key.compare(QLatin1String("Ctrl"), Qt::CaseInsensitive) == 0) key = tr("⌘ Command");
+    else if (key.compare(QLatin1String("Alt"), Qt::CaseInsensitive) == 0) key = tr("⌥ Option");
+    else if (key.compare(QLatin1String("Control"), Qt::CaseInsensitive) == 0) key = tr("⌃ Control");
+#endif
     return a == Action::Go
-        ? tr("Hold %1 to GO (Preferences → Show Mode → Safe key)").arg(m_keyName)
-        : tr("Hold %1 to delete cues (Preferences → Show Mode → Safe key)").arg(m_keyName);
+        ? tr("Hold %1 to GO (Preferences → Show Mode → Safe key)").arg(key)
+        : tr("Hold %1 to delete cues (Preferences → Show Mode → Safe key)").arg(key);
 }
 
 bool SafeKey::chordMatches(const QKeyEvent *e, const QKeySequence &bound) const
@@ -114,7 +122,12 @@ bool SafeKey::eventFilter(QObject *watched, QEvent *event)
     // A modifier safe key + GO's / Delete's key: that's the GO / Delete.
     if (modifier() == Qt::NoModifier || typingIn(watched)) return false;
     const bool go  = m_forGo && chordMatches(e, m_goKey);
-    const bool del = m_forDelete && chordMatches(e, m_deleteKey);
+    bool del = m_forDelete && chordMatches(e, m_deleteKey);
+#ifdef Q_OS_MACOS
+    // The Mac "delete" key is Backspace; it deletes cues there (MainWindow).
+    if (m_forDelete && !del)
+        del = chordMatches(e, QKeySequence(Qt::Key_Backspace));
+#endif
     if (!go && !del) return false;
     if (type == QEvent::ShortcutOverride) {      // claim it before any shortcut does
         e->accept();

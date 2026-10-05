@@ -20,10 +20,34 @@ struct Highlight { const char *title; const char *body; };
 // Curated highlights for this release. Written to read like a person wrote
 // them — specific, second-person, no filler. Update this list each release.
 //
-// 1.1.0: songs that cue the lights, a stage manager's Show Mode, a real video
-// editor. The 1.0.3, 1.0.2 and 1.0.1 highlights follow, for anyone installing
-// this by hand from an older version.
+// 1.2.0: the Matrix List, a command menu, a safe key, and macOS / Linux
+// fixes. The 1.1.0, 1.0.3, 1.0.2 and 1.0.1 highlights follow, for anyone
+// installing this by hand from an older version.
 const Highlight kHighlights[] = {
+    { "The whole show in one list",
+      "List → Matrix List reads your Eos desk's cue list and runs it alongside "
+      "your sound cues, one row per moment. Drag a lighting cue onto the sound "
+      "cue it goes with to line them up. Scenes, links and follows show too." },
+    { "GO Lights and GO Both",
+      "The Matrix List has its own GO Lights for the desk's next cue (with Back "
+      "and Stop). GO Both, beside the green GO, fires the next sound cue and the "
+      "next lighting cue in one press." },
+    { "Record triggers from the desk",
+      "In the audio editor, press Record from desk, play the song and run the "
+      "desk as you would in the show. Every cue you fire becomes a lighting "
+      "trigger at that moment." },
+    { "A command menu with a leader key",
+      "Ctrl+K searches every command, cue and list. Tap ` (backtick) for a key "
+      "menu: ` C A makes an audio cue, ` L D opens the Lighting Desk. GO and "
+      "Panic are never in it." },
+    { "A safe key, and bigger text",
+      "Preferences → Show Mode → Safe key makes GO and Delete need a key held "
+      "down. Ctrl+scroll over the cue list makes its text bigger." },
+    { "Better on Mac and Linux",
+      "MIDI works on Linux; macOS asks for the mic and the network properly, "
+      "opens shows from Finder, and the MacBook delete key deletes cues. "
+      "Trackpads scroll and zoom smoothly." },
+    // ── 1.1.0 ──
     { "Songs that cue the lights",
       "Open a song in the audio editor and use the new Lighting tab: mark a point "
       "or a range and pick what the desk should do: GO, go to a cue, bump a sub on "

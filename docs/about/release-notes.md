@@ -1,9 +1,63 @@
 # Release notes
 
-## Unreleased
+## 1.2.0 (2026-10-05)
+
+The Matrix List puts sound and lights in one running order, with GO Lights
+and GO Both; a command menu with a leader key; a safe key for GO and Delete;
+bigger cue list text; and the first real pass at the macOS and Linux builds:
+MIDI on Linux, macOS permissions, trackpads and keys.
 
 ### New
 
+- **Matrix List: the whole show in one running order.** quewi reads your
+  ETC Eos / Ion / Element / Nomad desk's cue list (over the same
+  connection Show Mode already uses, read-only) and interleaves it with a
+  quewi cue list: one row per moment, sound and video on the left,
+  lighting cues with their labels, times, notes and scenes in a Lights
+  column. Lighting cues quewi fires sit with the cue that fires them; hits
+  inside a song sit under it at their time; the rest follow the desk's
+  order, and you can drag any of them onto the quewi cue they go with.
+  Standby, what's playing and the desk's live and pending cues are
+  highlighted as the show runs. Placements and the desk's cues are saved
+  with the show, so it reads right with no desk connected. Add one with
+  **List → Matrix List (sound + lights)**.
+  [Matrix List →](../using-quewi/matrix-list.md)
+- **Line up sound with lights.** Drag a lighting cue onto a sound cue, or
+  a sound cue onto a lighting cue, and they share a row. Or right-click
+  either one and choose **Line up with…** or **Unlink**. quewi's cue order
+  never changes. Cues you've lined up by hand are marked ◆, and
+  <kbd>Mod</kbd>+<kbd>Z</kbd> undoes.
+- **GO Lights.** The Matrix List's own button fires the desk's next cue in
+  its cue list, and is labelled with it ("GO Lights  8.4  Back").
+  <kbd>Mod</kbd>+<kbd>Shift</kbd>+<kbd>G</kbd> does the same. It's in Show
+  Mode too, under GO, when the Matrix List is up.
+- **GO Both.** With a Matrix List on screen, a **GO Both** button beside
+  the green GO fires quewi's next cue and the desk's next lighting cue in
+  one press. No default shortcut; give it one in Keyboard shortcuts.
+  [GO Both →](../using-quewi/matrix-list.md#go-both)
+- **Back and Stop for the lights.** Beside GO Lights: **◀ Back** fires the
+  desk cue before the one running in the Matrix List's cue list
+  (<kbd>Mod</kbd>+<kbd>Shift</kbd>+<kbd>B</kbd>), and **■ Stop** presses
+  the desk's Stop key (no default shortcut). Both are in Show Mode too.
+- **The Matrix List reads more of the desk.** Follows, hangs, links, loops,
+  block and assert show under each lighting cue, and a line joins cues that
+  run on from each other. **Details** (all of them, or one row with a
+  double-click) shows every time and flag the desk records, plus its
+  effects and macros. The desk's **scenes** head their cues and fold away
+  with a click.
+- **Record lighting triggers from the desk.** In the audio editor, press
+  **● Record from desk**, play the song and run the desk as you would in
+  the show. Every cue you fire is noted at that moment of the song. When the
+  song stops you see what was caught and keep it as triggers (one undo step)
+  or throw it away. Nothing is sent to the desk.
+  [Recording triggers →](../using-quewi/lighting-triggers.md#recording-triggers-from-the-desk)
+- **Show Mode follows the Matrix List.** When it's the page you were on,
+  COMING UP shows the merged order, lighting cues included, and STANDBY
+  says which lighting cues go with the next GO.
+- **OSC:** `/quewi/query/matrix` and `/quewi/query/matrix/current` return
+  the merged list as JSON (paged), and `/quewi/notify/matrix/changed` says
+  when to ask again.
+  [OSC reference →](../osc-control/reference.md#matrix-list)
 - **Command menu.** `Ctrl+K` is now a Spotlight-style panel over the main
   window: fuzzy search across every menu action, the cues in the list on
   screen (type a number or a name; `↵` stands the cue by, `Ctrl+↵` opens it
@@ -31,8 +85,45 @@
   into one row, "+N more" for the rest), song names show in full, and the
   layout gives each area the room it needs.
 
-### Fixed
+### macOS and Linux
 
+The Mac and Linux builds had been built and shipped but barely run. This
+release is the first in-depth pass:
+
+- **Linux: MIDI works.** The AppImage was built without ALSA, so MIDI
+  devices never appeared. It's built in now, and a release can't ship
+  without it.
+- **macOS: permissions.** quewi now asks for the microphone before using it
+  (soundboard "Send to mic", live mic routing) and tells macOS it talks to
+  devices on your network (lighting desks, consoles, remotes), so macOS 15
+  asks once instead of silently blocking it.
+- **macOS: open a show from Finder.** Double-clicking a `.quewi` file, or
+  dropping one on quewi's Dock icon, opens it (asking to save first, as
+  dragging onto the window does).
+- **macOS: projector windows stay up** when you click into another app.
+- **macOS: keys.** The MacBook's delete key deletes cues. The safe key's
+  choices read ⇧ Shift, ⌘ Command, ⌥ Option and ⌃ Control (new), and
+  Ctrl+Space, which is Spotlight on a Mac, is no longer offered as the
+  command menu's leader there.
+- **Trackpads.** Scrolling a list follows your fingers instead of flying
+  a hundred rows; zooming the timeline is smooth instead of jumping, and
+  sideways swipes and Shift-scroll pan it; ⌘-scroll zoom on the cue list
+  stops when your fingers lift, and pinch zooms it.
+- **Two quewis on one Mac or Linux machine** no longer share an OSC port
+  (and split your remote's messages between them); the second one moves to
+  another port and says so.
+- **Linux: in-app updates** no longer close quewi without reopening it when
+  the AppImage sits in a folder quewi can't write to.
+- **Show Mode with a wider font** (as on a Mac): a running song's name takes
+  a second line instead of being cut off, and the LIGHTING DESK heading
+  keeps its words.
+- quewi needs macOS 12 or later (it said 11, but couldn't run there).
+
+### Fixed
+- **Scrolling a Matrix List (or any table) moved about sixty rows a
+  wheel notch.** Now it moves about three, as in the cue list.
+- **The GO Lights button was cut off** at some window sizes. It now keeps
+  its size and shortens a long label to fit.
 - Reading an Eos desk back: the previous cue's time was read as its name.
 
 ## 1.1.0 (2026-10-04)

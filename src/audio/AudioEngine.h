@@ -199,11 +199,16 @@ public:
     // short buffer so the voice isn't noticeably delayed. Replaces any
     // previous live input. Returns false (with lastError()) if either device
     // is missing or won't open.
+    // macOS: if the microphone permission hasn't been decided yet this asks
+    // for it, returns false ("waiting for permission") and opens the mic by
+    // itself once the user allows it; if it's denied, engineError() says so.
     bool setLiveInput(const QByteArray &inputDeviceId,
                       const QByteArray &outputDeviceId, double gainDb);
     void setLiveInputGain(double gainDb);
     void clearLiveInput();
-    bool liveInputActive() const { return m_liveSource != nullptr; }
+    // Also true while a macOS microphone-permission prompt is pending, so a
+    // caller that turns the mic off calls clearLiveInput() and cancels it.
+    bool liveInputActive() const { return m_liveSource != nullptr || m_micPermissionPending; }
 
 signals:
     void runningChanged(bool running);
@@ -290,6 +295,11 @@ private:
     double                                      m_liveGainDb = 0.0;
     double                                      m_liveResamplePos = 0.0;   // fractional read position
     float                                       m_liveLastL = 0.f, m_liveLastR = 0.f;
+    // macOS microphone permission: a request is in flight (only ever set on
+    // macOS). The serial lets clearLiveInput()/a newer setLiveInput() make
+    // an older request's answer a no-op.
+    bool                                        m_micPermissionPending = false;
+    quint64                                     m_micRequestSerial = 0;
     std::vector<float>                          m_liveStereo;              // scratch (GUI thread)
     std::vector<float>                          m_liveResampled;           // scratch (GUI thread)
 };

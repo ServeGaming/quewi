@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.24)
 project(quewi
-    VERSION 1.1.0
+    VERSION 1.2.0
     DESCRIPTION "Theatre cueing software"
     HOMEPAGE_URL "https://github.com/ServeGaming/quewi"
     LANGUAGES CXX
@@ -26,10 +26,11 @@ else()
 endif()
 
 # Qt
-# Minimum is 6.7 — what aqtinstall (used by CI) reliably ships. Local
-# dev tracks the latest stable (6.11+ at time of writing); the codebase
-# doesn't depend on any post-6.7 APIs.
-find_package(Qt6 6.7 REQUIRED COMPONENTS
+# Minimum is 6.8 — CI pins 6.8.3; local dev tracks the latest stable
+# (6.11+ at time of writing). 6.8 is a hard floor: MediaImportDialog uses
+# QAudioBufferOutput (new in 6.8), and Qt 6.8 itself needs macOS 12+
+# (see CMAKE_OSX_DEPLOYMENT_TARGET in CMakePresets.json).
+find_package(Qt6 6.8 REQUIRED COMPONENTS
     Core
     Concurrent
     Gui

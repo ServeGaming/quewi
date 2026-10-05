@@ -101,3 +101,6 @@ scripts/*
 
 # Claude Code per-project local settings
 .claude/
+
+# mkdocs build output
+site/

@@ -424,6 +424,37 @@ jobs:
             echo "::warning::Stapling failed — DMG is notarized but the ticket isn't embedded."
           xcrun stapler validate "$DMG" || true
 
+      # Open the DMG we're about to ship and run the app from it: it must
+      # start and quit clean (fatal), and the screenshot tour gives a look at
+      # every main screen with real macOS fonts (uploaded, not fatal).
+      - name: Smoke-test the DMG
+        run: |
+          DMG=$(ls build/macos-release/*.dmg | head -1)
+          MNT=$(hdiutil attach -nobrowse -readonly "$DMG" | awk -F'\t' '/\/Volumes\//{print $NF}' | tail -1)
+          echo "mounted at $MNT"
+          APP=$(find "$MNT" -maxdepth 2 -name 'quewi.app' -type d | head -1)
+          BIN="$APP/Contents/MacOS/quewi"
+          plutil -p "$APP/Contents/Info.plist" | grep -E 'NSMicrophone|NSLocalNetwork|LSMinimumSystemVersion|CFBundleShortVersionString' || true
+          run_for() {   # run_for <seconds> <cmd...>: no `timeout` on macOS
+            "${@:2}" & local pid=$!
+            for i in $(seq 1 "$1"); do kill -0 $pid 2>/dev/null || break; sleep 1; done
+            if kill -0 $pid 2>/dev/null; then kill -9 $pid; echo "::error::timed out: ${*:2}"; return 124; fi
+            wait $pid
+          }
+          run_for 90 "$BIN" --selftest
+          echo "selftest OK"
+          run_for 240 "$BIN" --screenshot-tour "$PWD/tour-macos" || echo "::warning::screenshot tour failed"
+          cat tour-macos/fit.txt || true
+          hdiutil detach "$MNT" || true
+
+      - name: Upload macOS screenshot tour
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: tour-macos
+          path: tour-macos
+          if-no-files-found: ignore
+
       - name: Show artifacts
         run: ls -la build/macos-release/*.dmg
 
@@ -459,7 +490,8 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y ninja-build libgl1-mesa-dev \
-            libxkbcommon-dev libfontconfig1 libfuse2 imagemagick
+            libxkbcommon-dev libfontconfig1 libfuse2 imagemagick \
+            libasound2-dev
 
       - name: Install Qt
         uses: jurplel/install-qt-action@v4
@@ -541,6 +573,7 @@ jobs:
           ls "$QT_PLUGINS_DIR/sqldrivers/" || true
 
           export VERSION="${GITHUB_REF_NAME#v}"
+          VERSION="${VERSION//\//-}"   # a branch dry run: "feat/x" can't be in a file name
           export OUTPUT="quewi-${VERSION}-linux-x86_64.AppImage"
           ./linuxdeploy \
             --appdir build/linux-release/AppDir \
@@ -548,6 +581,33 @@ jobs:
             --output appimage \
             --desktop-file build/linux-release/AppDir/usr/share/applications/quewi.desktop \
             --icon-file build/linux-release/AppDir/usr/share/icons/hicolor/512x512/apps/quewi.png
+
+      # Run the AppImage we're about to ship: MIDI must be built in (ALSA —
+      # 1.1.0 shipped without it), it must start and quit clean (fatal), and
+      # the screenshot tour is uploaded to look at (not fatal).
+      - name: Smoke-test the AppImage
+        run: |
+          sudo apt-get install -y xvfb
+          APPIMAGE=$(ls *.AppImage | head -1)
+          chmod +x "$APPIMAGE"
+          rm -rf squashfs-root && "./$APPIMAGE" --appimage-extract >/dev/null
+          BIN=squashfs-root/usr/bin/quewi
+          if ! strings "$BIN" | grep -q snd_seq_open && ! LD_LIBRARY_PATH=squashfs-root/usr/lib ldd "$BIN" | grep -q libasound; then
+            echo "::error::the AppImage has no ALSA MIDI support"; exit 1
+          fi
+          xvfb-run -a timeout 90 "./$APPIMAGE" --selftest
+          echo "selftest OK"
+          xvfb-run -a timeout 240 "./$APPIMAGE" --screenshot-tour "$PWD/tour-linux" || echo "::warning::screenshot tour failed"
+          cat tour-linux/fit.txt || true
+          rm -rf squashfs-root
+
+      - name: Upload Linux screenshot tour
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: tour-linux
+          path: tour-linux
+          if-no-files-found: ignore
 
       - name: Show artifacts
         run: ls -la *.AppImage

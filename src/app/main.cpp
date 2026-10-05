@@ -6,15 +6,23 @@
 #include <QApplication>
 #include <QCommandLineParser>
 #include <QFile>
+#include <QFileInfo>
 #include <QIcon>
 #include <QSettings>
 #include <QStatusBar>
 #include "ui/WelcomeDialog.h"
 
 #include <QComboBox>
+#include <QDropEvent>
+#include <QFileOpenEvent>
+#include <QMimeData>
+#include <QPointer>
 #include <QStandardPaths>
 #include <QSurfaceFormat>
 #include <QTimer>
+#include <QUrl>
+
+#include <utility>
 
 #if defined(_MSC_VER) && defined(_DEBUG)
 #  include <crtdbg.h>
@@ -99,6 +107,81 @@ void installCrtAssertCapture() {
 } // namespace
 #endif
 
+namespace {
+
+// macOS: double-clicking a .quewi in Finder, dropping one on the Dock icon,
+// or "Open With > quewi" doesn't pass a command-line argument; the app gets
+// a QFileOpenEvent instead (the document type is declared in Info.plist).
+// Only macOS sends these, so on Windows/Linux this filter never does
+// anything. It can arrive at any point — while the crash-recovery prompt
+// or the Welcome dialog is up, or long after launch — so:
+//   - before the main window is shown, the path is queued (and a Welcome
+//     dialog that's up is closed: the operator already picked a show);
+//   - once it's shown, the file opens exactly as if it were dragged onto
+//     the window: the "Save changes?" prompt, and nothing in show mode.
+class FileOpenFilter : public QObject {
+public:
+    using QObject::QObject;
+
+    QPointer<quewi::MainWindow> window;   // set once the main window is shown
+    QPointer<QDialog>           welcome;  // the launch Welcome dialog, while up
+    QStringList                 pending;  // arrived before the window was shown
+
+    bool eventFilter(QObject *obj, QEvent *ev) override
+    {
+        if (ev->type() != QEvent::FileOpen || obj != QCoreApplication::instance())
+            return QObject::eventFilter(obj, ev);
+        auto *fe = static_cast<QFileOpenEvent *>(ev);
+        QString path = fe->file();
+        if (path.isEmpty()) path = fe->url().toLocalFile();
+        if (path.isEmpty()) return QObject::eventFilter(obj, ev);
+
+        if (window) {
+            open(path);
+        } else {
+            pending.append(path);
+            if (welcome) welcome->reject();
+        }
+        return true;
+    }
+
+    // The window is up: open everything that was queued.
+    void flush()
+    {
+        const QStringList paths = std::exchange(pending, {});
+        for (const QString &p : paths) open(p);
+    }
+
+private:
+    void open(const QString &path)
+    {
+        // Deferred: the open may show a modal "Save changes?" prompt, which
+        // shouldn't run inside the OS's open-document callback.
+        QTimer::singleShot(0, window.data(), [w = window, path] {
+            if (!w) return;
+            if (w->isMinimized()) w->showNormal();
+            w->raise();
+            w->activateWindow();
+            // Show mode switches drops off to lock the show; respect that.
+            if (!w->acceptDrops()) {
+                w->statusBar()->showMessage(
+                    QObject::tr("Show mode is on, so %1 wasn't opened. Leave show mode and open it again.")
+                        .arg(QFileInfo(path).fileName()), 6000);
+                return;
+            }
+            // Same path as dragging the file onto the window (MainWindow::
+            // dropEvent): a .quewi opens as the show, after the usual
+            // save-changes prompt.
+            QMimeData mime;
+            mime.setUrls({ QUrl::fromLocalFile(path) });
+            QDropEvent drop(QPointF(), Qt::CopyAction, &mime, Qt::NoButton, Qt::NoModifier);
+            QCoreApplication::sendEvent(w.data(), &drop);
+        });
+    }
+};
+
+} // namespace
+
 int main(int argc, char *argv[])
 {
 #if defined(_MSC_VER) && defined(_DEBUG)
@@ -141,6 +224,11 @@ int main(int argc, char *argv[])
     QApplication::setStyle("Fusion");
     QApplication::setWindowIcon(QIcon(QStringLiteral(":/icons/quewi.png")));
 
+    // Finder / Dock "open this show" (macOS only; see FileOpenFilter).
+    // Installed this early so an open that arrives during startup is kept.
+    auto *fileOpenFilter = new FileOpenFilter(&app);
+    app.installEventFilter(fileOpenFilter);
+
     QCommandLineParser parser;
     parser.setApplicationDescription(QStringLiteral("quewi — theatre cueing"));
     parser.addHelpOption();
@@ -149,8 +237,12 @@ int main(int argc, char *argv[])
         QStringLiteral("Open the main window, process events briefly, then exit 0. Used by CI cold-start gate."));
     QCommandLineOption selftestIdleOpt(QStringLiteral("selftest-idle"),
         QStringLiteral("Open the main window and stay idle (for idle-RSS gates)."));
+    QCommandLineOption tourOpt(QStringLiteral("screenshot-tour"),
+        QStringLiteral("Build a demo show, save a picture of each main screen to <dir>, then exit."),
+        QStringLiteral("dir"));
     parser.addOption(selftestOpt);
     parser.addOption(selftestIdleOpt);
+    parser.addOption(tourOpt);
     parser.process(app);
 
     QSettings s(QStringLiteral("ServeGaming"), QStringLiteral("quewi"));
@@ -206,7 +298,7 @@ int main(int argc, char *argv[])
     //   - the user disabled it via the "Show on launch" checkbox;
     //   - we're running --selftest (CI cold-start gate).
     const auto positional = parser.positionalArguments();
-    const bool selftest = parser.isSet(selftestOpt) || parser.isSet(selftestIdleOpt);
+    const bool selftest = parser.isSet(selftestOpt) || parser.isSet(selftestIdleOpt) || parser.isSet(tourOpt);
 
     // Crash recovery first — before the Welcome dialog or a show passed on
     // the command line, either of which would otherwise replace the
@@ -216,10 +308,12 @@ int main(int argc, char *argv[])
     QString welcomeChosenPath;
     if (!recovered
         && positional.isEmpty()
+        && fileOpenFilter->pending.isEmpty()   // Finder already chose a show (macOS)
         && !selftest
         && quewi::ui::WelcomeDialog::showOnLaunchEnabled())
     {
         quewi::ui::WelcomeDialog welcome;
+        fileOpenFilter->welcome = &welcome;
         welcome.exec();
         if (welcome.action() == quewi::ui::WelcomeDialog::Action::OpenExisting
             || welcome.action() == quewi::ui::WelcomeDialog::Action::OpenRecent) {
@@ -234,7 +328,7 @@ int main(int argc, char *argv[])
     if (w.isQuittingForUpdate()) return 0;
 
     w.show();
-    if (!parser.isSet(selftestOpt)) w.runStartupChecks();
+    if (!selftest) w.runStartupChecks();
 
     // First-run-after-update toast. If the version stored in
     // QSettings differs from the binary's version, this is either
@@ -277,8 +371,18 @@ int main(int argc, char *argv[])
         });
     }
 
+    // Shows opened from Finder during startup (macOS), queued after the
+    // above so they win; from now on they open straight away. Over a
+    // recovered show they go through the save-changes prompt.
+    fileOpenFilter->window = &w;
+    fileOpenFilter->flush();
+
     if (parser.isSet(selftestOpt)) {
         QTimer::singleShot(200, &app, &QCoreApplication::quit);
+    }
+    if (parser.isSet(tourOpt)) {
+        const QString dir = parser.value(tourOpt);
+        QTimer::singleShot(300, &w, [&w, dir] { w.runScreenshotTour(dir); });
     }
     return app.exec();
 }

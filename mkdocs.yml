@@ -129,6 +129,7 @@ nav:
       - Command menu: using-quewi/command-menu.md
       - Inspector & editing: using-quewi/inspector.md
       - Lighting triggers: using-quewi/lighting-triggers.md
+      - Matrix List (sound + lights): using-quewi/matrix-list.md
 
   - Cue type reference:
       - Audio cue: cue-types/audio.md

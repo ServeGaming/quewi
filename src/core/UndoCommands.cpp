@@ -141,4 +141,22 @@ MoveCueListCommand::MoveCueListCommand(Workspace *ws, int from, int to,
 void MoveCueListCommand::redo() { if (m_ws) m_ws->moveCueList(m_from, m_to); }
 void MoveCueListCommand::undo() { if (m_ws) m_ws->moveCueList(m_to, m_from); }
 
+SetMatrixPlacementsCommand::SetMatrixPlacementsCommand(
+    CueList *list, std::vector<matrix::ManualPlacement> before,
+    std::vector<matrix::ManualPlacement> after, const QString &text, QUndoCommand *parent)
+    : QUndoCommand(text, parent), m_list(list), m_before(std::move(before)), m_after(std::move(after))
+{
+}
+
+void SetMatrixPlacementsCommand::apply(const std::vector<matrix::ManualPlacement> &p)
+{
+    if (!m_list) return;
+    auto cfg = m_list->matrixConfig();
+    cfg.placements = p;
+    m_list->setMatrixConfig(cfg);
+}
+
+void SetMatrixPlacementsCommand::undo() { apply(m_before); }
+void SetMatrixPlacementsCommand::redo() { apply(m_after); }
+
 } // namespace quewi::core

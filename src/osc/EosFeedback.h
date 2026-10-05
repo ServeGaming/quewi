@@ -74,6 +74,12 @@ public:
     // Feed one decoded message as if the desk sent it (tests, and the TCP path).
     void handle(const Message &m);
 
+    // Send a message to the desk over this link (nothing if it isn't up).
+    // For readers that share the connection, like EosCueLists — they only
+    // ever send /eos/get/... requests, never anything that changes the desk.
+    void sendToDesk(const Message &m) { send(m); }
+    bool isConnected() const;
+
     // Timing, overridable for tests (ms).
     void setTimings(int reconnectMs, int pingMs, int silenceMs);
     void setClock(std::function<qint64()> nowMs);   // tests: a fake clock
@@ -81,6 +87,14 @@ public:
 signals:
     void linkChanged(quewi::osc::EosFeedback::Link link);
     void stateChanged();               // any cue / show / blind change
+    // Every message the desk sends, after this class has read it (so a
+    // sibling reader — EosCueLists — shares the one TCP connection).
+    void messageReceived(const quewi::osc::Message &m);
+    // A cue just ran on the desk (someone pressed GO, Back, went to a cue…):
+    // from /eos/out/event/cue/<list>/<cue>/fire, or the active cue changing to
+    // another cue. Once per fire, never for the state the desk reports when
+    // the link comes up. (For recording lighting triggers from the desk.)
+    void cueFired(const QString &list, const QString &cue, const QString &label);
 
 private:
     void connectNow();
@@ -112,6 +126,10 @@ private:
     double     m_rate = 0.0;              // progress per second; 0 = unknown
     QString    m_showName;
     bool       m_blind = false;
+    bool       m_haveActive = false;      // the desk has said what's active since connecting
+    QString    m_lastFiredKey;
+    qint64     m_lastFiredMs = -100000;
+    void       fired(const QString &list, const QString &cue, const QString &label);
 };
 
 } // namespace quewi::osc

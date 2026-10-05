@@ -943,8 +943,29 @@ LightTriggersPanel::LightTriggersPanel(QWidget *parent) : QWidget(parent)
     deskRow->addWidget(m_deskLabel);
     deskRow->addWidget(changeDesk);
     deskRow->addStretch(1);
+    // Record from desk: play the song and run the desk as you would in the
+    // show; every cue you fire becomes a trigger at that moment of the song.
+    m_recordStatus = new QLabel(this);
+    m_recordStatus->setObjectName(QStringLiteral("ltRecordStatus"));
+    m_recordStatus->setStyleSheet(QStringLiteral("color:%1; font-size:12px;").arg(tk.ink60.name()));
+    m_recordStatus->hide();
+    deskRow->addWidget(m_recordStatus);
+    m_recordBtn = new QPushButton(tr("● Record from desk"), this);
+    m_recordBtn->setObjectName(QStringLiteral("ltRecord"));
+    m_recordBtn->setCheckable(true);
+    m_recordBtn->setCursor(Qt::PointingHandCursor);
+    m_recordBtn->setToolTip(tr("Play the song and run the lighting desk as you would in the show: every cue you "
+                               "fire on the desk is noted at that moment of the song. When the song stops you see "
+                               "what was caught and choose to keep it as lighting triggers. Nothing is sent to the desk."));
+    m_recordBtn->setStyleSheet(QStringLiteral(
+        "QPushButton#ltRecord { padding:4px 14px; border-radius:3px; border:1px solid %1; color:%2; background:%3;"
+        "  font-weight:700; min-width:150px; }"
+        "QPushButton#ltRecord:checked { background:%4; color:%5; border-color:%4; }")
+        .arg(tk.outline.name(), tk.ink100.name(), tk.bgInteractive.name(), tk.errBright.name(), tk.bgDeep.name()));
+    deskRow->addWidget(m_recordBtn);
     page->addLayout(deskRow);
     connect(changeDesk, &QPushButton::clicked, this, &LightTriggersPanel::deskSettingsRequested);
+    connect(m_recordBtn, &QPushButton::toggled, this, &LightTriggersPanel::recordToggled);
 
     // ── Beat grid: the song's tempo, for snapping and "Fill with beats…" ──
     // TEMPO [Off ▴▾] BPM  Tap  Detect │ First beat [0.000 s] Set to cursor │
@@ -1582,6 +1603,43 @@ void LightTriggersPanel::addAndSelect(const LightTriggers &added, const QString 
     next.insert(next.end(), adding.begin(), adding.end());
     commit(next, false);
     setSelection(ids, ids.value(0));
+}
+
+void LightTriggersPanel::setRecordingState(bool on, int count, const QString &last)
+{
+    if (m_recordBtn && m_recordBtn->isChecked() != on) {
+        QSignalBlocker block(m_recordBtn);
+        m_recordBtn->setChecked(on);
+    }
+    if (m_recordBtn) m_recordBtn->setText(on ? tr("■ Stop recording") : tr("● Record from desk"));
+    if (!m_recordStatus) return;
+    if (!on) {
+        m_recordStatus->hide();
+        return;
+    }
+    const auto &tk = Theme::tokens();
+    QString t = QStringLiteral("<b style=\"color:%1\">● REC</b>&nbsp;&nbsp;").arg(tk.errBright.name());
+    t += count == 0 ? tr("fire cues on the desk as the song plays")
+                    : (count == 1 ? tr("1 cue") : tr("%1 cues").arg(count));
+    if (!last.isEmpty()) t += QStringLiteral("  ·  ") + last.toHtmlEscaped();
+    m_recordStatus->setTextFormat(Qt::RichText);
+    m_recordStatus->setText(t);
+    m_recordStatus->show();
+}
+
+void LightTriggersPanel::setRecordMessage(const QString &message)
+{
+    if (!m_recordStatus) return;
+    m_recordStatus->setTextFormat(Qt::PlainText);
+    m_recordStatus->setText(message);
+    m_recordStatus->setVisible(!message.isEmpty());
+}
+
+int LightTriggersPanel::keepRecorded(const LightTriggers &triggers, const QString &groupBase)
+{
+    if (!m_cue || triggers.empty()) return 0;
+    addAndSelect(triggers, groupBase);
+    return int(triggers.size());
 }
 
 void LightTriggersPanel::applyTableSelection()

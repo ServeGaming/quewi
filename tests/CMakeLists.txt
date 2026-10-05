@@ -81,8 +81,19 @@ target_sources(test_audio_editor PRIVATE
 # The lighting-trigger UI: the editor's Lighting tab, the timeline's marker
 # lane, and the Inspector's way in. Same GoEngine trick.
 # Ctrl+wheel zoom on the cue list.
+quewi_add_test(transport_bar Qt6::Test Qt6::Widgets quewi_ui)
+target_sources(test_transport_bar PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/../src/app/GoEngine.cpp
+)
+
 quewi_add_test(cue_list_zoom Qt6::Test Qt6::Widgets quewi_ui)
 target_sources(test_cue_list_zoom PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/../src/app/GoEngine.cpp
+)
+
+# Trackpad vs mouse wheel: timeline zoom / pan and the app's smooth scroll.
+quewi_add_test(wheel_input Qt6::Test Qt6::Widgets quewi_ui)
+target_sources(test_wheel_input PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/../src/app/GoEngine.cpp
 )
 
@@ -115,6 +126,29 @@ target_sources(test_lighting_desk_dialog PRIVATE
 # ShowSnapshots directly. Same GoEngine trick.
 quewi_add_test(show_mode_view Qt6::Test Qt6::Widgets quewi_ui)
 target_sources(test_show_mode_view PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/../src/app/GoEngine.cpp
+)
+
+# Reading cue lists off an Eos desk (osc::EosCueLists) against a fake desk.
+quewi_add_test(eos_cue_lists Qt6::Test Qt6::Network quewi_osc)
+# The Matrix List's intermeshing rules — pure logic, no UI.
+quewi_add_test(matrix_model Qt6::Test quewi_core)
+# A Matrix List through a real show file; old show files still open.
+quewi_add_test(matrix_persistence Qt6::Test Qt6::Sql quewi_core quewi_show)
+# The Matrix List view, what feeds it, and Show Mode's merged COMING UP.
+# Same GoEngine trick.
+quewi_add_test(matrix_view Qt6::Test Qt6::Widgets quewi_ui)
+target_sources(test_matrix_view PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/../src/app/GoEngine.cpp
+    # The app's theme (QSS + fonts), for QUEWI_RENDER_DIR renders.
+    ${CMAKE_SOURCE_DIR}/resources/resources.qrc
+)
+
+# Recording lighting triggers from the desk: the take, the Eos link's "cue
+# fired", timing against a playhead with a fake desk, keeping a take. Same
+# GoEngine trick.
+quewi_add_test(desk_recording Qt6::Test Qt6::Widgets Qt6::Network quewi_ui)
+target_sources(test_desk_recording PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/../src/app/GoEngine.cpp
 )
 

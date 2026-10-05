@@ -41,7 +41,7 @@ ScriptViewer::ScriptViewer(QWidget *parent)
     setFrameShape(QFrame::NoFrame);
     document()->setDocumentMargin(8.0);
     QFont f = font();
-    f.setFamily(QStringLiteral("Consolas"));
+    f.setFamilies({QStringLiteral("Consolas"), QStringLiteral("Menlo"), QStringLiteral("DejaVu Sans Mono")});
     f.setStyleHint(QFont::TypeWriter);
     f.setPointSize(11);
     setFont(f);

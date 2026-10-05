@@ -11,9 +11,10 @@ session on any computer (or a fresh conversation) continues with no gaps.
 > right now, the next one would lose nothing. *Update protocol* (last section)
 > says how.
 
-Last updated: **2026-10-04**. Installed on Matthew's PC: **1.0.3**. Latest
-release: **v1.0.3**. `main` is ahead of it with the 1.0.4 work below (not
-tagged — see "Next steps").
+Last updated: **2026-10-05**. Latest release: **v1.1.0**; **1.2.0** is
+being cut from `feat/matrix-list` (Matthew said "merge it and release the
+next version as 1.2.0", 2026-10-05). macOS / Linux state and open items:
+**`docs/dev/cross-platform.md`** — read it before any Mac/Linux work.
 
 ---
 
@@ -54,6 +55,191 @@ All committed and pushed. **30 ctest suites** (all green in CI at `6dabf77`
 before the video editor; with it, 30/30 + selftest green on a Linux Qt 6.11
 build — see §6; CI covers Windows/macOS on the push).
 
+### 0a6. GO Both + the first in-depth macOS / Linux pass (2026-10-05)
+- **GO Both** (Matthew: "a go for both button next to the green go button on
+  the bottom"): `TransportBar` `goBothButton`, shown only while a Matrix List
+  is the page (`MainWindow::updateGoBoth`, driven by
+  `MatrixView::goLightsStateChanged` + the centre stack's page change).
+  `MainWindow::goBoth()` checks the safe key once, reads the GO Lights target
+  *before* the sound GO moves standby, then fires both. Action
+  `transport.goboth`, no default key. Test: `test_transport_bar`. Seen in the
+  screenshot tour; not yet pressed against a real desk.
+- **Mac/Linux pass** — everything is in `docs/dev/cross-platform.md` (what was
+  broken, what's fixed, how it was checked, 10 open items for cloud sessions,
+  what needs Matthew). Headlines: Linux MIDI had never worked (no ALSA in the
+  AppImage); macOS had no mic / Local Network usage strings; CI had been red
+  on main since the safe-key commit (font-width + timing test fragility, not
+  product bugs, except two real clipped labels in Show Mode).
+- **New tooling**: `quewi --screenshot-tour <dir>` (`MainWindowTour.cpp`);
+  the release workflow smoke-tests its DMG/AppImage and uploads `tour-macos` /
+  `tour-linux`; CI prints test failures and runs `--selftest` on Release
+  builds; WSL distro `quewi-test` = local CI-equivalent Linux box.
+- `--selftest-idle` no longer runs startup checks (update prompts).
+- Test count: **42**.
+
+### 0a4. Matrix List — sound + lights in one running order (2026-10-04, branch `feat/matrix-list`, PR, not on main)
+Matthew: "grab the cue list from ETC like HeliOSC does and have that as a
+new type of cue list called a Matrix List where it intermeshes the cues to
+get a full view of the entire show." Built in a worktree session, shipped
+as a PR (not merged, no version bump — that's for main).
+- **Reading the desk** `osc/EosCueLists`: shares `EosFeedback`'s TCP 3032
+  link (new `sendToDesk()` + `messageReceived` signal; no second socket).
+  ETC OSC Get: `/eos/get/cuelist/count|index/<i>`, `/eos/get/cue/<l>/count|
+  index/<i>`, windowed (32), stall → one retry → Partial (a partial read
+  never replaces a complete one). **Checked read-only against Eos 3.3.9 on
+  Matthew's PC (his Nomad was running, show "LIA 10-2-26")**: the cue's
+  index is `args[0]`; the trailing `list/<a>/<b>` pages the *arguments*
+  (list/0/31), not the cues — the first version got this wrong and only
+  the real desk showed it; an index past the end answers
+  `/eos/out/get/cue/0/0 <i>`; by-number `/eos/get/cue/<l>/<c>/<p>` answers
+  `args[0] = -1`, or no args if absent. Nomad serves ~9 GETs/s whatever the
+  window: list 2 (146 cues, decimals like 0.99/8.1) took ~17 s. So a
+  `/eos/out/notify/cue/<l>` re-asks only the named cues by number + the
+  count, and falls back to a full read on a count mismatch (renumber /
+  range). **The notify format is ETC's documented one but was NOT seen
+  from the real desk** (nothing was edited on his desk). Parts: parsed and
+  folded under their cue, but his show has none — **parts unverified on a
+  real desk**.
+- **Model** `core/MatrixModel` (pure, `quewi_core`): rows of quewi cues;
+  each desk cue placed by the first of: hand placement (With / After /
+  Start, saved) → fired at GO by a quewi cue (desk GoToCue trigger at the
+  top of a song, OSC `/eos/cue/[l/]n/fire`, `/eos/newcmd Go_To_Cue`, MSC
+  GO) → hit in a song (trigger later in the song → nested "Hit" row by
+  time) → by order (follows the previous desk cue's slot). Identity = list
+  + number + part + UID: renumbers follow the UID; deleted cues stay as
+  ⚠ missing rows; placements whose quewi cue is gone fall back to auto but
+  are kept. Decision (SM-friendly): untied cues follow the *previous* desk
+  cue, so one drag settles a run.
+- **Persistence**: `CueList::Kind::Matrix` (holds no cues) + `matrixConfig()`
+  in meta key `matrix_lists_json` `{listId: {version, sourceList, deskList,
+  placements, deskCache, deskCachedAt}}`. Optional: shows without it are
+  byte-identical to 1.1.0's format; 1.1.0 opening a show with one sees an
+  empty normal cue list (harmless). The desk cache is updated silently (no
+  "unsaved") so the matrix reads right offline.
+- **UI** `ui/MatrixView` + `ui/MatrixSource` (helpers/JSON). + menu and
+  View menu "Matrix List (sound + lights)"; tab `▦`; selecting it makes the
+  source list the GO context (GO = normal GO, nothing fires desk cues);
+  double-click / context menu = make standby; drag desk rows to place;
+  right-click = put back / forget; Show Mode locks placing; detach works;
+  follow-the-show scroll; colours from `showRegionColours()`. Placements are
+  NOT on the undo stack (markModified like the mix grid).
+- **Show Mode**: `ShowCueLine` gained `deskCues` + `deskOnly`; when the
+  matrix page is up, COMING UP is the merged order (Hit rows skipped — the
+  hits region covers them) and STANDBY lists its desk cues.
+- **OSC**: `/quewi/query/matrix [from count list]`, `/quewi/query/matrix/
+  current [before after list]` → `/quewi/reply/matrix` JSON;
+  `/quewi/notify/matrix/changed`. In `app/MainWindowMatrix.cpp`.
+- **Tests** (36 suites, all green; selftest 0): `eos_cue_lists` (fake desk
+  speaking the real format: decimals, parts, 300 cues windowed, notify →
+  patch / full re-read, stall → Partial; opt-in `QUEWI_TEST_EOS_HOST=127.0.0.1
+  QUEWI_TEST_EOS_LIST=2` reads a real desk — passed against his Nomad),
+  `matrix_model`, `matrix_persistence` (hand-built 1.1.0-era file),
+  `matrix_view` (+ `QUEWI_RENDER_DIR` PNG; offscreen fonts render garbled —
+  use the windows platform for a real look).
+- **Driven**: a `--selftest-idle` test copy (OSC 53000, PID-checked; his
+  quewi was on 8500) with a hand-made show, reading his running Nomad:
+  `/quewi/query/matrix` returned 149 rows, list 2's 146 cues interleaved,
+  LX 0.99 "fired" by an OSC cue, a missing LX 999 marked, and the desk's
+  live 8.3 / pending 8.4 flagged as he worked. **Not driven**: the GUI by
+  eye (no computer-use grant in that session) — drag-and-drop was only
+  exercised through the model in tests; Show Mode's merged COMING UP only
+  in a widget test.
+- Docs: `using-quewi/matrix-list.md` (nav), OSC reference §Matrix List,
+  release notes "Unreleased".
+- **Follow-up (Matthew used it): line up both ways, GO Lights, a page that
+  explains itself.**
+  - *Lining up*: drag a quewi row onto a lighting row → that lighting cue
+    is placed With the quewi cue (new mime `…matrix-quewi`). A quewi-on-quewi
+    drop is refused with a reason, because quewi order = GO order and is
+    never changed. Right-click offers "Line up … with…" (a searchable
+    picker) and "Unlink" on either side. **Undoable now**:
+    `core::SetMatrixPlacementsCommand` swaps only `placements`, never the
+    desk cache. A new "LINED UP" column shows "◆ Lined up by hand" against
+    fired / hit / desk-order.
+  - *GO Lights* (`ui::goLightsTarget` / `goLightsAction`, `MainWindow::goLights`):
+    fires LX NEXT = the desk's pending cue if it's in the matrix's list,
+    else the cue after the active one, else the list's first. It sends
+    `/eos/cue/<l>/<c>/fire` through `GoEngine::sendDeskAction` (now public,
+    with an overload that takes a desk), i.e. UDP to the desk's OSC port,
+    the same path as trigger "Go to cue". Disabled with a reason when the
+    desk isn't Eos, the link isn't Live, or it's the end of the list.
+    Ctrl+Shift+G (`transport.golights`, rebindable; the QAction isn't in
+    a menu, so Show Mode doesn't lock it). Show Mode: `ShowSnapshot::lightsGo`
+    → `smGoLights` under GO, in desk blue, PANIC still set apart.
+  - *Page*: a one-line summary (source · desk list + label · count · link
+    dot + host), short settings, a legend, a warn banner with a "Lighting
+    Desk…" button when the desk isn't live, an empty state, NOW / LINED UP
+    columns, whole-row tints plus a left edge stripe (`MatrixRowDelegate`,
+    `showRegionColours()`), hits indented in lavender on a deeper row,
+    38 px rows, tooltips on headers, cells and buttons.
+  - Tests (matrix_view now 12 cases): lining up from the quewi side +
+    undo/redo + refusal, the GO Lights target rules, **the exact datagram
+    `/eos/cue/1/6.5/fire` (no args) via GoEngine to a UDP fake desk**,
+    button vs row click, empty state. `QUEWI_RENDER_DIR` renders with the
+    real QSS (resources.qrc linked into test_matrix_view, windows platform +
+    `WA_DontShowOnScreen`). Renders checked at 1280×720 and 1920×1080:
+    live, desk off, empty, Show Mode with GO Lights.
+  - **Round 3 (Matthew's next feedback, 2026-10-04)**:
+    - *GO Lights cut off*: fixed width 300 with the label elided (full label
+      in the tooltip). Checked at his window (1280×931 logical ≈ 1600×1164
+      at 125 %), 1280×720, 1920×1080 and 1100×720. The three text columns
+      now stretch, so there's no sideways scroll at 1100.
+    - *Back / Stop*: Back = `ui::backLightsTarget` (the cue before the
+      desk's ACTIVE one in the matrix's list, fired explicitly with
+      `/eos/cue/<l>/<c>/fire`; it runs with that cue's own time, not the
+      desk's back time). Stop = DeskDo::Stop (`/eos/key/stop` 1.0, then 0.0
+      after 50 ms). Ctrl+Shift+B; Stop has no default key. Both are also in
+      Show Mode (`ShowLightsGo.back*/stop*`). Exact datagrams are tested.
+    - *Wheel jumped ~60 rows*: `SmoothScroll` added 60 "px" to scrollbars
+      that count **rows** (ScrollPerItem tables, which the matrix and the
+      mix grid were). It now uses wheel-lines rows on per-item views, an
+      opt-in `smoothScrollRows` per notch (the matrix: 3, per-pixel), and
+      touchpad pixels as given. `SmoothScroll::stepFor` is tested.
+    - *Desk details*: the whole 31-arg record plus the fx/actions replies,
+      **read-only from his Nomad, 2026-10-04**. Mark is "M"; block is a
+      lowercase "b"; link is int 0 for none, else a string "0.99" or an int
+      3; curve is "0"; rate 100; times -1 when not set; actions "M1"; fx are
+      ints. Scene end: his show doesn't use Eos's Scene End flag (arg 29
+      always False) but names a cue "End of Trad. Hispanic", so a name
+      starting "End" closes the open scene (`isSceneEndText`). Shown inline
+      (runs on / links / loops / [B] [A]), with a Details toggle
+      (`matrix/details` QSetting) or per row, and a chain line for
+      follow/hang (forward only).
+    - *Scenes*: `matrix::addScenes` adds Row::Kind::Scene headers.
+      Collapsed scenes are `Config::collapsedScenes`, saved silently. JSON
+      rows have `kind:"scene"` and `inScene`. From his real list 2:
+      Trad. Hispanic 6–23, Brazil. Funk 25–49, Reggaeton 52–81.99,
+      Brazilian Traditonal 83–90, Latin Lovers 92–105.99, Skirts
+      106.99–108.99.
+    - *Record from desk*: `EosFeedback::cueFired` (from
+      `/eos/out/event/cue/<l>/<c>/fire` or the active cue changing, once per
+      fire, never the state reported on connect), `audio::DeskRecording`
+      (pure), and `ui::DeskTakeRecorder`. The audio editor's toolbar and
+      Lighting tab have "● Record from desk": it starts the preview, stops
+      when the song stops (not on loop or pause), then a review dialog
+      offers Keep (one undo step, group "Recorded", optional beat snap) or
+      Discard. Preview sends pause while recording. The remote can do it
+      with `/quewi/cue/<n>/triggers/record start|stop|keep|discard` plus
+      notifications (`MainWindowMatrix.cpp`). **Sub/fader bumps aren't
+      recorded**: Eos only reports fader levels to the connection that
+      configured that fader bank. **`/eos/out/event/cue/…/fire` was never
+      seen live**: 10 minutes of passive listening to his Nomad caught no
+      fires because he wasn't running cues. The active-cue-change path is
+      what the fake desk proves.
+    - Tests: new `desk_recording` (37 suites); matrix_view 15 cases;
+      matrix_model scenes; eos_cue_lists details. Under `ctest -j6`,
+      cart_view or light_triggers_ui occasionally fail on load; they pass
+      in isolation (repeat ×4) and in serial runs.
+    - Renders (QUEWI_RENDER_DIR, + QUEWI_TEST_EOS_HOST/LIST for a
+      real-desk page): live at four sizes, details+folded, the Lighting
+      tab recording, Show Mode with GO Lights/Back/Stop, and his real
+      list 2.
+  - **Not done / not driven**: GO Lights, Back and Stop were **never fired
+    at the real Nomad** (as instructed; fake desk only). Recording wasn't
+    driven by hand with a real song and real GOs. Drag-and-drop and the picker
+    weren't driven by hand (no computer-use in that session), only through
+    the model and the renders. The detached matrix window doesn't follow
+    Show Mode's lock if it was opened before Show Mode.
 ### 7. Command menu + leader key (2026-10-04) — on a worktree branch, to merge
 Matthew's ask: a macOS-style command menu (Spotlight/Raycast) "with that
 super key like power that Omarchy has". Built on `worktree-agent-ac2cd7a9968a20b4c`
@@ -397,6 +583,12 @@ offered or deleted. Stray locks with no journal are tidied if stale.
   journals folder (see "Driving a test copy") until he's on 1.0.4.
 
 ### Next steps
+0. Review/merge the Matrix List PR (`feat/matrix-list`, §0a4), then drive
+   it by eye on Windows: drag placements both ways + Ctrl+Z, Line up
+   with…, GO Lights on the Nomad (Ctrl+Shift+G), Show Mode COMING UP and
+   GO Lights, detach;
+   edit a cue on the Nomad (label, renumber, delete, add a part) and watch
+   the notify path patch the matrix.
 1. Matthew: try lighting triggers against his Eos/MA, Send-to-mic (with
    VB-Cable), video sound on the real show (he reported video→audio convert
    "working perfectly" 2026-10-03; double-click into the editor for a
@@ -432,6 +624,11 @@ offered or deleted. Stray locks with no journal are tidied if stale.
   rendered cues no longer double their effects (`bouncedPath`); "Update Render"
   rewrites in place; right-click empty pad → Import from URL (yt-dlp) + trim.
 - **1.0.3** (2026-09-24) — the updater, fixed and proven (below).
+- **1.2.0** (2026-10-05) — Matrix List (Eos cue list interleaved with quewi's;
+  line up both ways; GO Lights / Back / Stop; GO Both; scenes, links, Details;
+  Record from desk), command menu + leader key, safe key, cue-list zoom, List
+  menu holds every list kind; first Mac/Linux pass (Linux MIDI, mac
+  permissions + Finder open, trackpads, mac keys).
 - **1.1.0** (2026-10-04) — lighting triggers (simple desk actions, Eos/MA3/
   MSC, beat grid, Fill with beats, multi-select + groups), stage-manager Show
   Mode + Lighting panel + Eos read-back (TCP 3032), video editor (NLE layout,

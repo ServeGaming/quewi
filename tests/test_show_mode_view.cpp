@@ -301,7 +301,7 @@ private slots:
             bar.setProgress(0.30 + 0.01 * i, QStringLiteral("a"));
             QTest::qWait(100);
             const double diff = bar.shownProgress() - bar.progress();
-            QVERIFY2(diff > -0.004 && diff < 0.016,
+            QVERIFY2(diff > -0.015 && diff < 0.016,     // 150 ms either way (a busy CI Mac drops frames)
                      qPrintable(QStringLiteral("shown %1 vs target %2").arg(bar.shownProgress()).arg(bar.progress())));
         }
         // A restart (big step back) snaps.

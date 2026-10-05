@@ -22,6 +22,13 @@ void CueList::setName(QString name)
     emit nameChanged();
 }
 
+void CueList::setMatrixConfig(const matrix::Config &c)
+{
+    if (c == m_matrix) return;
+    m_matrix = c;
+    emit matrixConfigChanged();
+}
+
 cues::Cue *CueList::cueAt(int row) const
 {
     if (row < 0 || row >= static_cast<int>(m_cues.size())) return nullptr;

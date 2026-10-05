@@ -100,11 +100,17 @@ ships with one artifact per platform.
 
     - libfuse2 (for AppImage runtime)
     - libxkbcommon, libfontconfig (for Qt's GUI bits)
+    - libasound2 (ALSA, for MIDI) and the OpenGL libraries (libgl1,
+      libopengl0, libegl1)
 
+    A normal desktop install already has all of these except sometimes
+    libfuse2. A minimal or server install (or WSL) may need them all.
     On Ubuntu/Debian:
     ```sh
-    sudo apt install libfuse2 libxkbcommon0 libfontconfig1
+    sudo apt install libfuse2 libxkbcommon0 libfontconfig1 libasound2         libgl1 libopengl0 libegl1
     ```
+    (On Ubuntu 24.04 the first and fourth are `libfuse2t64` and
+    `libasound2t64`.)
 
     !!! note "Desktop integration"
         AppImages don't auto-register in your application menu.

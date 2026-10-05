@@ -705,10 +705,20 @@ QWidget *makeShowModePage(QWidget *parent)
     safeDel->setChecked(safe->requiredFor(SafeKey::Action::Delete));
     auto *safeKey = new QComboBox(safeGroup);
     safeKey->setObjectName(QStringLiteral("prefSafeKey"));
+#ifdef Q_OS_MACOS
+    // Qt's "Ctrl" is the Command key on a Mac, and "Alt" is Option; the
+    // physical Control key is its own choice ("Control").
+    safeKey->addItem(QObject::tr("⇧ Shift"),   QStringLiteral("Shift"));
+    safeKey->addItem(QObject::tr("⌘ Command"), QStringLiteral("Ctrl"));
+    safeKey->addItem(QObject::tr("⌥ Option"),  QStringLiteral("Alt"));
+    safeKey->addItem(QObject::tr("⌃ Control"), QStringLiteral("Control"));
+#else
     safeKey->addItem(QObject::tr("Shift"), QStringLiteral("Shift"));
     safeKey->addItem(QObject::tr("Ctrl"),  QStringLiteral("Ctrl"));
     safeKey->addItem(QObject::tr("Alt"),   QStringLiteral("Alt"));
+#endif
     safeKey->addItem(QObject::tr("Another key…"), QString());
+    const int otherIndex = safeKey->count() - 1;
     auto *otherKey = new QKeySequenceEdit(safeGroup);
     otherKey->setObjectName(QStringLiteral("prefSafeKeyOther"));
     otherKey->setMaximumSequenceLength(1);
@@ -720,14 +730,14 @@ QWidget *makeShowModePage(QWidget *parent)
         if (i >= 0) {
             safeKey->setCurrentIndex(i);
         } else {
-            safeKey->setCurrentIndex(3);
+            safeKey->setCurrentIndex(otherIndex);
             otherKey->setKeySequence(QKeySequence(cur));
         }
-        otherKey->setVisible(safeKey->currentIndex() == 3);
+        otherKey->setVisible(safeKey->currentIndex() == otherIndex);
     }
-    auto saveSafe = [safeGo, safeDel, safeKey, otherKey] {
+    auto saveSafe = [safeGo, safeDel, safeKey, otherKey, otherIndex] {
         QString name = safeKey->currentData().toString();
-        if (safeKey->currentIndex() == 3) {
+        if (safeKey->currentIndex() == otherIndex) {
             const auto seq = otherKey->keySequence();
             // Just the key: a modifier on it would make it a chord.
             name = seq.isEmpty() ? QString()
@@ -739,9 +749,9 @@ QWidget *makeShowModePage(QWidget *parent)
     QObject::connect(safeGo, &QCheckBox::toggled, safeGroup, saveSafe);
     QObject::connect(safeDel, &QCheckBox::toggled, safeGroup, saveSafe);
     QObject::connect(safeKey, &QComboBox::currentIndexChanged, safeGroup,
-                     [safeKey, otherKey, saveSafe](int i) {
-        otherKey->setVisible(i == 3);
-        if (i == 3) otherKey->setFocus();
+                     [safeKey, otherKey, saveSafe, otherIndex](int i) {
+        otherKey->setVisible(i == otherIndex);
+        if (i == otherIndex) otherKey->setFocus();
         saveSafe();
     });
     QObject::connect(otherKey, &QKeySequenceEdit::editingFinished, safeGroup, saveSafe);
@@ -931,7 +941,9 @@ QWidget *makeCommandMenuPage(QWidget *parent)
     struct Choice { const char *label; const char *seq; };
     const Choice choices[] = {
         { "` (backtick) — default", "`" },
+#ifndef Q_OS_MACOS   // on a Mac this is Cmd+Space: Spotlight takes it first
         { "Ctrl+Space",            "Ctrl+Space" },
+#endif
         { "F12",                   "F12" },
         { "Pause / Break",         "Pause" },
         { "Scroll Lock",           "ScrollLock" },

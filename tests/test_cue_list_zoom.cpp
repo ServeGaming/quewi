@@ -1,5 +1,7 @@
 #include <QTest>
 #include <QApplication>
+#include <QNativeGestureEvent>
+#include <QPointingDevice>
 #include <QSettings>
 #include <QSignalSpy>
 #include <QStandardItemModel>
@@ -18,13 +20,32 @@ class CueListZoomTests : public QObject {
     static QSettings settings() { return QSettings(QStringLiteral("ServeGaming"), QStringLiteral("quewi")); }
 
     // Real wheel events land on the list's viewport.
-    static void wheel(ui::CueListView *view, int delta, Qt::KeyboardModifiers mods)
+    static void wheel(ui::CueListView *view, int delta, Qt::KeyboardModifiers mods,
+                      Qt::ScrollPhase phase = Qt::NoScrollPhase, QPoint pixel = QPoint())
     {
         QWidget *w = view->viewport();
         const QPointF pos(w->width() / 2.0, w->height() / 2.0);
-        QWheelEvent e(pos, w->mapToGlobal(pos), QPoint(), QPoint(0, delta),
-                      Qt::NoButton, mods, Qt::NoScrollPhase, false);
+        QWheelEvent e(pos, w->mapToGlobal(pos), pixel, QPoint(0, delta),
+                      Qt::NoButton, mods, phase, false);
         QApplication::sendEvent(w, &e);
+    }
+
+    // A macOS trackpad pinch: also lands on the viewport.
+    static void pinch(ui::CueListView *view, Qt::NativeGestureType type, double value)
+    {
+        QWidget *w = view->viewport();
+        const QPointF pos(w->width() / 2.0, w->height() / 2.0);
+        QNativeGestureEvent e(type, QPointingDevice::primaryPointingDevice(), 2, pos, pos,
+                              w->mapToGlobal(pos), value, QPointF());
+        QApplication::sendEvent(w, &e);
+    }
+
+    static void showFresh(ui::CueListView &view, QStandardItemModel &model)
+    {
+        settings().remove(QStringLiteral("cueList/zoom"));
+        view.QTreeView::setModel(&model);
+        view.resize(500, 400);
+        view.show();
     }
 
 private slots:
@@ -84,6 +105,49 @@ private slots:
         settings().setValue(QStringLiteral("cueList/zoom"), 1.5);
         ui::CueListView again;
         QCOMPARE(again.zoom(), 1.5);
+    }
+
+    void trackpadMomentumDoesNotZoom()
+    {
+        settings().remove(QStringLiteral("cueList/zoom"));
+        ui::CueListView view;
+        QStandardItemModel model(20, 3);
+        showFresh(view, model);
+        QVERIFY(QTest::qWaitForWindowExposed(&view));
+        QCOMPARE(view.zoom(), 1.0);
+
+        // Command+swipe: the fingers' own events zoom...
+        wheel(&view, 0, Qt::ControlModifier, Qt::ScrollBegin, QPoint());
+        wheel(&view, 60, Qt::ControlModifier, Qt::ScrollUpdate, QPoint(0, 20));
+        wheel(&view, 60, Qt::ControlModifier, Qt::ScrollUpdate, QPoint(0, 20));
+        QCOMPARE(view.zoom(), 1.1);
+        // ...the momentum after they lift doesn't.
+        for (int i = 0; i < 30; ++i)
+            wheel(&view, 120, Qt::ControlModifier, Qt::ScrollMomentum, QPoint(0, 40));
+        wheel(&view, 0, Qt::ControlModifier, Qt::ScrollEnd, QPoint());
+        QCOMPARE(view.zoom(), 1.1);
+    }
+
+    void pinchZooms()
+    {
+        settings().remove(QStringLiteral("cueList/zoom"));
+        ui::CueListView view;
+        QStandardItemModel model(20, 3);
+        showFresh(view, model);
+        QVERIFY(QTest::qWaitForWindowExposed(&view));
+        QCOMPARE(view.zoom(), 1.0);
+
+        // Small pinch steps add up: 0.02 each, ten of them = 0.2 = two steps.
+        pinch(&view, Qt::BeginNativeGesture, 0.0);
+        for (int i = 0; i < 10; ++i) pinch(&view, Qt::ZoomNativeGesture, 0.02);
+        pinch(&view, Qt::EndNativeGesture, 0.0);
+        QCOMPARE(view.zoom(), 1.2);
+
+        // A pinch in shrinks it back.
+        pinch(&view, Qt::BeginNativeGesture, 0.0);
+        for (int i = 0; i < 5; ++i) pinch(&view, Qt::ZoomNativeGesture, -0.02);
+        pinch(&view, Qt::EndNativeGesture, 0.0);
+        QCOMPARE(view.zoom(), 1.1);
     }
 };
 

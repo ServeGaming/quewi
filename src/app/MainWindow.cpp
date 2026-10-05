@@ -48,6 +48,8 @@
 #include "ui/CartView.h"
 #include "ui/MicRouting.h"
 #include "ui/MixView.h"
+#include "ui/MatrixView.h"
+#include "osc/EosCueLists.h"
 #include "mix/MixCue.h"
 #include "ui/AudioEditorWindow.h"
 #include "ui/VideoEditorWindow.h"
@@ -200,6 +202,8 @@ MainWindow::MainWindow(QWidget *parent)
     connect(m_goEngine.get(), &GoEngine::statusMessage, this,
             [this](const QString &m) { statusBar()->showMessage(m, 2500); });
     registerOscApiV5();
+    registerOscMatrix();
+    registerOscRecord();
     // Cross-list cue links: when any cue fires, fire its linked partner too.
     connect(m_goEngine.get(), &GoEngine::cueFired, this,
             [this](cues::Cue *c) { fireLinkedFor(c); });
@@ -289,6 +293,33 @@ MainWindow::MainWindow(QWidget *parent)
     regAction("transport.pause",    "Pause",    m_actPause,   QKeySequence(QStringLiteral("Ctrl+.")));
     regAction("transport.fadeall",  "Fade All", m_actFadeAll, QKeySequence(QStringLiteral("Ctrl+Shift+.")));
 
+    // GO Lights — the Matrix List's own button for the desk's next cue. Not
+    // in a menu Show Mode locks, and a no-op unless the Matrix List is up.
+    m_actGoLights = new QAction(tr("GO Lights"), this);
+    addAction(m_actGoLights);
+    m_actGoLights->setShortcutContext(Qt::WindowShortcut);
+    connect(m_actGoLights, &QAction::triggered, this, &MainWindow::goLights);
+    regAction("transport.golights", "GO Lights (Matrix List)", m_actGoLights,
+              QKeySequence(QStringLiteral("Ctrl+Shift+G")));
+    // GO Both: quewi's GO + GO Lights together. No default key (Space is GO,
+    // Ctrl+Shift+G is GO Lights); one can be set in Tools → Shortcuts.
+    m_actGoBoth = new QAction(tr("GO Both"), this);
+    addAction(m_actGoBoth);
+    m_actGoBoth->setShortcutContext(Qt::WindowShortcut);
+    connect(m_actGoBoth, &QAction::triggered, this, &MainWindow::goBoth);
+    regAction("transport.goboth", "GO Both: sound + lights (Matrix List)", m_actGoBoth, QKeySequence());
+    m_actLightsBack = new QAction(tr("Lights Back"), this);
+    addAction(m_actLightsBack);
+    m_actLightsBack->setShortcutContext(Qt::WindowShortcut);
+    connect(m_actLightsBack, &QAction::triggered, this, &MainWindow::lightsBack);
+    regAction("transport.lightsback", "Lights Back (Matrix List)", m_actLightsBack,
+              QKeySequence(QStringLiteral("Ctrl+Shift+B")));
+    // Stop has no default key: a stray chord shouldn't stop the lights.
+    m_actLightsStop = new QAction(tr("Lights Stop"), this);
+    addAction(m_actLightsStop);
+    m_actLightsStop->setShortcutContext(Qt::WindowShortcut);
+    connect(m_actLightsStop, &QAction::triggered, this, &MainWindow::lightsStop);
+    regAction("transport.lightsstop", "Lights Stop (Matrix List)", m_actLightsStop, QKeySequence());
     // The command menu's leader key (default `): tap for the key menu, hold +
     // letter to jump straight to a category or a pinned action. Registers
     // itself as "commandmenu.leader" so it's rebindable like the rest.
@@ -323,6 +354,9 @@ MainWindow::MainWindow(QWidget *parent)
 
     // The stage-manager screens drive the same actions as the transport.
     connect(m_showModeView, &ui::ShowModeView::goPressed, m_actGo, &QAction::trigger);
+    connect(m_showModeView, &ui::ShowModeView::goLightsPressed, this, &MainWindow::goLights);
+    connect(m_showModeView, &ui::ShowModeView::lightsBackPressed, this, &MainWindow::lightsBack);
+    connect(m_showModeView, &ui::ShowModeView::lightsStopPressed, this, &MainWindow::lightsStop);
     connect(m_showModeView, &ui::ShowModeView::pausePressed, m_actPause, &QAction::trigger);
     connect(m_showModeView, &ui::ShowModeView::fadeAllPressed, m_actFadeAll, &QAction::trigger);
     connect(m_showModeView, &ui::ShowModeView::panicPressed, m_actPanic, &QAction::trigger);
@@ -342,9 +376,16 @@ MainWindow::MainWindow(QWidget *parent)
     // Reading the desk back. The setting can change from Preferences, the
     // audio editor or a remote, so it's watched rather than pushed.
     m_eosFeedback = new osc::EosFeedback(this);
+    // The desk's cue lists, for the Matrix List — over the same connection.
+    m_eosCueLists = new osc::EosCueLists(m_eosFeedback, this);
+    if (m_matrixView) m_matrixView->setDesk(m_eosCueLists, m_eosFeedback);
+    connect(m_eosCueLists, &osc::EosCueLists::cuesChanged, this, &MainWindow::onDeskCuesRead);
     m_deskWatch = new QTimer(this);
     m_deskWatch->setInterval(2000);
-    connect(m_deskWatch, &QTimer::timeout, this, [this] { syncDeskFeedback(); });
+    connect(m_deskWatch, &QTimer::timeout, this, [this] {
+        syncDeskFeedback();
+        syncMatrixWatch();     // a Matrix List's desk list may have changed
+    });
     m_deskWatch->start();
     syncDeskFeedback(true);
 
@@ -574,6 +615,35 @@ void MainWindow::buildLayout()
     m_centerStack->addWidget(m_cartView);  // index 1 = cart view
     m_centerStack->addWidget(m_mixView);   // index 2 = mix view
 
+    // The Matrix List: quewi's cues and the lighting desk's in one running
+    // order. GO stays quewi's GO (its source list is the GO context while
+    // it's up); "make standby" moves the cue list's playhead.
+    m_matrixView = new ui::MatrixView(central);
+    m_centerStack->addWidget(m_matrixView); // index 3 = matrix view
+    wireMatrixView(m_matrixView);
+    connect(m_matrixView, &ui::MatrixView::standbyRequested, this, [this](const QUuid &id) {
+        auto *list = m_model ? m_model->cueList() : nullptr;
+        if (!list || !m_cueListView) return;
+        for (int r = 0; r < list->cueCount(); ++r)
+            if (auto *c = list->cueAt(r); c && c->id() == id) {
+                m_cueListView->setCurrentIndex(m_model->index(r, 0));
+                syncSelectionUi();
+                return;
+            }
+    });
+    // Remotes: the merged list changed shape — ask again.
+    connect(m_matrixView->model(), &QAbstractItemModel::modelReset, this, [this] {
+        if (auto *l = m_matrixView->cueList())
+            pushOscNotify(QStringLiteral("/quewi/notify/matrix/changed"),
+                          {osc::Argument::s(l->id().toString())});
+    });
+    m_matrixView->setLiveProvider([this] {
+        ui::MatrixLive live;
+        if (auto *c = m_cueListView ? m_cueListView->nextCue() : nullptr) live.standby = c->id();
+        live.running = m_runningCueIds;
+        return live;
+    });
+
     // Inspector lives inside a QDockWidget so users can tear it off
     // onto a second monitor (the "I want my edit surface big" case)
     // or hide it entirely (operator-only desk). The dock state is
@@ -612,6 +682,7 @@ void MainWindow::buildLayout()
     m_activePanel->hide(); // shown when something starts playing
     connect(m_activePanel, &ui::ActiveCuesPanel::runningCueIdsChanged,
             this, [this](const QSet<QUuid> &ids) {
+                m_runningCueIds = ids;
                 if (m_model) m_model->setRunningCueIds(ids);
                 for (auto &m : m_detachedModels) if (m) m->setRunningCueIds(ids);
             });
@@ -693,6 +764,10 @@ void MainWindow::buildLayout()
             m_actPause, &QAction::trigger);
     connect(m_transport, &ui::TransportBar::fadeAllPressed,
             m_actFadeAll, &QAction::trigger);
+    connect(m_transport, &ui::TransportBar::goBothPressed,
+            m_actGoBoth, &QAction::trigger);
+    // GO Both only shows while the Matrix List page is up.
+    connect(m_centerStack, &QStackedWidget::currentChanged, this, [this] { updateGoBoth(); });
 
     // DCA GO — the transport bar's second GO fires the Mix (DCA) list at the
     // console, wherever the operator is in the app (they don't have to be on
@@ -838,6 +913,8 @@ void MainWindow::buildMenus()
     viewMenu->addAction(tr("&Mix (DCA) grid"),
                         QKeySequence(QStringLiteral("Ctrl+Shift+M")),
                         this, &MainWindow::addMixListTab);
+    viewMenu->addAction(tr("Matri&x List (sound + lights)"),
+                        this, &MainWindow::addMatrixListTab);
 
     auto *listMenu = menuBar()->addMenu(tr("&List"));
     // Every kind of list is added from here (the tab strip's old "+" moved in).
@@ -846,6 +923,7 @@ void MainWindow::buildMenus()
     // of multiple boards. This opens it (creating it on first use).
     listMenu->addAction(tr("&Soundboard"),       this, &MainWindow::addSoundboardTab);
     listMenu->addAction(tr("&Mix (DCA) list"),   this, &MainWindow::addMixListTab);
+    listMenu->addAction(tr("Ma&trix List (sound + lights)"), this, &MainWindow::addMatrixListTab);
     listMenu->addSeparator();
     listMenu->addAction(tr("&Rename current…"),  this, &MainWindow::renameCueListTab);
     listMenu->addAction(tr("&Remove current"),   this, &MainWindow::removeCueListTab);
@@ -889,7 +967,16 @@ void MainWindow::buildMenus()
     cueMenu->addSeparator();
     cueMenu->addAction(tr("Toggle &Arm"), QKeySequence(Qt::Key_E),
                        this, &MainWindow::toggleArmSelectedCue);
-    cueMenu->addAction(tr("&Delete"), QKeySequence::Delete, this, &MainWindow::deleteSelectedCue);
+    {
+        QAction *del = cueMenu->addAction(tr("&Delete"), QKeySequence::Delete, this, &MainWindow::deleteSelectedCue);
+#ifdef Q_OS_MACOS
+        // A MacBook's "delete" key is Backspace (forward Delete is fn+delete),
+        // so Backspace deletes cues too, as it does in Finder and QLab.
+        del->setShortcuts({QKeySequence(QKeySequence::Delete), QKeySequence(Qt::Key_Backspace)});
+#else
+        Q_UNUSED(del);
+#endif
+    }
 
     // The bare-letter cue keys (M, A, F, W, E…), Delete and friends act on the
     // cue list, so they're live only while the cue list has focus. Window-wide,
@@ -1008,6 +1095,20 @@ void MainWindow::rebindModel()
         m_cartView->setGoEngine(m_goEngine.get());
     }
     if (m_mixView) m_mixView->setWorkspace(m_workspace.get());
+    if (m_matrixView) {
+        m_matrixView->setWorkspace(m_workspace.get());
+        if (m_centerStack && m_centerStack->currentWidget() == m_matrixView)
+            m_centerStack->setCurrentIndex(0);
+        // A Matrix List holds no cues: never let it be the GO context (a
+        // show whose first tab is one would otherwise GO on nothing).
+        if (list && list->kind() == core::CueList::Kind::Matrix) {
+            if (auto *src = ui::matrixSourceList(m_workspace.get(), list)) {
+                m_workspace->setActiveCueList(src);
+                m_model->setCueList(src);
+            }
+        }
+    }
+    syncMatrixWatch();
     if (m_model->rowCount() > 0)
         m_cueListView->setCurrentIndex(m_model->index(0, 0));
 }
@@ -2016,6 +2117,7 @@ ui::AudioEditorWindow *MainWindow::openAudioEditor(cues::Cue *cue)
     midi::MidiEngine *midi = m_midiEngine.get();
     editor->setTriggerSupport(m_workspace.get(), m_workspace->undoStack(),
         [midi] { return midi ? midi->outputPortNames() : QStringList(); });
+    editor->setDeskFeedback(m_eosFeedback);      // "● Record from desk" (read-only)
     QPointer<cues::Cue> ownerPtr(owner);
     connect(editor, &ui::AudioEditorWindow::testTriggerRequested, this,
             [this, ownerPtr](const audio::TriggerAction &a) {
@@ -2219,6 +2321,7 @@ void MainWindow::applyShowMode()
     // show while pressing GO. See CueListView::setShowModeLocked.
     if (m_cueListView) m_cueListView->setShowModeLocked(m_showMode);
     if (m_mixView)     m_mixView->setShowModeLocked(m_showMode);
+    if (m_matrixView)  m_matrixView->setLocked(m_showMode);
     for (auto &v : m_detachedCueViews) if (v) v->setShowModeLocked(m_showMode);
 
     // Disable the File, Edit, Cue and List menus — AND every action inside
@@ -2327,6 +2430,8 @@ void MainWindow::rebuildListTabs()
             label = QStringLiteral("♪ %1").arg(label);
         else if (list->kind() == core::CueList::Kind::Mix)
             label = QStringLiteral("▤ %1").arg(label);
+        else if (list->kind() == core::CueList::Kind::Matrix)
+            label = QStringLiteral("▦ %1").arg(label);
         m_listTabs->addTab(label);
         m_listTabs->setTabData(idx, QVariant::fromValue(list->id()));
         if (list.get() == m_workspace->activeCueList()) currentIdx = idx;
@@ -2343,12 +2448,15 @@ void MainWindow::rebuildListTabs()
                         ? core::CueList::Kind::Soundboard
                         : (m_centerStack && m_mixView && m_centerStack->currentWidget() == m_mixView)
                         ? core::CueList::Kind::Mix
+                        : matrixShowing()
+                        ? core::CueList::Kind::Matrix
                         : core::CueList::Kind::Normal;
     if (pageKind != core::CueList::Kind::Normal) {
         for (int i = 0; i < m_listTabs->count(); ++i) {
             const auto id = m_listTabs->tabData(i).toUuid();
             for (const auto &list : m_workspace->cueLists())
-                if (list->id() == id && list->kind() == pageKind) {
+                if (list->id() == id && list->kind() == pageKind
+                    && (pageKind != core::CueList::Kind::Matrix || list.get() == m_matrixView->cueList())) {
                     m_listTabs->setCurrentIndex(i);
                     break;
                 }
@@ -2374,6 +2482,23 @@ void MainWindow::onTabSelected(int index)
             if (m_centerStack && m_mixView) {
                 m_mixView->setCueList(list.get());
                 m_centerStack->setCurrentWidget(m_mixView);
+            }
+        } else if (list->kind() == core::CueList::Kind::Matrix) {
+            // The merged view of its source list: that list becomes the GO
+            // context (so GO here is the same GO as on the source's tab) and
+            // the matrix shows in place of the cue table.
+            if (auto *src = ui::matrixSourceList(m_workspace.get(), list.get())) {
+                if (m_model->cueList() != src) {
+                    m_workspace->setActiveCueList(src);
+                    m_model->setCueList(src);
+                    if (m_model->rowCount() > 0)
+                        m_cueListView->setCurrentIndex(m_model->index(0, 0));
+                    syncSelectionUi();
+                }
+            }
+            if (m_centerStack && m_matrixView) {
+                m_matrixView->setCueList(list.get());
+                m_centerStack->setCurrentWidget(m_matrixView);
             }
         } else {
             if (m_centerStack) m_centerStack->setCurrentIndex(0);
@@ -2547,6 +2672,26 @@ void MainWindow::detachCueListTab(int idx)
                 this, &MainWindow::openAudioEditor);
         win->setCentralWidget(view);
         win->resize(720, 560);
+        break;
+    }
+    case core::CueList::Kind::Matrix: {
+        // A second view of the same merged list — the SM's other monitor.
+        // It reads the same desk link; standby / edits go through the main one.
+        auto *view = new ui::MatrixView(win);
+        view->setWorkspace(m_workspace.get());
+        view->setDesk(m_eosCueLists, m_eosFeedback);
+        view->setLiveProvider([this] {
+            ui::MatrixLive live;
+            if (auto *c = m_cueListView ? m_cueListView->nextCue() : nullptr) live.standby = c->id();
+            live.running = m_runningCueIds;
+            return live;
+        });
+        view->setLocked(m_showMode);
+        view->setCueList(list);
+        connect(view, &ui::MatrixView::standbyRequested, m_matrixView, &ui::MatrixView::standbyRequested);
+        wireMatrixView(view);
+        win->setCentralWidget(view);
+        win->resize(1000, 700);
         break;
     }
     case core::CueList::Kind::Normal: {
@@ -3495,6 +3640,54 @@ ui::ShowSnapshot MainWindow::buildShowSnapshot() const
         }
         if (m_lastFiredCue) s.lastFired = showCueLine(m_lastFiredCue);
 
+        // The Matrix List is up: COMING UP is the merged order — quewi cues
+        // with the desk cues that go with them, and desk cues on their own
+        // in between. (Hits inside a song stay in the hits region.)
+        if (matrixShowing() && standby) {
+            const auto &b = m_matrixView->build();
+            auto deskText = [](const std::vector<core::matrix::DeskCell> &cells) {
+                QStringList t;
+                for (const auto &c : cells) {
+                    QString one = ui::matrixDeskName(c.cue);
+                    if (!c.cue.label.isEmpty()) one += QLatin1Char(' ') + c.cue.label;
+                    if (c.missing) one += tr(" (not on the desk)");
+                    t << one;
+                }
+                return t.join(QStringLiteral(" · "));
+            };
+            const int at = b.rowOfQuewi(standby->id());
+            if (at >= 0) {
+                s.standby->deskCues = deskText(b.result.rows[size_t(at)].desk);
+                s.comingUp.clear();
+                for (size_t r = size_t(at) + 1; r < b.result.rows.size() && s.comingUp.size() < 4; ++r) {
+                    const auto &mrow = b.result.rows[r];
+                    if (mrow.kind == core::matrix::Row::Kind::Quewi) {
+                        cues::Cue *c = nullptr;
+                        const QUuid id = b.quewi[size_t(mrow.quewiIndex)].id;
+                        for (int i = 0; i < list->cueCount() && !c; ++i)
+                            if (list->cueAt(i) && list->cueAt(i)->id() == id) c = list->cueAt(i);
+                        if (!c) continue;
+                        auto line = showCueLine(c);
+                        line.deskCues = deskText(mrow.desk);
+                        s.comingUp.push_back(std::move(line));
+                    } else if (mrow.kind == core::matrix::Row::Kind::Desk && !mrow.desk.empty()) {
+                        const auto &d = mrow.desk.front();
+                        ui::ShowCueLine line;
+                        line.deskOnly = true;
+                        line.number = ui::matrixDeskName(d.cue);
+                        line.name = d.cue.label.isEmpty() ? tr("Lighting cue") : d.cue.label;
+                        line.type = tr("Lights");
+                        QStringList notes;
+                        if (!d.cue.scene.isEmpty()) notes << tr("Scene: %1").arg(d.cue.scene);
+                        if (!d.cue.notes.isEmpty()) notes << d.cue.notes;
+                        if (d.missing) notes << tr("not on the desk");
+                        line.notes = notes.join(QStringLiteral(" · "));
+                        s.comingUp.push_back(std::move(line));
+                    }
+                }
+            }
+        }
+
         // Playing now: songs (audio cues and video soundtracks) with a voice.
         if (m_audioEngine) {
             QHash<quint64, audio::ActiveVoice> voices;
@@ -3543,6 +3736,24 @@ ui::ShowSnapshot MainWindow::buildShowSnapshot() const
         }
     }
 
+    if (matrixShowing()) {
+        const auto t = m_matrixView->goLightsTarget();
+        ui::ShowLightsGo g;
+        g.enabled = t.ok;
+        // Two lines: the column is narrow.
+        g.text = t.ok ? tr("GO Lights  %1").arg(t.number) + (t.label.isEmpty() ? QString() : QStringLiteral("\n") + t.label)
+                      : tr("GO Lights");
+        g.reason = t.ok ? tr("Fire LX %1 on the desk (Ctrl+Shift+G)").arg(t.number) : t.reason;
+        const auto b = m_matrixView->backTarget();
+        g.backEnabled = b.ok;
+        g.backText = b.ok ? tr("◀ Back  %1").arg(b.number) : tr("◀ Back");
+        g.backReason = b.ok ? tr("Back to LX %1 %2 (Ctrl+Shift+B)").arg(b.number, b.label).trimmed() : b.reason;
+        g.stopReason = m_matrixView->stopReason();
+        g.stopEnabled = g.stopReason.isEmpty();
+        if (g.stopEnabled) g.stopReason = tr("Press the desk's Stop key");
+        s.lightsGo = g;
+    }
+
     const auto &desk = m_deskSeen;
     s.desk.deskName = desk.typeName();
     if (desk.type != core::LightingDesk::Type::Eos) {
@@ -3579,6 +3790,8 @@ void MainWindow::syncDeskFeedback(bool force)
     const auto desk = core::LightingDesk::load();
     if (!force && desk == m_deskSeen) return;
     m_deskSeen = desk;
+    if (m_matrixView)
+        m_matrixView->setDeskInfo(desk.type == core::LightingDesk::Type::Eos, QStringLiteral("ETC Eos"));
     if (!m_eosFeedback) return;
     if (desk.type == core::LightingDesk::Type::Eos && desk.feedback)
         m_eosFeedback->start(desk.host, desk.feedbackPort);

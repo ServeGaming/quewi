@@ -24,6 +24,7 @@
 #include <QMenu>
 #include <QStatusBar>
 #include <QMimeData>
+#include <QNativeGestureEvent>
 #include <QPainter>
 #include <QPaintEvent>
 #include <QSettings>
@@ -335,6 +336,10 @@ void CueListView::wheelEvent(QWheelEvent *event)
     // put it on the wheel event).
     if ((event->modifiers() & Qt::ControlModifier)
         || (QGuiApplication::queryKeyboardModifiers() & Qt::ControlModifier)) {
+        // A trackpad keeps sending "momentum" scrolls after the fingers
+        // lift; zooming on those would carry on after the user stopped.
+        if (event->phase() == Qt::ScrollMomentum) { event->accept(); return; }
+        if (event->phase() == Qt::ScrollBegin) m_zoomWheel = 0;
         // Whole notches (120) step 10 %; a high-res wheel adds up to one.
         m_zoomWheel += event->angleDelta().y();
         const int steps = m_zoomWheel / 120;
@@ -346,6 +351,33 @@ void CueListView::wheelEvent(QWheelEvent *event)
         return;
     }
     QTreeView::wheelEvent(event);
+}
+
+bool CueListView::viewportEvent(QEvent *event)
+{
+    // A trackpad pinch (macOS sends these to the widget under the fingers,
+    // which is the viewport). value() is a small change per event, roughly
+    // 0.01; they add up and every 0.1 is one 10 % step, so a pinch feels
+    // like a few Ctrl+wheel notches rather than a jump per event.
+    if (event->type() == QEvent::NativeGesture) {
+        auto *g = static_cast<QNativeGestureEvent *>(event);
+        if (g->gestureType() == Qt::BeginNativeGesture) {
+            m_zoomPinch = 0.0;
+        } else if (g->gestureType() == Qt::ZoomNativeGesture) {
+            m_zoomPinch += g->value();
+            // Toward zero, keeping the rest; the nudge stops 0.0999… (float
+            // dust from adding up small values) losing a step.
+            const double units = m_zoomPinch / 0.1;
+            const int steps = int(units + (units > 0 ? 1e-6 : -1e-6));
+            if (steps != 0) {
+                m_zoomPinch -= steps * 0.1;
+                setZoom(m_zoom + steps * kZoomStep);
+            }
+            event->accept();
+            return true;
+        }
+    }
+    return QTreeView::viewportEvent(event);
 }
 
 void CueListView::keyPressEvent(QKeyEvent *event)

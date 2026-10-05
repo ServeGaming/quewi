@@ -114,6 +114,16 @@ TransportBar::TransportBar(QWidget *parent)
     m_dcaGo->setMinimumHeight(64);
     m_dcaGo->setToolTip(tr("Connect a console on a Mix (DCA) list to fire DCA cues."));
 
+    // GO Both: sound and lights in one press (Matrix List only). Sits right
+    // beside the hero GO; the desk-blue edge says "this one reaches the desk".
+    m_goBoth = new QPushButton(tr("GO Both"), this);
+    m_goBoth->setObjectName(QStringLiteral("goBothButton"));
+    m_goBoth->setProperty("state", "disabled");
+    m_goBoth->setEnabled(false);
+    m_goBoth->setFocusPolicy(Qt::NoFocus);   // Space stays the plain GO
+    m_goBoth->setMinimumHeight(64);
+    m_goBoth->hide();
+
     m_goButton = new QPushButton(tr("GO"), this);
     m_goButton->setObjectName(QStringLiteral("goButton"));
     // Dynamic property drives QSS state colour: standby (blue) until a
@@ -131,10 +141,12 @@ TransportBar::TransportBar(QWidget *parent)
     layout->addWidget(m_fadeAll,  0, Qt::AlignVCenter);
     layout->addWidget(m_panic,    0, Qt::AlignVCenter);
     layout->addWidget(m_dcaGo,    0, Qt::AlignVCenter);
+    layout->addWidget(m_goBoth,   0, Qt::AlignVCenter);
     layout->addWidget(m_goButton, 0, Qt::AlignVCenter);
 
     connect(m_goButton, &QPushButton::clicked, this, &TransportBar::goPressed);
     connect(m_dcaGo,    &QPushButton::clicked, this, &TransportBar::dcaGoPressed);
+    connect(m_goBoth,   &QPushButton::clicked, this, &TransportBar::goBothPressed);
     connect(m_panic,    &QPushButton::clicked, this, &TransportBar::panicPressed);
     connect(m_pause,    &QPushButton::clicked, this, &TransportBar::pausePressed);
     connect(m_fadeAll,  &QPushButton::clicked, this, &TransportBar::fadeAllPressed);
@@ -161,6 +173,20 @@ void TransportBar::setDcaGoState(bool ready, const QString &tooltip)
         m_dcaGo->style()->polish(m_dcaGo);
     }
     m_dcaGo->setToolTip(tooltip);
+}
+
+void TransportBar::setGoBothState(bool visible, bool ready, const QString &tooltip)
+{
+    if (!m_goBoth) return;
+    m_goBoth->setVisible(visible);
+    m_goBoth->setEnabled(visible && ready);
+    const char *state = (visible && ready) ? "ready" : "disabled";
+    if (m_goBoth->property("state").toString() != QLatin1String(state)) {
+        m_goBoth->setProperty("state", state);
+        m_goBoth->style()->unpolish(m_goBoth);
+        m_goBoth->style()->polish(m_goBoth);
+    }
+    m_goBoth->setToolTip(tooltip);
 }
 
 TransportBar::~TransportBar() = default;

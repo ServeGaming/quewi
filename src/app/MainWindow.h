@@ -1,5 +1,6 @@
 #pragma once
 
+#include "audio/DeskRecording.h"
 #include "audio/LightTrigger.h"
 #include "osc/OscMessage.h"
 
@@ -32,8 +33,8 @@ class QUrl;
 
 namespace quewi::core { class Workspace; class CueList; class CueListModel; }
 namespace quewi::cues { class Cue; }
-namespace quewi::ui   { class AudioEditorWindow; class VideoEditorWindow; class ActiveCuesPanel; class CartView; class MixView; class CueListView; class Inspector; class ShortcutManager; class TransportBar; class OscMonitor; class ScriptWindow; class ShowModeView; class LightingPanel; }
-namespace quewi::osc  { class OscEngine; class EosFeedback; }
+namespace quewi::ui   { class DeskTakeRecorder; class AudioEditorWindow; class VideoEditorWindow; class ActiveCuesPanel; class CartView; class MixView; class CueListView; class Inspector; class ShortcutManager; class TransportBar; class OscMonitor; class ScriptWindow; class ShowModeView; class LightingPanel; class MatrixView; }
+namespace quewi::osc  { class OscEngine; class EosFeedback; class EosCueLists; }
 namespace quewi::audio { class AudioEngine; class AudioCue; }
 namespace quewi::lighting { class LightingEngine; }
 namespace quewi::video { class VideoEngine; class VideoCue; }
@@ -105,6 +106,7 @@ private slots:
     void addCueListTab();
     void addSoundboardTab();
     void addMixListTab();
+    void addMatrixListTab();
     void renameCueListTab();
     void removeCueListTab();
     void onTabSelected(int index);
@@ -135,6 +137,10 @@ private slots:
 
 public:
     bool loadShowFromPath(const QString &path);
+    // --screenshot-tour <dir>: a demo show, a picture of each main screen,
+    // and fit.txt (text that doesn't fit), then quit. For looking at the
+    // macOS / Linux builds from CI. See MainWindowTour.cpp.
+    void runScreenshotTour(const QString &dir);
     // Offer to recover unsaved work left by a crash. main() calls this once,
     // before the Welcome dialog. Returns true if a show was recovered.
     bool recoverFromJournalIfPresent();
@@ -247,6 +253,17 @@ private:
     // v5: lighting triggers, video conversion, soundboard → mic
     // (MainWindowOscV5.cpp). Needs the GoEngine, so it runs after it exists.
     void registerOscApiV5();
+    // The Matrix List's remote queries (MainWindowMatrix.cpp).
+    void registerOscMatrix();
+    // Recording lighting triggers from the desk while a cue plays for real,
+    // for remotes: /quewi/cue/<n>/triggers/record start|stop|keep|discard.
+    void registerOscRecord();
+    void stopLiveRecord(bool notify);
+    ui::DeskTakeRecorder *m_liveRecorder = nullptr;
+    QPointer<cues::Cue>   m_liveRecordCue;
+    bool                  m_liveRecordHeard = false;   // its song has played since start
+    std::vector<audio::RecordedCue> m_liveTake;        // stopped, waiting for keep / discard
+    QTimer               *m_liveRecordWatch = nullptr;
     cues::Cue  *oscCueByNumber(double num) const;
     QJsonObject triggersReplyJson(cues::Cue *c) const;
     void        commitTriggers(cues::Cue *c, const audio::LightTriggers &next);
@@ -339,6 +356,32 @@ private:
     ui::CueListView *m_cueListView = nullptr;
     ui::CartView    *m_cartView    = nullptr;
     ui::MixView     *m_mixView     = nullptr;
+    // The Matrix List page (quewi + desk cues merged) and the desk cue-list
+    // reader it uses, which shares m_eosFeedback's TCP connection.
+    ui::MatrixView  *m_matrixView  = nullptr;
+    osc::EosCueLists *m_eosCueLists = nullptr;
+    QSet<QUuid>      m_runningCueIds;            // from the active-cues panel
+    bool matrixShowing() const;                  // the Matrix List page is up
+    core::CueList *firstMatrixList() const;
+    // Keep every Matrix List's desk cue list read (not just the one on
+    // screen — remotes query them too), and remember what was read.
+    void syncMatrixWatch();
+    // GO Lights: fire the Matrix List's next desk cue (button, Show Mode,
+    // Ctrl+Shift+G). Only does anything while the Matrix List is up.
+    void goLights();
+    // GO Both: quewi's GO and GO Lights in one press (transport bar, Matrix
+    // List only). The safe key is checked once for the pair.
+    void goBoth();
+    void updateGoBoth();        // show/enable the transport's GO Both
+    void lightsBack();          // the cue before the desk's LIVE one, in the matrix's list
+    void lightsStop();          // the desk's Stop key
+    QAction *m_actGoLights = nullptr;
+    QAction *m_actGoBoth = nullptr;
+    QAction *m_actLightsBack = nullptr;
+    QAction *m_actLightsStop = nullptr;
+    // Wire a Matrix List view (the page, or a detached one) to the window.
+    void wireMatrixView(ui::MatrixView *view);
+    void onDeskCuesRead(const QString &deskList);
     QStackedWidget  *m_centerStack = nullptr;
     ui::Inspector   *m_inspector   = nullptr;
     ui::TransportBar *m_transport  = nullptr;

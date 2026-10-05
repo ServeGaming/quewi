@@ -29,10 +29,15 @@ public slots:
     void setDcaGoState(bool ready, const QString &tooltip);
     // Pause is a toggle: while paused the button reads "Resume".
     void setPaused(bool paused);
+    // GO Both: next to GO while a Matrix List is up. One press fires the
+    // next sound cue and the desk's next lighting cue together. Hidden on
+    // every other page (GO Lights only means something in a Matrix List).
+    void setGoBothState(bool visible, bool ready, const QString &tooltip);
 
 signals:
     void goPressed();
     void dcaGoPressed();
+    void goBothPressed();
     void panicPressed();
     void pausePressed();
     void fadeAllPressed();
@@ -42,6 +47,7 @@ private:
     QLabel      *m_nextLabel = nullptr;
     QPushButton *m_goButton  = nullptr;
     QPushButton *m_dcaGo     = nullptr;
+    QPushButton *m_goBoth    = nullptr;
     QPushButton *m_pause     = nullptr;
     QPushButton *m_fadeAll   = nullptr;
     QPushButton *m_panic     = nullptr;
