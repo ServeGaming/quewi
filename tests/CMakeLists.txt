@@ -81,6 +81,11 @@ target_sources(test_audio_editor PRIVATE
 # The lighting-trigger UI: the editor's Lighting tab, the timeline's marker
 # lane, and the Inspector's way in. Same GoEngine trick.
 # Ctrl+wheel zoom on the cue list.
+quewi_add_test(transport_bar Qt6::Test Qt6::Widgets quewi_ui)
+target_sources(test_transport_bar PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/../src/app/GoEngine.cpp
+)
+
 quewi_add_test(cue_list_zoom Qt6::Test Qt6::Widgets quewi_ui)
 target_sources(test_cue_list_zoom PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/../src/app/GoEngine.cpp

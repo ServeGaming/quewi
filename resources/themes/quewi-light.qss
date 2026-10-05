@@ -398,3 +398,24 @@ QTableWidget {
     selection-background-color: #CFE2FF;
     selection-color: #1A1D24;
 }
+
+/* GO Both: sound + lights in one press (Matrix List only). */
+QPushButton#goBothButton {
+    background: #16A34A;
+    color: #FFFFFF;
+    border: 3px solid #2563EB;
+    border-radius: 6px;
+    font-size: 20px;
+    font-weight: 800;
+    letter-spacing: 0.04em;
+    padding: 9px 18px;
+    min-height: 64px;
+    min-width: 120px;
+}
+QPushButton#goBothButton:pressed { background: #15803D; }
+QPushButton#goBothButton[state="disabled"],
+QPushButton#goBothButton:disabled {
+    background: #E5E8EE;
+    color: #9CA3AF;
+    border-color: #D7D9DF;
+}

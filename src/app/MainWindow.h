@@ -365,9 +365,14 @@ private:
     // GO Lights: fire the Matrix List's next desk cue (button, Show Mode,
     // Ctrl+Shift+G). Only does anything while the Matrix List is up.
     void goLights();
+    // GO Both: quewi's GO and GO Lights in one press (transport bar, Matrix
+    // List only). The safe key is checked once for the pair.
+    void goBoth();
+    void updateGoBoth();        // show/enable the transport's GO Both
     void lightsBack();          // the cue before the desk's LIVE one, in the matrix's list
     void lightsStop();          // the desk's Stop key
     QAction *m_actGoLights = nullptr;
+    QAction *m_actGoBoth = nullptr;
     QAction *m_actLightsBack = nullptr;
     QAction *m_actLightsStop = nullptr;
     // Wire a Matrix List view (the page, or a detached one) to the window.

@@ -1533,6 +1533,7 @@ void MatrixView::updateGoLights()
                                       .arg(t.number, t.label.isEmpty() ? QString() : QStringLiteral(" ") + t.label, list)
                                 : t.reason);
     m_goLightsHint->setText(t.ok ? tr("Ctrl+Shift+G  ·  desk cue list %1").arg(list) : t.reason);
+    emit goLightsStateChanged();
 }
 
 void MatrixView::pollLive()

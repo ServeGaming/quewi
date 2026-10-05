@@ -37,6 +37,8 @@
 #include <QDateTime>
 #include <QJsonDocument>
 #include <QSignalBlocker>
+#include "ui/TransportBar.h"
+
 #include <QStackedWidget>
 #include <QStatusBar>
 #include <QJsonArray>
@@ -97,6 +99,7 @@ void MainWindow::wireMatrixView(ui::MatrixView *view)
         if (m_workspace) m_workspace->markModified();
     });
     connect(view, &ui::MatrixView::goLightsRequested, this, &MainWindow::goLights);
+    connect(view, &ui::MatrixView::goLightsStateChanged, this, &MainWindow::updateGoBoth);
     connect(view, &ui::MatrixView::lightsBackRequested, this, &MainWindow::lightsBack);
     connect(view, &ui::MatrixView::lightsStopRequested, this, &MainWindow::lightsStop);
     connect(view, &ui::MatrixView::deskSettingsRequested, this, [this] {
@@ -126,6 +129,56 @@ void MainWindow::goLights()
     statusBar()->showMessage(ok ? tr("GO Lights → LX %1%2 (desk cue list %3)")
                                       .arg(t.number, t.label.isEmpty() ? QString() : QStringLiteral(" ") + t.label, t.list)
                                 : tr("GO Lights: couldn't send to the desk"), 4000);
+}
+
+void MainWindow::goBoth()
+{
+    if (!ui::SafeKey::instance()->allows(ui::SafeKey::Action::Go)) {
+        statusBar()->showMessage(ui::SafeKey::instance()->blockedMessage(ui::SafeKey::Action::Go), 3000);
+        return;
+    }
+    if (!matrixShowing() || !m_goEngine) {
+        statusBar()->showMessage(tr("GO Both works from a Matrix List — open one from the List menu"), 3000);
+        return;
+    }
+    // Read the lights' target BEFORE the sound GO moves the standby, so the
+    // pair is the sound cue and the lighting cue that were both up next.
+    const auto t = m_matrixView->goLightsTarget();
+    const bool soundUp = m_cueListView && m_cueListView->nextCue();
+    if (!t.ok && !soundUp) {
+        statusBar()->showMessage(tr("GO Both: nothing is up next (%1)").arg(t.reason), 5000);
+        return;
+    }
+    if (soundUp) onGoRequested();
+    const bool lightsOk = t.ok && m_goEngine->sendDeskAction(ui::goLightsAction(t));
+    QString msg;
+    if (lightsOk)
+        msg = tr("GO Both → %1 + LX %2%3").arg(soundUp ? tr("sound") : tr("no sound up next"), t.number,
+                                              t.label.isEmpty() ? QString() : QStringLiteral(" ") + t.label);
+    else if (t.ok)
+        msg = tr("GO Both: the sound went, but the desk couldn't be reached");
+    else
+        msg = tr("GO Both: the sound went; no lights (%1)").arg(t.reason);
+    statusBar()->showMessage(msg, 4000);
+    updateGoBoth();
+}
+
+void MainWindow::updateGoBoth()
+{
+    if (!m_transport) return;
+    if (!matrixShowing()) {
+        m_transport->setGoBothState(false, false, QString());
+        return;
+    }
+    const auto t = m_matrixView->goLightsTarget();
+    auto *next = m_cueListView ? m_cueListView->nextCue() : nullptr;
+    QStringList parts;
+    if (next) parts << tr("sound %1 %2").arg(QString::number(next->number(), 'f', 2), next->name()).trimmed();
+    if (t.ok) parts << tr("LX %1%2").arg(t.number, t.label.isEmpty() ? QString() : QStringLiteral(" ") + t.label);
+    QString tip = parts.isEmpty() ? (t.reason.isEmpty() ? tr("Nothing is up next") : t.reason)
+                                  : tr("Fire %1 together").arg(parts.join(tr(" and ")));
+    if (!t.ok && next) tip += QStringLiteral("\n") + tr("(Lights: %1)").arg(t.reason);
+    m_transport->setGoBothState(true, t.ok || next, tip);
 }
 
 void MainWindow::lightsBack()

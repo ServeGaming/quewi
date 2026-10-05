@@ -180,6 +180,7 @@ signals:
     void modified();                        // settings: the show changed
     void statusMessage(const QString &text);
     void goLightsRequested();               // the GO Lights button
+    void goLightsStateChanged();            // GO Lights' target may have moved
     void lightsBackRequested();             // Back (the cue before the desk's LIVE one)
     void lightsStopRequested();             // Stop (the desk's Stop key)
     void deskSettingsRequested();           // "Set up the lighting desk…"

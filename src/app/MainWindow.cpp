@@ -301,6 +301,13 @@ MainWindow::MainWindow(QWidget *parent)
     connect(m_actGoLights, &QAction::triggered, this, &MainWindow::goLights);
     regAction("transport.golights", "GO Lights (Matrix List)", m_actGoLights,
               QKeySequence(QStringLiteral("Ctrl+Shift+G")));
+    // GO Both: quewi's GO + GO Lights together. No default key (Space is GO,
+    // Ctrl+Shift+G is GO Lights); one can be set in Tools → Shortcuts.
+    m_actGoBoth = new QAction(tr("GO Both"), this);
+    addAction(m_actGoBoth);
+    m_actGoBoth->setShortcutContext(Qt::WindowShortcut);
+    connect(m_actGoBoth, &QAction::triggered, this, &MainWindow::goBoth);
+    regAction("transport.goboth", "GO Both: sound + lights (Matrix List)", m_actGoBoth, QKeySequence());
     m_actLightsBack = new QAction(tr("Lights Back"), this);
     addAction(m_actLightsBack);
     m_actLightsBack->setShortcutContext(Qt::WindowShortcut);
@@ -757,6 +764,10 @@ void MainWindow::buildLayout()
             m_actPause, &QAction::trigger);
     connect(m_transport, &ui::TransportBar::fadeAllPressed,
             m_actFadeAll, &QAction::trigger);
+    connect(m_transport, &ui::TransportBar::goBothPressed,
+            m_actGoBoth, &QAction::trigger);
+    // GO Both only shows while the Matrix List page is up.
+    connect(m_centerStack, &QStackedWidget::currentChanged, this, [this] { updateGoBoth(); });
 
     // DCA GO — the transport bar's second GO fires the Mix (DCA) list at the
     // console, wherever the operator is in the app (they don't have to be on
