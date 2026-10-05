@@ -133,16 +133,24 @@ private slots:
         rec.setPlayhead([&song] { return 10.0 + song.elapsed() / 1000.0; });
         QVERIFY(rec.start());
         QSignalSpy got(&rec, &ui::DeskTakeRecorder::recorded);
-        QTimer::singleShot(300, [&desk] { desk.active(QStringLiteral("1/2 Sunrise 3.0 0%")); });
-        QTimer::singleShot(700, [&desk] { desk.event(QStringLiteral("/eos/out/event/cue/1/3/fire")); });
+        // Compare against the song's position when the desk actually fired,
+        // not when the timer was due: a busy CI Mac runs timers 100 ms+ late.
+        double firedAt[2] = {0, 0};
+        QTimer::singleShot(300, [&] { firedAt[0] = 10.0 + song.elapsed() / 1000.0;
+                                      desk.active(QStringLiteral("1/2 Sunrise 3.0 0%")); });
+        QTimer::singleShot(700, [&] { firedAt[1] = 10.0 + song.elapsed() / 1000.0;
+                                      desk.event(QStringLiteral("/eos/out/event/cue/1/3/fire")); });
         QTRY_COMPARE_WITH_TIMEOUT(got.count(), 2, 3000);
         rec.stop();
         const auto takes = rec.takes();
         QCOMPARE(takes.size(), size_t(2));
         QCOMPARE(takes[0].cue, QStringLiteral("2"));
         QCOMPARE(takes[0].label, QStringLiteral("Sunrise"));
-        QVERIFY2(std::abs(takes[0].at - 10.3) < 0.06, qPrintable(QString::number(takes[0].at)));
-        QVERIFY2(std::abs(takes[1].at - 10.7) < 0.06, qPrintable(QString::number(takes[1].at)));
+        // Recorded when it arrived: just after it was sent (local TCP), never before.
+        for (int i = 0; i < 2; ++i)
+            QVERIFY2(takes[size_t(i)].at >= firedAt[i] - 0.001 && takes[size_t(i)].at - firedAt[i] < 0.15,
+                     qPrintable(QStringLiteral("take %1 at %2, sent at %3").arg(i).arg(takes[size_t(i)].at).arg(firedAt[i])));
+        QVERIFY(takes[1].at > takes[0].at);
         // Stopped: later fires aren't recorded.
         desk.active(QStringLiteral("1/4 Noon 3.0 0%"));
         QTest::qWait(150);

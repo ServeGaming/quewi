@@ -573,6 +573,7 @@ jobs:
           ls "$QT_PLUGINS_DIR/sqldrivers/" || true
 
           export VERSION="${GITHUB_REF_NAME#v}"
+          VERSION="${VERSION//\//-}"   # a branch dry run: "feat/x" can't be in a file name
           export OUTPUT="quewi-${VERSION}-linux-x86_64.AppImage"
           ./linuxdeploy \
             --appdir build/linux-release/AppDir \
