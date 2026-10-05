@@ -11,9 +11,11 @@ session on any computer (or a fresh conversation) continues with no gaps.
 > right now, the next one would lose nothing. *Update protocol* (last section)
 > says how.
 
-Last updated: **2026-10-05**. Latest release: **v1.1.0**; **1.2.0** is
-being cut from `feat/matrix-list` (Matthew said "merge it and release the
-next version as 1.2.0", 2026-10-05). macOS / Linux state and open items:
+Last updated: **2026-10-05**. Latest release: **v1.2.0** (2026-10-05, from
+`main` at `0fec069` — PR #1 `feat/matrix-list` merged on Matthew's "merge it
+and release the next version as 1.2.0"). All 4 assets attached; the DMG and
+AppImage passed the release workflow's own smoke test (selftest + tour on
+macOS 14 / Ubuntu 22.04). CI, perf and docs green on main. macOS / Linux state and open items:
 **`docs/dev/cross-platform.md`** — read it before any Mac/Linux work.
 
 ---
