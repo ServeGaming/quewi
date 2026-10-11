@@ -104,3 +104,6 @@ scripts/*
 
 # mkdocs build output
 site/
+
+# packaged skills (made on demand)
+skills/*.zip

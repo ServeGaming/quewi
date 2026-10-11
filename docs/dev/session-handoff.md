@@ -11,7 +11,7 @@ session on any computer (or a fresh conversation) continues with no gaps.
 > right now, the next one would lose nothing. *Update protocol* (last section)
 > says how.
 
-Last updated: **2026-10-05**. Latest release: **v1.2.0** (2026-10-05, from
+Last updated: **2026-10-11**. Latest release: **v1.2.0** (2026-10-05, from
 `main` at `0fec069` — PR #1 `feat/matrix-list` merged on Matthew's "merge it
 and release the next version as 1.2.0"). All 4 assets attached; the DMG and
 AppImage passed the release workflow's own smoke test (selftest + tour on
@@ -56,6 +56,30 @@ site (MkDocs, `docs/`) deploys to GitHub Pages on every push to `main`
 All committed and pushed. **30 ctest suites** (all green in CI at `6dabf77`
 before the video editor; with it, 30/30 + selftest green on a Linux Qt 6.11
 build — see §6; CI covers Windows/macOS on the push).
+
+### 0a7. Claude skill: quewi show maker (2026-10-11)
+Matthew: "make into a claude skill a quewi show file maker … give it my
+track(s) and the file destination and it can do like lighting cue timing".
+Source in **`skills/quewi-show-maker/`** (SKILL.md, reference/, scripts/);
+installed to `~/.claude/skills/quewi-show-maker` on his PC (copy again after
+edits); `skills/quewi-show-maker.zip` (gitignored, rebuild on demand) is for
+uploading to claude.ai.
+- `analyze_track.py` (numpy + ffmpeg only — librosa isn't on his Python
+  3.14): tempo, tracked beats, downbeats/bars, per-section tempo, sections
+  (self-similarity novelty, A/B/C labels, loudness level), hits (overall +
+  per section), jumps, stops, ending type (button / fade / ring + last hit),
+  per-bar loudness strip.
+- `build_show.py`: plan JSON → `.quewi` written exactly as `ShowFile::save`
+  does (SQLite schema v1; list/cue ids `{uuid}` — the loader matches list_id
+  as text), audio + memo cues, light triggers (all desk actions, OSC/MIDI,
+  ranges, beat fills on tracked beats or grid, `"bar N beat M"` times), plus
+  a lighting cue sheet (.md/.csv). `inspect_show.py` reads/validates a show.
+- Checked: a generated show opened in quewi; the audio editor's Lighting
+  lane showed every trigger, fills and the grid where planned. A blind
+  usability run by a fresh agent built a show OK and found 11 issues (fake
+  fade-out on button endings, ends missing from hits, misleading bar-1 line,
+  cue sheet missing sub bumps, fill `to` semantics, docs gaps) — all fixed.
+- Not checked: claude.ai's sandbox (needs ffmpeg there).
 
 ### 0a6. GO Both + the first in-depth macOS / Linux pass (2026-10-05)
 - **GO Both** (Matthew: "a go for both button next to the green go button on
