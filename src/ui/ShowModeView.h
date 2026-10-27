@@ -205,6 +205,7 @@ public:
 signals:
     void goPressed();
     void goLightsPressed();          // GO Lights (only shown for a Matrix List)
+    void advancePressed();           // ADVANCE (only while a song has vamps / holds / skips)
     void lightsBackPressed();        // … and its Back
     void lightsStopPressed();        // … and its Stop
     void pausePressed();
@@ -344,6 +345,7 @@ private:
     QWidget     *m_transport = nullptr;
     QPushButton *m_go = nullptr;
     QPushButton *m_goLights = nullptr;
+    QPushButton *m_advance  = nullptr;
     QWidget     *m_lightsRow = nullptr;
     QPushButton *m_lightsBack = nullptr;
     QPushButton *m_lightsStop = nullptr;

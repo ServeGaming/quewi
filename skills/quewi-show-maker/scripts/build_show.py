@@ -302,6 +302,50 @@ def audio_cue(c, number, where, plan_dir, analysis):
     if grid and track and track.get("grid") and not track["grid"].get("steady", True):
         warnings.append(f"{where}: this track's tempo moves, so a single beatGrid drifts against it "
                         f"(fills still use the beats heard; consider leaving beatGrid out)")
+    # Vamps / repeats / holds / skips / markers (quewi 1.3+: AudioCue "playEvents").
+    events = []
+    for k, e in enumerate(c.get("vamps") or []):
+        w = f"{where} vamp {k + 1}"
+        kind = str(e.get("kind", "vamp")).lower()
+        if kind in ("caesura", "fermata"):
+            kind = "hold"
+        if kind == "repeat":
+            kind = "vamp"
+        if kind not in ("vamp", "hold", "skip", "marker"):
+            errors.append(f"{w}: kind must be vamp / repeat / hold / skip / marker")
+            continue
+        if "bars" in e:
+            a0, a1 = bar_span(e["bars"], track, w)
+            a1 += 0.05                       # bar_span stops just short of the next bar line
+        else:
+            a0 = parse_time(e.get("start", e.get("at", 0)), track, w)
+            a1 = parse_time(e["end"], track, w) if "end" in e else a0
+        o = {"id": str(uuid.uuid4()), "kind": kind, "start": round(a0, 4)}
+        if e.get("name"):
+            o["name"] = str(e["name"])
+        if kind in ("vamp", "skip"):
+            if a1 - a0 < 0.05:
+                errors.append(f"{w}: a {kind} needs an end after its start")
+            o["end"] = round(a1, 4)
+        if kind == "vamp":
+            n = int(e.get("count", e.get("times", 0)) or 0)
+            if str(e.get("kind", "")).lower() == "repeat" and n < 2:
+                errors.append(f"{w}: a repeat needs a count of 2 or more")
+            if n:
+                o["count"] = max(2, n)
+            ex = e.get("exit")
+            if ex:
+                o["exit"] = {"end": "endOfPass", "endofpass": "endOfPass", "bar": "nextBar",
+                             "nextbar": "nextBar", "now": "now"}.get(str(ex).replace(" ", "").lower(), "endOfPass")
+        if duration and a0 > duration:
+            errors.append(f"{w}: starts past the end of the track")
+        events.append(o)
+    vamps = sorted((x for x in events if x["kind"] == "vamp"), key=lambda x: x["start"])
+    for x, y in zip(vamps, vamps[1:]):
+        if y["start"] < x["end"]:
+            errors.append(f"{where}: vamps at {x['start']:.2f}s and {y['start']:.2f}s overlap")
+    if events:
+        p["playEvents"] = sorted(events, key=lambda x: x["start"])
     trig, sheet = build_triggers(c.get("triggers"), track, p.get("beatGrid"), where, duration)
     if trig:
         p["lightTriggers"] = trig

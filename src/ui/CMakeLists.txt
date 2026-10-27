@@ -64,6 +64,8 @@ add_library(quewi_ui STATIC
     LightingPanel.h
     LightingPanel.cpp
     LightTriggersPanel.cpp
+    PlayEventsPanel.h
+    PlayEventsPanel.cpp
     FillBeatsDialog.h
     FillBeatsDialog.cpp
     ParametricEqDialog.h

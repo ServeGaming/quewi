@@ -363,6 +363,7 @@ MainWindow::MainWindow(QWidget *parent)
     // The stage-manager screens drive the same actions as the transport.
     connect(m_showModeView, &ui::ShowModeView::goPressed, m_actGo, &QAction::trigger);
     connect(m_showModeView, &ui::ShowModeView::goLightsPressed, this, &MainWindow::goLights);
+    connect(m_showModeView, &ui::ShowModeView::advancePressed, this, &MainWindow::requestAdvance);
     connect(m_showModeView, &ui::ShowModeView::lightsBackPressed, this, &MainWindow::lightsBack);
     connect(m_showModeView, &ui::ShowModeView::lightsStopPressed, this, &MainWindow::lightsStop);
     connect(m_showModeView, &ui::ShowModeView::pausePressed, m_actPause, &QAction::trigger);
@@ -1701,7 +1702,7 @@ void MainWindow::updateAdvance()
         case PS::Leaving:   text = tr("Leaving…"); break;
         case PS::Repeating: text = tr("Repeat %1/%2").arg(e.pass + 1).arg(e.event.count); break;
         case PS::InSkip:    text = tr("Skip"); break;
-        case PS::Normal:    break;
+        case PS::Normal:    text = tr("%1 in %2").arg(e.event.kindName(), ui::showClockText(e.inSeconds)); break;
         }
         const QString who = e.cue ? (e.cue->name().isEmpty() ? e.cue->typeName() : e.cue->name()) : QString();
         tip = QStringLiteral("%1: %2").arg(who, e.describe());
@@ -3758,9 +3759,30 @@ ui::ShowSnapshot MainWindow::buildShowSnapshot() const
                                          - audio::cutSecondsBetween(ac->cuts(), in, it->positionSeconds));
                 run.looping = it->loop;
                 run.paused = m_audioEngine->isPaused(it->id);
+                {
+                    using PS = audio::ActiveVoice::PlayState;
+                    const auto &ev = ac->playEvents();
+                    const auto *e = (it->playEventIndex >= 0 && it->playEventIndex < int(ev.size()))
+                                        ? &ev[size_t(it->playEventIndex)] : nullptr;
+                    switch (it->playState) {
+                    // Short: it shares a line with the time in a narrow column.
+                    case PS::Vamping:   run.playState = tr("VAMP · %1").arg(it->playPass + 1); break;
+                    case PS::Leaving:   run.playState = tr("LEAVING"); break;
+                    case PS::Holding:   run.playState = tr("HOLD"); break;
+                    case PS::InSkip:    run.playState = tr("SKIP"); break;
+                    case PS::Repeating: run.playState = tr("REPEAT %1/%2").arg(it->playPass + 1)
+                                                                       .arg(e ? e->count : 0); break;
+                    case PS::Normal:    break;
+                    }
+                }
                 if (!run.looping && run.cue.durationSeconds > 0.0) {
                     run.remainingSeconds = std::max(0.0, run.cue.durationSeconds - run.elapsedSeconds);
                     run.progress = std::clamp(run.elapsedSeconds / run.cue.durationSeconds, 0.0, 1.0);
+                }
+                // Vamping or held, the time left isn't known.
+                if (it->playState == audio::ActiveVoice::PlayState::Vamping
+                    || it->playState == audio::ActiveVoice::PlayState::Holding) {
+                    run.remainingSeconds = -1.0;
                 }
                 s.running.push_back(std::move(run));
             }
@@ -3768,6 +3790,27 @@ ui::ShowSnapshot MainWindow::buildShowSnapshot() const
                       [](const ui::ShowRunningCue &a, const ui::ShowRunningCue &b) {
                           return a.elapsedSeconds < b.elapsedSeconds;   // newest first
                       });
+        }
+    }
+    if (m_goEngine) {
+        const auto events = m_goEngine->playingEvents();
+        if (!events.empty()) {
+            ui::ShowAdvance a;
+            const GoEngine::PlayingEvent *next = nullptr;
+            for (const auto &e : events) if (e.advanceable()) { next = &e; break; }
+            const auto &shown = next ? *next : events.front();
+            a.enabled = next != nullptr;
+            using PS = audio::ActiveVoice::PlayState;
+            switch (shown.state) {
+            case PS::Holding:   a.text = tr("Hold"); break;
+            case PS::Vamping:   a.text = tr("Vamp · pass %1").arg(shown.pass + 1); break;
+            case PS::Leaving:   a.text = tr("Leaving…"); break;
+            case PS::Repeating: a.text = tr("Repeat %1/%2").arg(shown.pass + 1).arg(shown.event.count); break;
+            case PS::InSkip:    a.text = tr("Skip"); break;
+            case PS::Normal:    a.text = tr("%1 in %2").arg(shown.event.kindName(), ui::showClockText(shown.inSeconds)); break;
+            }
+            a.reason = shown.describe();
+            s.advance = a;
         }
     }
     s.paused = m_goEngine && m_goEngine->isPaused();

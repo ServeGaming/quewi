@@ -1231,6 +1231,10 @@ void ShowModeView::buildUi()
         // is the page you came from.
         m_goLights = button(m_transport, "smGoLights", tr("GO Lights"));
         m_goLights->hide();
+        // ADVANCE: out of a vamp, on from a hold, past a skip. Right under
+        // GO while a song that has them plays; lit when one is waiting.
+        m_advance = button(m_transport, "smAdvance", tr("ADVANCE"));
+        m_advance->hide();
         m_lightsRow = new QWidget(m_transport);
         {
             auto *h = new QHBoxLayout(m_lightsRow);
@@ -1249,10 +1253,12 @@ void ShowModeView::buildUi()
         m_panic = button(m_transport, "smPanic", tr("PANIC"));
         connect(m_go, &QPushButton::clicked, this, &ShowModeView::goPressed);
         connect(m_goLights, &QPushButton::clicked, this, &ShowModeView::goLightsPressed);
+        connect(m_advance, &QPushButton::clicked, this, &ShowModeView::advancePressed);
         connect(m_pause, &QPushButton::clicked, this, &ShowModeView::pausePressed);
         connect(m_fadeAll, &QPushButton::clicked, this, &ShowModeView::fadeAllPressed);
         connect(m_panic, &QPushButton::clicked, this, &ShowModeView::panicPressed);
         v->addWidget(m_go, 9);
+        v->addWidget(m_advance, 3);
         v->addWidget(m_goLights, 3);
         v->addWidget(m_lightsRow, 2);
         v->addWidget(m_pause, 3);
@@ -1416,7 +1422,11 @@ void ShowModeView::applyScale()
                 "QPushButton#smLightsBack, QPushButton#smLightsStop { color:%8; background:transparent;"
                 "  border:1px solid %7; border-radius:4px; font-size:%9px; font-weight:600; }"
                 "QPushButton#smLightsBack:pressed, QPushButton#smLightsStop:pressed { background:%7; }"
-                "QPushButton#smLightsBack:disabled, QPushButton#smLightsStop:disabled { color:%6; }")
+                "QPushButton#smLightsBack:disabled, QPushButton#smLightsStop:disabled { color:%6; }"
+                "QPushButton#smAdvance { color:%5; background:%3; border:2px solid %3; border-radius:4px;"
+                "  font-size:%4px; font-weight:800; }"
+                "QPushButton#smAdvance:pressed { background:%2; color:%1; }"
+                "QPushButton#smAdvance:disabled { color:%6; background:transparent; border-color:%7; }")
                   .arg(rc.desk.name(), rgba(rc.desk, 40), rc.desk.name(), QString::number(px(17, s)),
                        tk.bgDeep.name(), tk.ink40.name(), tk.divider.name(), tk.ink60.name(),
                        QString::number(px(13, s)));
@@ -1730,7 +1740,10 @@ void ShowModeView::renderRunning()
         r.title->setText(rc.cue.name);
         // The time, and PAUSED when it is; a loop is already the "∞" on the right.
         QStringList d;
-        d << showClockText(rc.elapsedSeconds);
+        // In a vamp / hold / skip that's the news, and the time (which loops
+        // back every pass) would only push it off the end of this narrow line.
+        if (rc.playState.isEmpty()) d << showClockText(rc.elapsedSeconds);
+        else d << rc.playState;
         if (rc.paused) d << tr("PAUSED");
         r.detail->setText(d.join(QStringLiteral(" · ")));
         r.detail->show();
@@ -1864,6 +1877,13 @@ void ShowModeView::renderTransport()
     const bool has = m_snap.standby.has_value();
     m_go->setText(has ? QStringLiteral("GO  %1").arg(m_snap.standby->number) : tr("GO"));
     m_go->setEnabled(has);
+    m_advance->setVisible(m_snap.advance.has_value());
+    if (m_snap.advance) {
+        m_advance->setText(m_snap.advance->text.isEmpty() ? tr("ADVANCE")
+                                                          : tr("ADVANCE") + QLatin1Char('\n') + m_snap.advance->text);
+        m_advance->setEnabled(m_snap.advance->enabled);
+        m_advance->setToolTip(m_snap.advance->reason);
+    }
     m_goLights->setVisible(m_snap.lightsGo.has_value());
     if (m_snap.lightsGo) {
         m_goLights->setText(m_snap.lightsGo->text);

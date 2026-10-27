@@ -11,7 +11,7 @@ session on any computer (or a fresh conversation) continues with no gaps.
 > right now, the next one would lose nothing. *Update protocol* (last section)
 > says how.
 
-Last updated: **2026-10-11**. Latest release: **v1.2.0** (2026-10-05, from
+Last updated: **2026-10-27**. Latest release: **v1.2.0** (2026-10-05, from
 `main` at `0fec069` — PR #1 `feat/matrix-list` merged on Matthew's "merge it
 and release the next version as 1.2.0"). All 4 assets attached; the DMG and
 AppImage passed the release workflow's own smoke test (selftest + tour on
@@ -56,6 +56,44 @@ site (MkDocs, `docs/`) deploys to GitHub Pages on every push to `main`
 All committed and pushed. **30 ctest suites** (all green in CI at `6dabf77`
 before the video editor; with it, 30/30 + selftest green on a Linux Qt 6.11
 build — see §6; CI covers Windows/macOS on the push).
+
+### 0a8. Vamps, repeats, holds, skips + Advance (2026-10-27) — for 1.3.0
+Matthew: "add the option to create vamps … look at what the concord
+theatricals player has and we need those features". Concord's performance
+tracks run in ROCS **Stage|Tracks**: vamp (loop until Advance, or N times =
+repeat), caesura (hold), skip (plays through unless Advance), cut, marker,
+tempo scale, transpose; one **Advance** button / Right arrow.
+- Model: `src/audio/PlayEvents.*` (AudioCue field `playEvents`; kinds vamp /
+  hold / skip / marker; vamp `count` 0 = until Advance, N = repeat; `exit`
+  endOfPass / nextBar / now). Cuts already existed.
+- Engine (`AudioEngine.cpp`, per-voice `Voice::Play`): loops with a 12 ms
+  crossfade pre-roll at the seam; holds park the read position silently;
+  skips / "now" / "next bar" exits are a one-off runtime cut; `advance(voice)`
+  is a counter the mixer consumes; `ActiveVoice::playState/playEventIndex/
+  playPass` report back. Bug found on the way: a vamp end exactly on a buffer
+  edge was missed (prevSrc started at the current frame) — pinned by
+  `loopsWhereverTheBufferEdgesFall`. `test_play_events` reads samples.
+- GoEngine: `playingEvents()` (holds > vamps > skips, newest song first; also
+  songs playing on towards their next event, for "Vamp in 0:12"),
+  `advance()`, `advanceCue()`; Devamp cue implemented (also ends whole-cue
+  loops after the pass, QLab-style); trigger runs treat a vamp as a loop so
+  lighting inside it fires every pass; bar lines from the beat grid.
+- UI: transport ADVANCE button (greyed countdown → lit when waiting),
+  `transport.advance` = Right arrow, enabled only while something waits;
+  safe key gates it; Show Mode ADVANCE under GO and `VAMP · 3` / `HOLD` /
+  `SKIP` on the running row; editor VAMPS lane + Vamps tab
+  (`PlayEventsPanel`, by an agent; `test_play_events_ui`). OSC
+  `/quewi/advance`, `/quewi/cue/<n>/advance`. Docs `using-quewi/vamps.md`.
+- Driven in the real app (quiet tone test show): GO → vamp passes counted →
+  → leaves at end of pass → hold (silent) → → → in skip → jumps to 15 s;
+  Show Mode and the editor lane/tab looked at.
+- **Not done**: the editor's *preview* doesn't loop vamps (it plays a
+  rendered mix through its own sink, not AudioEngine — needs the play-event
+  stepping factored out, or preview through AudioEngine); video cues'
+  picture doesn't vamp (events are audio-cue only); tempo scale (needs
+  time-stretch); per-section transpose (whole-cue Pitch Shift exists);
+  multi-select in the VAMPS lane. Skill `quewi-show-maker` can write
+  `"vamps"` per song.
 
 ### 0a7. Claude skill: quewi show maker (2026-10-11)
 Matthew: "make into a claude skill a quewi show file maker … give it my

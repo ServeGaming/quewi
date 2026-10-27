@@ -1,5 +1,25 @@
 # Release notes
 
+## Unreleased
+
+### New
+
+- **Vamps, repeats, holds and skips**, the way performance tracks (Concord /
+  Right On Cue's Stage|Tracks) are run. Mark them on a song in its editor
+  (the new VAMPS lane, and the Vamps tab): a **vamp** loops until you press
+  **Advance**, a **repeat** plays a section N times and goes on, a **hold**
+  stops the music until Advance, a **skip** plays through unless you Advance
+  inside it, and **markers** label points. A vamp leaves at the end of its
+  pass, at the next bar, or straight away — your choice per vamp — and its
+  loop point is crossfaded. **ADVANCE** appears beside GO (and in Show Mode)
+  while such a song plays; <kbd>→</kbd> does it too. Lighting triggers inside
+  a vamp fire on every pass.
+  [Vamps →](../using-quewi/vamps.md)
+- **Devamp cues work**: Advance for one cue, and they end a whole-cue loop
+  after its pass (as in QLab). They used to do nothing.
+- **OSC:** `/quewi/advance`, `/quewi/cue/<n>/advance`, and the audio cue
+  field `playEvents`.
+
 ## 1.2.0 (2026-10-05)
 
 The Matrix List puts sound and lights in one running order, with GO Lights

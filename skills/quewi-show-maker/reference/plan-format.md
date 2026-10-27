@@ -49,6 +49,26 @@ this one finishes).
 **Memo cue** (`"type": "memo"`): just `number`, `name`, `notes` — a
 reminder or a stand-by point in the list ("House to half").
 
+**Vamps** (quewi 1.3+): `"vamps": [...]` on an audio cue — performance-track
+style vamps, repeats, holds, skips and markers, moved on in the show by
+**Advance** (→):
+
+```json
+"vamps": [
+  {"kind": "vamp",   "bars": "17-18", "name": "Vamp A", "exit": "end"},
+  {"kind": "repeat", "bars": "33-36", "count": 2},
+  {"kind": "hold",   "at": "bar 49", "name": "Fermata"},
+  {"kind": "skip",   "start": "2:10", "end": "2:21"},
+  {"kind": "marker", "at": "bar 57", "name": "Letter D"}
+]
+```
+
+`bars` covers whole bars (like a fill); or `start`/`end` (`at` for a hold or
+marker). `exit` for a vamp: `end` (end of the pass, default), `bar` (next
+bar — needs a `beatGrid` on the cue), `now`. Vamps can't overlap. Put a
+desk GO *after* a vamp, not inside it (triggers inside a vamp fire every
+pass).
+
 ## Times
 
 Anywhere a time goes: seconds (`83.5`), `"1:23.5"`, or with `--analysis`

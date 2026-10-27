@@ -129,6 +129,7 @@ nav:
       - Command menu: using-quewi/command-menu.md
       - Inspector & editing: using-quewi/inspector.md
       - Lighting triggers: using-quewi/lighting-triggers.md
+      - Vamps, repeats & holds: using-quewi/vamps.md
       - Matrix List (sound + lights): using-quewi/matrix-list.md
 
   - Cue type reference:

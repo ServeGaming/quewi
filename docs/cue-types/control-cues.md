@@ -14,7 +14,7 @@ target.
 | **Pause** | — | Pauses the target (audio voices freeze at their read position) |
 | **Load** | — | Pre-loads the target without firing — useful for big audio files |
 | **Reset** | — | Returns the target to its initial state without firing |
-| **Devamp** | — | Exits a vamp / loop on the target so the next GO advances normally |
+| **Devamp** | — | Advance for the target: out of its vamp, on from a hold, past a skip — or ends a whole-cue loop after this pass |
 
 ## Inspector
 
@@ -74,11 +74,12 @@ warmed-up RAM.
 After a vamp loop, Reset returns the target's read position to
 zero so the next GO plays from the top.
 
-### Devamp — exit a loop
+### Devamp — exit a vamp or a loop
 
-A music cue authored as `loop: true` keeps playing forever. A
-Devamp cue clears the loop flag on the playing voice — the next
-loop boundary is the last; playback ends naturally.
+A Devamp cue is [Advance](../using-quewi/vamps.md) for one cue: it takes
+the target out of the vamp it's in (as that vamp's *Exit* says), on from a
+hold, or to the end of a skip. A cue that loops as a whole (*Loop* on) is a
+vamp too: Devamp lets it finish the pass it's on and play out.
 
 ## Combinations
 

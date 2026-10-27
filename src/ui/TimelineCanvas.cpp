@@ -3,7 +3,9 @@
 #include "ui/Theme.h"
 #include "audio/AudioFile.h"
 
+#include <QActionGroup>
 #include <QContextMenuEvent>
+#include <QKeyEvent>
 #include <QFutureWatcher>
 #include <QInputDialog>
 #include <QLineEdit>
@@ -177,6 +179,187 @@ void TimelineCanvas::setBeatGrid(const audio::BeatGrid &g) {
     if (g == m_grid) return;
     m_grid = g;
     update();
+}
+
+// ── Play events (vamps lane) ──────────────────────────────────────────────────
+
+void TimelineCanvas::setPlayEvents(const audio::PlayEvents &events) {
+    m_playEvents = events;
+    auto has = [this](const QUuid &id) {
+        return std::any_of(m_playEvents.begin(), m_playEvents.end(),
+                           [&id](const audio::PlayEvent &e) { return e.id == id; });
+    };
+    // The one being dragged or selected went away (undo, remote): let it go.
+    if (m_vdrag.mode != VampDrag::None && !m_vdrag.id.isNull() && !has(m_vdrag.id))
+        m_vdrag = VampDrag{};
+    if (!m_selPlayEvent.isNull() && !has(m_selPlayEvent)) m_selPlayEvent = QUuid();
+    update();
+}
+
+void TimelineCanvas::setSelectedPlayEvent(const QUuid &id) {
+    if (id == m_selPlayEvent) return;
+    m_selPlayEvent = id;
+    update();
+}
+
+bool TimelineCanvas::deleteSelectedPlayEvent() {
+    if (m_selPlayEvent.isNull()) return false;
+    m_vdrag = VampDrag{};
+    emit playEventContextAction(m_selPlayEvent, QStringLiteral("delete"));
+    return true;
+}
+
+QColor TimelineCanvas::playEventColor(const audio::PlayEvent &e) {
+    // The Concord / Stage|Tracks colours musicians already read: vamp light
+    // blue, repeat orange, skip purple, caesura red. Fixed hues, not theme
+    // tokens, because the colour is the meaning.
+    using K = audio::PlayEvent::Kind;
+    switch (e.kind) {
+    case K::Vamp:   return e.isRepeat() ? QColor(0xE8, 0x8A, 0x3A) : QColor(0x6C, 0xC0, 0xEC);
+    case K::Skip:   return QColor(0xA8, 0x82, 0xE0);
+    case K::Hold:   return QColor(0xE0, 0x4E, 0x4E);
+    case K::Marker: break;
+    }
+    return Theme::tokens().ink60;
+}
+
+void TimelineCanvas::shownSpan(const audio::PlayEvent &e, double &start, double &end) const {
+    if (m_vdrag.moved && e.id == m_vdrag.id && m_vdrag.mode != VampDrag::Create) {
+        start = m_vdrag.curStart;
+        end   = m_vdrag.curEnd;
+    } else {
+        start = e.start;
+        end   = e.end;
+    }
+}
+
+int TimelineCanvas::playEventAt(int x, TriggerPart *part) const {
+    constexpr int kPointHit = 6;
+    for (int i = int(m_playEvents.size()) - 1; i >= 0; --i) {
+        const auto &e = m_playEvents[size_t(i)];
+        if (e.isRange()) continue;
+        if (std::abs(secondsToX(e.start) - x) <= kPointHit) {
+            if (part) *part = TriggerPart::Body;
+            return i;
+        }
+    }
+    for (int i = int(m_playEvents.size()) - 1; i >= 0; --i) {
+        const auto &e = m_playEvents[size_t(i)];
+        if (!e.isRange()) continue;
+        const double x1 = secondsToX(e.start), x2 = secondsToX(e.end);
+        if (x < x1 - kEdgeTolerance || x > x2 + kEdgeTolerance) continue;
+        TriggerPart pt = TriggerPart::Body;   // too narrow for edges: all body, as with triggers
+        if (x2 - x1 > 3 * kEdgeTolerance) {
+            if (std::abs(x - x1) <= kEdgeTolerance)      pt = TriggerPart::StartEdge;
+            else if (std::abs(x - x2) <= kEdgeTolerance) pt = TriggerPart::EndEdge;
+        }
+        if (part) *part = pt;
+        return i;
+    }
+    return -1;
+}
+
+void TimelineCanvas::drawVampLane(QPainter &p) {
+    const auto &tk = Theme::tokens();
+    const int top = vampLaneTop(), h = kVampLaneHeight;
+    p.fillRect(0, top, width(), h, tk.bgRow);
+    p.fillRect(0, top + h - 1, width(), 1, tk.divider);
+
+    // Header cell, the same as the lighting lane's.
+    p.fillRect(0, top, kHeaderWidth, h - 1, tk.bgInteractive);
+    p.fillRect(kHeaderWidth - 1, top, 1, h, tk.bgDeep);
+    QFont cap = font();
+    cap.setPointSizeF(7.5);
+    cap.setBold(true);
+    cap.setLetterSpacing(QFont::PercentageSpacing, 115);
+    p.setFont(cap);
+    p.setPen(tk.ink40);
+    p.drawText(QRect(8, top, kHeaderWidth - 12, h - 1), Qt::AlignLeft | Qt::AlignVCenter,
+               tr("VAMPS"));
+
+    p.save();
+    p.setClipRect(kHeaderWidth, top, width() - kHeaderWidth, h - 1);
+    drawBeatLines(p, top, h - 1, false);   // bar lines only: vamps sit on them
+    p.setRenderHint(QPainter::Antialiasing, true);
+    QFont nf = font();
+    nf.setPointSizeF(8.0);
+    p.setFont(nf);
+    const QFontMetrics fm(nf);
+
+    // Bands first (vamps, repeats, skips), under the points.
+    for (const auto &e : m_playEvents) {
+        if (!e.isRange()) continue;
+        double s = 0, en = 0;
+        shownSpan(e, s, en);
+        const double x1 = secondsToX(s), x2 = secondsToX(en);
+        if (x2 < kHeaderWidth || x1 > width()) continue;
+        const bool sel = e.id == m_selPlayEvent;
+        const QColor col = playEventColor(e);
+        QColor fill = col;
+        fill.setAlpha(sel ? 150 : 85);
+        const QRectF r(x1 + 0.5, top + 3.5, std::max(2.0, x2 - x1 - 1.0), h - 8.0);
+        p.setPen(QPen(sel ? tk.ink100 : col, sel ? 1.5 : 1.0));
+        p.setBrush(fill);
+        p.drawRoundedRect(r, 3, 3);
+        QString label;
+        if (e.isRepeat())
+            label = e.name.isEmpty() ? QStringLiteral("×%1").arg(e.count)
+                                     : QStringLiteral("×%1  %2").arg(e.count).arg(e.name);
+        else
+            label = e.name.isEmpty() ? e.kindName() : e.name;
+        if (r.width() > 16) {
+            p.setPen(tk.ink100);
+            p.drawText(r.adjusted(5, 0, -4, 0), Qt::AlignLeft | Qt::AlignVCenter,
+                       fm.elidedText(label, Qt::ElideRight, int(r.width()) - 9));
+        }
+    }
+
+    // Holds (a caesura: two slanted red strokes) and markers (a small flag).
+    for (const auto &e : m_playEvents) {
+        if (e.isRange()) continue;
+        double s = 0, en = 0;
+        shownSpan(e, s, en);
+        const double x = secondsToX(s);
+        if (x < kHeaderWidth - 8 || x > width() + 8) continue;
+        const bool sel = e.id == m_selPlayEvent;
+        const QColor col = playEventColor(e);
+        if (e.kind == audio::PlayEvent::Kind::Hold) {
+            p.setPen(QPen(sel ? col.lighter(130) : col, sel ? 2.6 : 2.0, Qt::SolidLine, Qt::RoundCap));
+            const double y1 = top + 4.0, y2 = top + h - 6.0;
+            p.drawLine(QPointF(x - 4.0, y2), QPointF(x - 0.5, y1));
+            p.drawLine(QPointF(x + 0.5, y2), QPointF(x + 4.0, y1));
+        } else {
+            // A flag: a pole on the time, a pennant to its right.
+            const QColor ink = sel ? tk.ink100 : col;
+            p.setPen(QPen(ink, 1.2));
+            p.drawLine(QPointF(x, top + 3.0), QPointF(x, top + h - 4.0));
+            QPolygonF flag;
+            flag << QPointF(x, top + 3.0) << QPointF(x + 6.0, top + 5.5) << QPointF(x, top + 8.0);
+            p.setPen(Qt::NoPen);
+            p.setBrush(ink);
+            p.drawPolygon(flag);
+        }
+        // A hold reads on its own; a marker is its text.
+        const QString label = !e.name.isEmpty() ? e.name
+                            : e.kind == audio::PlayEvent::Kind::Marker ? e.kindName() : QString();
+        if (!label.isEmpty()) {
+            p.setPen(sel ? tk.ink100 : tk.ink60);
+            p.drawText(QRectF(x + 8, top, 160, h - 1), Qt::AlignLeft | Qt::AlignVCenter,
+                       fm.elidedText(label, Qt::ElideRight, 156));
+        }
+    }
+
+    // A vamp being drawn: dashed outline until release.
+    if (m_vdrag.mode == VampDrag::Create && m_vdrag.moved && m_vdrag.curEnd > m_vdrag.curStart) {
+        const double x1 = secondsToX(m_vdrag.curStart), x2 = secondsToX(m_vdrag.curEnd);
+        const QColor col = playEventColor(audio::PlayEvent{});
+        QColor fill = col;
+        fill.setAlpha(45);
+        p.setPen(QPen(col, 1.0, Qt::DashLine));
+        p.setBrush(fill);
+        p.drawRoundedRect(QRectF(x1 + 0.5, top + 3.5, std::max(2.0, x2 - x1 - 1.0), h - 8.0), 3, 3);
+    }
+    p.restore();
 }
 
 double TimelineCanvas::snapSeconds(double s, bool noSnap) const {
@@ -481,6 +664,7 @@ void TimelineCanvas::paintEvent(QPaintEvent *) {
     // Ruler and lane last-but-cursors: tracks scrolled up pass under them.
     drawRuler(p);
     drawTriggerLane(p);
+    drawVampLane(p);
     drawEditCursor(p);
     drawPlayhead(p);
 }
@@ -735,8 +919,10 @@ void TimelineCanvas::mousePressEvent(QMouseEvent *e) {
     if (!m_model) return;
     int x = e->pos().x(), y = e->pos().y();
 
-    // The lighting lane's header cell is just a label.
-    if (x < kHeaderWidth && inTriggerLane(y)) return;
+    // The lighting and vamps lanes' header cells are just labels.
+    if (x < kHeaderWidth && (inTriggerLane(y) || inVampLane(y))) return;
+    // Which lane Delete / Backspace speak to.
+    if (y >= kRulerHeight) m_vampLaneActive = inVampLane(y);
 
     // Click on track header mute/solo buttons
     if (x < kHeaderWidth && y >= tracksTop()) {
@@ -825,6 +1011,36 @@ void TimelineCanvas::mousePressEvent(QMouseEvent *e) {
             } else {
                 m_tdrag.mode = TriggerDrag::Create;
                 m_tdrag.curStart = m_tdrag.pressSnapped;
+            }
+        }
+        update();
+        return;
+    }
+
+    // Vamps lane: select / move / resize an event, or drag across empty lane
+    // to make a vamp. A click on empty lane only deselects (it has already
+    // moved the edit cursor). Left button only: right is the context menu's.
+    if (inVampLane(y)) {
+        if (e->button() == Qt::LeftButton) {
+            m_vdrag = VampDrag{};
+            m_vdrag.pressPos = e->pos();
+            m_vdrag.pressSec = xToSeconds(x);
+            m_vdrag.noSnap = e->modifiers() & Qt::AltModifier;
+            TriggerPart part = TriggerPart::Body;
+            const int vi = playEventAt(x, &part);
+            if (vi >= 0) {
+                const auto ev = m_playEvents[size_t(vi)];
+                m_selPlayEvent = ev.id;
+                emit playEventClicked(ev.id);
+                m_vdrag.id = ev.id;
+                m_vdrag.origStart = m_vdrag.curStart = ev.start;
+                m_vdrag.origEnd   = m_vdrag.curEnd   = ev.end;
+                m_vdrag.mode = part == TriggerPart::StartEdge ? VampDrag::ResizeStart
+                             : part == TriggerPart::EndEdge   ? VampDrag::ResizeEnd
+                                                              : VampDrag::Move;
+            } else {
+                m_vdrag.mode = VampDrag::Create;
+                m_vdrag.curStart = m_vdrag.curEnd = snapSeconds(m_vdrag.pressSec, m_vdrag.noSnap);
             }
         }
         update();
@@ -923,6 +1139,54 @@ void TimelineCanvas::mouseMoveEvent(QMouseEvent *e) {
         update();
         return;
     }
+    // ── Vamps lane drag ────────────────────────────────────────────────
+    if (m_vdrag.mode != VampDrag::None) {
+        if (!m_vdrag.moved) {
+            if (std::abs(x - m_vdrag.pressPos.x()) < kDragThreshold) return;
+            m_vdrag.moved = true;
+        }
+        const double sec   = xToSeconds(x);
+        const double delta = sec - m_vdrag.pressSec;
+        const bool noSnap = m_vdrag.noSnap || (e->modifiers() & Qt::AltModifier);
+        auto snap = [this, noSnap](double s) { return snapSeconds(s, noSnap); };
+        // A shorter vamp is a buzz, and the cue would drop it; and a few
+        // pixels keep it grabbable.
+        const double minLen = std::max(audio::kMinPlayEventLength,
+                                       4.0 * m_framesPerPixel / m_triggerRate);
+        switch (m_vdrag.mode) {
+        case VampDrag::Create: {
+            const double a = snap(m_vdrag.pressSec), b = snap(sec);
+            m_vdrag.curStart = std::min(a, b);
+            m_vdrag.curEnd   = std::max(a, b);
+            break;
+        }
+        case VampDrag::Move: {
+            const double len = m_vdrag.origEnd - m_vdrag.origStart;
+            m_vdrag.curStart = std::max(0.0, snap(m_vdrag.origStart + delta));
+            m_vdrag.curEnd   = m_vdrag.curStart + len;
+            setCursor(Qt::ClosedHandCursor);
+            break;
+        }
+        case VampDrag::ResizeStart:
+            m_vdrag.curStart = std::clamp(snap(sec), 0.0, std::max(0.0, m_vdrag.origEnd - minLen));
+            break;
+        case VampDrag::ResizeEnd:
+            m_vdrag.curEnd = std::max(snap(sec), m_vdrag.origStart + minLen);
+            break;
+        case VampDrag::None:
+            break;
+        }
+        update();
+        return;
+    }
+    if (inVampLane(y) && x >= kHeaderWidth && !m_drag.active) {
+        TriggerPart part = TriggerPart::Body;
+        const int vi = playEventAt(x, &part);
+        setCursor(vi >= 0 && part != TriggerPart::Body ? Qt::SizeHorCursor
+                  : vi >= 0                            ? Qt::OpenHandCursor
+                                                       : Qt::ArrowCursor);
+        return;
+    }
     if (inTriggerLane(y) && x >= kHeaderWidth && !m_drag.active) {
         TriggerPart part = TriggerPart::Body;
         const int ti = triggerAt(x, &part);
@@ -990,6 +1254,24 @@ void TimelineCanvas::mouseReleaseEvent(QMouseEvent *) {
     m_drag.moved  = false;
     setCursor(Qt::ArrowCursor);
 
+    if (m_vdrag.mode != VampDrag::None) {
+        // Reset first: the signals below come straight back as setPlayEvents().
+        const VampDrag d = m_vdrag;
+        m_vdrag = VampDrag{};
+        if (d.mode == VampDrag::Create) {
+            if (d.moved && d.curEnd > d.curStart) {
+                emit playEventAddRequested(QStringLiteral("vamp"), d.curStart, d.curEnd);
+            } else if (!m_selPlayEvent.isNull()) {
+                m_selPlayEvent = QUuid();
+                emit playEventClicked(QUuid());
+            }
+        } else if (d.moved && (d.curStart != d.origStart || d.curEnd != d.origEnd)) {
+            emit playEventMoved(d.id, d.curStart, d.curEnd);
+        }
+        update();
+        return;
+    }
+
     if (m_tdrag.mode == TriggerDrag::None) return;
     // Reset first: the signals below come straight back as setTriggers().
     const TriggerDrag d = m_tdrag;
@@ -1025,6 +1307,13 @@ void TimelineCanvas::mouseDoubleClickEvent(QMouseEvent *e) {
     // Double-click a trigger in the lighting lane: select + rename. (Track
     // header rename is future work.)
     const int x = e->pos().x();
+    if (x >= kHeaderWidth && inVampLane(e->pos().y())) {
+        const int vi = playEventAt(x);
+        if (vi < 0) return;
+        m_vdrag = VampDrag{};
+        emit playEventContextAction(m_playEvents[size_t(vi)].id, QStringLiteral("rename"));
+        return;
+    }
     if (x < kHeaderWidth || !inTriggerLane(e->pos().y())) return;
     const int ti = triggerAt(x);
     if (ti < 0) return;
@@ -1111,6 +1400,18 @@ void TimelineCanvas::wheelEvent(QWheelEvent *e) {
     }
 }
 
+void TimelineCanvas::keyPressEvent(QKeyEvent *e) {
+    // Delete / Backspace remove the selected vamp when the vamps lane was the
+    // last one clicked. (In the editor a shortcut takes Delete first and
+    // makes the same choice; Backspace always lands here.)
+    if ((e->key() == Qt::Key_Delete || e->key() == Qt::Key_Backspace)
+        && e->modifiers() == Qt::NoModifier && m_vampLaneActive && deleteSelectedPlayEvent()) {
+        e->accept();
+        return;
+    }
+    QWidget::keyPressEvent(e);
+}
+
 void TimelineCanvas::resizeEvent(QResizeEvent *) {
     updateScrollBars();
 }
@@ -1121,6 +1422,77 @@ void TimelineCanvas::contextMenuEvent(QContextMenuEvent *e) {
     QMenu menu(this);
     const int x = e->pos().x();
     const int y = e->pos().y();
+
+    // Right-click in the vamps lane: add one here, or change the one under it.
+    if (inVampLane(y)) {
+        if (x < kHeaderWidth) return;
+        m_vampLaneActive = true;
+        const int vi = playEventAt(x);
+        if (vi < 0) {
+            const double sec = snapSeconds(xToSeconds(x), e->modifiers() & Qt::AltModifier);
+            auto *vampAct   = menu.addAction(tr("Vamp here (1 bar)"));
+            auto *repeatAct = menu.addAction(tr("Repeat here…"));
+            auto *holdAct   = menu.addAction(tr("Hold here"));
+            auto *skipAct   = menu.addAction(tr("Skip here (1 bar)"));
+            auto *markerAct = menu.addAction(tr("Marker here…"));
+            QAction *chosen = menu.exec(e->globalPos());
+            QString kind;
+            if      (!chosen)               return;
+            else if (chosen == vampAct)     kind = QStringLiteral("vamp");
+            else if (chosen == repeatAct)   kind = QStringLiteral("repeat");
+            else if (chosen == holdAct)     kind = QStringLiteral("hold");
+            else if (chosen == skipAct)     kind = QStringLiteral("skip");
+            else if (chosen == markerAct)   kind = QStringLiteral("marker");
+            if (!kind.isEmpty()) emit playEventAddRequested(kind, sec, -1.0);
+            return;
+        }
+        const auto ev = m_playEvents[size_t(vi)];
+        if (m_selPlayEvent != ev.id) {
+            m_selPlayEvent = ev.id;
+            emit playEventClicked(ev.id);
+            update();
+        }
+        using K = audio::PlayEvent::Kind;
+        const bool vamp = ev.kind == K::Vamp && !ev.isRepeat();
+        auto *makeVamp   = menu.addAction(tr("Make it a Vamp"));
+        auto *makeRepeat = menu.addAction(ev.isRepeat() ? tr("Repeat ×%1: Change the Count…").arg(ev.count)
+                                                        : tr("Make it a Repeat…"));
+        auto *makeSkip   = menu.addAction(tr("Make it a Skip"));
+        makeVamp->setCheckable(true);
+        makeVamp->setChecked(vamp);
+        makeSkip->setCheckable(true);
+        makeSkip->setChecked(ev.kind == K::Skip);
+        QAction *exitEnd = nullptr, *exitBar = nullptr, *exitNow = nullptr;
+        if (vamp) {
+            // Only a vamp waits for Advance; a repeat plays its count and goes on.
+            auto *exitMenu = menu.addMenu(tr("Exit"));
+            auto *grp = new QActionGroup(exitMenu);
+            exitEnd = exitMenu->addAction(tr("At the end of the pass"));
+            exitBar = exitMenu->addAction(tr("At the next bar"));
+            exitNow = exitMenu->addAction(tr("Now"));
+            for (auto *a : {exitEnd, exitBar, exitNow}) { a->setCheckable(true); grp->addAction(a); }
+            using X = audio::PlayEvent::Exit;
+            (ev.exit == X::NextBar ? exitBar : ev.exit == X::Now ? exitNow : exitEnd)->setChecked(true);
+            if (!m_grid.isSet())
+                exitBar->setText(tr("At the next bar (no beat grid: end of the pass)"));
+        }
+        menu.addSeparator();
+        auto *renameAct = menu.addAction(tr("Rename…"));
+        auto *deleteAct = menu.addAction(tr("Delete"));
+        QAction *chosen = menu.exec(e->globalPos());
+        QString action;
+        if      (!chosen)                       return;
+        else if (chosen == makeVamp)            action = QStringLiteral("makeVamp");
+        else if (chosen == makeRepeat)          action = QStringLiteral("makeRepeat");
+        else if (chosen == makeSkip)            action = QStringLiteral("makeSkip");
+        else if (chosen == exitEnd)             action = QStringLiteral("exitEndOfPass");
+        else if (chosen == exitBar)             action = QStringLiteral("exitNextBar");
+        else if (chosen == exitNow)             action = QStringLiteral("exitNow");
+        else if (chosen == renameAct)           action = QStringLiteral("rename");
+        else if (chosen == deleteAct)           action = QStringLiteral("delete");
+        if (!action.isEmpty()) emit playEventContextAction(ev.id, action);
+        return;
+    }
 
     // Right-click in the lighting lane: trigger-scoped actions.
     if (inTriggerLane(y)) {

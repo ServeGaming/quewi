@@ -83,6 +83,12 @@ def main():
                     extra += f"  grid {g['bpm']:.1f} BPM @ {g['firstBeat']:.3f}s"
                 if p.get("lightTriggers"):
                     extra += f"  {len(p['lightTriggers'])} triggers"
+                if p.get("playEvents"):
+                    kinds = {}
+                    for e in p["playEvents"]:
+                        k = "repeat" if e.get("kind") == "vamp" and e.get("count") else e.get("kind", "vamp")
+                        kinds[k] = kinds.get(k, 0) + 1
+                    extra += "  " + ", ".join(f"{n} {k}{'s' if n > 1 else ''}" for k, n in kinds.items())
             cont = CONT.get(p.get("continueMode", 0), "?")
             print(f"  {p.get('number', 0):>6g}  {ctype:<6} {p.get('name', '')}{extra}" + (f"  [{cont}]" if cont else ""))
             if args.triggers:

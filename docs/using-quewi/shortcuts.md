@@ -22,8 +22,10 @@ Checked against the actual wiring in `src/app/MainWindow.cpp` for 1.0.1.
 | GO Lights — fire the lighting desk's next cue (Matrix List only) | `Mod + Shift + G` |
 | Lights Back — the desk cue before the live one (Matrix List only) | `Mod + Shift + B` |
 | Lights Stop — the desk's Stop key (Matrix List only) | none by default (set one in Tools → Shortcuts) |
+| GO Both — the next sound cue and the desk's next cue (Matrix List only) | none by default |
+| [Advance](vamps.md) — out of a vamp, on from a hold, past a skip | `→` (only while something is waiting for it) |
 
-These four are rebindable in **Tools → Keyboard shortcuts…** — useful for a
+These are rebindable in **Tools → Keyboard shortcuts…** — useful for a
 footswitch or a Stream Deck that sends a particular key.
 
 ---

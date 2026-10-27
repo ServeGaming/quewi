@@ -3,6 +3,7 @@
 #include "audio/AudioEditorModel.h"
 #include "audio/BeatGrid.h"
 #include "audio/LightTrigger.h"
+#include "audio/PlayEvents.h"
 
 #include <QHash>
 #include <QImage>
@@ -20,6 +21,7 @@ namespace quewi::ui {
 //
 //  [ruler: time ticks]
 //  [lighting lane: trigger points / ranges]
+//  [vamps lane: vamps, repeats, holds, skips, markers]
 //  [track header | waveform regions ...]   ← per track
 //  [track header | waveform regions ...]
 //  ...
@@ -66,6 +68,8 @@ public:
     // Lighting-trigger lane between the ruler and the first track. Like the
     // ruler it doesn't scroll vertically; the tracks start below it.
     static constexpr int kMarkerLaneHeight = 20;
+    // Vamps lane, straight under the lighting lane; also fixed, like it.
+    static constexpr int kVampLaneHeight = 20;
 
     // Lighting triggers shown in the marker lane. Times are seconds; the lane
     // maps them to frames with sampleRate. The canvas never edits them — it
@@ -87,6 +91,23 @@ public:
     const audio::BeatGrid &beatGrid() const { return m_grid; }
     void setSnapToBeats(bool on) { m_snap = on; }
     bool snapToBeats() const { return m_snap; }
+
+    // Vamps, repeats, holds, skips and markers (the cue's play events) in the
+    // vamps lane. Like the triggers, the canvas never edits them: it reports
+    // gestures through the playEvent* signals and redraws from setPlayEvents.
+    void setPlayEvents(const audio::PlayEvents &events);
+    const audio::PlayEvents &playEvents() const { return m_playEvents; }
+    void  setSelectedPlayEvent(const QUuid &id);
+    QUuid selectedPlayEvent() const { return m_selPlayEvent; }
+    // The vamps lane was the last lane clicked, so Delete means its selection
+    // rather than the lighting triggers'.
+    bool  vampLaneActive() const { return m_vampLaneActive; }
+    // Asks for the selected play event to be deleted (playEventContextAction
+    // "delete"). False when nothing is selected.
+    bool  deleteSelectedPlayEvent();
+    // The colour each kind is drawn in (vamp light blue, repeat orange, skip
+    // purple, hold red, marker neutral); the Vamps tab uses the same.
+    static QColor playEventColor(const audio::PlayEvent &e);
 
 signals:
     void regionSelected(QUuid regionId);
@@ -113,6 +134,18 @@ signals:
     // "selectGroup". On a trigger that's part of a multiple selection, the
     // panel applies enable / delete / group to the whole selection.
     void triggerContextAction(QUuid id, QString action);
+
+    // Vamps lane. kind: "vamp", "repeat", "hold", "skip" or "marker"; end < 0
+    // = the default length (the owner picks it: a bar, or 2 s). A drag across
+    // empty lane asks for a "vamp" over the span.
+    void playEventAddRequested(QString kind, double start, double end);
+    // A move or resize, reported on release. end = start for a hold / marker.
+    void playEventMoved(QUuid id, double start, double end);
+    // Clicked (and selected here already); null = a click on empty lane.
+    void playEventClicked(QUuid id);
+    // "makeVamp", "makeRepeat", "makeSkip", "exitEndOfPass", "exitNextBar",
+    // "exitNow", "rename", "delete".
+    void playEventContextAction(QUuid id, QString action);
 protected:
     void paintEvent(QPaintEvent *) override;
     void mousePressEvent(QMouseEvent *) override;
@@ -121,6 +154,7 @@ protected:
     void mouseDoubleClickEvent(QMouseEvent *) override;
     void contextMenuEvent(QContextMenuEvent *) override;
     void wheelEvent(QWheelEvent *) override;
+    void keyPressEvent(QKeyEvent *) override;
     void resizeEvent(QResizeEvent *) override;
 
 private:
@@ -129,8 +163,10 @@ private:
     int   trackHeight()          const { return m_trackHeight; }
     int   timelineLeft()         const { return kHeaderWidth; }
     int   rulerBottom()          const { return kRulerHeight; }
-    int   tracksTop()            const { return kRulerHeight + kMarkerLaneHeight; }
-    bool  inTriggerLane(int y)   const { return y >= kRulerHeight && y < tracksTop(); }
+    int   vampLaneTop()          const { return kRulerHeight + kMarkerLaneHeight; }
+    int   tracksTop()            const { return vampLaneTop() + kVampLaneHeight; }
+    bool  inTriggerLane(int y)   const { return y >= kRulerHeight && y < vampLaneTop(); }
+    bool  inVampLane(int y)      const { return y >= vampLaneTop() && y < tracksTop(); }
     // Canvas height required to show all tracks
     int   contentHeight()        const;
 
@@ -165,6 +201,7 @@ private:
     void drawPlayhead(QPainter &p);
     void drawTriggerGuides(QPainter &p);   // faint lines down through the tracks
     void drawTriggerLane(QPainter &p);
+    void drawVampLane(QPainter &p);
     // Beat / bar lines. lane = the lighting lane (beats + bars + numbers);
     // otherwise faint bar lines only, for the tracks.
     void drawBeatLines(QPainter &p, int top, int h, bool lane);
@@ -200,6 +237,26 @@ private:
         double origStart = 0.0, origEnd = -1.0;
         double curStart = 0.0, curEnd = -1.0;
     } m_tdrag;
+
+    // ── Play events (vamps lane) ──────────────────────────────────────────
+    // Index into m_playEvents of the event under x in the lane, or -1. Holds
+    // and markers (points) win over the bands under them.
+    int    playEventAt(int x, TriggerPart *part = nullptr) const;
+    void   shownSpan(const audio::PlayEvent &e, double &start, double &end) const;
+    audio::PlayEvents m_playEvents;
+    QUuid  m_selPlayEvent;
+    bool   m_vampLaneActive = false;
+    struct VampDrag {
+        enum Mode { None, Create, Move, ResizeStart, ResizeEnd } mode = None;
+        QUuid  id;
+        bool   moved = false;
+        QPoint pressPos;
+        double pressSec = 0.0;
+        bool   noSnap = false;
+        double origStart = 0.0, origEnd = 0.0;
+        double curStart = 0.0, curEnd = 0.0;
+    } m_vdrag;
+
     void updateScrollBars();
 
     // ── Spectrogram cache (Spectrogram view mode) ─────────────────────────

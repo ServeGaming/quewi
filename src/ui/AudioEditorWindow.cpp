@@ -8,6 +8,7 @@
 #include "ui/EditorChrome.h"
 
 #include "ui/LightTriggersPanel.h"
+#include "ui/PlayEventsPanel.h"
 #include "ui/LiveAudioScope.h"
 #include "ui/LiveEffectDevice.h"
 #include "ui/Theme.h"
@@ -348,9 +349,9 @@ void AudioEditorWindow::buildCentral() {
 }
 
 void AudioEditorWindow::buildBottomPanel() {
-    // Bottom panel: two tabs on a flush dark surface with a single thin top
-    // border — the effects rack, and the song's lighting triggers. (The
-    // spectrogram lives in the timeline, via the View toggle.)
+    // Bottom panel: tabs on a flush dark surface with a single thin top
+    // border — the effects rack, the song's lighting triggers and its vamps.
+    // (The spectrogram lives in the timeline, via the View toggle.)
     const auto &tkB = Theme::tokens();
     auto *bottom = new QWidget(this);
     bottom->setObjectName(QStringLiteral("editorBottomPanel"));
@@ -372,6 +373,9 @@ void AudioEditorWindow::buildBottomPanel() {
     m_triggersPanel = new LightTriggersPanel(m_bottomTabs);
     m_triggersPanel->setCue(m_cue);
     m_bottomTabs->addTab(m_triggersPanel, tr("Lighting"));
+    m_playEventsPanel = new PlayEventsPanel(m_bottomTabs);
+    m_playEventsPanel->setCue(m_cue);
+    m_bottomTabs->addTab(m_playEventsPanel, tr("Vamps"));
     bvl->addWidget(m_bottomTabs);
 
     // Lighting: panel <-> marker lane. Every edit goes through the panel's
@@ -401,6 +405,54 @@ void AudioEditorWindow::buildBottomPanel() {
     });
     connect(m_timeline, &TimelineCanvas::editCursorMoved, this, [this](qint64 frame) {
         m_triggersPanel->setCursorSeconds(double(frame) * secondsPerFrame());
+        m_playEventsPanel->setCursorSeconds(double(frame) * secondsPerFrame());
+    });
+
+    // Vamps: the same arrangement as lighting — the lane's gestures go
+    // through the Vamps tab's commit, and the lane follows the cue.
+    connect(m_timeline, &TimelineCanvas::playEventAddRequested, this,
+            [this](const QString &kind, double s, double e) {
+        showVampsTab();
+        const QUuid id = m_playEventsPanel->addFromLane(kind, s, e);
+        if (id.isNull() && !m_playEventsPanel->problem().isEmpty())
+            statusBar()->showMessage(m_playEventsPanel->problem(), 5000);
+    });
+    connect(m_timeline, &TimelineCanvas::playEventMoved, this, [this](QUuid id, double s, double e) {
+        if (!m_playEventsPanel->moveEvent(id, s, e)) {
+            statusBar()->showMessage(m_playEventsPanel->problem(), 5000);
+            syncTriggersToCanvas();               // back where it was
+        }
+    });
+    connect(m_timeline, &TimelineCanvas::playEventClicked, this, [this](QUuid id) {
+        if (!id.isNull()) showVampsTab();
+        m_playEventsPanel->selectEvent(id);
+    });
+    connect(m_timeline, &TimelineCanvas::playEventContextAction, this, [this](QUuid id, QString action) {
+        showVampsTab();
+        if (!m_playEventsPanel->applyEventAction(id, action) && !m_playEventsPanel->problem().isEmpty())
+            statusBar()->showMessage(m_playEventsPanel->problem(), 5000);
+    });
+    connect(m_playEventsPanel, &PlayEventsPanel::selectionChanged,
+            m_timeline, &TimelineCanvas::setSelectedPlayEvent);
+    connect(m_playEventsPanel, &PlayEventsPanel::seekRequested, this, [this](double s) {
+        const qint64 frame = qint64(std::llround(s * m_model->sampleRate()));
+        m_timeline->setEditCursorFrame(frame);
+        m_triggersPanel->setCursorSeconds(s);
+        m_playEventsPanel->setCursorSeconds(s);
+    });
+    m_playEventsPanel->setCursorSeconds(double(m_timeline->editCursorFrame()) * secondsPerFrame());
+    m_playEventsPanel->setPlayheadProvider([this] {
+        const qint64 f = currentPlayFrame();
+        return f < 0 ? -1.0 : double(f) * secondsPerFrame();
+    });
+    // The canvas has no time selection of its own; one selected lighting
+    // range is the nearest thing, so "+ Vamp" then covers that stretch.
+    m_playEventsPanel->setSpanProvider([this](double &a, double &b) {
+        const auto ids = m_triggersPanel->selectedTriggers();
+        if (!m_cue || ids.size() != 1) return false;
+        for (const auto &t : m_cue->lightTriggers())
+            if (t.id == ids.first() && t.isRange()) { a = t.start; b = t.end; return true; }
+        return false;
     });
     connect(m_triggersPanel, &LightTriggersPanel::selectionSetChanged,
             m_timeline, &TimelineCanvas::setSelectedTriggers);
@@ -413,8 +465,11 @@ void AudioEditorWindow::buildBottomPanel() {
     // Beat grid: snap follows the panel's checkbox; Tap reads the preview's
     // playhead; Detect analyses the dry mix (the one the preview plays).
     m_timeline->setSnapToBeats(m_triggersPanel->snapToBeats());
+    m_playEventsPanel->setSnapToBeats(m_triggersPanel->snapToBeats());
     connect(m_triggersPanel, &LightTriggersPanel::snapToBeatsChanged,
             m_timeline, &TimelineCanvas::setSnapToBeats);
+    connect(m_triggersPanel, &LightTriggersPanel::snapToBeatsChanged,
+            m_playEventsPanel, &PlayEventsPanel::setSnapToBeats);
     // Record from desk: the recorder notes each desk cue at the preview's
     // playhead (nothing while paused or stopped).
     m_recorder = new DeskTakeRecorder(this);
@@ -481,7 +536,8 @@ void AudioEditorWindow::buildBottomPanel() {
     connect(markKey, &QShortcut::activatedAmbiguously, this, doMark);
 
     // Ctrl+G groups the selected lighting triggers; Delete removes them
-    // (the list has its own Delete; this one covers the lane).
+    // (the list has its own Delete; this one covers the lane) — or the
+    // selected vamp, when the vamps lane was the last one clicked.
     auto *groupKey = new QShortcut(QKeySequence(QStringLiteral("Ctrl+G")), this);
     groupKey->setContext(Qt::WindowShortcut);
     connect(groupKey, &QShortcut::activated, this, [this, typing] {
@@ -492,6 +548,7 @@ void AudioEditorWindow::buildBottomPanel() {
     auto *delTrig = new QShortcut(QKeySequence::Delete, m_timeline);
     delTrig->setContext(Qt::WidgetShortcut);
     connect(delTrig, &QShortcut::activated, this, [this] {
+        if (m_timeline->vampLaneActive()) { m_timeline->deleteSelectedPlayEvent(); return; }
         if (!m_triggersPanel->selectedTriggers().isEmpty()) m_triggersPanel->deleteSelection();
     });
 
@@ -529,6 +586,7 @@ void AudioEditorWindow::setTriggerSupport(core::Workspace *ws, QUndoStack *undo,
 {
     m_triggersPanel->setWorkspace(ws);
     m_triggersPanel->setUndoStack(undo);
+    m_playEventsPanel->setUndoStack(undo);
     m_triggersPanel->setMidiPortsProvider(std::move(midiPorts));
 }
 
@@ -540,6 +598,11 @@ void AudioEditorWindow::refreshLightingDesk()
 void AudioEditorWindow::showLightingTab()
 {
     if (m_bottomTabs) m_bottomTabs->setCurrentWidget(m_triggersPanel);
+}
+
+void AudioEditorWindow::showVampsTab()
+{
+    if (m_bottomTabs) m_bottomTabs->setCurrentWidget(m_playEventsPanel);
 }
 
 void AudioEditorWindow::flashTrigger(const QUuid &id)
@@ -565,6 +628,7 @@ void AudioEditorWindow::syncTriggersToCanvas()
     m_timeline->setTriggers(m_cue ? m_cue->lightTriggers() : audio::LightTriggers{},
                             double(m_model->sampleRate()));
     m_timeline->setBeatGrid(m_cue ? m_cue->beatGrid() : audio::BeatGrid{});
+    m_timeline->setPlayEvents(m_cue ? m_cue->playEvents() : audio::PlayEvents{});
     if (m_triggersPanel)
         m_triggersPanel->setSongLength(double(m_model->totalDurationSamples()) * secondsPerFrame());
 }

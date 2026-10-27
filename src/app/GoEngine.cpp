@@ -577,8 +577,15 @@ void GoEngine::doFire(cues::Cue *cue, const AudioRoute &route)
         // Devamp = Advance, for one cue: out of its vamp (as the vamp says:
         // end of the pass, next bar or now), on from a hold, past a skip.
         auto *target = findCue(devamp->targetId(), cue);
+        // A cue that loops as a whole (Loop on) is a vamp too: Devamp lets
+        // it finish this pass and play out, as in QLab.
+        auto *snd = target ? video::VideoCue::audioOf(target) : nullptr;
         if (!target) status(tr("Devamp: target not found"));
-        else if (!advanceCue(target)) status(tr("Devamp: %1 isn't in a vamp, hold or skip").arg(nameOf(target)));
+        else if (advanceCue(target)) {}
+        else if (snd && snd->loop() && m_audio && snd->currentVoiceId() != 0) {
+            m_audio->setVoiceLoop(snd->currentVoiceId(), false);
+            status(tr("Devamp → %1: plays out after this pass").arg(nameOf(target)));
+        } else status(tr("Devamp: %1 isn't in a vamp, hold, skip or loop").arg(nameOf(target)));
     } else if (auto *midiCue = qobject_cast<midi::MidiCue *>(cue)) {
         if (m_midi) {
             if (m_midi->sendRaw(midiCue->portName(), midiCue->bytes())) {
@@ -1054,7 +1061,9 @@ QString GoEngine::PlayingEvent::describe() const
                             : GoEngine::tr("Leaving the vamp%1").arg(name);
     case PS::Repeating: return GoEngine::tr("Repeat%1: pass %2 of %3").arg(name).arg(pass + 1).arg(event.count);
     case PS::InSkip:    return GoEngine::tr("In a skip%1 — Advance jumps to its end").arg(name);
-    case PS::Normal:    break;
+    case PS::Normal:
+        return GoEngine::tr("Next: %1%2 in %3 s").arg(event.kindName(), name)
+            .arg(QString::number(std::max(0.0, inSeconds), 'f', 0));
     }
     return {};
 }
@@ -1069,15 +1078,29 @@ std::vector<GoEngine::PlayingEvent> GoEngine::playingEvents() const
         audio::AudioCue *c = *it;
         if (!c || c->currentVoiceId() == 0) continue;
         const auto v = voices.constFind(c->currentVoiceId());
-        if (v == voices.constEnd() || v->playState == audio::ActiveVoice::PlayState::Normal) continue;
+        if (v == voices.constEnd()) continue;
         const auto &ev = c->playEvents();
-        if (v->playEventIndex < 0 || v->playEventIndex >= int(ev.size())) continue;
         PlayingEvent p;
         p.cue = c;
         p.voice = v->id;
         p.state = v->playState;
-        p.event = ev[size_t(v->playEventIndex)];
         p.pass = v->playPass;
+        if (v->playState == audio::ActiveVoice::PlayState::Normal) {
+            // Playing on: the next vamp / hold / skip ahead, if any.
+            const audio::PlayEvent *next = nullptr;
+            for (const auto &e : ev)
+                if (e.kind != audio::PlayEvent::Kind::Marker && e.start > v->positionSeconds + 0.01) {
+                    next = &e;
+                    break;
+                }
+            if (!next) continue;
+            p.event = *next;
+            p.inSeconds = (next->start - v->positionSeconds)
+                        - audio::cutSecondsBetween(c->cuts(), v->positionSeconds, next->start);
+        } else {
+            if (v->playEventIndex < 0 || v->playEventIndex >= int(ev.size())) continue;
+            p.event = ev[size_t(v->playEventIndex)];
+        }
         out.push_back(p);
     }
     using PS = audio::ActiveVoice::PlayState;

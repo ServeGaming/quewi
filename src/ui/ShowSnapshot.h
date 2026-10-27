@@ -43,6 +43,9 @@ struct ShowRunningCue {
     double progress = -1.0;          // 0..1; < 0 = unknown
     bool   paused   = false;
     bool   looping  = false;
+    // In a vamp / repeat / hold / skip: "VAMP · pass 3", "HOLD",
+    // "REPEAT 2 of 4", "LEAVING THE VAMP", "IN A SKIP". Empty = playing on.
+    QString playState;
 };
 
 // A lighting trigger coming up in a playing song.
@@ -92,6 +95,14 @@ struct ShowLightsGo {
     QString stopReason;
 };
 
+// ADVANCE (out of a vamp, on from a hold, past a skip), when a song that
+// has those is playing.
+struct ShowAdvance {
+    bool    enabled = false;    // something is waiting for it
+    QString text;               // "Vamp · pass 3"
+    QString reason;             // what pressing it will do
+};
+
 struct ShowSnapshot {
     QString showName;           // quewi's show (file name)
     QString listName;           // the cue list GO runs
@@ -108,7 +119,8 @@ struct ShowSnapshot {
     bool triggersArmed = true;
     std::vector<ShowUpcomingHit> hits;       // soonest first
     ShowDeskStatus desk;
-    std::optional<ShowLightsGo> lightsGo;     // set only when the Matrix List is up
+    std::optional<ShowLightsGo> lightsGo;
+    std::optional<ShowAdvance>  advance;      // set while a song with vamps/holds/skips plays     // set only when the Matrix List is up
 };
 
 } // namespace quewi::ui

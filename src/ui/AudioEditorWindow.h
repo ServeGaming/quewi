@@ -30,6 +30,7 @@ namespace quewi::osc { class EosFeedback; }
 namespace quewi::ui {
 
 class LightTriggersPanel;
+class PlayEventsPanel;
 class LiveAudioScope;
 class LiveEffectDevice;
 
@@ -59,6 +60,7 @@ public:
     void setTriggerSupport(core::Workspace *ws, QUndoStack *undo,
                            std::function<QStringList()> midiPorts);
     void showLightingTab();
+    void showVampsTab();
 
     // Record lighting triggers from the desk (the Lighting tab's and the
     // toolbar's "● Record from desk"): reads the desk over `fb` (read-only).
@@ -125,7 +127,8 @@ private:
     void updateRenderButton();
     // Write the session (tracks, regions, effects rack) into the cue.
     void syncSessionToCue();
-    // Lighting triggers → the marker lane (on cue changes and rate changes).
+    // Lighting triggers and play events → their lanes (on cue changes and
+    // rate changes).
     void syncTriggersToCanvas();
     double secondsPerFrame() const;
     // Space: start from the edit cursor, or pause / carry on mid-play.
@@ -159,6 +162,7 @@ private:
     EffectsRackWidget *m_effectsRack = nullptr;
     QTabWidget        *m_bottomTabs  = nullptr;
     LightTriggersPanel *m_triggersPanel = nullptr;
+    PlayEventsPanel   *m_playEventsPanel = nullptr;   // the Vamps tab
     QToolButton       *m_sendTriggersBtn = nullptr;   // "Send while previewing"
     QToolButton       *m_recordBtn = nullptr;         // "● Record from desk"
     DeskTakeRecorder  *m_recorder = nullptr;

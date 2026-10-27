@@ -53,6 +53,8 @@ All four share the same UDP socket. Quewi reads the source port of every inbound
 | `/quewi/pause` | — | Real pause, same as the Pause button. Audio and video freeze in place, and pending pre-waits and auto-continues freeze with their remaining time |
 | `/quewi/resume` | — | Resume everything that was paused, timers included |
 | `/quewi/heartbeat` | — | No-op, useful as a keepalive ping |
+| `/quewi/advance` | — | *(1.3.0)* [Advance](../using-quewi/vamps.md): out of a vamp, on from a hold, past a skip — the most urgent one playing (a hold, then a vamp, then a skip; newest song first). Does nothing when nothing is waiting. See [Vamps and Advance](#vamps-and-advance) |
+| `/quewi/cue/<num>/advance` | — | *(1.3.0)* The same for one cue in the active list |
 
 ### Per-engine stops
 
@@ -517,6 +519,35 @@ When quewi is reading an Eos desk back (`feedback` on), the reply also has
 }
 ```
 
+### Vamps and Advance
+
+*New in 1.3.0.* An audio cue's `playEvents` field holds its
+[vamps, repeats, holds, skips and markers](../using-quewi/vamps.md), as a
+JSON array (send it as a string with `/quewi/cue/<num>/set/playEvents`):
+
+```json
+[
+  {"kind": "vamp",   "start": 42.0, "end": 45.8, "name": "Vamp A"},
+  {"kind": "vamp",   "start": 61.2, "end": 65.0, "count": 4},
+  {"kind": "vamp",   "start": 90.0, "end": 97.6, "exit": "nextBar"},
+  {"kind": "hold",   "start": 120.5, "name": "Fermata"},
+  {"kind": "skip",   "start": 130.0, "end": 141.0},
+  {"kind": "marker", "start": 150.0, "name": "Letter D"}
+]
+```
+
+| Key | Meaning |
+|---|---|
+| `kind` | `vamp`, `hold`, `skip`, `marker` (`caesura`/`fermata` read as `hold`, `repeat` as `vamp`) |
+| `start`, `end` | seconds in the file (`end` for vamps and skips only; at least 0.05 s long) |
+| `count` | vamps: `0` / left out = until Advance; `N` ≥ 2 = a repeat that plays N times and goes on by itself |
+| `exit` | vamps: `endOfPass` (default) / `nextBar` (needs the cue's `beatGrid`) / `now` |
+| `name` | optional label |
+| `id` | made up when left out |
+
+Vamps can't overlap; one that starts inside an earlier vamp is dropped.
+`/quewi/advance` and `/quewi/cue/<num>/advance` press Advance (above).
+
 ### Matrix List
 
 *New in 1.2.0.* The [Matrix List](../using-quewi/matrix-list.md)
@@ -715,6 +746,7 @@ coerces numeric types (`i/h/f/d`) to whatever the field expects.
 | `objSpread` | `f` | 0.0 … 1.0 | Source spread (0 = point, 1 = omni) |
 | `lightTriggers` | `s` (JSON array) | — | *(1.1.0)* The cue's [lighting triggers](#trigger-json). Send the whole array as a JSON string; `""` or `[]` clears them. Left out of the cue JSON when there are none. Prefer the [trigger addresses](#lighting-triggers-v5) for edits: they make one undo step per message, whereas repeated `set/lightTriggers` messages merge into one. |
 | `beatGrid` | `s` (JSON object) | — | *(1.1.0)* The song's [beat grid](../using-quewi/lighting-triggers.md#beat-grid): `{"bpm": 128, "firstBeat": 0.37, "beatsPerBar": 4}`. `bpm` 0 = none. Left out of the cue JSON when there's no grid. |
+| `playEvents` | `s` (JSON array) | seconds in the file | *(1.3.0)* [Vamps, repeats, holds, skips and markers](#vamps-and-advance). `""` or `[]` clears them. Left out of the cue JSON when there are none. |
 | `cuts` | `s` (JSON array) | seconds in the file | *(1.1.0)* Sections cut out of the middle, as `[[start, end], …]`. Playback jumps over them. Overlapping cuts merge; ones shorter than 10 ms are dropped. `""` or `[]` restores them all. Left out of the cue JSON when there are none. |
 | `videoOrigin` | — | JSON object | **Read-only.** *(1.1.0)* Present on an audio cue converted from a video cue: the video's settings, restored if it's converted back. |
 

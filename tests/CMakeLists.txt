@@ -110,6 +110,13 @@ target_sources(test_light_triggers_ui PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/../src/app/GoEngine.cpp
 )
 
+# The vamps UI: the timeline's VAMPS lane and the editor's Vamps tab. Same
+# GoEngine trick.
+quewi_add_test(play_events_ui Qt6::Test Qt6::Widgets quewi_ui)
+target_sources(test_play_events_ui PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/../src/app/GoEngine.cpp
+)
+
 # The video editor: In/Out + picture fades on the cue, the timeline's
 # handles, the editor window, and a playing picture honouring them (the last
 # few need QUEWI_TEST_VIDEO_FILE; they skip in CI). Same GoEngine trick.

@@ -125,13 +125,17 @@ public:
     // playing now — what Advance would act on. Most urgent first: a hold,
     // then a vamp, then a skip (the newest song first within each); repeats
     // and vamps already on their way out are listed (Show Mode shows them)
-    // but Advance passes over them.
+    // but Advance passes over them, and so are songs playing on towards
+    // their next one (state Normal, so the operator can get ready).
     struct PlayingEvent {
         QPointer<audio::AudioCue> cue;
         quint64 voice = 0;
         audio::ActiveVoice::PlayState state = audio::ActiveVoice::PlayState::Normal;
         audio::PlayEvent event;           // the vamp / hold / skip it's in
         int     pass = 0;                 // vamp / repeat passes finished
+        // Playing on (state Normal): `event` is the next one coming, this
+        // many seconds of the song away.
+        double  inSeconds = -1.0;
         bool    advanceable() const;
         QString describe() const;         // "Vamping (pass 3) — Advance to go on"
     };
