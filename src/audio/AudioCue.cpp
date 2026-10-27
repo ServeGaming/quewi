@@ -34,6 +34,7 @@ QVariant AudioCue::field(const QString &key) const
     if (key == QLatin1String("lightTriggers"))  return triggersToJson(m_lightTriggers);
     if (key == QLatin1String("beatGrid"))       return m_beatGrid.toJson();
     if (key == QLatin1String("cuts"))           return cutsToJson(m_cuts);
+    if (key == QLatin1String("playEvents"))     return playEventsToJson(m_playEvents);
     return cues::Cue::field(key);
 }
 
@@ -93,6 +94,14 @@ void AudioCue::setField(const QString &key, const QVariant &value)
         auto next = cutsFromVariant(value, &ok);
         if (!ok || next == m_cuts) return;
         m_cuts = std::move(next);
+        emitChanged();
+        return;
+    }
+    if (key == QLatin1String("playEvents")) {
+        bool ok = false;
+        auto next = playEventsFromVariant(value, &ok);
+        if (!ok || next == m_playEvents) return;
+        m_playEvents = std::move(next);
         emitChanged();
         return;
     }
@@ -172,6 +181,8 @@ QJsonObject AudioCue::toPayload() const
         o.insert(QStringLiteral("beatGrid"), m_beatGrid.toJson());
     if (!m_cuts.empty())
         o.insert(QStringLiteral("cuts"), cutsToJson(m_cuts));
+    if (!m_playEvents.empty())
+        o.insert(QStringLiteral("playEvents"), playEventsToJson(m_playEvents));
     return o;
 }
 
@@ -208,6 +219,7 @@ void AudioCue::fromPayload(const QJsonObject &payload)
     m_lightTriggers   = triggersFromJson(payload.value(QStringLiteral("lightTriggers")).toArray());
     m_beatGrid        = BeatGrid::fromJson(payload.value(QStringLiteral("beatGrid")).toObject());
     m_cuts            = cutsFromVariant(payload.value(QStringLiteral("cuts")).toArray());
+    m_playEvents      = playEventsFromVariant(payload.value(QStringLiteral("playEvents")).toArray());
     m_file.reset();
 }
 

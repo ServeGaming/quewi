@@ -296,6 +296,14 @@ quint64 GoEngine::fireSound(audio::AudioCue *audioCue, const AudioRoute &route,
         p.pan            = audioCue->pan();
         p.loop           = audioCue->loop();
         p.cuts           = audioCue->cuts();
+        p.playEvents     = audioCue->playEvents();
+        // A vamp that exits "at the next bar" needs the bar lines.
+        if (const auto &g = audioCue->beatGrid(); g.isSet() && !p.playEvents.empty()) {
+            const double bar = g.beatLength() * g.beatsPerBar;
+            const auto f = audioCue->audioFile();
+            const double to = (f && f->durationSeconds() > 0.0) ? f->durationSeconds() : 3600.0;
+            for (double t = g.firstBeat; t <= to && bar > 0.0; t += bar) p.barTimes.push_back(t);
+        }
         // Per-cue effects chain (EQ/comp/reverb/delay) built fresh
         // for this voice from the cue's saved editor rack. Empty =
         // dry. Applied as a stereo insert in the mixer.
@@ -354,6 +362,13 @@ quint64 GoEngine::fireSound(audio::AudioCue *audioCue, const AudioRoute &route,
 
         vid = m_audio->fire(file, p);
         audioCue->setCurrentVoiceId(vid);
+        if (!p.playEvents.empty()) {
+            m_withPlayEvents.erase(std::remove_if(m_withPlayEvents.begin(), m_withPlayEvents.end(),
+                                                  [audioCue](const QPointer<audio::AudioCue> &c) {
+                                                      return !c || c == audioCue;
+                                                  }), m_withPlayEvents.end());
+            m_withPlayEvents.push_back(audioCue);
+        }
         if (vid != 0 && !audioCue->lightTriggers().empty())
             startTriggers(audioCue, owner, vid, 0);
         if (vid != 0
@@ -558,11 +573,12 @@ void GoEngine::doFire(cues::Cue *cue, const AudioRoute &route)
         } else {
             status(tr("Reset: target not found"));
         }
-    } else if (qobject_cast<cues::DevampCue *>(cue) != nullptr) {
-        // Vamping (looping until devamped) lands with the audio editor
-        // overhaul. Until then this is a documented no-op so shows
-        // authored against future builds round-trip cleanly.
-        status(tr("Devamp: vamping not yet implemented"));
+    } else if (auto *devamp = qobject_cast<cues::DevampCue *>(cue)) {
+        // Devamp = Advance, for one cue: out of its vamp (as the vamp says:
+        // end of the pass, next bar or now), on from a hold, past a skip.
+        auto *target = findCue(devamp->targetId(), cue);
+        if (!target) status(tr("Devamp: target not found"));
+        else if (!advanceCue(target)) status(tr("Devamp: %1 isn't in a vamp, hold or skip").arg(nameOf(target)));
     } else if (auto *midiCue = qobject_cast<midi::MidiCue *>(cue)) {
         if (m_midi) {
             if (m_midi->sendRaw(midiCue->portName(), midiCue->bytes())) {
@@ -973,6 +989,16 @@ void GoEngine::onTriggerTick()
                     loopStart = run.sound->trimInSeconds();
                     loopEnd   = it->durationSeconds;
                 }
+                // In a vamp or repeat: going back to its start is the loop,
+                // so the lighting inside it plays again every pass.
+                using PS = audio::ActiveVoice::PlayState;
+                const auto &ev = run.sound->playEvents();
+                if ((it->playState == PS::Vamping || it->playState == PS::Repeating
+                     || it->playState == PS::Leaving)
+                    && it->playEventIndex >= 0 && it->playEventIndex < int(ev.size())) {
+                    loopStart = ev[size_t(it->playEventIndex)].start;
+                    loopEnd   = ev[size_t(it->playEventIndex)].end;
+                }
             }
         } else if (m_video) {
             const auto t = m_video->transport(run.videoVoice);
@@ -1008,6 +1034,93 @@ void GoEngine::onTriggerTick()
     }
 
     if (m_triggerRuns.empty() && m_triggerTimer) m_triggerTimer->stop();
+}
+
+bool GoEngine::PlayingEvent::advanceable() const
+{
+    using PS = audio::ActiveVoice::PlayState;
+    return state == PS::Holding || state == PS::Vamping || state == PS::InSkip;
+}
+
+QString GoEngine::PlayingEvent::describe() const
+{
+    using PS = audio::ActiveVoice::PlayState;
+    const QString name = event.name.isEmpty() ? QString() : QStringLiteral(" “%1”").arg(event.name);
+    switch (state) {
+    case PS::Holding:   return GoEngine::tr("Holding%1 — Advance to go on").arg(name);
+    case PS::Vamping:   return GoEngine::tr("Vamping%1 (pass %2) — Advance to go on").arg(name).arg(pass + 1);
+    case PS::Leaving:   return event.exit == audio::PlayEvent::Exit::EndOfPass
+                            ? GoEngine::tr("Leaving the vamp%1 at the end of this pass").arg(name)
+                            : GoEngine::tr("Leaving the vamp%1").arg(name);
+    case PS::Repeating: return GoEngine::tr("Repeat%1: pass %2 of %3").arg(name).arg(pass + 1).arg(event.count);
+    case PS::InSkip:    return GoEngine::tr("In a skip%1 — Advance jumps to its end").arg(name);
+    case PS::Normal:    break;
+    }
+    return {};
+}
+
+std::vector<GoEngine::PlayingEvent> GoEngine::playingEvents() const
+{
+    std::vector<PlayingEvent> out;
+    if (!m_audio || m_withPlayEvents.empty()) return out;
+    QHash<quint64, audio::ActiveVoice> voices;
+    for (const auto &av : m_audio->activeVoices()) voices.insert(av.id, av);
+    for (auto it = m_withPlayEvents.rbegin(); it != m_withPlayEvents.rend(); ++it) {   // newest first
+        audio::AudioCue *c = *it;
+        if (!c || c->currentVoiceId() == 0) continue;
+        const auto v = voices.constFind(c->currentVoiceId());
+        if (v == voices.constEnd() || v->playState == audio::ActiveVoice::PlayState::Normal) continue;
+        const auto &ev = c->playEvents();
+        if (v->playEventIndex < 0 || v->playEventIndex >= int(ev.size())) continue;
+        PlayingEvent p;
+        p.cue = c;
+        p.voice = v->id;
+        p.state = v->playState;
+        p.event = ev[size_t(v->playEventIndex)];
+        p.pass = v->playPass;
+        out.push_back(p);
+    }
+    using PS = audio::ActiveVoice::PlayState;
+    auto rank = [](PS s) {
+        switch (s) {
+        case PS::Holding: return 0;
+        case PS::Vamping: return 1;
+        case PS::InSkip:  return 2;
+        default:          return 3;
+        }
+    };
+    std::stable_sort(out.begin(), out.end(),
+                     [&](const PlayingEvent &a, const PlayingEvent &b) { return rank(a.state) < rank(b.state); });
+    return out;
+}
+
+bool GoEngine::advance()
+{
+    for (const auto &p : playingEvents()) {
+        if (!p.advanceable() || !p.cue) continue;
+        m_audio->advance(p.voice);
+        using PS = audio::ActiveVoice::PlayState;
+        const QString what = p.state == PS::Holding ? tr("on from the hold")
+                           : p.state == PS::InSkip  ? tr("to the end of the skip")
+                           : p.event.exit == audio::PlayEvent::Exit::Now ? tr("out of the vamp")
+                           : p.event.exit == audio::PlayEvent::Exit::NextBar ? tr("out of the vamp at the next bar")
+                                                                             : tr("out of the vamp at the end of this pass");
+        emit statusMessage(tr("Advance → %1 %2").arg(nameOf(p.cue), what));
+        return true;
+    }
+    emit statusMessage(tr("Advance: nothing is vamping, holding or in a skip"));
+    return false;
+}
+
+bool GoEngine::advanceCue(cues::Cue *cue)
+{
+    for (const auto &p : playingEvents())
+        if (p.cue == cue && p.advanceable()) {
+            m_audio->advance(p.voice);
+            emit statusMessage(tr("Advance → %1").arg(nameOf(p.cue)));
+            return true;
+        }
+    return false;
 }
 
 std::vector<GoEngine::UpcomingTrigger> GoEngine::upcomingTriggers(int max) const

@@ -33,11 +33,16 @@ public slots:
     // next sound cue and the desk's next lighting cue together. Hidden on
     // every other page (GO Lights only means something in a Matrix List).
     void setGoBothState(bool visible, bool ready, const QString &tooltip);
+    // ADVANCE: shown while a song with vamps / holds / skips plays; lit
+    // (ready) when one is waiting for it. `text` is the button's second
+    // line ("Vamp · pass 3"), `tooltip` says what pressing it will do.
+    void setAdvanceState(bool visible, bool ready, const QString &text, const QString &tooltip);
 
 signals:
     void goPressed();
     void dcaGoPressed();
     void goBothPressed();
+    void advancePressed();
     void panicPressed();
     void pausePressed();
     void fadeAllPressed();
@@ -48,6 +53,7 @@ private:
     QPushButton *m_goButton  = nullptr;
     QPushButton *m_dcaGo     = nullptr;
     QPushButton *m_goBoth    = nullptr;
+    QPushButton *m_advance   = nullptr;
     QPushButton *m_pause     = nullptr;
     QPushButton *m_fadeAll   = nullptr;
     QPushButton *m_panic     = nullptr;

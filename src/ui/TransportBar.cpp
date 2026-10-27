@@ -124,6 +124,16 @@ TransportBar::TransportBar(QWidget *parent)
     m_goBoth->setMinimumHeight(64);
     m_goBoth->hide();
 
+    // ADVANCE — out of a vamp, on from a hold, past a skip (Stage|Tracks'
+    // Advance). Only there while a song that has those is playing.
+    m_advance = new QPushButton(tr("ADVANCE"), this);
+    m_advance->setObjectName(QStringLiteral("advanceButton"));
+    m_advance->setProperty("state", "disabled");
+    m_advance->setEnabled(false);
+    m_advance->setFocusPolicy(Qt::NoFocus);   // Space stays GO
+    m_advance->setMinimumHeight(64);
+    m_advance->hide();
+
     m_goButton = new QPushButton(tr("GO"), this);
     m_goButton->setObjectName(QStringLiteral("goButton"));
     // Dynamic property drives QSS state colour: standby (blue) until a
@@ -141,12 +151,14 @@ TransportBar::TransportBar(QWidget *parent)
     layout->addWidget(m_fadeAll,  0, Qt::AlignVCenter);
     layout->addWidget(m_panic,    0, Qt::AlignVCenter);
     layout->addWidget(m_dcaGo,    0, Qt::AlignVCenter);
+    layout->addWidget(m_advance,  0, Qt::AlignVCenter);
     layout->addWidget(m_goBoth,   0, Qt::AlignVCenter);
     layout->addWidget(m_goButton, 0, Qt::AlignVCenter);
 
     connect(m_goButton, &QPushButton::clicked, this, &TransportBar::goPressed);
     connect(m_dcaGo,    &QPushButton::clicked, this, &TransportBar::dcaGoPressed);
     connect(m_goBoth,   &QPushButton::clicked, this, &TransportBar::goBothPressed);
+    connect(m_advance,  &QPushButton::clicked, this, &TransportBar::advancePressed);
     connect(m_panic,    &QPushButton::clicked, this, &TransportBar::panicPressed);
     connect(m_pause,    &QPushButton::clicked, this, &TransportBar::pausePressed);
     connect(m_fadeAll,  &QPushButton::clicked, this, &TransportBar::fadeAllPressed);
@@ -187,6 +199,21 @@ void TransportBar::setGoBothState(bool visible, bool ready, const QString &toolt
         m_goBoth->style()->polish(m_goBoth);
     }
     m_goBoth->setToolTip(tooltip);
+}
+
+void TransportBar::setAdvanceState(bool visible, bool ready, const QString &text, const QString &tooltip)
+{
+    if (!m_advance) return;
+    m_advance->setVisible(visible);
+    m_advance->setEnabled(visible && ready);
+    m_advance->setText(text.isEmpty() ? tr("ADVANCE") : tr("ADVANCE") + QLatin1Char('\n') + text);
+    const char *state = (visible && ready) ? "ready" : "disabled";
+    if (m_advance->property("state").toString() != QLatin1String(state)) {
+        m_advance->setProperty("state", state);
+        m_advance->style()->unpolish(m_advance);
+        m_advance->style()->polish(m_advance);
+    }
+    m_advance->setToolTip(tooltip);
 }
 
 TransportBar::~TransportBar() = default;

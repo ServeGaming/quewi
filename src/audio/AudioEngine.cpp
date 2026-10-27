@@ -76,6 +76,29 @@ public:
         v.srcSampleRate = srcSr;
         for (const auto &c : params.cuts)
             v.cutFrames.emplace_back(c.start * srcSr, c.end * srcSr);
+        for (size_t i = 0; i < params.playEvents.size(); ++i) {
+            const auto &e = params.playEvents[i];
+            const int idx = static_cast<int>(i);
+            switch (e.kind) {
+            case PlayEvent::Kind::Vamp:
+                if (e.length() >= kMinPlayEventLength)
+                    v.play.vamps.push_back({e.start * srcSr, e.end * srcSr, e.count, e.exit, idx});
+                break;
+            case PlayEvent::Kind::Skip:
+                if (e.length() >= kMinPlayEventLength)
+                    v.play.skips.push_back({e.start * srcSr, e.end * srcSr, idx});
+                break;
+            case PlayEvent::Kind::Hold:
+                // A hold behind where playback starts has already gone by.
+                v.play.holds.push_back({e.start * srcSr, idx,
+                                        e.start * srcSr < static_cast<double>(v.readPos)});
+                break;
+            case PlayEvent::Kind::Marker:
+                break;
+            }
+        }
+        for (const double b : params.barTimes) v.play.bars.push_back(b * srcSr);
+        std::sort(v.play.bars.begin(), v.play.bars.end());
         v.channelGains  = params.channelGains;
         v.outputGains   = params.outputGains;
         v.peakPerChannel.fill(0.0f, m_outputChannels);
@@ -218,6 +241,17 @@ public:
                 return true;
             }
         }
+        return false;
+    }
+
+    bool advanceVoice(VoiceId id)
+    {
+        std::lock_guard<std::mutex> lock(m_mutex);
+        for (auto &v : m_voices)
+            if (v.id == id && !v.finished) {
+                ++v.play.advanceReq;
+                return true;
+            }
         return false;
     }
 
@@ -430,6 +464,18 @@ public:
             a.peakLeft  = v.peakL.load(std::memory_order_relaxed);
             a.peakRight = v.peakR.load(std::memory_order_relaxed);
             a.peakPerChannel = v.peakPerChannel;  // copy under m_mutex
+            // Parked on a vamp's end with another pass to come: the next
+            // buffer wraps it, so say where it really is (the start).
+            if (v.play.inVamp >= 0 && v.srcSampleRate > 0) {
+                const auto &L = v.play.vamps[static_cast<size_t>(v.play.inVamp)];
+                const bool again = (L.count == 0 && !v.play.leaving)
+                                || (L.count > 0 && v.play.pass + 1 < L.count);
+                const double at = static_cast<double>(v.readPos) + v.readFrac;
+                if (again && at >= L.e) a.positionSeconds = (at - (L.e - L.s)) / v.srcSampleRate;
+            }
+            a.playState      = v.play.state;
+            a.playEventIndex = v.play.stateIndex;
+            a.playPass       = v.play.pass;
             out.append(a);
         }
     }
@@ -520,6 +566,28 @@ private:
         // position jumps from start to end. Set at fire, never touched on
         // the audio thread except to read.
         std::vector<std::pair<double, double>> cutFrames;
+        // Vamps / repeats / holds / skips in source frames, and where the
+        // voice is among them. Set up at fire; the GUI only bumps
+        // advanceReq (under m_mutex); everything else is the audio thread's.
+        struct Play {
+            struct Loop { double s, e; int count; PlayEvent::Exit exit; int index; };
+            struct Span { double s, e; int index; };
+            struct Hold { double at; int index; bool done; };
+            std::vector<Loop>   vamps;
+            std::vector<Span>   skips;
+            std::vector<Hold>   holds;
+            std::vector<double> bars;
+            int    advanceReq = 0, advanceSeen = 0;
+            int    inVamp = -1;        // index into vamps; -1 = not in one
+            int    pass = 0;           // passes of it finished
+            bool   leaving = false;    // Advance pressed: don't loop again
+            int    holding = -1;       // index into holds while stopped at one
+            double jumpFrom = -1.0, jumpTo = -1.0;   // a skip / exit in flight
+            // Reported to the GUI (ActiveVoice).
+            ActiveVoice::PlayState state = ActiveVoice::PlayState::Normal;
+            int    stateIndex = -1;
+            bool any() const { return !vamps.empty() || !skips.empty() || !holds.empty(); }
+        } play;
         std::atomic<double> gain{1.0};
         std::atomic<double> currentGain{1.0};
         std::atomic<double> targetGain{1.0};
@@ -590,6 +658,7 @@ private:
             , endFrame(other.endFrame)
             , srcSampleRate(other.srcSampleRate)
             , cutFrames(std::move(other.cutFrames))
+            , play(std::move(other.play))
             , gainFadeSamples(other.gainFadeSamples)
             , gainFadeCounter(other.gainFadeCounter)
             , gainFadeFrom(other.gainFadeFrom)
@@ -631,6 +700,7 @@ private:
             endFrame = other.endFrame;
             srcSampleRate = other.srcSampleRate;
             cutFrames = std::move(other.cutFrames);
+            play = std::move(other.play);
             gainFadeSamples = other.gainFadeSamples;
             gainFadeCounter = other.gainFadeCounter;
             gainFadeFrom = other.gainFadeFrom;
@@ -831,6 +901,7 @@ qint64 AudioEngine::Mixer::readData(char *data, qint64 maxlen)
             // Land frame position `pos` past any cut it fell into: just
             // after the cut's end, keeping the sub-step it went in by (a
             // seek deep into a cut lands right at the end instead).
+            auto &P = v.play;
             auto skipCuts = [&](double pos) {
                 for (const auto &[cs, ce] : v.cutFrames) {
                     if (pos < cs) break;                 // sorted: none further
@@ -839,14 +910,127 @@ qint64 AudioEngine::Mixer::readData(char *data, qint64 maxlen)
                     cutShift += landed - pos;
                     pos = landed;
                 }
+                // A skip taken / a vamp left "now" or "at the next bar": a
+                // one-off cut from where Advance landed to where it goes.
+                if (P.jumpFrom >= 0.0 && pos >= P.jumpFrom && pos < P.jumpTo) {
+                    const double landed = P.jumpTo + std::min(pos - P.jumpFrom, rate);
+                    cutShift += landed - pos;
+                    pos = landed;
+                }
                 return pos;
             };
+            const bool hasJumps = !v.cutFrames.empty() || P.any();
+
+            // Advance: act on what the voice is in right now.
+            if (P.advanceReq != P.advanceSeen) {
+                P.advanceSeen = P.advanceReq;
+                const double pos = basePos;
+                const double room = 3.0 * cutRamp;
+                const Voice::Play::Span *skip = nullptr;
+                for (const auto &sp : P.skips)
+                    if (pos >= sp.s && pos < sp.e) { skip = &sp; break; }
+                if (P.holding >= 0) {
+                    P.holds[static_cast<size_t>(P.holding)].done = true;
+                    P.holding = -1;
+                    v.resumeFadeSamples = std::max<qint64>(1, static_cast<qint64>(0.005 * dstSr));
+                    v.resumeFadeCounter = 0;
+                } else if (P.inVamp >= 0 && P.vamps[static_cast<size_t>(P.inVamp)].count == 0) {
+                    const auto &L = P.vamps[static_cast<size_t>(P.inVamp)];
+                    P.leaving = true;
+                    double from = -1.0;
+                    if (L.exit == PlayEvent::Exit::Now) {
+                        from = pos + cutRamp;
+                    } else if (L.exit == PlayEvent::Exit::NextBar) {
+                        for (const double b : P.bars)
+                            if (b > pos + cutRamp) { from = b; break; }
+                    }
+                    // Too close to the end of the pass to be worth a jump:
+                    // just leave at the end of it.
+                    if (from >= 0.0 && L.e - from > room) { P.jumpFrom = from; P.jumpTo = L.e; }
+                } else if (skip && skip->e - pos > room) {
+                    P.jumpFrom = pos + cutRamp;
+                    P.jumpTo   = skip->e;
+                }
+            }
+            // Where the frame before this buffer's first one read from (one
+            // step back): a vamp's end landing exactly on a buffer boundary
+            // is still a crossing.
+            double prevSrc = basePos - rate;
+            // The pre-roll into a vamp's loop point: the last few ms of a
+            // pass are crossfaded with the few ms before its start, so the
+            // seam is as smooth as the music at the top of the vamp.
+            const double vampXfade = 0.012 * srcSr;
 
             for (qint64 f = 0; f < framesWanted; ++f) {
                 if (v.finished) break;
 
                 double srcF = basePos + static_cast<double>(f) * rate + cutShift;
-                if (!v.cutFrames.empty()) srcF = skipCuts(srcF);
+                if (hasJumps) srcF = skipCuts(srcF);
+                double blendPos = -1.0, blendW = 0.0;   // vamp pre-roll
+                bool   held = false;
+                if (P.any()) {
+                    // Stopped at a hold: stay there, silent, until Advance.
+                    if (P.holding < 0) {
+                        for (size_t h = 0; h < P.holds.size(); ++h) {
+                            auto &H = P.holds[h];
+                            if (!H.done && prevSrc <= H.at && srcF >= H.at) {
+                                P.holding = static_cast<int>(h);
+                                break;
+                            }
+                        }
+                    }
+                    if (P.holding >= 0) {
+                        const double at = P.holds[static_cast<size_t>(P.holding)].at;
+                        cutShift += at - srcF;
+                        srcF = at;
+                        held = true;
+                    }
+                    // Into / out of a vamp by playing (or a seek).
+                    if (P.inVamp >= 0) {
+                        const auto &L = P.vamps[static_cast<size_t>(P.inVamp)];
+                        if (srcF >= L.e && prevSrc < L.e && prevSrc >= L.s - rate) {
+                            const bool again = (L.count == 0 && !P.leaving)
+                                            || (L.count > 0 && P.pass + 1 < L.count);
+                            if (again) {
+                                const double len = L.e - L.s;
+                                srcF -= len;
+                                cutShift -= len;
+                                ++P.pass;
+                            } else {
+                                P.inVamp = -1;
+                                P.pass = 0;
+                                P.leaving = false;
+                            }
+                        } else if (srcF < L.s || srcF >= L.e) {
+                            P.inVamp = -1;
+                            P.pass = 0;
+                            P.leaving = false;
+                        }
+                    }
+                    if (P.inVamp < 0) {
+                        for (size_t k = 0; k < P.vamps.size(); ++k)
+                            if (srcF >= P.vamps[k].s && srcF < P.vamps[k].e) {
+                                P.inVamp = static_cast<int>(k);
+                                P.pass = 0;
+                                P.leaving = false;
+                                break;
+                            }
+                    }
+                    if (P.inVamp >= 0 && !held) {
+                        const auto &L = P.vamps[static_cast<size_t>(P.inVamp)];
+                        const bool again = (L.count == 0 && !P.leaving)
+                                        || (L.count > 0 && P.pass + 1 < L.count);
+                        const double xf = std::min({vampXfade, L.s, (L.e - L.s) / 4.0});
+                        if (again && xf > 1.0 && srcF >= L.e - xf) {
+                            blendPos = srcF - (L.e - L.s);
+                            blendW   = (srcF - (L.e - xf)) / xf;
+                        }
+                    }
+                    if (P.jumpFrom >= 0.0 && srcF > P.jumpTo + cutRamp) {
+                        P.jumpFrom = P.jumpTo = -1.0;
+                    }
+                }
+                prevSrc = srcF;
                 if (srcF >= static_cast<double>(effectiveEnd)) {
                     if (looping) {
                         // Wrap EVERY frame that crosses the end back to the
@@ -872,14 +1056,31 @@ qint64 AudioEngine::Mixer::readData(char *data, qint64 maxlen)
                 qint64 i1 = i0 + 1;
                 if (i1 >= effectiveEnd) i1 = looping ? startFrame : effectiveEnd - 1;
                 ++framesWritten;
+                // The vamp pre-roll's second read (see blendPos above).
+                const bool blend = blendW > 0.0;
+                const qint64 j0 = blend ? static_cast<qint64>(blendPos) : 0;
+                const float  jfrac = blend ? static_cast<float>(blendPos - static_cast<double>(j0)) : 0.f;
+                const qint64 j1 = std::min<qint64>(j0 + 1, effectiveEnd - 1);
+                const float  wB = static_cast<float>(blendW), wA = 1.f - wB;
 
-                double envGain = 1.0;
+                double envGain = held ? 0.0 : 1.0;
                 // A few ms dip either side of a splice, so it can't click.
                 for (const auto &[cs, ce] : v.cutFrames) {
                     const double toCut = cs - srcF, fromCut = srcF - ce;
                     if (toCut >= 0.0 && toCut < cutRamp)     envGain *= toCut / cutRamp;
                     if (fromCut >= 0.0 && fromCut < cutRamp) envGain *= fromCut / cutRamp;
                 }
+                if (P.jumpFrom >= 0.0) {
+                    const double toCut = P.jumpFrom - srcF, fromCut = srcF - P.jumpTo;
+                    if (toCut >= 0.0 && toCut < cutRamp)     envGain *= toCut / cutRamp;
+                    if (fromCut >= 0.0 && fromCut < cutRamp) envGain *= fromCut / cutRamp;
+                }
+                // …and down into a hold, so stopping can't click either.
+                if (!held)
+                    for (const auto &H : P.holds) {
+                        const double toHold = H.at - srcF;
+                        if (!H.done && toHold >= 0.0 && toHold < cutRamp) envGain *= toHold / cutRamp;
+                    }
                 // Fade-in: measured in output frames from the moment the
                 // voice started, on the first pass only.
                 const qint64 played = v.playedFrames + f;
@@ -898,7 +1099,8 @@ qint64 AudioEngine::Mixer::readData(char *data, qint64 maxlen)
                     if (remainingOut < static_cast<double>(v.fadeOutOnStop))
                         envGain *= std::max(0.0, remainingOut / static_cast<double>(v.fadeOutOnStop));
                 }
-                if (v.resumeFadeSamples > 0
+                if (held) cutShift -= rate;          // stay put at the hold
+                if (!held && v.resumeFadeSamples > 0
                     && v.resumeFadeCounter < v.resumeFadeSamples) {
                     envGain *= static_cast<double>(v.resumeFadeCounter)
                              / static_cast<double>(v.resumeFadeSamples);
@@ -961,7 +1163,11 @@ qint64 AudioEngine::Mixer::readData(char *data, qint64 maxlen)
                     };
                     const float s0 = sampleMono(i0);
                     const float s1 = sampleMono(i1);
-                    const float s  = s0 + static_cast<float>(frac) * (s1 - s0);
+                    float s  = s0 + static_cast<float>(frac) * (s1 - s0);
+                    if (blend) {
+                        const float b0 = sampleMono(j0), b1 = sampleMono(j1);
+                        s = wA * s + wB * (b0 + jfrac * (b1 - b0));
+                    }
                     const float scaled = static_cast<float>(s * finalGain);
                     for (int oc = 0; oc < outChans; ++oc) {
                         const float g = v.channelGains[oc];
@@ -986,7 +1192,10 @@ qint64 AudioEngine::Mixer::readData(char *data, qint64 maxlen)
                                            + static_cast<size_t>(sc)];
                         };
                         const float a = smp(i0), b = smp(i1);
-                        return a + static_cast<float>(frac) * (b - a);
+                        const float x = a + static_cast<float>(frac) * (b - a);
+                        if (!blend) return x;
+                        const float c = smp(j0), d = smp(j1);
+                        return wA * x + wB * (c + jfrac * (d - c));
                     };
                     const float sL = interpCh(0);
                     const float sR = interpCh(inChans > 1 ? 1 : 0);
@@ -1011,7 +1220,11 @@ qint64 AudioEngine::Mixer::readData(char *data, qint64 maxlen)
                     };
                     const float s0 = sample(i0);
                     const float s1 = sample(i1);
-                    const float s  = s0 + static_cast<float>(frac) * (s1 - s0);
+                    float s  = s0 + static_cast<float>(frac) * (s1 - s0);
+                    if (blend) {
+                        const float b0 = sample(j0), b1 = sample(j1);
+                        s = wA * s + wB * (b0 + jfrac * (b1 - b0));
+                    }
                     float panGain = 1.f;
                     if (outChans == 2) {
                         panGain = (oc == 0) ? leftPan : rightPan;
@@ -1073,6 +1286,26 @@ qint64 AudioEngine::Mixer::readData(char *data, qint64 maxlen)
             // framesWritten < framesWanted and we keep readPos parked
             // so the next buffer resumes exactly where we paused.
             // Carry the sub-frame remainder instead of truncating it.
+            if (P.any()) {
+                using PS = ActiveVoice::PlayState;
+                P.state = PS::Normal;
+                P.stateIndex = -1;
+                if (P.holding >= 0) {
+                    P.state = PS::Holding;
+                    P.stateIndex = P.holds[static_cast<size_t>(P.holding)].index;
+                } else if (P.inVamp >= 0) {
+                    const auto &L = P.vamps[static_cast<size_t>(P.inVamp)];
+                    P.state = L.count > 0 ? PS::Repeating : (P.leaving ? PS::Leaving : PS::Vamping);
+                    P.stateIndex = L.index;
+                } else {
+                    for (const auto &sp : P.skips)
+                        if (prevSrc >= sp.s && prevSrc < sp.e) {
+                            P.state = PS::InSkip;
+                            P.stateIndex = sp.index;
+                            break;
+                        }
+                }
+            }
             const double moved = v.readFrac + static_cast<double>(framesWritten) * rate
                                + cutShift;
             const qint64 advanced = static_cast<qint64>(std::floor(moved));
@@ -1924,6 +2157,16 @@ bool AudioEngine::isPaused(VoiceId id) const
     return false;
 }
 
+bool AudioEngine::advance(VoiceId id)
+{
+    if (const VoiceId m = mirrorOf(id))
+        for (auto &ctx : m_contexts)
+            if (ctx->mixer && ctx->mixer->advanceVoice(m)) break;
+    for (auto &ctx : m_contexts)
+        if (ctx->mixer && ctx->mixer->advanceVoice(id)) return true;
+    return false;
+}
+
 bool AudioEngine::seek(VoiceId id, double seconds)
 {
     if (const VoiceId m = mirrorOf(id))
@@ -1977,6 +2220,14 @@ void OfflineRenderer::fadeGain(VoiceId id, double db, double s)  { m_mixer->fade
 bool OfflineRenderer::pause(VoiceId id)                          { return m_mixer->pauseVoice(id); }
 bool OfflineRenderer::resume(VoiceId id)                         { return m_mixer->resumeVoice(id); }
 int  OfflineRenderer::activeCount() const                        { return m_mixer->activeCount(); }
+bool OfflineRenderer::advance(VoiceId id)                        { return m_mixer->advanceVoice(id); }
+
+QList<ActiveVoice> OfflineRenderer::activeVoices() const
+{
+    QList<ActiveVoice> out;
+    m_mixer->appendActiveVoices(out);
+    return out;
+}
 
 void AudioEngine::onMixerVoiceFinished(VoiceId id, bool natural)
 {

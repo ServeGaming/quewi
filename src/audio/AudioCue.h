@@ -5,6 +5,7 @@
 #include "audio/BeatGrid.h"
 #include "audio/Cuts.h"
 #include "audio/LightTrigger.h"
+#include "audio/PlayEvents.h"
 #include "cues/Cue.h"
 
 #include <QUuid>
@@ -103,6 +104,10 @@ public:
     // Sections cut out of the middle (see Cuts.h): playback jumps over them.
     // Undoable field "cuts" ([[start, end], …], or a JSON string remotely).
     const Cuts &cuts() const { return m_cuts; }
+    // Vamps, repeats, holds, skips and markers (see PlayEvents.h): how the
+    // song plays through, Stage|Tracks-style; Advance moves it on.
+    // Undoable field "playEvents" (a JSON array, or a JSON string remotely).
+    const PlayEvents &playEvents() const { return m_playEvents; }
 
     const QJsonObject &editorModelJson() const { return m_editorModelJson; }
     void setEditorModelJson(const QJsonObject &j) { m_editorModelJson = j; emitChanged(); }
@@ -175,6 +180,7 @@ private:
     LightTriggers m_lightTriggers;
     BeatGrid      m_beatGrid;
     Cuts          m_cuts;
+    PlayEvents    m_playEvents;
 
     std::shared_ptr<AudioFile> m_file;
     quint64                    m_currentVoiceId = 0;

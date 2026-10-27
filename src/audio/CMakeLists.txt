@@ -14,6 +14,8 @@ add_library(quewi_audio STATIC
     BeatGrid.h
     Cuts.h
     Cuts.cpp
+    PlayEvents.h
+    PlayEvents.cpp
     BeatGrid.cpp
     DeskRecording.h
     DeskRecording.cpp

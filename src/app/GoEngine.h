@@ -1,6 +1,8 @@
 #pragma once
 
+#include "audio/AudioEngine.h"
 #include "audio/LightTrigger.h"
+#include "audio/PlayEvents.h"
 #include "audio/Vbap.h"
 #include "core/Workspace.h"
 
@@ -119,6 +121,27 @@ public:
     };
     std::vector<UpcomingTrigger> upcomingTriggers(int max = 8) const;
 
+    // Vamps, repeats, holds and skips (audio::PlayEvents) in the songs
+    // playing now — what Advance would act on. Most urgent first: a hold,
+    // then a vamp, then a skip (the newest song first within each); repeats
+    // and vamps already on their way out are listed (Show Mode shows them)
+    // but Advance passes over them.
+    struct PlayingEvent {
+        QPointer<audio::AudioCue> cue;
+        quint64 voice = 0;
+        audio::ActiveVoice::PlayState state = audio::ActiveVoice::PlayState::Normal;
+        audio::PlayEvent event;           // the vamp / hold / skip it's in
+        int     pass = 0;                 // vamp / repeat passes finished
+        bool    advanceable() const;
+        QString describe() const;         // "Vamping (pass 3) — Advance to go on"
+    };
+    std::vector<PlayingEvent> playingEvents() const;
+    // ADVANCE: move the most urgent of those on (see AudioEngine::advance).
+    // false (and a status message) when nothing is waiting for it.
+    bool advance();
+    // The same for one cue (the Devamp cue, OSC /quewi/cue/<n>/advance).
+    bool advanceCue(cues::Cue *cue);
+
 signals:
     void cueFired(quewi::cues::Cue *cue);
     // Emitted when a cue's primary effect has completed:
@@ -231,6 +254,8 @@ private:
         bool                      paused = false;
     };
     std::vector<TriggerRun> m_triggerRuns;
+    // Audio cues fired with vamps / holds / skips, so Advance can find them.
+    std::vector<QPointer<audio::AudioCue>> m_withPlayEvents;
     QTimer *m_triggerTimer = nullptr;
     bool    m_triggersArmed = true;
     void startTriggers(audio::AudioCue *sound, cues::Cue *owner,

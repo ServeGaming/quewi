@@ -308,6 +308,14 @@ MainWindow::MainWindow(QWidget *parent)
     m_actGoBoth->setShortcutContext(Qt::WindowShortcut);
     connect(m_actGoBoth, &QAction::triggered, this, &MainWindow::goBoth);
     regAction("transport.goboth", "GO Both: sound + lights (Matrix List)", m_actGoBoth, QKeySequence());
+    // ADVANCE: out of a vamp, on from a hold, past a skip. Right arrow, as in
+    // Stage|Tracks — live only while something is waiting for it.
+    m_actAdvance = new QAction(tr("Advance (vamp / hold / skip)"), this);
+    addAction(m_actAdvance);
+    m_actAdvance->setShortcutContext(Qt::WindowShortcut);
+    m_actAdvance->setEnabled(false);
+    connect(m_actAdvance, &QAction::triggered, this, &MainWindow::requestAdvance);
+    regAction("transport.advance", "Advance (vamp / hold / skip)", m_actAdvance, QKeySequence(Qt::Key_Right));
     m_actLightsBack = new QAction(tr("Lights Back"), this);
     addAction(m_actLightsBack);
     m_actLightsBack->setShortcutContext(Qt::WindowShortcut);
@@ -766,6 +774,11 @@ void MainWindow::buildLayout()
             m_actFadeAll, &QAction::trigger);
     connect(m_transport, &ui::TransportBar::goBothPressed,
             m_actGoBoth, &QAction::trigger);
+    connect(m_transport, &ui::TransportBar::advancePressed, this, &MainWindow::requestAdvance);
+    m_advanceTimer = new QTimer(this);
+    m_advanceTimer->setInterval(100);
+    connect(m_advanceTimer, &QTimer::timeout, this, &MainWindow::updateAdvance);
+    m_advanceTimer->start();
     // GO Both only shows while the Matrix List page is up.
     connect(m_centerStack, &QStackedWidget::currentChanged, this, [this] { updateGoBoth(); });
 
@@ -1657,6 +1670,46 @@ void MainWindow::requestLocalGo()
         return;
     }
     onGoRequested();
+}
+
+void MainWindow::requestAdvance()
+{
+    // Advance moves the music on, like GO: the safe key covers it too.
+    if (!ui::SafeKey::instance()->allows(ui::SafeKey::Action::Go)) {
+        statusBar()->showMessage(ui::SafeKey::instance()->blockedMessage(ui::SafeKey::Action::Go), 3000);
+        return;
+    }
+    if (m_goEngine) m_goEngine->advance();
+    updateAdvance();
+}
+
+void MainWindow::updateAdvance()
+{
+    if (!m_goEngine || !m_transport) return;
+    const auto events = m_goEngine->playingEvents();
+    const GoEngine::PlayingEvent *next = nullptr;
+    for (const auto &e : events)
+        if (e.advanceable()) { next = &e; break; }
+    const auto *shown = next ? next : (events.empty() ? nullptr : &events.front());
+    QString text, tip;
+    if (shown) {
+        using PS = audio::ActiveVoice::PlayState;
+        const auto &e = *shown;
+        switch (e.state) {
+        case PS::Holding:   text = tr("Hold"); break;
+        case PS::Vamping:   text = tr("Vamp · pass %1").arg(e.pass + 1); break;
+        case PS::Leaving:   text = tr("Leaving…"); break;
+        case PS::Repeating: text = tr("Repeat %1/%2").arg(e.pass + 1).arg(e.event.count); break;
+        case PS::InSkip:    text = tr("Skip"); break;
+        case PS::Normal:    break;
+        }
+        const QString who = e.cue ? (e.cue->name().isEmpty() ? e.cue->typeName() : e.cue->name()) : QString();
+        tip = QStringLiteral("%1: %2").arg(who, e.describe());
+        const auto keys = m_actAdvance ? m_actAdvance->shortcut().toString(QKeySequence::NativeText) : QString();
+        if (next && !keys.isEmpty()) tip += QStringLiteral(" (%1)").arg(keys);
+    }
+    m_transport->setAdvanceState(shown != nullptr, next != nullptr, text, tip);
+    if (m_actAdvance) m_actAdvance->setEnabled(next != nullptr);
 }
 
 void MainWindow::deleteSelectedCue()
@@ -4516,6 +4569,33 @@ void MainWindow::registerOscRemoteHandlers()
     // Posts /quewi/notify/cue/moved and /quewi/notify/cueList/reordered
     // after the undo command applies, so remote caches stay in sync
     // without re-querying.
+    // ADVANCE: out of a vamp / on from a hold / past a skip — the most urgent
+    // one playing, or one cue's. (Not gated by the safe key: a remote is
+    // deliberate, like /quewi/go.)
+    sub("/quewi/advance", [this](const osc::Message &) {
+        QMetaObject::invokeMethod(this, [this]{
+            if (m_goEngine) m_goEngine->advance();
+            updateAdvance();
+        }, Qt::QueuedConnection);
+    });
+    sub("/quewi/cue/*/advance", [this](const osc::Message &m) {
+        const auto parts = m.address.split(QChar('/'), Qt::SkipEmptyParts);
+        bool ok = false;
+        const double num = parts.value(2).toDouble(&ok);
+        if (!ok) return;
+        QMetaObject::invokeMethod(this, [this, num]{
+            auto *list = activeOscList();
+            if (!list || !m_goEngine) return;
+            for (int r = 0; r < list->cueCount(); ++r)
+                if (auto *c = list->cueAt(r); c && sameCueNumber(c->number(), num)) {
+                    if (!m_goEngine->advanceCue(c))
+                        statusBar()->showMessage(tr("Advance: cue %1 isn't in a vamp, hold or skip")
+                                                     .arg(QString::number(num)), 3000);
+                    updateAdvance();
+                    return;
+                }
+        }, Qt::QueuedConnection);
+    });
     sub("/quewi/cue/*/move", [this](const osc::Message &m) {
         const auto parts = m.address.split(QChar('/'), Qt::SkipEmptyParts);
         if (parts.size() < 4) return;

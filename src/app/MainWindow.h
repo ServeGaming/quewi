@@ -377,6 +377,12 @@ private:
     void lightsStop();          // the desk's Stop key
     QAction *m_actGoLights = nullptr;
     QAction *m_actGoBoth = nullptr;
+    // ADVANCE (vamps / holds / skips). Enabled only while one is waiting,
+    // so its key (Right arrow) is free for lists and grids the rest of the time.
+    QAction *m_actAdvance = nullptr;
+    QTimer  *m_advanceTimer = nullptr;
+    void requestAdvance();
+    void updateAdvance();
     QAction *m_actLightsBack = nullptr;
     QAction *m_actLightsStop = nullptr;
     // Wire a Matrix List view (the page, or a detached one) to the window.

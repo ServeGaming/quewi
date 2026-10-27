@@ -1,6 +1,7 @@
 #pragma once
 
 #include "audio/Cuts.h"
+#include "audio/PlayEvents.h"
 #include <QAudioDevice>
 #include <QAudioFormat>
 #include <QByteArray>
@@ -45,6 +46,12 @@ struct VoiceParams {
     // start to its end, with a few-ms dip either side so the splice can't
     // click. See Cuts.h.
     Cuts   cuts;
+    // Vamps, repeats, holds and skips (seconds in the file; markers are
+    // ignored here). A vamp loops until advance(); see PlayEvents.h.
+    PlayEvents playEvents;
+    // Bar lines (seconds in the file), for a vamp that exits "at the next
+    // bar". Empty = such a vamp exits at the end of its pass instead.
+    std::vector<double> barTimes;
 
     // Empty = use the current default output device.
     QByteArray outputDeviceId;
@@ -100,6 +107,12 @@ struct ActiveVoice {
     // audio cues use this for per-output meters; stereo cues fall back
     // to peakLeft/peakRight which still mirror channels 0/1.
     QList<float> peakPerChannel;
+
+    // Where it is among its vamps / holds / skips (as of the last buffer).
+    enum class PlayState { Normal, Vamping, Leaving, Holding, InSkip, Repeating };
+    PlayState  playState      = PlayState::Normal;
+    int        playEventIndex = -1;   // index into VoiceParams::playEvents; -1 = none
+    int        playPass       = 0;    // passes of the current vamp/repeat finished
 };
 
 // The engine owns one or more output devices and any number of active
@@ -146,6 +159,15 @@ public:
     // ideal — for now we accept a brief discontinuity since theatre use
     // is overwhelmingly seek-while-paused.
     bool seek(VoiceId id, double seconds);
+
+    // Advance — the one button a musical theatre track player has for
+    // "move on": take the voice out of the vamp it's in (at the end of the
+    // pass, the next bar or now, as the vamp says), let it go on from a
+    // hold, or jump to the end of the skip it's in. Repeats go on by
+    // themselves and ignore it, and with nothing pending it does nothing.
+    // Returns true if the voice was found (the mixer acts on its next
+    // buffer; activeVoices() then shows the new state).
+    bool advance(VoiceId id);
 
     // Real-time live changes — applied immediately, no fade. Used by the
     // inspector when the user nudges a slider on a playing cue.
@@ -319,7 +341,9 @@ public:
     void fadeGain(VoiceId id, double targetDb, double seconds);
     bool pause(VoiceId id);
     bool resume(VoiceId id);
+    bool advance(VoiceId id);
     int  activeCount() const;
+    QList<ActiveVoice> activeVoices() const;
     int  channels() const { return m_channels; }
 
     // Live input path (the "mix my mic in" ring), without a capture device:

@@ -25,6 +25,8 @@ quewi_add_test(audio_smoke  Qt6::Test Qt6::Multimedia quewi_audio)
 # The real-time mixer rendered offline (audio::OfflineRenderer): fades,
 # loops, stops and pause checked sample by sample.
 quewi_add_test(mixer        Qt6::Test Qt6::Multimedia quewi_audio)
+# Vamps, repeats, holds and skips (Stage|Tracks-style) through the mixer.
+quewi_add_test(play_events  Qt6::Test Qt6::Multimedia quewi_audio)
 # Video cue soundtracks and video <-> audio cue conversion.
 quewi_add_test(video_sound  Qt6::Test Qt6::Multimedia quewi_video quewi_audio)
 # The effects rack: every effect type, the presets, and effect-edit saving.

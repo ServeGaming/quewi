@@ -821,3 +821,20 @@ QPushButton#goBothButton[state="disabled"] {
     color: @ink40;
     border-color: @divider;
 }
+
+/* ADVANCE: out of a vamp / on from a hold / past a skip. The vamp colour
+   (desk-blue family) with the accent edge, so it never reads as a GO. */
+QPushButton#advanceButton {
+    background: @bgPanel;
+    color: @ink40;
+    border: 2px solid @divider;
+    border-radius: 6px;
+    font-size: 15px;
+    font-weight: 800;
+    letter-spacing: 0.04em;
+    padding: 6px 16px;
+    min-height: 64px;
+    min-width: 130px;
+}
+QPushButton#advanceButton[state="ready"] { background: @loaded; color: @bgDeep; border-color: @accent; }
+QPushButton#advanceButton:pressed { background: @accentSoft; color: @bgDeep; }

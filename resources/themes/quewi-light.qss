@@ -419,3 +419,19 @@ QPushButton#goBothButton:disabled {
     color: #9CA3AF;
     border-color: #D7D9DF;
 }
+
+/* ADVANCE: out of a vamp / on from a hold / past a skip. */
+QPushButton#advanceButton {
+    background: #E5E8EE;
+    color: #9CA3AF;
+    border: 2px solid #D7D9DF;
+    border-radius: 6px;
+    font-size: 15px;
+    font-weight: 800;
+    letter-spacing: 0.04em;
+    padding: 6px 16px;
+    min-height: 64px;
+    min-width: 130px;
+}
+QPushButton#advanceButton[state="ready"] { background: #0EA5E9; color: #FFFFFF; border-color: #0369A1; }
+QPushButton#advanceButton:pressed { background: #0369A1; }
