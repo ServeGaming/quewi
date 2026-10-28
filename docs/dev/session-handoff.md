@@ -11,7 +11,7 @@ session on any computer (or a fresh conversation) continues with no gaps.
 > right now, the next one would lose nothing. *Update protocol* (last section)
 > says how.
 
-Last updated: **2026-10-27**. Latest release: **v1.2.0** (2026-10-05, from
+Last updated: **2026-10-28**. Latest release: **v1.2.0** (2026-10-05, from
 `main` at `0fec069` — PR #1 `feat/matrix-list` merged on Matthew's "merge it
 and release the next version as 1.2.0"). All 4 assets attached; the DMG and
 AppImage passed the release workflow's own smoke test (selftest + tour on
@@ -56,6 +56,34 @@ site (MkDocs, `docs/`) deploys to GitHub Pages on every push to `main`
 All committed and pushed. **30 ctest suites** (all green in CI at `6dabf77`
 before the video editor; with it, 30/30 + selftest green on a Linux Qt 6.11
 build — see §6; CI covers Windows/macOS on the push).
+
+### 0a9. Trial licensing (2026-10-28) — LIVE server, not yet in a release
+Design and decisions: **`docs/dev/licensing.md`** (read it first). Summary:
+- Supabase project **Quewi** `mdvoeinmfjcyedvuffwq` (Matthew's separate
+  quewi account — NEVER the Pawn Tiger account/MCP connector). Use the
+  Supabase CLI (`npx.cmd supabase …`, logged into the quewi account; repo is
+  linked). The project is connected to the GitHub repo: **migrations pushed
+  to main apply automatically** — treat migration commits as deploys.
+- Functions `activate` / `check` deployed (`--use-api --no-verify-jwt`);
+  tables + grants + hardening applied (admin needs aal2 = emailed code +
+  TOTP; /activate 20/h per hashed IP). Signing key: Supabase secret
+  `LICENSE_SIGNING_KEY` (Matthew set it; backup in his password manager).
+  Public key `resources/license-pubkey.txt` (7c0739…). The first key pair was
+  printed in a session by mistake and replaced before any use.
+- quewi: `src/app/License.*`, `ActivationDialog.*`; on only with
+  `-DQUEWI_LICENSING=ON` (not yet in release.yml). Tested: test_license (9);
+  a real key (Matthew's "Test", QW-…-RMXK) activated on his PC with the
+  licensed build in `build/windows-licensed` — runs to 10 Nov 2026; second
+  launch goes straight in. Bug found + fixed: Enter pressed Quit.
+- Admin panel `admin/index.html` (opened as a file): email sign-in link
+  pasted in (default email template sends a link; custom SMTP not wanted) or
+  a code, then Apple Passwords TOTP.
+- **Next (needs Matthew):** make the source repo private + public
+  `ServeGaming/quewi-releases` for installers/updates/docs (free plan: Pages
+  can't serve a private repo; CI minutes 2000/mo with macOS ×10 — move mac CI
+  to release-only); a fine-grained PAT secret for publishing; then turn
+  `QUEWI_LICENSING=ON` in release.yml and cut the first licensed release.
+  Order matters: private first, then licensed releases.
 
 ### 0a8. Vamps, repeats, holds, skips + Advance (2026-10-27) — for 1.3.0
 Matthew: "add the option to create vamps … look at what the concord
