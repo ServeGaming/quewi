@@ -107,3 +107,6 @@ site/
 
 # packaged skills (made on demand)
 skills/*.zip
+
+# Supabase CLI cache
+supabase/.temp/
