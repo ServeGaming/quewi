@@ -120,6 +120,22 @@ ships with one artifact per platform.
 
 ---
 
+## Your trial key
+
+*New in 1.3.0.* The first time quewi starts, it asks for a **trial key**
+(it looks like `QW-XXXX-XXXX-XXXX-XXXX`). If you were given quewi to try,
+the key came with it.
+
+- Type or paste it and press **Activate**. The computer needs to be online
+  this once; after that quewi works offline (handy on show night).
+- A key works on **one computer**, for **14 days from when it's first
+  entered**. Updating quewi doesn't change that, and reinstalling on the
+  same computer picks the same key up again with the same end date.
+- quewi says when the trial is nearly over. A trial that ends while quewi
+  is open keeps running until you close it — it never stops a show.
+- Want to keep going after the trial, or move to another computer? Ask
+  whoever gave you the key.
+
 ## Verifying the download
 
 Each release artifact ships with a SHA256 hash on the GitHub

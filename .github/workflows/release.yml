@@ -58,7 +58,9 @@ jobs:
 
       - name: Configure (Release)
         shell: cmd
-        run: cmake --preset windows-release
+        # Theatres' builds need a trial key (docs/dev/licensing.md); the
+        # public key comes from resources/license-pubkey.txt.
+        run: cmake --preset windows-release -DQUEWI_LICENSING=ON
 
       - name: Build
         shell: cmd
@@ -175,7 +177,9 @@ jobs:
           ls -la resources/icons/quewi.icns
 
       - name: Configure (Release)
-        run: cmake --preset macos-release
+        # Theatres' builds need a trial key (docs/dev/licensing.md); the
+        # public key comes from resources/license-pubkey.txt.
+        run: cmake --preset macos-release -DQUEWI_LICENSING=ON
 
       - name: Build
         run: cmake --build --preset macos-release
@@ -503,7 +507,9 @@ jobs:
           cache: true
 
       - name: Configure (Release)
-        run: cmake --preset linux-release
+        # Theatres' builds need a trial key (docs/dev/licensing.md); the
+        # public key comes from resources/license-pubkey.txt.
+        run: cmake --preset linux-release -DQUEWI_LICENSING=ON
 
       - name: Build
         run: cmake --build --preset linux-release

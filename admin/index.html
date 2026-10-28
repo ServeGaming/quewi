@@ -307,6 +307,11 @@
           <input id="n-days" type="number" min="1" max="365" value="14" required>
         </div>
       </div>
+      <label style="display:flex;gap:8px;align-items:center;margin-top:10px">
+        <input id="n-master" type="checkbox" style="width:auto">
+        <span><b>Master key</b> (for you): works on any number of your computers, no 14-day limit
+          (10 years per computer). Don't give it out.</span>
+      </label>
       <label for="n-notes">Notes (only you see these)</label>
       <textarea id="n-notes" maxlength="4000"></textarea>
       <div id="new-error" class="error"></div>
@@ -495,6 +500,10 @@
   function statusOf(l) {
     const a = mainAct(l);
     if (l.revoked || (a && a.revoked)) return { cls: "revoked", text: "Revoked" };
+    if (l.master) {
+      const n = (l.activations || []).length;
+      return { cls: "active", text: `Master — ${n} computer${n === 1 ? "" : "s"}` };
+    }
     if (!a) {
       return l.next_expires_at
         ? { cls: "idle", text: "Not activated", sub: `moved — ends ${fmtDate(l.next_expires_at)}` }
@@ -727,6 +736,7 @@
           notes: $("n-notes").value.trim() || null,
           duration_days: days,
           max_machines: 1,
+          master: $("n-master").checked,
         }).select().single();
         if (!error) row = data;
         else if (error.code !== "23505") throw error; // 23505 = duplicate key; try another
@@ -746,7 +756,11 @@
     const dk = displayKey(row);
     $("c-label").textContent = row.label || "(no label)";
     $("c-key").textContent = dk;
-    $("c-msg").value = theatreMessage(dk, row.duration_days);
+    $("c-msg").value = row.master
+      ? `quewi master key: ${dk}
+
+Works on any of your computers (enter it once on each).`
+      : theatreMessage(dk, row.duration_days);
     $("c-copy-key").onclick = () => copy(dk, "Key copied");
     $("c-copy-msg").onclick = () => copy($("c-msg").value, "Message copied");
     $("dlg-created").showModal();

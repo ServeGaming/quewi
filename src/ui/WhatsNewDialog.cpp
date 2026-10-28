@@ -20,10 +20,20 @@ struct Highlight { const char *title; const char *body; };
 // Curated highlights for this release. Written to read like a person wrote
 // them — specific, second-person, no filler. Update this list each release.
 //
-// 1.2.0: the Matrix List, a command menu, a safe key, and macOS / Linux
-// fixes. The 1.1.0, 1.0.3, 1.0.2 and 1.0.1 highlights follow, for anyone
-// installing this by hand from an older version.
+// 1.3.0: vamps and Advance; trial keys. Then 1.2.0, 1.1.0, 1.0.3, 1.0.2 and
+// 1.0.1, for anyone installing this by hand from an older version.
 const Highlight kHighlights[] = {
+    { "Vamps, the way performance tracks do them",
+      "Mark vamps, repeats, holds and skips on a song (its editor's new VAMPS "
+      "lane). In the show a vamp loops until you press Advance (→), then goes "
+      "on at the end of the pass, the next bar, or straight away." },
+    { "One button to move the music on",
+      "ADVANCE sits beside GO (and in Show Mode) while a song with vamps plays: "
+      "it counts down to what's coming and lights up when something's waiting." },
+    { "Devamp cues work",
+      "A Devamp cue now does Advance for one cue, and ends a looping cue after "
+      "its pass." },
+    // ── 1.2.0 ──
     { "The whole show in one list",
       "List → Matrix List reads your Eos desk's cue list and runs it alongside "
       "your sound cues, one row per moment. Drag a lighting cue onto the sound "

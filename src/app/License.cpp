@@ -176,6 +176,8 @@ QString Status::message() const
 {
     switch (problem) {
     case Problem::None:
+        // A master key (the owner's) runs for years: no countdown.
+        if (daysLeft() > 5 * 365) return tr("This computer is licensed.");
         return daysLeft() == 1 ? tr("Your trial runs until %1 (today is the last day).").arg(dateText(claims.expiresAt))
                                : tr("Your trial runs until %1 (%2 days left).").arg(dateText(claims.expiresAt)).arg(daysLeft());
     case Problem::Missing:

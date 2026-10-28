@@ -19,6 +19,7 @@ interface Lic extends LicenseRow {
   duration_days: number;
   max_machines: number;
   next_expires_at: string | null;
+  master?: boolean;
 }
 
 class MemStore implements Store {
@@ -52,10 +53,13 @@ class MemStore implements Store {
     if (!lic) return Promise.resolve({ result: "missing" });
     const existing = this.activations.find((a) => a.license_id === licenseId && a.machine_hash === mh);
     if (existing) return Promise.resolve({ result: "existing", activation: existing });
-    if (this.activations.filter((a) => a.license_id === licenseId).length >= lic.max_machines) {
+    // Mirrors quewi_claim_activation (incl. 20261028030000_master_keys.sql).
+    if (!lic.master && this.activations.filter((a) => a.license_id === licenseId).length >= lic.max_machines) {
       return Promise.resolve({ result: "full" });
     }
-    const ends = lic.next_expires_at
+    const ends = lic.master
+      ? this.now() + 3652 * DAY
+      : lic.next_expires_at
       ? Date.parse(lic.next_expires_at)
       : this.now() + lic.duration_days * DAY;
     if (ends <= this.now()) {
@@ -276,4 +280,17 @@ Deno.test("server error when the signing key is missing", async () => {
   } finally {
     console.error = orig;
   }
+});
+
+Deno.test("activate: a master key works on many computers for ~10 years each", async () => {
+  const { store, keys, deps, clock } = await setup();
+  store.addLicense(KEY, { master: true });
+  const a = await activate(deps, KEY, MH1);
+  const b = await activate(deps, KEY, MH2);
+  assertEquals(a.status, 200);
+  assertEquals(b.status, 200);
+  const nowS = Math.floor(clock.get() / 1000);
+  const p = (await verifyToken(b.body.token, keys.publicKey))!;
+  assert(p.exp - nowS > 3600 * 24 * 365 * 9);
+  assertEquals(store.activations.length, 2);
 });

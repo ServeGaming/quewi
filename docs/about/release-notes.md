@@ -1,8 +1,16 @@
 # Release notes
 
-## Unreleased
+## 1.3.0 (2026-10-28)
+
+Vamps, repeats, holds and skips for performance tracks, run with one
+Advance button; and quewi now starts with a trial key.
 
 ### New
+
+- **Trial keys.** quewi asks for a key the first time it starts. A key works
+  on one computer for 14 days from when it's first entered, needs the
+  internet only once, and survives updates.
+  [Your trial key →](../getting-started/install.md#your-trial-key)
 
 - **Vamps, repeats, holds and skips**, the way performance tracks (Concord /
   Right On Cue's Stage|Tracks) are run. Mark them on a song in its editor
