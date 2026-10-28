@@ -72,8 +72,14 @@ ActivationDialog::ActivationDialog(const license::Status &status, QWidget *paren
 
     auto *buttons = new QDialogButtonBox(this);
     m_go = buttons->addButton(tr("Activate"), QDialogButtonBox::AcceptRole);
-    m_go->setDefault(true);
     auto *quit = buttons->addButton(tr("Quit"), QDialogButtonBox::RejectRole);
+    // Enter means Activate and nothing else. With default buttons, the Enter
+    // that started activating (and disabled Activate) went on to the next
+    // default — Quit — and closed quewi mid-activation.
+    for (auto *b : {m_go, quit}) {
+        b->setAutoDefault(false);
+        b->setDefault(false);
+    }
     root->addWidget(buttons);
 
     connect(m_go, &QPushButton::clicked, this, &ActivationDialog::activate);
@@ -85,6 +91,7 @@ ActivationDialog::ActivationDialog(const license::Status &status, QWidget *paren
 
 void ActivationDialog::activate()
 {
+    if (!m_go->isEnabled()) return;          // already asking the server
     const QString key = license::normalizeKey(m_key->text());
     if (key.size() < 8) {
         m_error->setText(tr("Type the whole key, e.g. QW-ABCD-EFGH-JKMN-PQRS."));

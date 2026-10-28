@@ -215,8 +215,13 @@ private slots:
         QVERIFY(key);
         key->setText(QStringLiteral("qw-abcd-efgh-jkmn-pqrs"));
         QSignalSpy done(&dlg, &QDialog::accepted);
+        QSignalSpy quit(&dlg, &QDialog::rejected);
         QTest::keyClick(key, Qt::Key_Return);
+        QTest::keyClick(key, Qt::Key_Return);    // pressed again while it's asking
         QVERIFY(done.wait(5000));
+        // Enter never reaches Quit (it once did: the Enter that started
+        // activating went on to the next default button and quit quewi).
+        QCOMPARE(quit.count(), 0);
         QVERIFY(!Store::token().isEmpty());
         QCOMPARE(Store::key(), QStringLiteral("QWABCDEFGHJKMNPQRS"));
         QVERIFY(evaluateAt(now(), m_public).ok());
