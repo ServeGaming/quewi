@@ -5,6 +5,10 @@ set(QUEWI_APP_SOURCES
     MainWindowOscV5.cpp
     MainWindowMatrix.cpp
     MainWindowTour.cpp
+    License.cpp
+    License.h
+    ActivationDialog.cpp
+    ActivationDialog.h
     GoEngine.cpp
     GoEngine.h
     UpdateChecker.cpp
@@ -31,8 +35,14 @@ set_target_properties(quewi PROPERTIES
 target_compile_definitions(quewi PRIVATE
     QUEWI_VERSION="${PROJECT_VERSION}"
 )
+if(QUEWI_LICENSING)
+    target_compile_definitions(quewi PRIVATE
+        QUEWI_LICENSING=1
+        QUEWI_LICENSE_PUBKEY="${QUEWI_LICENSE_PUBKEY}")
+endif()
 
 target_link_libraries(quewi PRIVATE
+    monocypher
     Qt6::Widgets
     Qt6::Network
     Qt6::Multimedia

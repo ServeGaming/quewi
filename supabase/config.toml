@@ -1,0 +1,14 @@
+# Supabase CLI config for the Quewi project (mdvoeinmfjcyedvuffwq).
+# Minimal on purpose: it only exists so `supabase functions deploy` knows the
+# project layout and deploys the licensing functions without JWT checks.
+# Auth settings (sign-ups off, etc.) are set in the dashboard — see README.md.
+
+project_id = "quewi"
+
+# quewi calls these with no Supabase session; they use the service role
+# internally and do their own validation.
+[functions.activate]
+verify_jwt = false
+
+[functions.check]
+verify_jwt = false

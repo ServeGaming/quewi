@@ -1,4 +1,6 @@
 #include "audio/SampleStore.h"
+#include "ActivationDialog.h"
+#include "License.h"
 #include "MainWindow.h"
 #include "ui/SmoothScroll.h"
 #include "ui/Theme.h"
@@ -22,6 +24,7 @@
 #include <QTimer>
 #include <QUrl>
 
+#include <cstdio>
 #include <utility>
 
 #if defined(_MSC_VER) && defined(_DEBUG)
@@ -288,6 +291,21 @@ int main(int argc, char *argv[])
     // behind by a quewi that crashed (they can be gigabytes).
     quewi::audio::SampleStore::sweepStaleCache();
 
+    // Trial licensing (release builds): nothing of quewi — no window, no OSC,
+    // no show — exists until a valid key is in. Only the 200 ms --selftest
+    // (CI's start-and-quit check) runs without one; it can't be used for
+    // anything else. --selftest-idle and --screenshot-tour stay open, so
+    // they need a key like everything else.
+    if (quewi::license::enabled() && !parser.isSet(selftestOpt)) {
+        // The CI-only modes don't sit at a screen nobody can type into.
+        if ((parser.isSet(selftestIdleOpt) || parser.isSet(tourOpt)) && !quewi::license::evaluate().ok()) {
+            fprintf(stderr, "quewi: this build needs a trial key; --selftest-idle / --screenshot-tour "
+                            "only run once one is activated on this computer.\n");
+            return 3;
+        }
+        if (!quewi::runActivationGate()) return 0;
+    }
+
     quewi::MainWindow w;
 
     // Welcome launchpad — Xcode-style picker so the operator's first
@@ -328,6 +346,16 @@ int main(int argc, char *argv[])
     if (w.isQuittingForUpdate()) return 0;
 
     w.show();
+
+    // Check in with the license server now and then (revocation, a moved
+    // end date, the clock); tell the operator when the trial is nearly up.
+    if (quewi::license::enabled() && !parser.isSet(selftestOpt)) {
+        auto *monitor = new quewi::license::Monitor(&w);
+        QObject::connect(monitor, &quewi::license::Monitor::notice, &w, [&w](const QString &text) {
+            w.statusBar()->showMessage(text, 15000);
+        });
+        monitor->start();
+    }
     if (!selftest) w.runStartupChecks();
 
     // First-run-after-update toast. If the version stored in

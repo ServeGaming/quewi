@@ -1,6 +1,7 @@
 #include "MainWindow.h"
 
 #include "GoEngine.h"
+#include "License.h"
 #include "UpdateChecker.h"
 #include "UpdateInstaller.h"
 
@@ -1155,6 +1156,10 @@ void MainWindow::openShow()
 
 bool MainWindow::loadShowFromPath(const QString &path)
 {
+    if (!license::stillValid()) {
+        statusBar()->showMessage(tr("quewi needs a valid trial key. Restart quewi to enter one."), 6000);
+        return false;
+    }
     auto fresh = std::make_unique<core::Workspace>();
     if (!show::ShowFile::load(path, *fresh)) {
         QMessageBox::warning(this, tr("Open failed"), show::ShowFile::lastError());
@@ -1402,6 +1407,10 @@ void MainWindow::refreshMemReadout()
 
 bool MainWindow::saveTo(const QString &path)
 {
+    if (!license::stillValid()) {
+        statusBar()->showMessage(tr("quewi needs a valid trial key. Restart quewi to enter one."), 6000);
+        return false;
+    }
     if (!show::ShowFile::save(path, *m_workspace)) {
         QMessageBox::warning(this, tr("Save failed"), show::ShowFile::lastError());
         return false;
@@ -3357,6 +3366,10 @@ void MainWindow::checkForUpdates(bool manual)
 
 void MainWindow::onGoRequested()
 {
+    if (!license::stillValid()) {
+        statusBar()->showMessage(tr("quewi needs a valid trial key. Restart quewi to enter one."), 6000);
+        return ;
+    }
     auto *cue = m_cueListView->nextCue();
     if (!cue) {
         statusBar()->showMessage(tr("No cue to fire"), 2000);

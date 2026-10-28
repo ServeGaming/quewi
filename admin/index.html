@@ -1,0 +1,803 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>quewi Licences</title>
+<script>
+  // ── Config ────────────────────────────────────────────────────────────────
+  // The anon key is PUBLIC by design (it's in every Supabase web page). All
+  // access is enforced by row-level security: only a signed-in user whose
+  // confirmed email is in the admin_emails table can see or change anything.
+  // Find it in the Supabase dashboard → Project Settings → API → "anon public".
+  // NEVER put the service_role key here.
+  const SUPABASE_URL = "https://mdvoeinmfjcyedvuffwq.supabase.co";
+  const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im1kdm9laW5tZmpjeWVkdnVmZndxIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTMxNDg3NDgsImV4cCI6MjEwODcyNDc0OH0.indjLXLaRpwTcGaq7dYxqfr9kr46oGx-QJXDfvzm7R8";
+</script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<style>
+  :root {
+    --bg: #1f1a17;
+    --panel: #2a2320;
+    --panel-2: #332a26;
+    --line: #463a33;
+    --text: #e8e2d4;
+    --muted: #a99d8c;
+    --accent: #c8955a;
+    --accent-text: #1f1a17;
+    --ok: #8fbf7a;
+    --warn: #e0b45c;
+    --bad: #e07a6a;
+    --idle: #a99d8c;
+    --focus: #e8b97f;
+    --shadow: 0 10px 30px rgba(0, 0, 0, .35);
+    color-scheme: dark;
+  }
+  @media (prefers-color-scheme: light) {
+    :root {
+      --bg: #f4efe6;
+      --panel: #fffaf2;
+      --panel-2: #f1e8da;
+      --line: #dccfbd;
+      --text: #2a2320;
+      --muted: #6f6355;
+      --accent: #9a6430;
+      --accent-text: #fffaf2;
+      --ok: #3f7a2d;
+      --warn: #8a6510;
+      --bad: #b23b2a;
+      --idle: #6f6355;
+      --focus: #9a6430;
+      --shadow: 0 10px 30px rgba(60, 40, 20, .15);
+      color-scheme: light;
+    }
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font: 15px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    min-height: 100vh;
+  }
+  .mono { font-family: ui-monospace, "Cascadia Mono", Consolas, Menlo, monospace; }
+  .muted { color: var(--muted); }
+  .hidden { display: none !important; }
+  a { color: var(--accent); }
+
+  button, input, textarea {
+    font: inherit; color: inherit;
+  }
+  input, textarea {
+    width: 100%;
+    background: var(--bg);
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    padding: 9px 11px;
+  }
+  textarea { resize: vertical; min-height: 70px; }
+  input:focus-visible, textarea:focus-visible, button:focus-visible {
+    outline: 2px solid var(--focus); outline-offset: 1px;
+  }
+  label { display: block; font-size: 13px; color: var(--muted); margin: 12px 0 4px; }
+  button {
+    background: var(--panel-2);
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    padding: 8px 14px;
+    cursor: pointer;
+    white-space: nowrap;
+  }
+  button:hover { border-color: var(--accent); }
+  button:disabled { opacity: .5; cursor: default; }
+  button.primary { background: var(--accent); color: var(--accent-text); border-color: var(--accent); font-weight: 600; }
+  button.danger { color: var(--bad); }
+  button.danger.solid { background: var(--bad); color: #fff; border-color: var(--bad); }
+  button.small { padding: 4px 9px; font-size: 13px; }
+
+  /* ── layout ── */
+  header {
+    display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+    padding: 14px 20px; border-bottom: 1px solid var(--line); background: var(--panel);
+  }
+  header h1 { font-size: 18px; margin: 0; letter-spacing: .2px; }
+  header h1 span { color: var(--accent); }
+  header .spacer { flex: 1; }
+  main { padding: 20px; max-width: 1400px; margin: 0 auto; }
+  .card {
+    background: var(--panel); border: 1px solid var(--line); border-radius: 12px;
+    padding: 20px; box-shadow: var(--shadow);
+  }
+
+  #login { max-width: 380px; margin: 10vh auto 0; }
+  #login h2 { margin: 0 0 4px; }
+  #login button { width: 100%; margin-top: 18px; }
+  .error { color: var(--bad); font-size: 14px; margin-top: 10px; min-height: 1em; }
+  .notice {
+    border: 1px solid var(--warn); color: var(--warn); border-radius: 10px;
+    padding: 12px 14px; margin-bottom: 16px; font-size: 14px;
+  }
+
+  .toolbar { display: flex; gap: 10px; align-items: center; margin-bottom: 14px; flex-wrap: wrap; }
+  .toolbar input { flex: 1; min-width: 200px; max-width: 420px; }
+  .toolbar .count { color: var(--muted); font-size: 13px; margin-left: auto; }
+
+  /* ── table ── */
+  .table-wrap { overflow-x: auto; border: 1px solid var(--line); border-radius: 12px; background: var(--panel); }
+  table { border-collapse: collapse; width: 100%; font-size: 14px; }
+  th, td { text-align: left; padding: 10px 12px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  th { font-size: 12px; text-transform: uppercase; letter-spacing: .5px; color: var(--muted); font-weight: 600; background: var(--panel-2); position: sticky; top: 0; }
+  tbody tr:last-child td { border-bottom: 0; }
+  tbody tr:hover { background: color-mix(in srgb, var(--accent) 6%, transparent); }
+  td.key { white-space: nowrap; }
+  td.key .mono { font-size: 13px; }
+  .copy { margin-left: 6px; }
+  .status { font-weight: 600; white-space: nowrap; }
+  .status.active { color: var(--ok); }
+  .status.soon { color: var(--warn); }
+  .status.expired, .status.revoked { color: var(--bad); }
+  .status.idle { color: var(--idle); }
+  .sub { display: block; font-size: 12px; color: var(--muted); font-weight: 400; }
+  .empty { padding: 40px; text-align: center; color: var(--muted); }
+
+  @media (max-width: 860px) {
+    main { padding: 12px 16px; }
+    header { padding: 12px 16px; }
+    .table-wrap { border: 0; background: none; overflow: visible; }
+    table, tbody, tr, td { display: block; width: 100%; }
+    thead { display: none; }
+    tbody tr {
+      background: var(--panel); border: 1px solid var(--line); border-radius: 12px;
+      margin-bottom: 12px; padding: 8px 4px;
+    }
+    td { border: 0; padding: 4px 12px; display: flex; gap: 10px; }
+    td::before {
+      content: attr(data-label); flex: 0 0 96px; color: var(--muted); font-size: 12px;
+      text-transform: uppercase; letter-spacing: .4px; padding-top: 2px;
+    }
+    td.actions::before { content: ""; }
+    td.actions { justify-content: flex-end; padding-top: 8px; }
+  }
+
+  /* ── dialogs ── */
+  dialog {
+    background: var(--panel); color: var(--text);
+    border: 1px solid var(--line); border-radius: 14px;
+    padding: 0; width: min(560px, calc(100vw - 32px)); max-height: calc(100vh - 32px);
+    box-shadow: var(--shadow);
+  }
+  dialog::backdrop { background: rgba(0, 0, 0, .55); }
+  .dlg-body { padding: 20px 22px; overflow: auto; max-height: calc(100vh - 110px); }
+  .dlg-body h2 { margin: 0 0 6px; font-size: 19px; }
+  .dlg-foot {
+    display: flex; gap: 10px; justify-content: flex-end; flex-wrap: wrap;
+    padding: 14px 22px; border-top: 1px solid var(--line); background: var(--panel-2);
+    border-radius: 0 0 14px 14px;
+  }
+  .row2 { display: grid; grid-template-columns: 1fr 1fr; gap: 0 12px; }
+  @media (max-width: 520px) { .row2 { grid-template-columns: 1fr; } }
+  .bigkey {
+    font-size: clamp(20px, 5.5vw, 30px); font-weight: 700; letter-spacing: 1.5px;
+    text-align: center; padding: 18px 10px; margin: 14px 0;
+    background: var(--bg); border: 1px dashed var(--accent); border-radius: 10px;
+    user-select: all; word-break: break-all;
+  }
+  .help { font-size: 13px; color: var(--muted); margin: 6px 0 0; }
+  .section { border-top: 1px solid var(--line); margin-top: 18px; padding-top: 14px; }
+  .section h3 { font-size: 14px; margin: 0 0 6px; }
+  .btnrow { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 8px; }
+  dl.facts { display: grid; grid-template-columns: max-content 1fr; gap: 4px 14px; margin: 10px 0 0; font-size: 14px; }
+  dl.facts dt { color: var(--muted); }
+  dl.facts dd { margin: 0; }
+
+  #toast {
+    position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%);
+    background: var(--text); color: var(--bg); padding: 9px 16px; border-radius: 999px;
+    font-size: 14px; box-shadow: var(--shadow); z-index: 10; pointer-events: none;
+    opacity: 0; transition: opacity .2s;
+  }
+  #toast.show { opacity: 1; }
+</style>
+</head>
+<body>
+
+<header>
+  <h1><span>quewi</span> licences</h1>
+  <div class="spacer"></div>
+  <span id="who" class="muted"></span>
+  <button id="logout" class="small hidden">Log out</button>
+</header>
+
+<main>
+  <div id="config-missing" class="notice hidden">
+    This page isn't set up yet: open <span class="mono">admin/index.html</span> in a text
+    editor and paste the project's <b>anon public</b> key into <span class="mono">SUPABASE_ANON_KEY</span>
+    at the top.
+  </div>
+
+  <!-- Login -->
+  <section id="login" class="card hidden">
+    <h2>Sign in</h2>
+    <p class="muted" style="margin:0 0 6px">Only the quewi admin account can use this page.</p>
+    <form id="login-form">
+      <label for="email">Email</label>
+      <input id="email" type="email" autocomplete="username" required>
+      <label for="password">Password</label>
+      <input id="password" type="password" autocomplete="current-password" required>
+      <button class="primary" type="submit">Sign in</button>
+      <div id="login-error" class="error"></div>
+    </form>
+  </section>
+
+  <!-- Keys -->
+  <section id="app" class="hidden">
+    <div id="not-admin" class="notice hidden">
+      You're signed in, but this account isn't on the admin list (or its email address
+      hasn't been confirmed yet), so no keys are shown.
+    </div>
+    <div class="toolbar">
+      <button id="new-key" class="primary">New key</button>
+      <input id="search" type="search" placeholder="Search key, theatre, contact, computer, notes…">
+      <button id="refresh" class="small">Refresh</button>
+      <span id="count" class="count"></span>
+    </div>
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>Key</th><th>Label</th><th>Contact</th><th>Days</th><th>Status</th>
+            <th>Computer</th><th>Activated</th><th>Expires</th><th>Last seen</th><th></th>
+          </tr>
+        </thead>
+        <tbody id="rows"></tbody>
+      </table>
+      <div id="empty" class="empty hidden"></div>
+    </div>
+    <p class="help" style="margin-top:14px">
+      A key works on one computer for its number of days, counted from when it's first entered.
+      The theatre's quewi needs the internet only to enter the key; after that it works offline and
+      checks in when it can. Changes you make here (revoke, extend, move) reach that computer the
+      next time its quewi is online.
+    </p>
+  </section>
+</main>
+
+<!-- New key -->
+<dialog id="dlg-new">
+  <form id="new-form" method="dialog">
+    <div class="dlg-body">
+      <h2>New key</h2>
+      <p class="help">A random key is made in your browser and saved. The days start counting when the
+        theatre first enters it, not now.</p>
+      <label for="n-label">Label (theatre or show)</label>
+      <input id="n-label" required maxlength="200" placeholder="e.g. Riverside Players — Into the Woods">
+      <div class="row2">
+        <div>
+          <label for="n-contact">Contact</label>
+          <input id="n-contact" maxlength="200" placeholder="name / email / phone">
+        </div>
+        <div>
+          <label for="n-days">Days</label>
+          <input id="n-days" type="number" min="1" max="365" value="14" required>
+        </div>
+      </div>
+      <label for="n-notes">Notes (only you see these)</label>
+      <textarea id="n-notes" maxlength="4000"></textarea>
+      <div id="new-error" class="error"></div>
+    </div>
+    <div class="dlg-foot">
+      <button type="button" data-close>Cancel</button>
+      <button class="primary" type="submit" id="new-submit">Create key</button>
+    </div>
+  </form>
+</dialog>
+
+<!-- Key created -->
+<dialog id="dlg-created">
+  <div class="dlg-body">
+    <h2>Key created</h2>
+    <p class="help">For <b id="c-label"></b>. You can always copy it again from the list.</p>
+    <div id="c-key" class="bigkey mono"></div>
+    <div class="btnrow" style="justify-content:center">
+      <button class="primary" id="c-copy-key">Copy key</button>
+      <button id="c-copy-msg">Copy message</button>
+    </div>
+    <label for="c-msg">Ready-to-send message</label>
+    <textarea id="c-msg" rows="5" readonly></textarea>
+  </div>
+  <div class="dlg-foot"><button data-close>Done</button></div>
+</dialog>
+
+<!-- Manage key -->
+<dialog id="dlg-manage">
+  <div class="dlg-body">
+    <h2 id="m-title"></h2>
+    <div class="mono" id="m-key" style="font-size:16px"></div>
+    <dl class="facts" id="m-facts"></dl>
+
+    <div class="section">
+      <h3>End date</h3>
+      <p class="help" id="m-end-help"></p>
+      <div class="btnrow">
+        <button id="m-plus7">+7 days</button>
+        <input id="m-date" type="datetime-local" style="width:auto;flex:1;min-width:200px">
+        <button id="m-setdate">Set date</button>
+      </div>
+      <p class="help">Extensions apply automatically the next time the theatre's quewi is online
+        (it picks up the new date and renews its licence by itself). Until then it keeps the old date.
+        Moving the date <i>earlier</i> isn't reliable on a computer that already has the key — use
+        <b>Revoke</b> to stop a key.</p>
+    </div>
+
+    <div class="section">
+      <h3>Move to a new computer</h3>
+      <p class="help">Frees the key so the theatre can enter it on a different computer.
+        <b>The end date stays the same</b> — moving never adds days (use +7 days for that).
+        The old computer stops working the next time its quewi is online and restarted.</p>
+      <div class="btnrow"><button id="m-move">Move to new computer…</button></div>
+    </div>
+
+    <div class="section">
+      <h3>Details</h3>
+      <label for="m-label">Label</label>
+      <input id="m-label" maxlength="200">
+      <div class="row2">
+        <div><label for="m-contact">Contact</label><input id="m-contact" maxlength="200"></div>
+        <div><label for="m-days">Days (for a computer that hasn't activated yet)</label>
+          <input id="m-days" type="number" min="1" max="365"></div>
+      </div>
+      <label for="m-notes">Notes</label>
+      <textarea id="m-notes" maxlength="4000"></textarea>
+      <div class="btnrow"><button id="m-save">Save details</button></div>
+    </div>
+
+    <div class="section">
+      <h3>Switch off</h3>
+      <p class="help" id="m-revoke-help"></p>
+      <div class="btnrow">
+        <button id="m-revoke" class="danger"></button>
+        <button id="m-delete" class="danger">Delete key…</button>
+      </div>
+    </div>
+    <div id="m-error" class="error"></div>
+  </div>
+  <div class="dlg-foot"><button data-close>Close</button></div>
+</dialog>
+
+<div id="toast"></div>
+
+<script>
+(() => {
+  "use strict";
+  const $ = (id) => document.getElementById(id);
+  const DAY = 86400000;
+  const CROCKFORD = "0123456789ABCDEFGHJKMNPQRSTVWXYZ"; // no I L O U
+
+  // ── setup ────────────────────────────────────────────────────────────────
+  if (!window.supabase || !SUPABASE_ANON_KEY || SUPABASE_ANON_KEY === "PASTE_ANON_KEY") {
+    $("config-missing").classList.remove("hidden");
+    if (!window.supabase) {
+      $("config-missing").textContent =
+        "Couldn't load the Supabase library from cdn.jsdelivr.net — check the internet connection and reload.";
+    }
+    return;
+  }
+  const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+    auth: { persistSession: true, autoRefreshToken: true },
+  });
+
+  let licenses = [];
+  let current = null; // license open in the Manage dialog
+
+  // ── helpers ──────────────────────────────────────────────────────────────
+  function el(tag, props = {}, ...kids) {
+    const e = document.createElement(tag);
+    for (const [k, v] of Object.entries(props)) {
+      if (k === "class") e.className = v;
+      else if (k === "text") e.textContent = v;
+      else if (k.startsWith("on")) e.addEventListener(k.slice(2), v);
+      else e.setAttribute(k, v);
+    }
+    for (const kid of kids) if (kid != null) e.append(kid);
+    return e;
+  }
+  function fmt(ts) {
+    if (!ts) return "—";
+    return new Date(ts).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" });
+  }
+  function fmtDate(ts) {
+    return ts ? new Date(ts).toLocaleDateString(undefined, { dateStyle: "long" }) : "—";
+  }
+  function ago(ts) {
+    if (!ts) return "never";
+    const s = (Date.now() - new Date(ts).getTime()) / 1000;
+    if (s < 90) return "just now";
+    if (s < 5400) return `${Math.round(s / 60)} min ago`;
+    if (s < 129600) return `${Math.round(s / 3600)} h ago`;
+    return `${Math.round(s / 86400)} days ago`;
+  }
+  function toast(msg) {
+    const t = $("toast");
+    t.textContent = msg;
+    t.classList.add("show");
+    clearTimeout(toast.timer);
+    toast.timer = setTimeout(() => t.classList.remove("show"), 1800);
+  }
+  async function copy(text, what = "Copied") {
+    try {
+      await navigator.clipboard.writeText(text);
+    } catch {
+      const ta = el("textarea", { style: "position:fixed;opacity:0" });
+      ta.value = text;
+      document.body.append(ta);
+      ta.select();
+      document.execCommand("copy");
+      ta.remove();
+    }
+    toast(what);
+  }
+  function errText(e) {
+    return (e && (e.message || e.error_description)) || String(e);
+  }
+  function displayKey(l) {
+    if (l.display_key) return l.display_key;
+    const b = l.key.slice(2);
+    return `QW-${b.slice(0, 4)}-${b.slice(4, 8)}-${b.slice(8, 12)}-${b.slice(12, 16)}`;
+  }
+  function newKey() {
+    const bytes = new Uint8Array(16);
+    crypto.getRandomValues(bytes);
+    let body = "";
+    for (const b of bytes) body += CROCKFORD[b & 31]; // 256 % 32 == 0 → unbiased
+    return {
+      key: "QW" + body,
+      display: `QW-${body.slice(0, 4)}-${body.slice(4, 8)}-${body.slice(8, 12)}-${body.slice(12)}`,
+    };
+  }
+  function theatreMessage(display, days) {
+    const d = `${days} day${days == 1 ? "" : "s"}`;
+    return `Your quewi trial key: ${display}\n\n` +
+      `It works on one computer for ${d} from when you first enter it. ` +
+      `The computer needs to be online the first time you enter the key; ` +
+      `after that quewi works offline.`;
+  }
+  /** Latest activation (by activated_at) of a license, or null. */
+  function mainAct(l) {
+    const acts = l.activations || [];
+    return acts.slice().sort((a, b) => new Date(b.activated_at) - new Date(a.activated_at))[0] || null;
+  }
+  function statusOf(l) {
+    const a = mainAct(l);
+    if (l.revoked || (a && a.revoked)) return { cls: "revoked", text: "Revoked" };
+    if (!a) {
+      return l.next_expires_at
+        ? { cls: "idle", text: "Not activated", sub: `moved — ends ${fmtDate(l.next_expires_at)}` }
+        : { cls: "idle", text: "Not activated" };
+    }
+    const left = new Date(a.expires_at).getTime() - Date.now();
+    if (left <= 0) return { cls: "expired", text: "Expired" };
+    const days = Math.ceil(left / DAY);
+    return { cls: days <= 3 ? "soon" : "active", text: `Active — ${days} day${days === 1 ? "" : "s"} left` };
+  }
+
+  // ── auth ─────────────────────────────────────────────────────────────────
+  async function showForSession(session) {
+    const signedIn = !!session;
+    $("login").classList.toggle("hidden", signedIn);
+    $("app").classList.toggle("hidden", !signedIn);
+    $("logout").classList.toggle("hidden", !signedIn);
+    $("who").textContent = signedIn ? session.user.email : "";
+    if (signedIn) await load();
+  }
+  $("login-form").addEventListener("submit", async (ev) => {
+    ev.preventDefault();
+    $("login-error").textContent = "";
+    const btn = ev.submitter;
+    if (btn) btn.disabled = true;
+    const { error } = await sb.auth.signInWithPassword({
+      email: $("email").value.trim(),
+      password: $("password").value,
+    });
+    if (btn) btn.disabled = false;
+    if (error) $("login-error").textContent = errText(error);
+    else $("password").value = "";
+  });
+  $("logout").addEventListener("click", async () => {
+    await sb.auth.signOut();
+    licenses = [];
+    render();
+  });
+  let lastUser = undefined;
+  sb.auth.onAuthStateChange((_event, session) => {
+    const uid = session ? session.user.id : null;
+    if (uid === lastUser) return; // token refreshes etc.
+    lastUser = uid;
+    // Defer: supabase-js recommends not awaiting other calls inside this callback.
+    setTimeout(() => showForSession(session), 0);
+  });
+
+  // ── data ─────────────────────────────────────────────────────────────────
+  async function load() {
+    const [{ data, error }, admins] = await Promise.all([
+      sb.from("licenses").select("*, activations(*)").order("created_at", { ascending: false }),
+      sb.from("admin_emails").select("email").limit(1),
+    ]);
+    if (error) {
+      toast("Couldn't load keys: " + errText(error));
+      return;
+    }
+    $("not-admin").classList.toggle("hidden", !!(admins.data && admins.data.length));
+    licenses = data || [];
+    render();
+  }
+
+  function render() {
+    const q = $("search").value.trim().toLowerCase();
+    const qKey = q.replace(/[\s-]/g, "");
+    const rows = licenses.filter((l) => {
+      if (!q) return true;
+      const a = mainAct(l);
+      const hay = [l.label, l.contact, l.notes, displayKey(l), a && a.machine_name, a && a.app_version]
+        .filter(Boolean).join(" ").toLowerCase();
+      return hay.includes(q) || (qKey && l.key.toLowerCase().includes(qKey));
+    });
+    const tbody = $("rows");
+    tbody.replaceChildren();
+    for (const l of rows) {
+      const a = mainAct(l);
+      const st = statusOf(l);
+      const more = (l.activations || []).length - 1;
+      const dk = displayKey(l);
+      tbody.append(el("tr", {},
+        el("td", { class: "key", "data-label": "Key" },
+          el("span", { class: "mono", text: dk }),
+          el("button", { class: "small copy", title: "Copy key", text: "Copy",
+            onclick: (e) => { e.stopPropagation(); copy(dk, "Key copied"); } })),
+        el("td", { "data-label": "Label", text: l.label || "—" }),
+        el("td", { "data-label": "Contact", text: l.contact || "—" }),
+        el("td", { "data-label": "Days", text: String(l.duration_days) }),
+        el("td", { "data-label": "Status" },
+          el("span", { class: "status " + st.cls, text: st.text },
+            st.sub ? el("span", { class: "sub", text: st.sub }) : null)),
+        el("td", { "data-label": "Computer" },
+          document.createTextNode(a ? (a.machine_name || "(unnamed)") : "—"),
+          a && a.app_version ? el("span", { class: "sub", text: "quewi " + a.app_version }) : null,
+          more > 0 ? el("span", { class: "sub", text: `+${more} more` }) : null),
+        el("td", { "data-label": "Activated", text: a ? fmt(a.activated_at) : "—" }),
+        el("td", { "data-label": "Expires", text: a ? fmt(a.expires_at) : "—" }),
+        el("td", { "data-label": "Last seen", text: a ? ago(a.last_seen_at) : "—",
+          title: a && a.last_seen_at ? fmt(a.last_seen_at) : "" }),
+        el("td", { class: "actions" },
+          el("button", { class: "small", text: "Manage", onclick: () => openManage(l.id) })),
+      ));
+    }
+    const empty = $("empty");
+    empty.classList.toggle("hidden", rows.length > 0);
+    empty.textContent = licenses.length ? "No keys match your search." : "No keys yet — make one with “New key”.";
+    $("count").textContent = q ? `${rows.length} of ${licenses.length} keys` : `${licenses.length} keys`;
+  }
+
+  $("search").addEventListener("input", render);
+  $("refresh").addEventListener("click", () => load().then(() => toast("Refreshed")));
+
+  // Close buttons on all dialogs.
+  document.querySelectorAll("dialog [data-close]").forEach((b) =>
+    b.addEventListener("click", () => b.closest("dialog").close()));
+
+  // ── new key ──────────────────────────────────────────────────────────────
+  $("new-key").addEventListener("click", () => {
+    $("new-form").reset();
+    $("n-days").value = 14;
+    $("new-error").textContent = "";
+    $("dlg-new").showModal();
+    $("n-label").focus();
+  });
+  $("new-form").addEventListener("submit", async (ev) => {
+    ev.preventDefault();
+    const days = parseInt($("n-days").value, 10);
+    if (!(days >= 1 && days <= 365)) {
+      $("new-error").textContent = "Days must be between 1 and 365.";
+      return;
+    }
+    $("new-submit").disabled = true;
+    $("new-error").textContent = "";
+    try {
+      let row = null, lastErr = null;
+      for (let attempt = 0; attempt < 3 && !row; attempt++) {
+        const k = newKey();
+        const { data, error } = await sb.from("licenses").insert({
+          key: k.key,
+          display_key: k.display,
+          label: $("n-label").value.trim() || null,
+          contact: $("n-contact").value.trim() || null,
+          notes: $("n-notes").value.trim() || null,
+          duration_days: days,
+          max_machines: 1,
+        }).select().single();
+        if (!error) row = data;
+        else if (error.code !== "23505") throw error; // 23505 = duplicate key; try another
+        else lastErr = error;
+      }
+      if (!row) throw lastErr;
+      $("dlg-new").close();
+      showCreated(row);
+      await load();
+    } catch (e) {
+      $("new-error").textContent = "Couldn't create the key: " + errText(e);
+    } finally {
+      $("new-submit").disabled = false;
+    }
+  });
+  function showCreated(row) {
+    const dk = displayKey(row);
+    $("c-label").textContent = row.label || "(no label)";
+    $("c-key").textContent = dk;
+    $("c-msg").value = theatreMessage(dk, row.duration_days);
+    $("c-copy-key").onclick = () => copy(dk, "Key copied");
+    $("c-copy-msg").onclick = () => copy($("c-msg").value, "Message copied");
+    $("dlg-created").showModal();
+  }
+
+  // ── manage ───────────────────────────────────────────────────────────────
+  function openManage(id) {
+    current = licenses.find((l) => l.id === id);
+    if (!current) return;
+    fillManage();
+    $("m-error").textContent = "";
+    if (!$("dlg-manage").open) $("dlg-manage").showModal();
+  }
+  function toLocalInput(ts) {
+    const d = new Date(ts);
+    const p = (n) => String(n).padStart(2, "0");
+    return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}`;
+  }
+  function fillManage() {
+    const l = current, a = mainAct(l), st = statusOf(l);
+    $("m-title").textContent = l.label || "(no label)";
+    $("m-key").textContent = displayKey(l);
+    const facts = $("m-facts");
+    facts.replaceChildren();
+    const add = (k, v) => facts.append(el("dt", { text: k }), el("dd", { text: v }));
+    add("Status", st.text + (st.sub ? ` (${st.sub})` : ""));
+    add("Contact", l.contact || "—");
+    add("Created", fmt(l.created_at));
+    if (a) {
+      add("Computer", (a.machine_name || "(unnamed)") + (a.app_version ? ` · quewi ${a.app_version}` : ""));
+      add("Activated", fmt(a.activated_at));
+      add("Expires", fmt(a.expires_at));
+      add("Last seen", a.last_seen_at ? `${ago(a.last_seen_at)} (${fmt(a.last_seen_at)})` : "never");
+    }
+    if (l.revoked_at) add("Revoked", fmt(l.revoked_at));
+
+    // End date: the activation's expires_at; before activation, the pending
+    // moved date if any; otherwise there's no date yet (days count from activation).
+    const end = a ? a.expires_at : l.next_expires_at;
+    $("m-date").value = end ? toLocalInput(end) : "";
+    $("m-end-help").textContent = a
+      ? `Ends ${fmt(a.expires_at)}.`
+      : l.next_expires_at
+        ? `Not on a computer yet; when it's entered it will end on ${fmt(l.next_expires_at)} (kept from the move).`
+        : `Not activated yet: it will run for ${l.duration_days} days from when it's first entered. ` +
+          `+7 days adds to that; Set date fixes the end date instead.`;
+
+    $("m-move").disabled = !a;
+    $("m-label").value = l.label || "";
+    $("m-contact").value = l.contact || "";
+    $("m-days").value = l.duration_days;
+    $("m-notes").value = l.notes || "";
+    $("m-revoke").textContent = l.revoked ? "Un-revoke" : "Revoke";
+    $("m-revoke").classList.toggle("solid", !l.revoked);
+    $("m-revoke-help").textContent = l.revoked
+      ? "This key is revoked. Un-revoking lets it work again (on the same computer, same end date)."
+      : "Revoke stops the key: it can't be entered anywhere, and the computer using it locks the next " +
+        "time its quewi starts after being online. A show that's already running is never stopped.";
+  }
+  async function act(fn, okMsg) {
+    $("m-error").textContent = "";
+    const buttons = $("dlg-manage").querySelectorAll("button");
+    buttons.forEach((b) => (b.disabled = true));
+    try {
+      await fn();
+      toast(okMsg);
+      const id = current.id;
+      await load();
+      current = licenses.find((l) => l.id === id) || null;
+      if (current) fillManage(); else $("dlg-manage").close();
+    } catch (e) {
+      $("m-error").textContent = errText(e);
+    } finally {
+      buttons.forEach((b) => (b.disabled = false));
+      if (current) $("m-move").disabled = !mainAct(current);
+    }
+  }
+  const must = ({ error }) => { if (error) throw error; };
+
+  async function setEnd(newEnd) {
+    const l = current, a = mainAct(l);
+    if (a) {
+      must(await sb.from("activations").update({ expires_at: newEnd.toISOString() }).eq("license_id", l.id));
+    } else {
+      must(await sb.from("licenses").update({ next_expires_at: newEnd.toISOString() }).eq("id", l.id));
+    }
+  }
+
+  $("m-plus7").addEventListener("click", () => act(async () => {
+    const l = current, a = mainAct(l);
+    if (!a && !l.next_expires_at) {
+      const days = Math.min(365, l.duration_days + 7);
+      must(await sb.from("licenses").update({ duration_days: days }).eq("id", l.id));
+      return;
+    }
+    const end = new Date(a ? a.expires_at : l.next_expires_at).getTime();
+    await setEnd(new Date(Math.max(end, Date.now()) + 7 * DAY));
+  }, "Added 7 days"));
+
+  $("m-setdate").addEventListener("click", () => {
+    const v = $("m-date").value;
+    if (!v) { $("m-error").textContent = "Pick a date and time first."; return; }
+    const d = new Date(v);
+    if (isNaN(d)) { $("m-error").textContent = "That date isn't valid."; return; }
+    if (d.getTime() <= Date.now() &&
+        !confirm("That date is in the past, so the key will count as expired. Set it anyway?")) return;
+    act(() => setEnd(d), "End date set");
+  });
+
+  $("m-move").addEventListener("click", () => {
+    const l = current, a = mainAct(l);
+    if (!a) return;
+    const expired = new Date(a.expires_at).getTime() <= Date.now();
+    const msg =
+      `Move ${displayKey(l)} off “${a.machine_name || "(unnamed)"}”?\n\n` +
+      `The theatre can then enter the key on another computer. It will still end on ` +
+      `${fmt(a.expires_at)}.\n\nThe old computer stops working the next time its quewi is online and restarted.` +
+      (expired ? `\n\nNote: this key has already expired — add days afterwards or it can't be entered.` : "");
+    if (!confirm(msg)) return;
+    act(async () => {
+      // Remember the end date for the next activation, then free the computer.
+      const latest = (l.activations || []).reduce(
+        (m, x) => (new Date(x.expires_at) > new Date(m) ? x.expires_at : m), a.expires_at);
+      must(await sb.from("licenses").update({ next_expires_at: latest }).eq("id", l.id));
+      must(await sb.from("activations").delete().eq("license_id", l.id));
+    }, "Key freed for a new computer");
+  });
+
+  $("m-save").addEventListener("click", () => {
+    const days = parseInt($("m-days").value, 10);
+    if (!(days >= 1 && days <= 365)) { $("m-error").textContent = "Days must be between 1 and 365."; return; }
+    act(async () => {
+      must(await sb.from("licenses").update({
+        label: $("m-label").value.trim() || null,
+        contact: $("m-contact").value.trim() || null,
+        notes: $("m-notes").value.trim() || null,
+        duration_days: days,
+      }).eq("id", current.id));
+    }, "Saved");
+  });
+
+  $("m-revoke").addEventListener("click", () => {
+    const l = current;
+    if (!l.revoked && !confirm(`Revoke ${displayKey(l)} (${l.label || "no label"})?`)) return;
+    act(async () => {
+      must(await sb.from("licenses").update(
+        l.revoked ? { revoked: false, revoked_at: null } : { revoked: true, revoked_at: new Date().toISOString() },
+      ).eq("id", l.id));
+    }, l.revoked ? "Un-revoked" : "Revoked");
+  });
+
+  $("m-delete").addEventListener("click", () => {
+    const l = current, dk = displayKey(l);
+    const typed = prompt(
+      `Delete ${dk} (${l.label || "no label"}) for good?\n\nThis removes the key and its computer. ` +
+      `A computer using it locks the next time its quewi starts after being online. ` +
+      `To stop a key but keep the record, use Revoke instead.\n\nType the last 4 characters of the key to confirm:`);
+    if (typed == null) return;
+    if (typed.trim().toUpperCase() !== l.key.slice(-4)) { $("m-error").textContent = "Not deleted — the characters didn't match."; return; }
+    act(async () => {
+      must(await sb.from("licenses").delete().eq("id", l.id));
+    }, "Key deleted");
+  });
+})();
+</script>
+</body>
+</html>

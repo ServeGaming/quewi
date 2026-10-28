@@ -178,3 +178,13 @@ if(WIN32)
         )
     endforeach()
 endif()
+
+# Trial licensing: Ed25519-signed licenses checked offline, the clock check,
+# the activation screen against a fake license server.
+quewi_add_test(license Qt6::Test Qt6::Widgets Qt6::Network monocypher)
+target_sources(test_license PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/../src/app/License.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/../src/app/ActivationDialog.cpp
+    ${CMAKE_SOURCE_DIR}/resources/resources.qrc)
+target_compile_definitions(test_license PRIVATE QUEWI_LICENSING=1 QUEWI_LICENSE_PUBKEY="00")
+target_include_directories(test_license PRIVATE ${CMAKE_SOURCE_DIR}/src ${CMAKE_SOURCE_DIR}/src/app)

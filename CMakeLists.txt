@@ -59,6 +59,36 @@ FetchContent_Declare(rtmidi
 )
 FetchContent_MakeAvailable(rtmidi)
 
+# Monocypher — small public-domain (CC0 / BSD-2) crypto library; quewi uses
+# its Ed25519 signature check to verify trial licenses offline.
+FetchContent_Declare(monocypher
+    GIT_REPOSITORY https://github.com/LoupVaillant/Monocypher.git
+    GIT_TAG        4.0.2
+    GIT_SHALLOW    TRUE
+)
+FetchContent_MakeAvailable(monocypher)
+enable_language(C)                       # Monocypher is C
+add_library(monocypher STATIC
+    ${monocypher_SOURCE_DIR}/src/monocypher.c
+    ${monocypher_SOURCE_DIR}/src/optional/monocypher-ed25519.c)
+target_include_directories(monocypher PUBLIC
+    ${monocypher_SOURCE_DIR}/src ${monocypher_SOURCE_DIR}/src/optional)
+set_target_properties(monocypher PROPERTIES POSITION_INDEPENDENT_CODE ON)
+
+# Trial licensing (docs/dev/licensing.md). On only for the builds that go to
+# theatres (the release workflow), with the license server's public key.
+option(QUEWI_LICENSING "Require a trial key to start (release builds)" OFF)
+set(QUEWI_LICENSE_PUBKEY "" CACHE STRING "License server's Ed25519 public key (64 hex chars)")
+# Not given: the one in resources/license-pubkey.txt (public by nature; the
+# private half lives only in the license server's secrets).
+if(QUEWI_LICENSING AND QUEWI_LICENSE_PUBKEY STREQUAL "" AND EXISTS ${CMAKE_SOURCE_DIR}/resources/license-pubkey.txt)
+    file(STRINGS ${CMAKE_SOURCE_DIR}/resources/license-pubkey.txt _quewi_pub LIMIT_COUNT 1 REGEX "^[0-9a-fA-F]+$")
+    set(QUEWI_LICENSE_PUBKEY "${_quewi_pub}")
+endif()
+if(QUEWI_LICENSING AND NOT QUEWI_LICENSE_PUBKEY MATCHES "^[0-9a-fA-F]+$")
+    message(FATAL_ERROR "QUEWI_LICENSING needs QUEWI_LICENSE_PUBKEY (64 hex characters)")
+endif()
+
 enable_testing()
 
 add_subdirectory(src/core)
