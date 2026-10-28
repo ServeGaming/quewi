@@ -219,15 +219,39 @@
   <!-- Login -->
   <section id="login" class="card hidden">
     <h2>Sign in</h2>
-    <p class="muted" style="margin:0 0 6px">Only the quewi admin account can use this page.</p>
+    <p class="muted" style="margin:0 0 6px">Only the quewi admin account can use this page.
+      No password: an emailed code, then your authenticator.</p>
+    <!-- Step 1: email -->
     <form id="login-form">
       <label for="email">Email</label>
       <input id="email" type="email" autocomplete="username" required>
-      <label for="password">Password</label>
-      <input id="password" type="password" autocomplete="current-password" required>
-      <button class="primary" type="submit">Sign in</button>
-      <div id="login-error" class="error"></div>
+      <button class="primary" type="submit">Email me a code</button>
     </form>
+    <!-- Step 2: the emailed code -->
+    <form id="code-form" class="hidden">
+      <label for="email-code">The 6-digit code we just emailed to <b id="code-to"></b></label>
+      <input id="email-code" inputmode="numeric" autocomplete="one-time-code" maxlength="10" required class="mono">
+      <button class="primary" type="submit">Continue</button>
+      <button type="button" id="code-back">Use a different email</button>
+    </form>
+    <!-- Step 3a: first time, set up the authenticator -->
+    <form id="enroll-form" class="hidden">
+      <p style="margin:0 0 8px">Set up your authenticator (first time only): in <b>Apple Passwords</b>,
+        open this account's entry (or make one) → <b>Set Up Verification Code</b>, then scan the QR code
+        or enter the setup key.</p>
+      <img id="enroll-qr" alt="QR code for the authenticator" style="width:200px;height:200px;background:#fff;border-radius:6px;padding:6px">
+      <p class="muted" style="margin:6px 0">Setup key: <span id="enroll-secret" class="mono"></span></p>
+      <label for="enroll-code">Then type the 6-digit code it shows</label>
+      <input id="enroll-code" inputmode="numeric" autocomplete="one-time-code" maxlength="6" required class="mono">
+      <button class="primary" type="submit">Turn on</button>
+    </form>
+    <!-- Step 3b: every time after -->
+    <form id="mfa-form" class="hidden">
+      <label for="mfa-code">The 6-digit code from your authenticator (Apple Passwords)</label>
+      <input id="mfa-code" inputmode="numeric" autocomplete="one-time-code" maxlength="6" required class="mono">
+      <button class="primary" type="submit">Sign in</button>
+    </form>
+    <div id="login-error" class="error"></div>
   </section>
 
   <!-- Keys -->
@@ -482,26 +506,103 @@
   }
 
   // ── auth ─────────────────────────────────────────────────────────────────
+  // No password. 1) an emailed one-time code (accounts aren't created here:
+  // shouldCreateUser is off and sign-ups are off in the project), then
+  // 2) a TOTP code from the authenticator. The database's is_quewi_admin()
+  // only says yes to a session that passed both (aal2), so the email code
+  // alone gets nothing.
+  const steps = ["login-form", "code-form", "enroll-form", "mfa-form"];
+  function showStep(id) {
+    for (const s of steps) $(s).classList.toggle("hidden", s !== id);
+    $("login-error").textContent = "";
+    const first = $(id).querySelector("input");
+    if (first) setTimeout(() => first.focus(), 0);
+  }
+  function fail(e) { $("login-error").textContent = errText(e); }
+  let enrollingFactor = null;
+
   async function showForSession(session) {
     const signedIn = !!session;
-    $("login").classList.toggle("hidden", signedIn);
-    $("app").classList.toggle("hidden", !signedIn);
     $("logout").classList.toggle("hidden", !signedIn);
     $("who").textContent = signedIn ? session.user.email : "";
-    if (signedIn) await load();
+    if (!signedIn) {
+      $("login").classList.remove("hidden");
+      $("app").classList.add("hidden");
+      showStep("login-form");
+      return;
+    }
+    const aal = await sb.auth.mfa.getAuthenticatorAssuranceLevel();
+    if (aal.data && aal.data.currentLevel === "aal2") {
+      $("login").classList.add("hidden");
+      $("app").classList.remove("hidden");
+      await load();
+      return;
+    }
+    // Signed in by email code only: the authenticator step.
+    $("login").classList.remove("hidden");
+    $("app").classList.add("hidden");
+    const { data: factors, error } = await sb.auth.mfa.listFactors();
+    if (error) return fail(error);
+    const verified = (factors.totp || []).find((f) => f.status === "verified");
+    if (verified) {
+      showStep("mfa-form");
+      return;
+    }
+    // First time: clear any half-finished setup, then start a new one.
+    for (const f of factors.all || []) {
+      if (f.factor_type === "totp" && f.status !== "verified") await sb.auth.mfa.unenroll({ factorId: f.id });
+    }
+    const en = await sb.auth.mfa.enroll({ factorType: "totp", friendlyName: "quewi admin" });
+    if (en.error) return fail(en.error);
+    enrollingFactor = en.data.id;
+    $("enroll-qr").src = en.data.totp.qr_code;
+    $("enroll-secret").textContent = en.data.totp.secret;
+    showStep("enroll-form");
   }
+
   $("login-form").addEventListener("submit", async (ev) => {
     ev.preventDefault();
-    $("login-error").textContent = "";
-    const btn = ev.submitter;
-    if (btn) btn.disabled = true;
-    const { error } = await sb.auth.signInWithPassword({
-      email: $("email").value.trim(),
-      password: $("password").value,
+    const email = $("email").value.trim();
+    const btn = ev.submitter; if (btn) btn.disabled = true;
+    const { error } = await sb.auth.signInWithOtp({ email, options: { shouldCreateUser: false } });
+    if (btn) btn.disabled = false;
+    if (error) return fail(error);
+    $("code-to").textContent = email;
+    showStep("code-form");
+  });
+  $("code-back").addEventListener("click", () => showStep("login-form"));
+  $("code-form").addEventListener("submit", async (ev) => {
+    ev.preventDefault();
+    const btn = ev.submitter; if (btn) btn.disabled = true;
+    const { error } = await sb.auth.verifyOtp({
+      email: $("email").value.trim(), token: $("email-code").value.trim(), type: "email",
     });
     if (btn) btn.disabled = false;
-    if (error) $("login-error").textContent = errText(error);
-    else $("password").value = "";
+    $("email-code").value = "";
+    if (error) return fail(error);
+    // onAuthStateChange takes it from here (the authenticator step).
+  });
+  async function verifyTotp(factorId, code) {
+    const { error } = await sb.auth.mfa.challengeAndVerify({ factorId, code });
+    if (error) return fail(error);
+    const { data } = await sb.auth.getSession();
+    lastUser = undefined;
+    await showForSession(data.session);
+  }
+  $("enroll-form").addEventListener("submit", async (ev) => {
+    ev.preventDefault();
+    const code = $("enroll-code").value.trim();
+    $("enroll-code").value = "";
+    await verifyTotp(enrollingFactor, code);
+  });
+  $("mfa-form").addEventListener("submit", async (ev) => {
+    ev.preventDefault();
+    const code = $("mfa-code").value.trim();
+    $("mfa-code").value = "";
+    const { data } = await sb.auth.mfa.listFactors();
+    const f = (data.totp || []).find((x) => x.status === "verified");
+    if (!f) return showForSession((await sb.auth.getSession()).data.session);
+    await verifyTotp(f.id, code);
   });
   $("logout").addEventListener("click", async () => {
     await sb.auth.signOut();

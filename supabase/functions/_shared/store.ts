@@ -63,3 +63,8 @@ export const supabaseStore: Store = {
     check(await db().from("activations").update(update).eq("id", id));
   },
 };
+
+/** Note one /activate attempt from `who`; how many it made in the last hour. */
+export async function noteAttempt(who: string): Promise<number> {
+  return Number(check(await db().rpc("quewi_note_attempt", { p_who: who }))) || 0;
+}
