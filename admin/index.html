@@ -229,8 +229,9 @@
     </form>
     <!-- Step 2: the emailed code -->
     <form id="code-form" class="hidden">
-      <label for="email-code">The 6-digit code we just emailed to <b id="code-to"></b></label>
-      <input id="email-code" inputmode="numeric" autocomplete="one-time-code" maxlength="10" required class="mono">
+      <label for="email-code">Check the email we just sent to <b id="code-to"></b>. Paste its sign-in
+        link here (right-click the link → Copy link — <b>don't click it</b>), or type the 6-digit code if it shows one.</label>
+      <input id="email-code" autocomplete="one-time-code" required class="mono" placeholder="https://…/verify?token=…  or  123456">
       <button class="primary" type="submit">Continue</button>
       <button type="button" id="code-back">Use a different email</button>
     </form>
@@ -574,9 +575,20 @@
   $("code-form").addEventListener("submit", async (ev) => {
     ev.preventDefault();
     const btn = ev.submitter; if (btn) btn.disabled = true;
-    const { error } = await sb.auth.verifyOtp({
-      email: $("email").value.trim(), token: $("email-code").value.trim(), type: "email",
-    });
+    // A pasted link: its token is the hashed one-time token (the default
+    // Supabase email, which can't always be edited, sends a link, not a code).
+    // Clicking the link would spend it on a redirect, so it's pasted instead.
+    const typed = $("email-code").value.trim();
+    let tokenHash = null;
+    try {
+      if (/^https?:\/\//i.test(typed)) {
+        const u = new URL(typed);
+        tokenHash = u.searchParams.get("token") || u.searchParams.get("token_hash");
+      }
+    } catch { /* not a URL: a code */ }
+    const { error } = tokenHash
+      ? await sb.auth.verifyOtp({ token_hash: tokenHash, type: "magiclink" })
+      : await sb.auth.verifyOtp({ email: $("email").value.trim(), token: typed, type: "email" });
     if (btn) btn.disabled = false;
     $("email-code").value = "";
     if (error) return fail(error);
