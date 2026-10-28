@@ -57,7 +57,7 @@ All committed and pushed. **30 ctest suites** (all green in CI at `6dabf77`
 before the video editor; with it, 30/30 + selftest green on a Linux Qt 6.11
 build — see §6; CI covers Windows/macOS on the push).
 
-### 0a9. Trial licensing (2026-10-28) — ON from 1.3.0
+### 0a9. Trial licensing (2026-10-28) — ON from 1.3.0 (released 2026-10-28)
 **Update 2026-10-28:** Matthew chose to keep the source **public** (AGPL);
 licensing is a gate for official builds, not DRM (anyone can build from
 source). `release.yml` configures with `-DQUEWI_LICENSING=ON`; 1.3.0 is the
