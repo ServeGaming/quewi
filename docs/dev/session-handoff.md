@@ -11,11 +11,11 @@ session on any computer (or a fresh conversation) continues with no gaps.
 > right now, the next one would lose nothing. *Update protocol* (last section)
 > says how.
 
-Last updated: **2026-10-28**. Latest release: **v1.2.0** (2026-10-05, from
-`main` at `0fec069` — PR #1 `feat/matrix-list` merged on Matthew's "merge it
-and release the next version as 1.2.0"). All 4 assets attached; the DMG and
-AppImage passed the release workflow's own smoke test (selftest + tour on
-macOS 14 / Ubuntu 22.04). CI, perf and docs green on main. macOS / Linux state and open items:
+Last updated: **2026-11-15**. Latest release: **v1.3.0** (2026-10-28, from
+`main` at `c782a65`) — vamps/Advance, Devamp, and the **first licensed release**
+(trial keys; see 0a9). All 4 assets attached and smoke-tested by the release
+workflow. CI, perf and docs green on main. Matthew is in rehearsals and may ask
+for quick fixes — ship them as patch releases (1.3.x) with licensing ON. macOS / Linux state and open items:
 **`docs/dev/cross-platform.md`** — read it before any Mac/Linux work.
 
 ---
