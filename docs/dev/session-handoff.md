@@ -11,9 +11,9 @@ session on any computer (or a fresh conversation) continues with no gaps.
 > right now, the next one would lose nothing. *Update protocol* (last section)
 > says how.
 
-Last updated: **2026-11-15**. Latest release: **v1.3.1** (2026-11-15; see
-0a10; **1.3.2 is committed and ready to tag** — audit fixes — waiting on
-Matthew's word) on top of **v1.3.0** (2026-10-28, `c782a65`) — vamps/Advance, Devamp, and the **first licensed release**
+Last updated: **2026-11-16**. Latest release: **v1.3.2** (2026-11-16, `c569dac`; audit fixes; see
+0a10; MSI, zip, AppImage up; the DMG job hit a GitHub Mac-runner capacity cancel and was re-run) on top of **v1.3.1** (2026-11-15; no DMG
+) and **v1.3.0** (2026-10-28, `c782a65`) — vamps/Advance, Devamp, and the **first licensed release**
 (trial keys; see 0a9). All 4 assets attached and smoke-tested by the release
 workflow. CI, perf and docs green on main. Matthew is in rehearsals and may ask
 for quick fixes — ship them as patch releases (1.3.x) with licensing ON. macOS / Linux state and open items:
@@ -143,7 +143,7 @@ so instead of clicking the dialog there is now
 prewarm, JSON reply), driven in a test copy: found 1, reported 1 missing,
 the relinked track played, undo restored. The Tools-menu dialog's two stock
 dialogs (folder picker, result box) are still unclicked. Both builds 46/46
-+ selftest after that. Then 1.3.2 was tagged.
++ selftest after that. 1.3.2 tagged 2026-11-16 on his word.
 
 **CI / macOS (2026-11-15/16):** GitHub refused `macos-14` ("configuration
 'macos-14-arm64-us-default' is not supported"), so 1.3.1 has **no DMG**.
@@ -815,7 +815,7 @@ offered or deleted. Stray locks with no journal are tidied if stale.
 
 ## Release history (what each shipped)
 
-- **1.3.2** (not tagged yet) — vamps audit fixes. See 0a10.
+- **1.3.2** (2026-11-16) — vamps audit fixes, remote relink. See 0a10.
 - **1.3.1** (2026-11-15) — vamp edits reach a playing song (phantom-vamp
   fix); Tools → Relink missing files. See 0a10.
 
