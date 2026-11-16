@@ -2,6 +2,18 @@
 
 ## Unreleased (next version)
 
+### New
+
+- **Import a TheatreMix show.** The Mix grid has an **Import TheatreMix
+  file…** button: pick a `.tmix` and its cues, DCA assignments, channel names
+  and ensembles come in. See [quewi Mix](../using-quewi/mix.md).
+
+### Fixed
+
+- **A long file name no longer squashes the Inspector.** The cue pickers
+  (fade target, link, group) asked to be as wide as the longest cue name,
+  which pushed the panel out of shape, worst on a Mac.
+
 ### Improved
 
 - **The license key box formats as you type.** Letters become capitals and

@@ -11,11 +11,14 @@ add_library(quewi_mix STATIC
     Dm7Link.cpp
     MixCue.h
     MixCue.cpp
+    TmixImport.h
+    TmixImport.cpp
 )
 target_include_directories(quewi_mix PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/..)
 target_link_libraries(quewi_mix PUBLIC
     Qt6::Core
     Qt6::Network
+    Qt6::Sql       # TheatreMix .tmix files are SQLite
     quewi_osc      # OscCodec/OscMessage only — NOT OscEngine, see the spec
     quewi_core     # cues::Cue base for MixCue; also compiles MixShow
 )

@@ -52,6 +52,7 @@
 #include <QLineEdit>
 #include <QPlainTextEdit>
 #include <QPushButton>
+#include <QAbstractItemView>
 #include <QScrollArea>
 #include <QScrollBar>
 #include <QSpinBox>
@@ -1261,6 +1262,16 @@ Inspector::Inspector(QWidget *parent)
                             m_objAudioGroup, m_fadeGroup, m_lightGroup,
                             m_lightFadeGroup, m_visualGroup, m_videoSoundGroup }) {
         if (box) makeDraggable(box);
+    }
+
+    // A combo box asks to be as wide as its longest entry, and the cue pickers
+    // list cues by name, which is usually a file name. One long name made the
+    // panel ask for 1500 px and fight the window (squashed on a Mac). Ask for
+    // a sensible width instead; the open list still shows whole names.
+    for (auto *combo : findChildren<QComboBox *>()) {
+        combo->setSizeAdjustPolicy(QComboBox::AdjustToMinimumContentsLengthWithIcon);
+        combo->setMinimumContentsLength(14);
+        combo->view()->setTextElideMode(Qt::ElideNone);
     }
 
     setCue(nullptr);

@@ -45,6 +45,7 @@ quewi_add_test(x32_value    Qt6::Test quewi_mix)
 quewi_add_test(console_link Qt6::Test quewi_mix)
 quewi_add_test(x32_link     Qt6::Test Qt6::Network quewi_mix)
 quewi_add_test(mix_show     Qt6::Test quewi_mix)
+quewi_add_test(tmix_import  Qt6::Test Qt6::Sql quewi_mix)
 quewi_add_test(mix_persistence Qt6::Test Qt6::Sql quewi_mix quewi_show)
 # Crash-journal locks: a running instance's journal is never recovered or
 # deleted by another; a crashed one's is.
@@ -190,3 +191,9 @@ target_sources(test_license PRIVATE
     ${CMAKE_SOURCE_DIR}/resources/resources.qrc)
 target_compile_definitions(test_license PRIVATE QUEWI_LICENSING=1 QUEWI_LICENSE_PUBKEY="00")
 target_include_directories(test_license PRIVATE ${CMAKE_SOURCE_DIR}/src ${CMAKE_SOURCE_DIR}/src/app)
+
+# A long cue name mustn't widen the Inspector (the cue pickers).
+quewi_add_test(inspector_layout Qt6::Test Qt6::Widgets quewi_ui)
+target_sources(test_inspector_layout PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/../src/app/GoEngine.cpp
+)

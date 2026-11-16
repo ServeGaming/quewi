@@ -85,6 +85,7 @@ private slots:
     void onAddCue()    { addCue(); }
     void onDeleteCue() { deleteSelectedCue(); }
     void onEditChannels();
+    void onImportTmix();
     void onConnectClicked();
     void onLinkState(quewi::mix::ConsoleLink::State state);
     void onResyncRequired(const QString &reason);
@@ -128,6 +129,7 @@ private:
     QPushButton *m_go       = nullptr;
     QPushButton *m_addBtn      = nullptr;
     QPushButton *m_delBtn      = nullptr;
+    QPushButton *m_importBtn   = nullptr;
     QPushButton *m_channelsBtn = nullptr;
     bool         m_showLocked  = false;
 

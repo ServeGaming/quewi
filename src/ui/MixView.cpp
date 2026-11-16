@@ -6,6 +6,7 @@
 #include "mix/Dm7Link.h"
 #include "mix/MixCue.h"
 #include "mix/MixShow.h"
+#include "mix/TmixImport.h"
 #include "mix/X32Link.h"
 #include "ui/ChannelEditorDialog.h"
 #include "ui/DcaAssignDialog.h"
@@ -13,6 +14,8 @@
 #include "ui/Theme.h"
 
 #include <QComboBox>
+#include <QFileDialog>
+#include <QFileInfo>
 #include <QHBoxLayout>
 #include <QHeaderView>
 #include <QItemSelectionModel>
@@ -108,6 +111,12 @@ void MixView::buildUi()
     m_delBtn = new QPushButton(tr("Delete cue"), this);
     connect(m_delBtn, &QPushButton::clicked, this, &MixView::onDeleteCue);
     actions->addWidget(m_delBtn);
+
+    m_importBtn = new QPushButton(tr("Import TheatreMix file…"), this);
+    m_importBtn->setToolTip(tr("Bring in the cues, DCA assignments, channel names and "
+                               "ensembles from a TheatreMix show file (.tmix)."));
+    connect(m_importBtn, &QPushButton::clicked, this, &MixView::onImportTmix);
+    actions->addWidget(m_importBtn);
 
     actions->addStretch(1);
 
@@ -208,7 +217,7 @@ void MixView::setShowModeLocked(bool locked)
     // editing cells and channel/DCA-count changes are refused. The mix page
     // used to ignore Show Mode entirely.
     m_showLocked = locked;
-    for (QWidget *w : std::initializer_list<QWidget *>{ m_addBtn, m_delBtn, m_channelsBtn, m_dcaCount })
+    for (QWidget *w : std::initializer_list<QWidget *>{ m_addBtn, m_delBtn, m_importBtn, m_channelsBtn, m_dcaCount })
         if (w) w->setEnabled(!locked);
     m_table->setEditTriggers(locked ? QAbstractItemView::NoEditTriggers
                                     : QAbstractItemView::DoubleClicked
@@ -356,6 +365,59 @@ void MixView::onCellDoubleClicked(const QModelIndex &index)
         m_model->setDcaAssignment(index.row(), dca,
                                   dlg.selectedStrips(), dlg.selectedEnsembles());
     }
+}
+
+void MixView::onImportTmix()
+{
+    auto *list = m_model->cueList();
+    if (!list || !m_workspace || !m_workspace->mixShow()) return;
+
+    const QString path = QFileDialog::getOpenFileName(
+        this, tr("Import TheatreMix file"), QString(),
+        tr("TheatreMix show (*.tmix);;All files (*)"));
+    if (path.isEmpty()) return;
+
+    mix::TmixShow show;
+    QString error;
+    if (!mix::readTmix(path, &show, &error)) {
+        QMessageBox::warning(this, tr("Import TheatreMix file"), error);
+        return;
+    }
+
+    int labelled = 0;
+    for (const auto &c : show.cues) labelled += int(c.labels.size());
+    QStringList found;
+    found << tr("%n cue(s)", nullptr, int(show.cues.size()))
+          << tr("%n channel(s)", nullptr, int(show.strips.size()));
+    if (!show.ensembles.isEmpty())
+        found << tr("%n ensemble(s)", nullptr, int(show.ensembles.size()));
+    QString text = tr("%1 has %2, using up to DCA %3.")
+                       .arg(QFileInfo(path).fileName(), found.join(QStringLiteral(", ")))
+                       .arg(show.highestDca);
+    if (!show.console.isEmpty())
+        text += QLatin1Char(' ') + tr("It was made for a %1.").arg(show.console);
+    text += QStringLiteral("\n\n")
+          + tr("The cues go on the end of this list. Channel names and ensembles you "
+               "don't have yet are added; ones you already have are left as they are.");
+    if (labelled > 0)
+        text += QStringLiteral("\n\n")
+              + tr("TheatreMix's per-cue DCA labels aren't brought in.");
+    if (show.highestDca > mix::MixShow::kMaxDcaCount)
+        text += QStringLiteral("\n\n")
+              + tr("quewi has %1 DCAs; assignments past DCA %1 are left out.")
+                    .arg(mix::MixShow::kMaxDcaCount);
+    if (QMessageBox::question(this, tr("Import TheatreMix file"), text,
+                              QMessageBox::Ok | QMessageBox::Cancel, QMessageBox::Ok)
+        != QMessageBox::Ok)
+        return;
+
+    const int firstNew = list->cueCount();
+    const auto done = mix::applyTmix(show, m_workspace, list);
+    if (done.cues > 0) m_table->setCurrentIndex(m_model->index(firstNew, MixGridModel::kColName));
+    emit statusMessage(tr("Imported %n TheatreMix cue(s)", nullptr, done.cues)
+                       + (done.channelsAdded ? tr(", %n channel(s) added", nullptr, done.channelsAdded)
+                                             : QString())
+                       + (done.ensembles ? tr(", %n ensemble(s)", nullptr, done.ensembles) : QString()));
 }
 
 void MixView::onEditChannels()

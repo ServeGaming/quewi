@@ -815,6 +815,20 @@ offered or deleted. Stray locks with no journal are tidied if stale.
 
 ## Release history (what each shipped)
 
+- **Unreleased on main** (2026-11-16, no version bump — Matthew decides when):
+  **TheatreMix import** — Mix grid button "Import TheatreMix file…"; `src/mix/TmixImport.*`
+  reads the .tmix (SQLite: `cues` number/point/name/dcaNNChannels/dcaNNLabel, any number of
+  dcaNN columns; `profiles` default rows = channel names, "Channel N" ignored; `actors`;
+  `ensembles`; `config` targetConsole/channels). Applies: missing strips/names/actors/ensembles
+  added (never overwrites), DCA count raised (max 24), cues appended in one undo macro.
+  Per-cue DCA labels are read but NOT applied (MixCue has no label field and fire doesn't send
+  setDcaLabel — candidate follow-up). test_tmix_import (+ `QUEWI_TMIX_SAMPLE=` real-file check;
+  verified on a public sample from github.com/maxdangermiller/TheatreMixClone, not committed).
+  The button's file dialog + confirm box were not clicked. **Inspector squash fix** — every
+  Inspector combo now AdjustToMinimumContentsLengthWithIcon/14: a long cue name made the fade
+  target combo's sizeHint 1518 px (panel asked 1736 vs 462). test_inspector_layout.
+  **Open: Matthew says DCAs don't reach the console from the Mac** although it connects —
+  not diagnosed yet (need: which desk, X32 or DM7; channels registered; banner text).
 - **Unreleased on main** (2026-11-16) — key box auto-caps + dashes (`license::formatTypedKey`, test_license 10); no version bump (Matthew: "No need to make a whole new version for that" — small changes ride with the next release). Matthew made a master key; this PC still holds the expired test key under HKCU/Software/ServeGaming/quewi/license, so the master key went in on another machine.
 - **1.3.2** (2026-11-16) — vamps audit fixes, remote relink. See 0a10.
 - **1.3.1** (2026-11-15) — vamp edits reach a playing song (phantom-vamp

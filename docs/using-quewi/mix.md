@@ -35,6 +35,23 @@ talkback) is left alone.
 
 ---
 
+## Bringing in a TheatreMix show
+
+Already have the show in TheatreMix? Click **Import TheatreMix file…** above
+the grid and pick the `.tmix` file. quewi tells you what it found (cues,
+channels, ensembles, how many DCAs) and asks before adding anything.
+
+- The cues go on the end of the Mix list, with their numbers (TheatreMix's
+  2 point 5 becomes 2.5), names and who's on each DCA.
+- Channel names and actors come across for channels you don't have yet, or
+  haven't named. Names you already have are left alone. Ensembles you don't
+  have are added.
+- The DCA count goes up if the file uses more DCAs (quewi has up to 24).
+- **Edit → Undo** takes the imported cues back out in one go.
+
+Not brought across: TheatreMix's per-cue DCA labels, positions, FX, snippets,
+scenes and levels.
+
 ## Writing cues
 
 Each row is a scene and each column is a DCA. To say who's on a DCA,
