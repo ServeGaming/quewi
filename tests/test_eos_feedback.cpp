@@ -27,6 +27,20 @@ class EosFeedbackTests : public QObject {
         return {QString::fromLatin1(address), {osc::Argument::s(QString::fromUtf8(s))}};
     }
 
+    // A local port nothing listens on, BELOW the range systems hand out for
+    // outgoing connections. (A port from listen(0), closed, is in that
+    // range: macOS 15 then gives the connecting socket the same port as its
+    // source, and TCP connects it to itself — the "refused" tests saw a
+    // connection, 2026-11-15.)
+    static quint16 closedPort()
+    {
+        for (quint16 p = 23117; p < 23400; ++p) {
+            QTcpServer probe;
+            if (probe.listen(QHostAddress::LocalHost, p)) { probe.close(); return p; }
+        }
+        return 0;
+    }
+
 private slots:
     void parsesCueText()
     {
@@ -154,10 +168,8 @@ private slots:
     // up (Nomad launched later) and the link goes Live by itself.
     void recoversWhenTheDeskStartsLater()
     {
-        QTcpServer probe;
-        QVERIFY(probe.listen(QHostAddress::LocalHost, 0));
-        const quint16 port = probe.serverPort();
-        probe.close();
+        const quint16 port = closedPort();
+        QVERIFY(port != 0);
         osc::EosFeedback fb;
         fb.setTimings(200, 1000, 5000);
         fb.start(QStringLiteral("127.0.0.1"), port);
@@ -176,10 +188,8 @@ private slots:
 
     void failsVisiblyWhenNothingListens()
     {
-        QTcpServer probe;
-        QVERIFY(probe.listen(QHostAddress::LocalHost, 0));
-        const quint16 port = probe.serverPort();
-        probe.close();                                  // now nothing's there
+        const quint16 port = closedPort();              // nothing's there
+        QVERIFY(port != 0);
         osc::EosFeedback fb;
         fb.setTimings(5000, 1000, 5000);
         fb.start(QStringLiteral("127.0.0.1"), port);
