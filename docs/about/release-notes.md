@@ -1,6 +1,6 @@
 # Release notes
 
-## 1.3.3 (2026-11-16)
+## Unreleased (next version)
 
 ### Improved
 

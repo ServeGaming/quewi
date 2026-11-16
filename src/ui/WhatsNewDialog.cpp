@@ -20,7 +20,7 @@ struct Highlight { const char *title; const char *body; };
 // Curated highlights for this release. Written to read like a person wrote
 // them — specific, second-person, no filler. Update this list each release.
 //
-// 1.3.3: the key box formats as it's typed. 1.3.2: the vamps audit fixes. 1.3.1: vamp edits reach a playing song;
+// Next release: the key box formats as it's typed. 1.3.2: the vamps audit fixes. 1.3.1: vamp edits reach a playing song;
 // relink missing files. Then 1.3.0
 // (vamps and Advance; trial keys), 1.2.0, 1.1.0, 1.0.3, 1.0.2 and 1.0.1, for
 // anyone installing this by hand from an older version.

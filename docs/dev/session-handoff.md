@@ -815,7 +815,7 @@ offered or deleted. Stray locks with no journal are tidied if stale.
 
 ## Release history (what each shipped)
 
-- **1.3.3** (committed 2026-11-16, not tagged) — key box auto-caps + dashes (`license::formatTypedKey`, test_license 10). Matthew made a master key; this PC still holds the expired test key in HKCUSoftwareServeGamingquewilicense, so the master key went in on another machine.
+- **Unreleased on main** (2026-11-16) — key box auto-caps + dashes (`license::formatTypedKey`, test_license 10); no version bump (Matthew: "No need to make a whole new version for that" — small changes ride with the next release). Matthew made a master key; this PC still holds the expired test key under HKCU/Software/ServeGaming/quewi/license, so the master key went in on another machine.
 - **1.3.2** (2026-11-16) — vamps audit fixes, remote relink. See 0a10.
 - **1.3.1** (2026-11-15) — vamp edits reach a playing song (phantom-vamp
   fix); Tools → Relink missing files. See 0a10.
