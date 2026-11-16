@@ -13,15 +13,17 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # macOS is PINNED to macos-14, not macos-latest. GitHub rolled the
+        # macOS is PINNED to macos-15, not macos-latest. GitHub rolled the
         # `macos-latest` label forward to macOS 26 (arm64), whose SDK dropped
         # the legacy AGL (OpenGL) framework that Qt 6.8.3 still references —
         # so the link fails with `ld: framework 'AGL' not found` on a build
         # that has nothing to do with OpenGL. release.yml already pins
-        # macos-14 for the same reason; CI must match it, or it tests an OS we
-        # don't ship on and green here wouldn't mean the release build is green.
+        # the same image for the same reason; CI must match it, or it tests an OS
+        # we don't ship on and green here wouldn't mean the release build is green.
+        # (Was macos-14 until 2026-11-15, when GitHub began refusing it: "The
+        # configuration 'macos-14-arm64-us-default' is not supported".)
         # Revisit when we move to a Qt that has dropped its AGL dependency.
-        os: [windows-latest, macos-14, ubuntu-latest]
+        os: [windows-latest, macos-15, ubuntu-latest]
         build_type: [Debug, Release]
 
     steps:

@@ -141,7 +141,9 @@ jobs:
           prerelease: ${{ contains(github.ref, '-rc') || contains(github.ref, '-alpha') || contains(github.ref, '-beta') }}
 
   build-dmg:
-    runs-on: macos-14
+    # macos-15 (was macos-14 until GitHub refused it, 2026-11-15); not
+    # macos-latest — see the note in ci.yml about the macOS 26 SDK and AGL.
+    runs-on: macos-15
     steps:
       - uses: actions/checkout@v4
         with:
