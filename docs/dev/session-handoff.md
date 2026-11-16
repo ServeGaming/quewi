@@ -122,6 +122,17 @@ CI build. Batch the local test pass for when he says. 1.3.2's version bump
 + notes were committed WITHOUT a local rebuild after the bump (code was
 built and fully tested just before it); CI covers it.
 
+**Local pass, 2026-11-16 (Matthew: "run through and test everything"), at
+1.3.2 with the Eos watchdog:** release build 46/46 + `--selftest` 0;
+licensed build 46/46 + `--selftest` 0; `x32_emulator` 7/7; test copy over
+OSC on 53000 (8500 held by a placeholder socket so the copy couldn't take
+it): live vamp delete / add, Advance, fired twice → both released, and
+**Devamp → group** moved the song on. Still **not** driven: Devamp at a
+video cue (would open a video surface on his displays), the lane menu's
+Hold/Marker items, the Relink dialog. **This PC's test key
+(QW-MKCN-…) expired 2026-11-10:** the licensed build exits 3 here, so
+official 1.3.x asks for a key on this PC until he enters a master key.
+
 **CI / macOS (2026-11-15/16):** GitHub refused `macos-14` ("configuration
 'macos-14-arm64-us-default' is not supported"), so 1.3.1 has **no DMG**.
 ci.yml and release.yml now use `macos-15` (still not `macos-latest`: AGL).
