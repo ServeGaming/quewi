@@ -96,6 +96,37 @@ QString formatKey(const QString &key)
     return out;
 }
 
+TypedKey formatTypedKey(const QString &text, int cursor)
+{
+    int before = 0;   // letters/digits left of the cursor
+    for (int i = 0; i < std::min(cursor, int(text.size())); ++i)
+        if (text[i].isLetterOrNumber()) ++before;
+    QString n = normalizeKey(text);
+    // A key always starts QW; typing or pasting just the body adds it.
+    if (!n.isEmpty() && (n[0] != QLatin1Char('Q') || (n.size() == 16 && !n.startsWith(QLatin1String("QW"))))) {
+        n.prepend(QLatin1String("QW"));
+        before += 2;
+    }
+    if (n.startsWith(QLatin1String("QW"))) {
+        n.truncate(18);
+        // Look-alikes that can't be in a key (the server forgives them too).
+        for (int i = 2; i < n.size(); ++i) {
+            if (n[i] == QLatin1Char('O')) n[i] = QLatin1Char('0');
+            else if (n[i] == QLatin1Char('I') || n[i] == QLatin1Char('L')) n[i] = QLatin1Char('1');
+        }
+    }
+    before = std::min(before, int(n.size()));
+    TypedKey out;
+    out.text = formatKey(n);
+    int seen = 0, pos = 0;
+    while (pos < out.text.size() && seen < before) {
+        if (out.text[pos].isLetterOrNumber()) ++seen;
+        ++pos;
+    }
+    out.cursor = pos;
+    return out;
+}
+
 Problem verifyToken(const QString &token, const QByteArray &publicKey,
                     const QString &machine, qint64 now, Claims *out)
 {

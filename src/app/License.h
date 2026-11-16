@@ -63,6 +63,10 @@ QString machineName();      // shown on the activation screen and to the admin
 // display form "QW-ABCD-EFGH-…".
 QString normalizeKey(const QString &key);
 QString formatKey(const QString &key);
+// The key box as it's typed: capitals, dashes, the QW prefix added, cut at
+// a whole key, and the cursor kept after the same character.
+struct TypedKey { QString text; int cursor = 0; };
+TypedKey formatTypedKey(const QString &text, int cursor);
 
 // Check a license: signature (with `publicKey`), format, machine, time.
 // `now` is the later of the clock and the latest time already seen.

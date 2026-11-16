@@ -1,5 +1,6 @@
 #include <QTest>
 #include <QApplication>
+#include <QClipboard>
 #include <QDateTime>
 #include <QJsonDocument>
 #include <QJsonObject>
@@ -164,6 +165,24 @@ private slots:
     {
         QCOMPARE(normalizeKey(QStringLiteral(" qw-ab3d efgh-jk ")), QStringLiteral("QWAB3DEFGHJK"));
         QCOMPARE(formatKey(QStringLiteral("qwabcdefghjkmnpqrs")), QStringLiteral("QW-ABCD-EFGH-JKMN-PQRS"));
+        // As it's typed: capitals, dashes, cursor after the same character.
+        auto typed = [](const char *t, int c) { return formatTypedKey(QString::fromLatin1(t), c); };
+        QCOMPARE(typed("q", 1).text, QStringLiteral("Q"));
+        QCOMPARE(typed("qw", 2).text, QStringLiteral("QW"));
+        QCOMPARE(typed("qwa", 3).text, QStringLiteral("QW-A"));
+        QCOMPARE(typed("qwa", 3).cursor, 4);
+        QCOMPARE(typed("QW-ABCDe", 8).text, QStringLiteral("QW-ABCD-E"));
+        QCOMPARE(typed("QW-ABCDe", 8).cursor, 9);
+        QCOMPARE(typed("abcd", 4).text, QStringLiteral("QW-ABCD"));         // QW added
+        QCOMPARE(typed("abcd", 4).cursor, 7);
+        QCOMPARE(typed("mkcnx72sn4trrmxk", 16).text, QStringLiteral("QW-MKCN-X72S-N4TR-RMXK"));
+        QCOMPARE(typed("qw-mkcn-x72s-n4tr-rmxk-extra", 28).text, QStringLiteral("QW-MKCN-X72S-N4TR-RMXK"));
+        QCOMPARE(typed("QW-AOCD-EIGL", 12).text, QStringLiteral("QW-A0CD-E1G1"));   // look-alikes
+        QCOMPARE(typed("QW-ABxCD-EFGH", 6).text, QStringLiteral("QW-ABXC-DEFG-H")); // typed mid-key
+        QCOMPARE(typed("QW-ABxCD-EFGH", 6).cursor, 6);
+        QCOMPARE(typed("QW-ABC-EFGH", 6).text, QStringLiteral("QW-ABCE-FGH"));      // deleted mid-key
+        QCOMPARE(typed("QW-ABC-EFGH", 6).cursor, 6);
+        QCOMPARE(typed("", 0).text, QString());
         QCOMPARE(machineHash().size(), 64);
         QCOMPARE(machineHash(), machineHash());   // stable
     }
@@ -242,6 +261,35 @@ private slots:
         QTRY_VERIFY_WITH_TIMEOUT(err->isVisible(), 5000);
         QVERIFY2(err->text().contains(QStringLiteral("different computer")), qPrintable(err->text()));
         QVERIFY(Store::token().isEmpty());
+    }
+
+    void theKeyBoxFormatsAsItsTyped()
+    {
+        Status st;
+        Store::clear();
+        ActivationDialog dlg(st);
+        dlg.show();
+        auto *key = dlg.findChild<QLineEdit *>(QStringLiteral("licenseKey"));
+        QVERIFY(key);
+        key->clear();
+        QTest::keyClicks(key, QStringLiteral("qwmkcnx72s"));
+        QCOMPARE(key->text(), QStringLiteral("QW-MKCN-X72S"));
+        QCOMPARE(key->cursorPosition(), int(key->text().size()));
+        QTest::keyClicks(key, QStringLiteral("n4trrmxkzz"));            // extra cut off
+        QCOMPARE(key->text(), QStringLiteral("QW-MKCN-X72S-N4TR-RMXK"));
+        QTest::keyClick(key, Qt::Key_Backspace);
+        QTest::keyClick(key, Qt::Key_Backspace);
+        QTest::keyClick(key, Qt::Key_Backspace);
+        QTest::keyClick(key, Qt::Key_Backspace);
+        QCOMPARE(key->text(), QStringLiteral("QW-MKCN-X72S-N4TR"));    // dash goes with the group
+        QTest::keyClick(key, Qt::Key_Backspace);
+        QCOMPARE(key->text(), QStringLiteral("QW-MKCN-X72S-N4T"));
+
+        // Pasted without the QW or dashes.
+        key->clear();
+        QApplication::clipboard()->setText(QStringLiteral("mkcn x72s n4tr rmxk"));
+        QTest::keyClick(key, Qt::Key_V, Qt::ControlModifier);
+        QCOMPARE(key->text(), QStringLiteral("QW-MKCN-X72S-N4TR-RMXK"));
     }
 };
 

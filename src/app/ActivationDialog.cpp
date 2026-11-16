@@ -86,6 +86,13 @@ ActivationDialog::ActivationDialog(const license::Status &status, QWidget *paren
     connect(quit, &QPushButton::clicked, this, &QDialog::reject);
     connect(m_key, &QLineEdit::returnPressed, this, &ActivationDialog::activate);
     connect(m_key, &QLineEdit::textChanged, this, [this] { m_error->hide(); });
+    // Capitals and dashes as it's typed (or pasted).
+    connect(m_key, &QLineEdit::textEdited, this, [this](const QString &text) {
+        const auto f = license::formatTypedKey(text, m_key->cursorPosition());
+        if (f.text == text) return;
+        m_key->setText(f.text);
+        m_key->setCursorPosition(f.cursor);
+    });
     connect(m_client, &license::Client::activated, this, &ActivationDialog::onReply);
 }
 

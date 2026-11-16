@@ -1,5 +1,14 @@
 # Release notes
 
+## 1.3.3 (2026-11-16)
+
+### Improved
+
+- **The license key box formats as you type.** Letters become capitals and
+  the dashes go in by themselves (`QW-XXXX-XXXX-XXXX-XXXX`). Typing or pasting
+  just the 16-character part adds the `QW`; spaces and extra characters are
+  dropped, and the look-alikes O, I and L become 0 and 1.
+
 ## 1.3.2 (2026-11-15)
 
 Fixes from a full check of vamps, holds and skips.
