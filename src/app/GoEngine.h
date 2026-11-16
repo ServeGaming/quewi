@@ -259,8 +259,11 @@ private:
     };
     std::vector<TriggerRun> m_triggerRuns;
     // Audio cues fired with vamps / holds / skips, so Advance can find them.
-    std::vector<QPointer<audio::AudioCue>> m_withPlayEvents;
-    void notePlayEventsCue(audio::AudioCue *c);
+    // By voice, not by cue: a song fired again while its first voice is
+    // still vamping has two, and Advance must be able to reach both.
+    struct PlayEventsVoice { QPointer<audio::AudioCue> cue; quint64 voice = 0; };
+    std::vector<PlayEventsVoice> m_withPlayEvents;
+    void notePlayEventsCue(audio::AudioCue *c, quint64 voice);
     static std::vector<double> barTimesOf(const audio::AudioCue *c);
     // Live edits: what was last pushed to a playing voice (by voice id), so
     // an unrelated change to the cue doesn't push again.

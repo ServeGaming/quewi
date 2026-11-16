@@ -143,7 +143,7 @@ signals:
     void playEventMoved(QUuid id, double start, double end);
     // Clicked (and selected here already); null = a click on empty lane.
     void playEventClicked(QUuid id);
-    // "makeVamp", "makeRepeat", "makeSkip", "exitEndOfPass", "exitNextBar",
+    // "makeVamp", "makeRepeat", "makeSkip", "makeHold", "makeMarker", "exitEndOfPass", "exitNextBar",
     // "exitNow", "rename", "delete".
     void playEventContextAction(QUuid id, QString action);
 protected:

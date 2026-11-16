@@ -331,12 +331,20 @@ def audio_cue(c, number, where, plan_dir, analysis):
             n = int(e.get("count", e.get("times", 0)) or 0)
             if str(e.get("kind", "")).lower() == "repeat" and n < 2:
                 errors.append(f"{w}: a repeat needs a count of 2 or more")
-            if n:
-                o["count"] = max(2, n)
+            if n < 0 or n > 999:
+                errors.append(f"{w}: count must be 0 (until Advance) or 2 to 999")
+            if n > 0:
+                o["count"] = min(999, max(2, n))
             ex = e.get("exit")
-            if ex:
-                o["exit"] = {"end": "endOfPass", "endofpass": "endOfPass", "bar": "nextBar",
-                             "nextbar": "nextBar", "now": "now"}.get(str(ex).replace(" ", "").lower(), "endOfPass")
+            if ex and n > 0:
+                warnings.append(f"{w}: a repeat goes on by itself; its exit is ignored")
+            elif ex:
+                exits = {"end": "endOfPass", "endofpass": "endOfPass", "bar": "nextBar",
+                         "nextbar": "nextBar", "now": "now"}
+                key = str(ex).replace(" ", "").lower()
+                if key not in exits:
+                    errors.append(f"{w}: exit is 'end', 'bar' or 'now', not '{ex}'")
+                o["exit"] = exits.get(key, "endOfPass")
         if duration and a0 > duration:
             errors.append(f"{w}: starts past the end of the track")
         events.append(o)

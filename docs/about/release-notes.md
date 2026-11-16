@@ -1,5 +1,40 @@
 # Release notes
 
+## 1.3.2 (2026-11-15)
+
+Fixes from a full check of vamps, holds and skips.
+
+### Fixed
+
+- **A hold at the end of a vamp** (or inside one) stopped the music on the
+  first pass instead of letting the vamp loop, and the pass count ran away.
+  A hold at a vamp's end now waits until the vamp is left; one inside a
+  vamp stops the first pass once, then the vamp loops as usual.
+- **Advance in a skip** (or a vamp leaving "now" / "at the next bar") that
+  jumped over a hold stopped at the hold. It now goes past it.
+- **Clicks at loop points**: a vamp at the very top of a song (or at its
+  trim-in) looped with a hard splice; and Advance pressed in the last few
+  milliseconds of a pass could click. Advance pressed within 3 ms of the
+  loop point now counts from the top of the next pass.
+- **A vamp in the last seconds of a song with a Fade Out** faded on every
+  pass and jumped back up at the loop. The fade-out now waits until nothing
+  is left to wait for.
+- **A vamp reaching past the trim-out** (or drawn a hair past the end of the
+  file) ended the song. It loops at the end instead.
+- **A vamp ending inside a cut section** looped short by the cut's length.
+- **Seeking**: seeking while the song was stopped at a hold did nothing;
+  holds you had gone back before didn't stop again; an exit still on its
+  way survived the seek. A song with Loop on now stops at its holds every
+  time round, not only the first.
+- **GO on a song that was already vamping** left the first one looping with
+  nothing able to Advance it. Advance now reaches each in turn, and edits
+  to the song's vamps reach both.
+- **Devamp** (and `/quewi/cue/<n>/advance`) aimed at a **video cue** did
+  nothing — it now moves the video's soundtrack on — and aimed at a
+  **group** it moves on every song in the group.
+- The VAMPS lane's right-click menu can turn an event into a **Hold** or a
+  **Marker** (it only offered vamp, repeat and skip).
+
 ## 1.3.1 (2026-11-15)
 
 A rehearsal fix for vamps, and a way to find a show's tracks on another

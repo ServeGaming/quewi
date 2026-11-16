@@ -356,7 +356,7 @@ quint64 GoEngine::fireSound(audio::AudioCue *audioCue, const AudioRoute &route,
 
         vid = m_audio->fire(file, p);
         audioCue->setCurrentVoiceId(vid);
-        if (!p.playEvents.empty()) notePlayEventsCue(audioCue);
+        if (!p.playEvents.empty() && vid != 0) notePlayEventsCue(audioCue, vid);
         if (vid != 0) {
             if (m_sentPlayEvents.size() > 64) m_sentPlayEvents.clear();
             m_sentPlayEvents.insert(vid, { p.playEvents, p.barTimes });
@@ -1078,13 +1078,19 @@ std::vector<double> GoEngine::barTimesOf(const audio::AudioCue *c)
     return out;
 }
 
-void GoEngine::notePlayEventsCue(audio::AudioCue *c)
+void GoEngine::notePlayEventsCue(audio::AudioCue *c, quint64 voice)
 {
+    // Drop what's gone: deleted cues, this voice's old entry, and (once the
+    // list has grown) voices that have finished.
+    QSet<quint64> live;
+    const bool prune = m_withPlayEvents.size() >= 16 && m_audio;
+    if (prune) for (const auto &av : m_audio->activeVoices()) live.insert(av.id);
     m_withPlayEvents.erase(std::remove_if(m_withPlayEvents.begin(), m_withPlayEvents.end(),
-                                          [c](const QPointer<audio::AudioCue> &o) {
-                                              return !o || o == c;
+                                          [&](const PlayEventsVoice &o) {
+                                              return !o.cue || o.voice == voice
+                                                  || (prune && !live.contains(o.voice));
                                           }), m_withPlayEvents.end());
-    m_withPlayEvents.push_back(c);
+    m_withPlayEvents.push_back({c, voice});
 }
 
 // A song that has been fired changed. If it's playing and its vamps / holds
@@ -1096,15 +1102,27 @@ void GoEngine::notePlayEventsCue(audio::AudioCue *c)
 void GoEngine::onPlayingSoundChanged()
 {
     auto *c = qobject_cast<audio::AudioCue *>(sender());
-    if (!c || !m_audio || c->currentVoiceId() == 0) return;
+    if (!c || !m_audio) return;
+    // Every voice of it that's still about: the current one, and older
+    // ones from a GO while it was already playing.
+    QList<quint64> voices;
+    if (c->currentVoiceId() != 0) voices.append(c->currentVoiceId());
+    for (const auto &e : m_withPlayEvents)
+        if (e.cue == c && !voices.contains(e.voice)) voices.append(e.voice);
+    if (voices.isEmpty()) return;
     const auto bars = barTimesOf(c);
-    const auto sent = m_sentPlayEvents.constFind(c->currentVoiceId());
-    if (sent != m_sentPlayEvents.constEnd()
-        && sent->first == c->playEvents() && sent->second == bars) return;
-    if (!m_audio->setVoicePlayEvents(c->currentVoiceId(), c->playEvents(), bars)) return;
-    if (m_sentPlayEvents.size() > 64) m_sentPlayEvents.clear();
-    m_sentPlayEvents.insert(c->currentVoiceId(), { c->playEvents(), bars });
-    if (!c->playEvents().empty()) notePlayEventsCue(c);
+    for (const quint64 vid : voices) {
+        const auto sent = m_sentPlayEvents.constFind(vid);
+        if (sent != m_sentPlayEvents.constEnd()
+            && sent->first == c->playEvents() && sent->second == bars) continue;
+        if (!m_audio->setVoicePlayEvents(vid, c->playEvents(), bars)) continue;
+        if (m_sentPlayEvents.size() > 64) m_sentPlayEvents.clear();
+        m_sentPlayEvents.insert(vid, { c->playEvents(), bars });
+        if (!c->playEvents().empty()
+            && std::none_of(m_withPlayEvents.begin(), m_withPlayEvents.end(),
+                            [vid](const PlayEventsVoice &e) { return e.voice == vid; }))
+            notePlayEventsCue(c, vid);
+    }
 }
 
 std::vector<GoEngine::PlayingEvent> GoEngine::playingEvents() const
@@ -1114,9 +1132,9 @@ std::vector<GoEngine::PlayingEvent> GoEngine::playingEvents() const
     QHash<quint64, audio::ActiveVoice> voices;
     for (const auto &av : m_audio->activeVoices()) voices.insert(av.id, av);
     for (auto it = m_withPlayEvents.rbegin(); it != m_withPlayEvents.rend(); ++it) {   // newest first
-        audio::AudioCue *c = *it;
-        if (!c || c->currentVoiceId() == 0) continue;
-        const auto v = voices.constFind(c->currentVoiceId());
+        audio::AudioCue *c = it->cue;
+        if (!c || it->voice == 0) continue;
+        const auto v = voices.constFind(it->voice);
         if (v == voices.constEnd()) continue;
         const auto &ev = c->playEvents();
         PlayingEvent p;
@@ -1176,10 +1194,20 @@ bool GoEngine::advance()
 
 bool GoEngine::advanceCue(cues::Cue *cue)
 {
+    if (!cue || !m_audio) return false;
+    // A group: every song in it that's waiting.
+    if (auto *g = qobject_cast<cues::GroupCue *>(cue)) {
+        bool any = false;
+        for (const auto &id : g->childIds())
+            if (auto *child = findCue(id, g); child && child != cue) any = advanceCue(child) || any;
+        return any;
+    }
+    // A video cue's vamps belong to its soundtrack.
+    const cues::Cue *sound = video::VideoCue::audioOf(cue);
     for (const auto &p : playingEvents())
-        if (p.cue == cue && p.advanceable()) {
+        if ((p.cue == cue || (sound && p.cue == sound)) && p.advanceable()) {
             m_audio->advance(p.voice);
-            emit statusMessage(tr("Advance → %1").arg(nameOf(p.cue)));
+            emit statusMessage(tr("Advance → %1").arg(nameOf(cue)));
             return true;
         }
     return false;

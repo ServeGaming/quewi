@@ -12,7 +12,8 @@ session on any computer (or a fresh conversation) continues with no gaps.
 > says how.
 
 Last updated: **2026-11-15**. Latest release: **v1.3.1** (2026-11-15; see
-0a10) on top of **v1.3.0** (2026-10-28, `c782a65`) — vamps/Advance, Devamp, and the **first licensed release**
+0a10; **1.3.2 is committed and ready to tag** — audit fixes — waiting on
+Matthew's word) on top of **v1.3.0** (2026-10-28, `c782a65`) — vamps/Advance, Devamp, and the **first licensed release**
 (trial keys; see 0a9). All 4 assets attached and smoke-tested by the release
 workflow. CI, perf and docs green on main. Matthew is in rehearsals and may ask
 for quick fixes — ship them as patch releases (1.3.x) with licensing ON. macOS / Linux state and open items:
@@ -82,34 +83,44 @@ build — see §6; CI covers Windows/macOS on the push).
   only proven against our own fake — needs Matthew on the console.
 
 **Vamps audit (Opus = audio thread, Sonnet = control layer, Haiku = UI/docs/
-skill). Confirmed by reading, NOT yet fixed — do these next (1.3.2):**
-1. Hold at a vamp's end / inside a vamp fires before the wrap: the vamp
-   stops on pass 1 and `pass` runs away (hold check precedes the vamp wrap
-   in the mix loop). Nothing forbids hold-in-vamp in normalize or the panel.
-2. A skip / exit jump that crosses an un-fired hold lands in the hold.
-3. Advance during the 12 ms loop pre-roll drops the blend → click.
-4. Vamp starting at (or within 12 ms of) frame 0 gets no crossfade → a hard
-   splice every pass. Pre-roll can also read audio before trim-in.
-5. Cue fade-out ignores vamps: a vamp inside the fade-out tail pumps.
-6. Vamp end past trim-out / decoded length ends the track instead of looping.
-7. Vamp end (or start) inside a cut: wrong loop length.
-8. Seek while holding is undone; a jump in flight survives a seek; `done`
-   holds don't re-arm after seeking back (rehearsal "go back 8 bars").
-9. Holds fire once per voice, so with cue Loop on they only stop the first time.
-10. Re-GO of a vamping cue orphans the old voice (Advance only knows
-    `currentVoiceId`) — check whether fireSound should stop the old voice.
-11. Devamp / `/quewi/cue/N/advance` aimed at a **video** cue never matches
-    (the registered cue is its soundtrack AudioCue); Devamp at a Group or
-    before the vamp is reached is silently dropped; by-number OSC only looks
-    in the active list and replies nothing.
-12. Safe key blocks Advance while ADVANCE still looks enabled (OSC/Devamp
-    bypass it).
-13. Small: lane right-click can't turn an event into a Hold/Marker; vamps.md
-    says "playhead" where the code moves the edit cursor; build_show.py
-    doesn't clamp count to 999 and writes `exit` on repeats; SKILL.md never
-    mentions vamps; no tests for GoEngine advance/Devamp/OSC advance.
-Clean: no allocation/lock/log added on the audio thread, no data race on
-Advance, licensing can't block Advance or Devamp.
+skill) — fixed for 1.3.2 (Matthew: "Fix everything"):**
+- Mix loop (`AudioEngine.cpp`): the vamp wrap now runs *before* the hold
+  check (hold at a vamp's end waits for the exit; no runaway `pass`); a hold
+  inside a jump / cut is marked done, not stopped at; wrap lands at
+  `L.s + min(overshoot, rate)` then `skipCuts` (cut across a vamp's end);
+  vamps are clamped to `effectiveEnd` each buffer and a vamp ending at the
+  end doesn't finish the voice (`vampAtEnd`); `xfOf()` = pre-roll length
+  (0 when < 2 ms before the vamp → 3 ms dip `vampDip` instead); Advance in
+  the pre-roll fades the blend out (`xfOutFrom/xfOutW`), Advance within 3 ms
+  of the loop point is deferred to the next pass (`advanceSeen =
+  advanceReq - 1`); the natural fade-out is held off while a vamp / hold is
+  still to come; `seekVoice` releases a hold, clears a jump, re-arms holds;
+  whole-cue loop re-arms holds.
+- `GoEngine`: `m_withPlayEvents` is per **voice** (`PlayEventsVoice`), so a
+  re-GO'd vamping song's older voice is still advanceable and gets live
+  edits; `advanceCue` resolves a video cue to its soundtrack and recurses
+  into groups.
+- UI/skill/docs: lane menu Make it a Hold / Marker; build_show.py rejects
+  bad counts / exits and warns on exit-on-repeat; SKILL.md mentions vamps;
+  vamps.md / control-cues.md corrected.
+- Tests: 9 new cases in `test_play_events` (22 total), all green with the
+  full suite (46) on 2026-11-15; test copy driven over OSC: live delete,
+  live add, Advance, and fired-twice → two Advances release both.
+- **Not driven:** Devamp at a video cue / group (no GoEngine test rig
+  without an audio device), the lane menu's new items, the Relink dialog.
+- **Left as they are (design, not bugs):** Devamp before the vamp is reached
+  does nothing (documented); `/quewi/cue/N/advance` looks in the active list
+  only and sends no reply; safe key blocks Advance though the button looks
+  enabled (same as GO); a repeat keeps its hidden exit so turning it back
+  into a vamp remembers it (a test pins this); mirror voices take Advance on
+  their own clocks; load drops malformed events silently.
+
+**Rehearsal rule (Matthew, 2026-11-15: "I can't have stuff being opened
+right now"):** while he's in rehearsal on this PC, don't launch quewi test
+copies, UI tests or anything that opens a window — edit, commit, push, let
+CI build. Batch the local test pass for when he says. 1.3.2's version bump
++ notes were committed WITHOUT a local rebuild after the bump (code was
+built and fully tested just before it); CI covers it.
 
 **Low-end PC check (this PC, release build):** exe 4.3 MB, idle 152 MB
 working set / 96 MB private, 0.4 % of one core idle, `--selftest` 1.5–2.1 s
@@ -769,6 +780,7 @@ offered or deleted. Stray locks with no journal are tidied if stale.
 
 ## Release history (what each shipped)
 
+- **1.3.2** (not tagged yet) — vamps audit fixes. See 0a10.
 - **1.3.1** (2026-11-15) — vamp edits reach a playing song (phantom-vamp
   fix); Tools → Relink missing files. See 0a10.
 

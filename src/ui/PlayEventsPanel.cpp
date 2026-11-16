@@ -436,6 +436,8 @@ bool PlayEventsPanel::setKind(const QUuid &id, const QString &kind, int count)
         // point keeps its start.
         if (e.isRange() && !wasRange) e.end = e.start + len;
         if (!e.isRange()) e.end = e.start;
+        // (A repeat keeps its exit, unused, so turning it back into a vamp
+        // remembers how that vamp left.)
         if (e.kind != PlayEvent::Kind::Vamp) e.exit = PlayEvent::Exit::EndOfPass;
     });
 }

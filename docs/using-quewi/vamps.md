@@ -31,19 +31,25 @@ Double-click an audio cue to open its editor. Under the LIGHTING lane is the
   beat grid set (Lighting tab → tempo), it snaps to beats, so a vamp lands on
   bar lines.
 - **Right-click** the lane for a vamp, repeat, hold, skip or marker at that
-  point (one bar long, or 2 s without a grid). Right-click one to change its
-  kind, its exit, rename or delete it.
+  point (a vamp, repeat or skip starts one bar long, or 2 s without a grid).
+  Right-click one to change its kind, its exit, rename or delete it.
 - Drag one to move it, drag its edges to resize it; <kbd>Delete</kbd> removes it.
 - The **Vamps** tab (beside Effects and Lighting) lists them all with their
   times (and bar/beat with a grid), repeat counts and exits, to type exact
   values. **+ Vamp / + Repeat / + Hold / + Skip / + Marker** add one at the
-  playhead. Double-click a row to move the playhead there.
+  playhead while the song plays, or at the editor's cursor when it doesn't.
+  Double-click a row to move the editor's cursor there.
 
 Every change is one undo step. Vamps can't overlap each other.
 
 You can edit while the song plays *(1.3.1)*: delete a vamp or a hold the
 song is in and it lets go at once — the music plays on from where it is —
 and one you move or add ahead of the playhead happens where it now is.
+
+A **hold at the end of a vamp** waits for the vamp: the vamp loops until
+Advance, plays to its end, and *then* the music stops at the hold for a
+second Advance. A hold inside a vamp stops the first pass only. A hold
+inside a skip is jumped over when you Advance through the skip *(1.3.2)*.
 
 ### Exit: when a vamp lets go
 
@@ -55,8 +61,13 @@ Each vamp says how it leaves when you press Advance:
   a long vamp doesn't make the actors wait for the whole of it.
 - **Now**: leaves straight away, to the music after the vamp.
 
+Advance pressed in the last 3 ms of a pass is too late for that pass: the
+vamp goes round once more and leaves at the end of that one *(1.3.2)*.
+
 The loop point is crossfaded (a few milliseconds), so a vamp sounds as
-seamless as the recording allows. Lighting triggers inside a vamp fire on
+seamless as the recording allows. A vamp at the very top of the song has
+nothing before it to crossfade with, so it gets a 3 ms dip at the seam
+instead. Lighting triggers inside a vamp fire on
 every pass (a bump on the beat keeps going); put a desk GO *after* the vamp,
 not inside it.
 
@@ -80,7 +91,10 @@ then a skip — the newest song first.
 
 A **Devamp** cue does Advance for one cue (handy to put in the cue list, or
 to fire from an auto-continue), and also ends a cue that loops as a whole
-(*Loop* on): it finishes the pass it's on and plays out.
+(*Loop* on): it finishes the pass it's on and plays out. Aimed at a video
+cue it moves the video's soundtrack on; aimed at a group, every song in the
+group that's waiting *(1.3.2)*. It acts on what the target is in when it
+fires: fired before the vamp is reached, it does nothing.
 
 From a remote or QLab: `/quewi/advance`, or `/quewi/cue/<number>/advance`
 for one cue ([OSC reference](../osc-control/reference.md#vamps-and-advance)).

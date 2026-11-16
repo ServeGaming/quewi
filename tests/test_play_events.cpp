@@ -281,6 +281,205 @@ private slots:
         QCOMPARE(state(r).playEventIndex, -1);
     }
 
+    // ── The 2026-11-15 audit (docs/dev/session-handoff.md 0a10) ──────────
+
+    // A hold at a vamp's end used to stop the first pass (and spin the pass
+    // count while parked); it now waits until the vamp is left.
+    void aHoldAtAVampsEndWaitsForTheVampToBeLeft()
+    {
+        OfflineRenderer r(kSr, 2);
+        VoiceParams p;
+        p.playEvents = {vamp(1.0, 2.0), ev(PlayEvent::Kind::Hold, 2.0)};
+        const auto id = r.fire(ramp(), p);
+        const auto out = play(r, 3.5);
+        QCOMPARE(state(r).playState, ActiveVoice::PlayState::Vamping);
+        QCOMPARE(state(r).playPass, 2);
+        float worst = 0.f;                                // and no dip towards the hold at each loop
+        for (size_t i = 1; i < out.size(); ++i) worst = std::max(worst, std::abs(out[i] - out[i - 1]));
+        QVERIFY2(worst < 0.005f, qPrintable(QString::number(worst)));
+        r.advance(id);
+        play(r, 1.0);
+        QCOMPARE(state(r).playState, ActiveVoice::PlayState::Holding);
+        QVERIFY2(std::abs(pos(r) - 2.0) < 0.01, qPrintable(QString::number(pos(r))));
+        r.advance(id);
+        play(r, 0.5);
+        QCOMPARE(state(r).playState, ActiveVoice::PlayState::Normal);
+        QVERIFY2(std::abs(pos(r) - 2.5) < 0.02, qPrintable(QString::number(pos(r))));
+
+        // A repeat ×3 then the hold: three passes, then it stops.
+        OfflineRenderer r2(kSr, 2);
+        p.playEvents = {vamp(1.0, 2.0, 3), ev(PlayEvent::Kind::Hold, 2.0)};
+        r2.fire(ramp(), p);
+        play(r2, 3.5);
+        QCOMPARE(state(r2).playState, ActiveVoice::PlayState::Repeating);
+        play(r2, 1.0);
+        QCOMPARE(state(r2).playState, ActiveVoice::PlayState::Holding);
+    }
+
+    // A hold inside a vamp stops the first pass once, and the vamp goes on
+    // looping after it (the pass count stays honest).
+    void aHoldInsideAVampStopsOnce()
+    {
+        OfflineRenderer r(kSr, 2);
+        VoiceParams p;
+        p.playEvents = {vamp(1.0, 2.0), ev(PlayEvent::Kind::Hold, 1.5)};
+        const auto id = r.fire(ramp(), p);
+        play(r, 3.0);
+        QCOMPARE(state(r).playState, ActiveVoice::PlayState::Holding);
+        r.advance(id);
+        play(r, 1.75);                                    // 1.5 → 2.0, loop, → 2.0, loop, 1.25
+        QCOMPARE(state(r).playState, ActiveVoice::PlayState::Vamping);
+        QCOMPARE(state(r).playPass, 2);
+        QVERIFY2(std::abs(pos(r) - 1.25) < 0.02, qPrintable(QString::number(pos(r))));
+    }
+
+    // Advance in a skip jumps to its end — past a hold inside it, not into it.
+    void aHoldThatIsJumpedOverDoesNotStop()
+    {
+        OfflineRenderer r(kSr, 2);
+        VoiceParams p;
+        p.playEvents = {ev(PlayEvent::Kind::Skip, 1.0, 3.0), ev(PlayEvent::Kind::Hold, 2.0)};
+        const auto id = r.fire(ramp(), p);
+        play(r, 1.2);
+        r.advance(id);
+        play(r, 0.5);
+        QCOMPARE(state(r).playState, ActiveVoice::PlayState::Normal);
+        QVERIFY2(pos(r) > 3.3 && pos(r) < 3.6, qPrintable(QString::number(pos(r))));
+    }
+
+    // No click at a seam: a vamp at the top of the song has no pre-roll (it
+    // dips instead), and Advance landing inside the pre-roll fades the blend
+    // back out instead of dropping it.
+    void seamsNeverStep()
+    {
+        {
+            OfflineRenderer r(kSr, 2);
+            VoiceParams p;
+            p.playEvents = {vamp(0.0, 1.0)};
+            r.fire(ramp(), p);
+            const auto out = play(r, 2.5);
+            QCOMPARE(state(r).playState, ActiveVoice::PlayState::Vamping);
+            float worst = 0.f;
+            for (size_t i = 1; i < out.size(); ++i) worst = std::max(worst, std::abs(out[i] - out[i - 1]));
+            QVERIFY2(worst < 0.005f, qPrintable(QStringLiteral("vamp from 0: %1").arg(worst)));
+        }
+        {
+            OfflineRenderer r(kSr, 2);
+            VoiceParams p;
+            p.playEvents = {vamp(1.0, 2.0)};
+            const auto id = r.fire(ramp(), p);
+            auto out = play(r, 2.99);                     // 10 ms from the end of pass 2: in the pre-roll
+            QVERIFY2(std::abs(pos(r) - 1.99) < 0.001, qPrintable(QString::number(pos(r), 'f', 4)));
+            r.advance(id);
+            const auto more = play(r, 0.3);
+            out.insert(out.end(), more.begin(), more.end());
+            QCOMPARE(state(r).playState, ActiveVoice::PlayState::Normal);
+            QVERIFY2(std::abs(pos(r) - 2.29) < 0.02, qPrintable(QString::number(pos(r))));
+            float worst = 0.f;
+            for (size_t i = 1; i < out.size(); ++i) worst = std::max(worst, std::abs(out[i] - out[i - 1]));
+            QVERIFY2(worst < 0.005f, qPrintable(QStringLiteral("advance in the pre-roll: %1").arg(worst)));
+        }
+        {
+            // Right on the loop point: too late for this pass, so it goes
+            // round once more and leaves at the end of that one.
+            OfflineRenderer r(kSr, 2);
+            VoiceParams p;
+            p.playEvents = {vamp(1.0, 2.0)};
+            const auto id = r.fire(ramp(), p);
+            auto out = play(r, 3.0);
+            r.advance(id);
+            auto more = play(r, 0.5);
+            out.insert(out.end(), more.begin(), more.end());
+            QCOMPARE(state(r).playState, ActiveVoice::PlayState::Leaving);
+            more = play(r, 1.0);
+            out.insert(out.end(), more.begin(), more.end());
+            QCOMPARE(state(r).playState, ActiveVoice::PlayState::Normal);
+            QVERIFY2(std::abs(pos(r) - 2.5) < 0.02, qPrintable(QString::number(pos(r))));
+            float worst = 0.f;
+            for (size_t i = 1; i < out.size(); ++i) worst = std::max(worst, std::abs(out[i] - out[i - 1]));
+            QVERIFY2(worst < 0.005f, qPrintable(QStringLiteral("advance on the loop point: %1").arg(worst)));
+        }
+    }
+
+    // The cue's fade-out is for the end of the song, not for a vamp that
+    // happens to sit in its last seconds.
+    void theFadeOutWaitsForAVampNearTheEnd()
+    {
+        OfflineRenderer r(kSr, 2);
+        VoiceParams p;
+        p.fadeOutSeconds = 2.0;
+        p.playEvents = {vamp(4.5, 5.5)};
+        const auto id = r.fire(ramp(), p);
+        const auto out = play(r, 5.0);
+        QCOMPARE(state(r).playState, ActiveVoice::PlayState::Vamping);
+        QVERIFY2(std::abs(out.back() - 5.0f / 6.0f) < 0.02f, qPrintable(QString::number(out.back())));
+        r.advance(id);                                    // left: now the fade-out applies
+        const auto tail = play(r, 0.9);                   // at 5.9 of 6.0: nearly out
+        QVERIFY2(tail.back() < 0.1f, qPrintable(QString::number(tail.back())));
+    }
+
+    void aVampPastTheTrimOutLoopsAtTheEnd()
+    {
+        OfflineRenderer r(kSr, 2);
+        VoiceParams p;
+        p.trimOutSeconds = 3.0;
+        p.playEvents = {vamp(2.0, 4.0)};
+        r.fire(ramp(), p);
+        play(r, 5.2);
+        QCOMPARE(r.activeCount(), 1);
+        QCOMPARE(state(r).playState, ActiveVoice::PlayState::Vamping);
+        QVERIFY2(pos(r) >= 2.0 && pos(r) < 3.0, qPrintable(QString::number(pos(r))));
+    }
+
+    // A cut across a vamp's end: the loop is the vamp minus the cut part,
+    // every pass (it used to come back short by the cut's length).
+    void aCutAcrossAVampsEndKeepsTheLoopLength()
+    {
+        OfflineRenderer r(kSr, 2);
+        VoiceParams p;
+        p.cuts = {{2.8, 3.2}};
+        p.playEvents = {vamp(1.0, 3.0)};
+        r.fire(ramp(), p);
+        play(r, 1.0 + 1.8 + 1.8 + 0.5);
+        QCOMPARE(state(r).playState, ActiveVoice::PlayState::Vamping);
+        QCOMPARE(state(r).playPass, 2);
+        QVERIFY2(std::abs(pos(r) - 1.5) < 0.03, qPrintable(QString::number(pos(r))));
+    }
+
+    // Rehearsal: seek away from a hold (it used to be undone), and a hold
+    // you go back before stops again.
+    void seekingLetsGoOfAHoldAndRearmsTheOnesAhead()
+    {
+        OfflineRenderer r(kSr, 2);
+        VoiceParams p;
+        p.playEvents = {ev(PlayEvent::Kind::Hold, 1.0)};
+        const auto id = r.fire(ramp(), p);
+        play(r, 1.5);
+        QCOMPARE(state(r).playState, ActiveVoice::PlayState::Holding);
+        QVERIFY(r.seek(id, 3.0));
+        play(r, 0.2);
+        QCOMPARE(state(r).playState, ActiveVoice::PlayState::Normal);
+        QVERIFY2(std::abs(pos(r) - 3.2) < 0.02, qPrintable(QString::number(pos(r))));
+        QVERIFY(r.seek(id, 0.5));
+        play(r, 1.0);
+        QCOMPARE(state(r).playState, ActiveVoice::PlayState::Holding);
+        QVERIFY2(std::abs(pos(r) - 1.0) < 0.01, qPrintable(QString::number(pos(r))));
+    }
+
+    void aLoopingCueStopsAtItsHoldEveryTimeRound()
+    {
+        OfflineRenderer r(kSr, 2);
+        VoiceParams p;
+        p.loop = true;
+        p.playEvents = {ev(PlayEvent::Kind::Hold, 1.0)};
+        const auto id = r.fire(ramp(2.0), p);
+        play(r, 1.2);
+        QCOMPARE(state(r).playState, ActiveVoice::PlayState::Holding);
+        r.advance(id);
+        play(r, 2.5);                                     // on to the end, round, and to 1.0 again
+        QCOMPARE(state(r).playState, ActiveVoice::PlayState::Holding);
+    }
+
     void savedAndTidied()
     {
         PlayEvents in = {vamp(2.0, 3.0, 4, PlayEvent::Exit::NextBar), vamp(1.0, 2.5),

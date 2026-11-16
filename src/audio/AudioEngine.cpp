@@ -309,7 +309,7 @@ public:
                 std::swap(P.holds, next.holds);
                 std::swap(P.bars,  next.bars);
                 P.inVamp = inVamp;
-                if (inVamp < 0) { P.pass = 0; P.leaving = false; }
+                if (inVamp < 0) { P.pass = 0; P.leaving = false; P.xfOutFrom = -1.0; }
                 P.holding = holding;
                 if (holdGone) {
                     v.resumeFadeSamples = std::max<qint64>(1, static_cast<qint64>(0.005 * m_outputSampleRate));
@@ -378,6 +378,17 @@ public:
             if (target >= effEnd) target = std::max<qint64>(0, effEnd - 1);
             v.readPos = target;
             v.readFrac = 0.0;
+            // Vamps / holds: a seek lets go of a hold (it used to be undone
+            // by the hold), forgets an exit or skip in flight, and holds
+            // from here on stop again ("go back 8 bars" in rehearsal).
+            {
+                auto &P = v.play;
+                P.holding = -1;
+                P.leaving = false;
+                P.jumpFrom = P.jumpTo = -1.0;
+                P.xfOutFrom = -1.0;
+                for (auto &H : P.holds) H.done = H.at < static_cast<double>(target);
+            }
             // Short ramp on the next buffer so the discontinuity is
             // masked. Only meaningful if the voice isn't paused (a
             // paused voice will get the ramp at resume() time anyway).
@@ -675,6 +686,10 @@ private:
             bool   leaving = false;    // Advance pressed: don't loop again
             int    holding = -1;       // index into holds while stopped at one
             double jumpFrom = -1.0, jumpTo = -1.0;   // a skip / exit in flight
+            // Advance landed inside the loop point's pre-roll: the blend
+            // already mixed in fades back out from here (weight xfOutW)
+            // to the vamp's end, instead of being dropped (a click).
+            double xfOutFrom = -1.0, xfOutW = 0.0;
             // Reported to the GUI (ActiveVoice).
             ActiveVoice::PlayState state = ActiveVoice::PlayState::Normal;
             int    stateIndex = -1;
@@ -1012,6 +1027,27 @@ qint64 AudioEngine::Mixer::readData(char *data, qint64 maxlen)
                 return pos;
             };
             const bool hasJumps = !v.cutFrames.empty() || P.any();
+            // A vamp can't reach past the end of the audio (trim-out, or a
+            // region drawn a hair past the file's end): it loops at the
+            // end instead of the song finishing in the middle of the vamp.
+            if (endKnown)
+                for (auto &L : P.vamps) {
+                    if (L.e <= static_cast<double>(effectiveEnd)) continue;
+                    L.e = static_cast<double>(effectiveEnd);
+                    if (L.e - L.s < kMinPlayEventLength * srcSr) L.s = L.e = -1.0;   // nothing left of it
+                }
+            // The pre-roll into a vamp's loop point: the last few ms of a
+            // pass are crossfaded with the few ms before its start, so the
+            // seam is as smooth as the music at the top of the vamp. A vamp
+            // with nothing (or next to nothing) before it — one at the top
+            // of the song, or at trim-in — has no pre-roll: it gets a short
+            // dip either side of the seam instead (0 here).
+            const double vampXfade = 0.012 * srcSr;
+            auto xfOf = [&](const Voice::Play::Loop &L) {
+                const double xf = std::min({vampXfade, L.s - static_cast<double>(startFrame),
+                                            (L.e - L.s) / 4.0});
+                return xf >= 0.002 * srcSr ? xf : 0.0;
+            };
 
             // Advance: act on what the voice is in right now.
             if (P.advanceReq != P.advanceSeen) {
@@ -1028,17 +1064,32 @@ qint64 AudioEngine::Mixer::readData(char *data, qint64 maxlen)
                     v.resumeFadeCounter = 0;
                 } else if (P.inVamp >= 0 && P.vamps[static_cast<size_t>(P.inVamp)].count == 0) {
                     const auto &L = P.vamps[static_cast<size_t>(P.inVamp)];
-                    P.leaving = true;
-                    double from = -1.0;
-                    if (L.exit == PlayEvent::Exit::Now) {
-                        from = pos + cutRamp;
-                    } else if (L.exit == PlayEvent::Exit::NextBar) {
-                        for (const double b : P.bars)
-                            if (b > pos + cutRamp) { from = b; break; }
+                    if (!P.leaving && L.e - pos < cutRamp) {
+                        // In the last 3 ms of a pass the loop point is all
+                        // but crossed (the seam is nearly all the top of
+                        // the vamp by now): this press counts from the top
+                        // of the next pass, so it can't click.
+                        P.advanceSeen = P.advanceReq - 1;
+                    } else {
+                        if (!P.leaving) {
+                            const double xf = xfOf(L);
+                            if (xf > 0.0 && pos > L.e - xf) {
+                                P.xfOutFrom = pos;
+                                P.xfOutW    = (pos - (L.e - xf)) / xf;
+                            }
+                        }
+                        P.leaving = true;
+                        double from = -1.0;
+                        if (L.exit == PlayEvent::Exit::Now) {
+                            from = pos + cutRamp;
+                        } else if (L.exit == PlayEvent::Exit::NextBar) {
+                            for (const double b : P.bars)
+                                if (b > pos + cutRamp) { from = b; break; }
+                        }
+                        // Too close to the end of the pass to be worth a
+                        // jump: just leave at the end of it.
+                        if (from >= 0.0 && L.e - from > room) { P.jumpFrom = from; P.jumpTo = L.e; }
                     }
-                    // Too close to the end of the pass to be worth a jump:
-                    // just leave at the end of it.
-                    if (from >= 0.0 && L.e - from > room) { P.jumpFrom = from; P.jumpTo = L.e; }
                 } else if (skip && skip->e - pos > room) {
                     P.jumpFrom = pos + cutRamp;
                     P.jumpTo   = skip->e;
@@ -1048,10 +1099,6 @@ qint64 AudioEngine::Mixer::readData(char *data, qint64 maxlen)
             // step back): a vamp's end landing exactly on a buffer boundary
             // is still a crossing.
             double prevSrc = basePos - rate;
-            // The pre-roll into a vamp's loop point: the last few ms of a
-            // pass are crossfaded with the few ms before its start, so the
-            // seam is as smooth as the music at the top of the vamp.
-            const double vampXfade = 0.012 * srcSr;
 
             for (qint64 f = 0; f < framesWanted; ++f) {
                 if (v.finished) break;
@@ -1060,62 +1107,90 @@ qint64 AudioEngine::Mixer::readData(char *data, qint64 maxlen)
                 if (hasJumps) srcF = skipCuts(srcF);
                 double blendPos = -1.0, blendW = 0.0;   // vamp pre-roll
                 bool   held = false;
+                double vampDip = 1.0;                   // a vamp seam with no pre-roll
+                bool   vampAgain = false;               // in a vamp that loops again
                 if (P.any()) {
-                    // Stopped at a hold: stay there, silent, until Advance.
-                    if (P.holding < 0) {
-                        for (size_t h = 0; h < P.holds.size(); ++h) {
-                            auto &H = P.holds[h];
-                            if (!H.done && prevSrc <= H.at && srcF >= H.at) {
-                                P.holding = static_cast<int>(h);
-                                break;
-                            }
-                        }
-                    }
                     if (P.holding >= 0) {
+                        // Stopped at a hold: stay there, silent, until Advance.
                         const double at = P.holds[static_cast<size_t>(P.holding)].at;
                         cutShift += at - srcF;
                         srcF = at;
                         held = true;
-                    }
-                    // Into / out of a vamp by playing (or a seek).
-                    if (P.inVamp >= 0) {
-                        const auto &L = P.vamps[static_cast<size_t>(P.inVamp)];
-                        if (srcF >= L.e && prevSrc < L.e && prevSrc >= L.s - rate) {
-                            const bool again = (L.count == 0 && !P.leaving)
-                                            || (L.count > 0 && P.pass + 1 < L.count);
-                            if (again) {
-                                const double len = L.e - L.s;
-                                srcF -= len;
-                                cutShift -= len;
-                                ++P.pass;
-                            } else {
+                    } else {
+                        // Into / out of a vamp by playing (or a seek). The
+                        // vamp has its say before the holds: a hold at a
+                        // vamp's end waits until the vamp is left (it used
+                        // to stop the first pass and spin the pass count).
+                        if (P.inVamp >= 0) {
+                            const auto &L = P.vamps[static_cast<size_t>(P.inVamp)];
+                            if (srcF >= L.e && prevSrc < L.e && prevSrc >= L.s - rate) {
+                                const bool again = (L.count == 0 && !P.leaving)
+                                                || (L.count > 0 && P.pass + 1 < L.count);
+                                if (again) {
+                                    // Back to the top, keeping the sub-step
+                                    // it went over by — not the length of a
+                                    // cut it may have crossed the end in.
+                                    const double landed = L.s + std::min(srcF - L.e, rate);
+                                    cutShift += landed - srcF;
+                                    srcF = landed;
+                                    if (!v.cutFrames.empty()) srcF = skipCuts(srcF);
+                                    ++P.pass;
+                                } else {
+                                    P.inVamp = -1;
+                                    P.pass = 0;
+                                    P.leaving = false;
+                                    P.xfOutFrom = -1.0;
+                                }
+                            } else if (srcF < L.s || srcF >= L.e) {
                                 P.inVamp = -1;
                                 P.pass = 0;
                                 P.leaving = false;
+                                P.xfOutFrom = -1.0;
                             }
-                        } else if (srcF < L.s || srcF >= L.e) {
-                            P.inVamp = -1;
-                            P.pass = 0;
-                            P.leaving = false;
                         }
-                    }
-                    if (P.inVamp < 0) {
-                        for (size_t k = 0; k < P.vamps.size(); ++k)
-                            if (srcF >= P.vamps[k].s && srcF < P.vamps[k].e) {
-                                P.inVamp = static_cast<int>(k);
-                                P.pass = 0;
-                                P.leaving = false;
-                                break;
-                            }
+                        if (P.inVamp < 0) {
+                            for (size_t k = 0; k < P.vamps.size(); ++k)
+                                if (srcF >= P.vamps[k].s && srcF < P.vamps[k].e) {
+                                    P.inVamp = static_cast<int>(k);
+                                    P.pass = 0;
+                                    P.leaving = false;
+                                    P.xfOutFrom = -1.0;
+                                    break;
+                                }
+                        }
+                        // A hold reached by playing stops the music. One
+                        // jumped over (a skip taken, a vamp left early, a
+                        // cut) is gone by, not somewhere to stop.
+                        for (size_t h = 0; h < P.holds.size(); ++h) {
+                            auto &H = P.holds[h];
+                            if (H.done || !(prevSrc <= H.at && srcF >= H.at)) continue;
+                            bool jumped = P.jumpFrom >= 0.0 && H.at >= P.jumpFrom && H.at < P.jumpTo;
+                            for (const auto &[cs, ce] : v.cutFrames)
+                                if (H.at > cs && H.at < ce) jumped = true;
+                            if (jumped) { H.done = true; continue; }
+                            P.holding = static_cast<int>(h);
+                            cutShift += H.at - srcF;
+                            srcF = H.at;
+                            held = true;
+                            break;
+                        }
                     }
                     if (P.inVamp >= 0 && !held) {
                         const auto &L = P.vamps[static_cast<size_t>(P.inVamp)];
                         const bool again = (L.count == 0 && !P.leaving)
                                         || (L.count > 0 && P.pass + 1 < L.count);
-                        const double xf = std::min({vampXfade, L.s, (L.e - L.s) / 4.0});
-                        if (again && xf > 1.0 && srcF >= L.e - xf) {
+                        vampAgain = again;
+                        const double xf = xfOf(L);
+                        if (again && xf > 0.0 && srcF >= L.e - xf) {
                             blendPos = srcF - (L.e - L.s);
                             blendW   = (srcF - (L.e - xf)) / xf;
+                        } else if (!again && P.xfOutFrom >= 0.0 && srcF >= P.xfOutFrom && srcF < L.e) {
+                            blendPos = srcF - (L.e - L.s);
+                            blendW   = P.xfOutW * (L.e - srcF) / std::max(1.0, L.e - P.xfOutFrom);
+                        }
+                        if (xf <= 0.0) {
+                            if (again && L.e - srcF < cutRamp) vampDip *= std::max(0.0, (L.e - srcF) / cutRamp);
+                            if (P.pass > 0 && srcF - L.s < cutRamp) vampDip *= std::max(0.0, (srcF - L.s) / cutRamp);
                         }
                     }
                     if (P.jumpFrom >= 0.0 && srcF > P.jumpTo + cutRamp) {
@@ -1132,6 +1207,7 @@ qint64 AudioEngine::Mixer::readData(char *data, qint64 maxlen)
                         srcF = static_cast<double>(startFrame)
                              + std::fmod(srcF - static_cast<double>(effectiveEnd),
                                          static_cast<double>(loopLen));
+                        for (auto &H : P.holds) H.done = false;   // holds stop again each time round
                         // A cut right after the loop start: the jump goes
                         // into cutShift, so later frames carry it too.
                         if (!v.cutFrames.empty()) srcF = skipCuts(srcF);
@@ -1167,11 +1243,15 @@ qint64 AudioEngine::Mixer::readData(char *data, qint64 maxlen)
                     if (toCut >= 0.0 && toCut < cutRamp)     envGain *= toCut / cutRamp;
                     if (fromCut >= 0.0 && fromCut < cutRamp) envGain *= fromCut / cutRamp;
                 }
-                // …and down into a hold, so stopping can't click either.
+                envGain *= vampDip;
+                // …and down into a hold, so stopping can't click either
+                // (not one past the end of a vamp that's about to loop).
                 if (!held)
                     for (const auto &H : P.holds) {
                         const double toHold = H.at - srcF;
-                        if (!H.done && toHold >= 0.0 && toHold < cutRamp) envGain *= toHold / cutRamp;
+                        if (H.done || toHold < 0.0 || toHold >= cutRamp) continue;
+                        if (vampAgain && H.at >= P.vamps[static_cast<size_t>(P.inVamp)].e) continue;
+                        envGain *= toHold / cutRamp;
                     }
                 // Fade-in: measured in output frames from the moment the
                 // voice started, on the first pass only.
@@ -1187,7 +1267,26 @@ qint64 AudioEngine::Mixer::readData(char *data, qint64 maxlen)
                     for (const auto &[cs, ce] : v.cutFrames)
                         if (ce > srcF) ahead -= std::min(ce, double(effectiveEnd))
                                               - std::max(cs, srcF);
-                    const double remainingOut = std::max(0.0, ahead) / rate;
+                    double remainingOut = std::max(0.0, ahead) / rate;
+                    // What's left isn't just the distance to the end when a
+                    // vamp or a hold is still to come (or it's in one): a
+                    // vamp near the end used to fade on every pass and
+                    // jump back up at the loop.
+                    if (remainingOut < static_cast<double>(v.fadeOutOnStop) && P.any()) {
+                        bool waits = held;
+                        double more = 0.0;
+                        for (size_t k = 0; k < P.vamps.size(); ++k) {
+                            const auto &L = P.vamps[k];
+                            const bool cur = static_cast<int>(k) == P.inVamp;
+                            if (!cur && L.s < srcF) continue;             // gone by
+                            if (L.count == 0) { if (!(cur && P.leaving)) waits = true; }
+                            else more += std::max(0, L.count - 1 - (cur ? P.pass : 0)) * (L.e - L.s);
+                        }
+                        for (const auto &H : P.holds)
+                            if (!H.done && H.at >= srcF) waits = true;
+                        remainingOut = waits ? static_cast<double>(v.fadeOutOnStop)
+                                             : remainingOut + more / rate;
+                    }
                     if (remainingOut < static_cast<double>(v.fadeOutOnStop))
                         envGain *= std::max(0.0, remainingOut / static_cast<double>(v.fadeOutOnStop));
                 }
@@ -1404,9 +1503,22 @@ qint64 AudioEngine::Mixer::readData(char *data, qint64 maxlen)
             v.readFrac = moved - static_cast<double>(advanced);
             v.readPos += advanced;
             v.playedFrames += framesWritten;
-            if (looping) {
-                if (v.readPos >= effectiveEnd)
+            // A vamp that ends at the very end of the audio and is going
+            // round again isn't the end of the song (its wrap is the next
+            // buffer's first frame).
+            bool vampAtEnd = false;
+            if (P.inVamp >= 0) {
+                const auto &L = P.vamps[static_cast<size_t>(P.inVamp)];
+                vampAtEnd = L.e >= static_cast<double>(effectiveEnd)
+                         && ((L.count == 0 && !P.leaving) || (L.count > 0 && P.pass + 1 < L.count));
+            }
+            if (vampAtEnd) {
+                // stays where it is
+            } else if (looping) {
+                if (v.readPos >= effectiveEnd) {
                     v.readPos = startFrame + (v.readPos - effectiveEnd) % loopLen;
+                    for (auto &H : P.holds) H.done = false;   // holds stop again each time round
+                }
             } else if (v.readPos >= effectiveEnd && endKnown) {
                 v.finished = true;
             }
@@ -2325,6 +2437,7 @@ bool OfflineRenderer::pause(VoiceId id)                          { return m_mixe
 bool OfflineRenderer::resume(VoiceId id)                         { return m_mixer->resumeVoice(id); }
 int  OfflineRenderer::activeCount() const                        { return m_mixer->activeCount(); }
 bool OfflineRenderer::advance(VoiceId id)                        { return m_mixer->advanceVoice(id); }
+bool OfflineRenderer::seek(VoiceId id, double seconds)           { return m_mixer->seekVoice(id, seconds); }
 bool OfflineRenderer::setPlayEvents(VoiceId id, const PlayEvents &events, const std::vector<double> &barTimes)
 {
     return m_mixer->setVoicePlayEvents(id, events, barTimes);

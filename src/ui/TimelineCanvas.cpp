@@ -1458,10 +1458,16 @@ void TimelineCanvas::contextMenuEvent(QContextMenuEvent *e) {
         auto *makeRepeat = menu.addAction(ev.isRepeat() ? tr("Repeat ×%1: Change the Count…").arg(ev.count)
                                                         : tr("Make it a Repeat…"));
         auto *makeSkip   = menu.addAction(tr("Make it a Skip"));
+        auto *makeHold   = menu.addAction(tr("Make it a Hold"));
+        auto *makeMarker = menu.addAction(tr("Make it a Marker"));
         makeVamp->setCheckable(true);
         makeVamp->setChecked(vamp);
         makeSkip->setCheckable(true);
         makeSkip->setChecked(ev.kind == K::Skip);
+        makeHold->setCheckable(true);
+        makeHold->setChecked(ev.kind == K::Hold);
+        makeMarker->setCheckable(true);
+        makeMarker->setChecked(ev.kind == K::Marker);
         QAction *exitEnd = nullptr, *exitBar = nullptr, *exitNow = nullptr;
         if (vamp) {
             // Only a vamp waits for Advance; a repeat plays its count and goes on.
@@ -1485,6 +1491,8 @@ void TimelineCanvas::contextMenuEvent(QContextMenuEvent *e) {
         else if (chosen == makeVamp)            action = QStringLiteral("makeVamp");
         else if (chosen == makeRepeat)          action = QStringLiteral("makeRepeat");
         else if (chosen == makeSkip)            action = QStringLiteral("makeSkip");
+        else if (chosen == makeHold)            action = QStringLiteral("makeHold");
+        else if (chosen == makeMarker)          action = QStringLiteral("makeMarker");
         else if (chosen == exitEnd)             action = QStringLiteral("exitEndOfPass");
         else if (chosen == exitBar)             action = QStringLiteral("exitNextBar");
         else if (chosen == exitNow)             action = QStringLiteral("exitNow");

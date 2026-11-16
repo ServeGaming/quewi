@@ -94,6 +94,12 @@ heard.
 section, desk action, intent — plus totals ("7 looks, 1 pulse run of 16
 bumps"). Adjust to feedback.
 
+If the songs are **performance tracks** that need to wait for the stage — a
+vamp under dialogue, a hold on a fermata, a repeat, an optional cut — add
+them as `"vamps"` on the audio cue (reference/plan-format.md, "Vamps"). The
+operator moves each on with Advance in the show. Ask where they go; don't
+guess them from the audio.
+
 ## 4. Write the show
 
 Write the plan as JSON (format: **reference/plan-format.md**), then:

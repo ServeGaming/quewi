@@ -79,7 +79,10 @@ zero so the next GO plays from the top.
 A Devamp cue is [Advance](../using-quewi/vamps.md) for one cue: it takes
 the target out of the vamp it's in (as that vamp's *Exit* says), on from a
 hold, or to the end of a skip. A cue that loops as a whole (*Loop* on) is a
-vamp too: Devamp lets it finish the pass it's on and play out.
+vamp too: Devamp lets it finish the pass it's on and play out. The target
+can be a video cue (its soundtrack's vamps) or a group (every song in it
+that's waiting) *(1.3.2)*. A Devamp fired before the target reaches its
+vamp does nothing.
 
 ## Combinations
 

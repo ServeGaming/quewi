@@ -348,6 +348,7 @@ public:
     bool resume(VoiceId id);
     bool advance(VoiceId id);
     bool setPlayEvents(VoiceId id, const PlayEvents &events, const std::vector<double> &barTimes = {});
+    bool seek(VoiceId id, double seconds);
     int  activeCount() const;
     QList<ActiveVoice> activeVoices() const;
     int  channels() const { return m_channels; }
