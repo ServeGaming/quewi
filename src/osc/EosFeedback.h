@@ -106,6 +106,7 @@ private:
     QTcpSocket *m_sock = nullptr;
     QTimer     *m_retry = nullptr;
     QTimer     *m_ping = nullptr;
+    QTimer     *m_connectWatch = nullptr;   // a connect with no answer at all
     QElapsedTimer m_lastHeard;
     QByteArray  m_buf;
     QString     m_host;

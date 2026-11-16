@@ -62,6 +62,24 @@ EosFeedback::EosFeedback(QObject *parent) : QObject(parent)
     m_retry->setSingleShot(true);
     connect(m_retry, &QTimer::timeout, this, &EosFeedback::connectNow);
 
+    // A connect that is neither accepted nor refused (a wrong IP on a real
+    // network, a firewall that drops instead of refusing) used to sit at
+    // "Connecting…" until the system gave up, half a minute or more. After
+    // this long with no answer it's a failure the operator can see, and
+    // the usual retry.
+    m_connectWatch = new QTimer(this);
+    m_connectWatch->setInterval(2500);
+    m_connectWatch->setSingleShot(true);
+    connect(m_connectWatch, &QTimer::timeout, this, [this] {
+        if (!m_wanted || !m_sock || m_sock->state() == QAbstractSocket::ConnectedState) return;
+        m_sock->disconnect(this);
+        m_sock->abort();
+        m_ping->stop();
+        clearState();
+        setLink(Link::Failed, tr("Can't reach %1:%2 (%3)").arg(m_host).arg(m_port).arg(tr("no answer")));
+        m_retry->start();
+    });
+
     m_ping = new QTimer(this);
     m_ping->setInterval(5000);
     connect(m_ping, &QTimer::timeout, this, [this] {
@@ -106,6 +124,7 @@ void EosFeedback::stop()
     m_wanted = false;
     m_retry->stop();
     m_ping->stop();
+    m_connectWatch->stop();
     if (m_sock) {
         m_sock->disconnect(this);
         m_sock->abort();
@@ -150,6 +169,7 @@ void EosFeedback::connectNow()
     m_buf.clear();
     m_sock = new QTcpSocket(this);
     connect(m_sock, &QTcpSocket::connected, this, [this] {
+        m_connectWatch->stop();
         m_lastHeard.start();
         setLink(Link::Connecting, tr("Connected — waiting for the desk"));
         // Ask for the desk's state; it pushes /eos/out/... from now on.
@@ -169,6 +189,7 @@ void EosFeedback::connectNow()
     connect(m_sock, &QTcpSocket::errorOccurred, this, [this](QAbstractSocket::SocketError) {
         if (!m_wanted || !m_sock) return;
         if (m_sock->state() == QAbstractSocket::ConnectedState) return;   // disconnected() handles it
+        m_connectWatch->stop();
         m_ping->stop();
         clearState();
         setLink(Link::Failed, tr("Can't reach %1:%2 (%3)")
@@ -176,6 +197,7 @@ void EosFeedback::connectNow()
         m_retry->start();
     });
     if (m_link != Link::Failed) setLink(Link::Connecting, tr("Connecting…"));
+    m_connectWatch->start();
     m_sock->connectToHost(m_host, quint16(m_port));
 }
 

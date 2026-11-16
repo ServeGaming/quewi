@@ -34,6 +34,9 @@ Fixes from a full check of vamps, holds and skips.
   **group** it moves on every song in the group.
 - The VAMPS lane's right-click menu can turn an event into a **Hold** or a
   **Marker** (it only offered vamp, repeat and skip).
+- **Lighting desk link**: with a desk address that doesn't answer at all (a
+  wrong IP, a firewall), the link sat at "Connecting…" for half a minute or
+  more. It now says it can't reach the desk after 2.5 s and keeps retrying.
 
 ## 1.3.1 (2026-11-15)
 
