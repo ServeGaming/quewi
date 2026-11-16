@@ -17,6 +17,8 @@ add_library(quewi_core STATIC
     CartGrid.cpp
     MatrixModel.h
     MatrixModel.cpp
+    MediaRelink.h
+    MediaRelink.cpp
     ../cues/Cue.h
     ../cues/Cue.cpp
     ../cues/MemoCue.h

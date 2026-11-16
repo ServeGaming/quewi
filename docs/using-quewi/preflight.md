@@ -53,6 +53,17 @@ Each row in the list shows:
 Double-click a row to jump to that cue in the list. Fix the issue,
 press **Re-check** at the bottom to revalidate.
 
+### Missing files after moving to another computer *(1.3.1)*
+
+A show remembers where each track was on the computer it was built on. Open
+it somewhere else and those cues show as missing, even with the same tracks
+copied across. **Tools → Relink missing files…** fixes them in one go: pick
+the folder the tracks are in on this computer, and every cue with a missing
+file is pointed at the file of the same name there (folders inside it are
+searched too). It tells you what it couldn't find — run it again on another
+folder for those. It's one undo step; save the show to keep the new
+locations.
+
 ---
 
 ## Tips for keeping pre-flight green

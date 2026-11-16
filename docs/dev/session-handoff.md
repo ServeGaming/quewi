@@ -11,8 +11,8 @@ session on any computer (or a fresh conversation) continues with no gaps.
 > right now, the next one would lose nothing. *Update protocol* (last section)
 > says how.
 
-Last updated: **2026-11-15**. Latest release: **v1.3.0** (2026-10-28, from
-`main` at `c782a65`) — vamps/Advance, Devamp, and the **first licensed release**
+Last updated: **2026-11-15**. Latest release: **v1.3.1** (2026-11-15; see
+0a10) on top of **v1.3.0** (2026-10-28, `c782a65`) — vamps/Advance, Devamp, and the **first licensed release**
 (trial keys; see 0a9). All 4 assets attached and smoke-tested by the release
 workflow. CI, perf and docs green on main. Matthew is in rehearsals and may ask
 for quick fixes — ship them as patch releases (1.3.x) with licensing ON. macOS / Linux state and open items:
@@ -56,6 +56,66 @@ site (MkDocs, `docs/`) deploys to GitHub Pages on every push to `main`
 All committed and pushed. **30 ctest suites** (all green in CI at `6dabf77`
 before the video editor; with it, 30/30 + selftest green on a Linux Qt 6.11
 build — see §6; CI covers Windows/macOS on the push).
+
+### 0a10. Rehearsal day (2026-11-15) — 1.3.1, and the vamps audit backlog
+
+**Shipped in 1.3.1**
+- *Phantom vamp* (Matthew: "if I delete a vamp in the editor while the main
+  track is playing it is phantom ... I have to panic out of the track"). A
+  voice kept the events it was fired with while `GoEngine::playingEvents()`
+  indexed the cue's *live* list, so after an edit the index was wrong or out
+  of range: no ADVANCE, the voice looped on. Now `GoEngine::onPlayingSoundChanged`
+  (connected to the cue's `changed` at fire) pushes the cue's events to the
+  voice with `AudioEngine::setVoicePlayEvents` → mixer `setVoicePlayEvents`:
+  lists are built off the audio lock and swapped under `m_mutex`; what the
+  voice is in carries over **by event id** (`Loop/Span/Hold::id`); a deleted
+  vamp/hold lets go and plays on; a jump in flight is dropped if its target
+  is gone. Tests: `aVampDeletedWhilePlayingLetsGo`,
+  `editsWhilePlayingKeepWhatTheVoiceIsIn` (OfflineRenderer). Driven in a
+  test copy over OSC (53000): delete mid-vamp → song ran out by itself; vamp
+  added while playing → vamped; Advance released it.
+- *Relink missing files* (`core/MediaRelink`, Tools menu, command menu,
+  status-bar note on open). Logic tested (`test_media_relink`); **the dialog
+  itself was not clicked through**.
+- DCA check: mix/console suites pass and `x32_emulator` passes 7/7 against
+  pmaillot's emulator (assign mask, mute polarity, applyCue). DM7 is still
+  only proven against our own fake — needs Matthew on the console.
+
+**Vamps audit (Opus = audio thread, Sonnet = control layer, Haiku = UI/docs/
+skill). Confirmed by reading, NOT yet fixed — do these next (1.3.2):**
+1. Hold at a vamp's end / inside a vamp fires before the wrap: the vamp
+   stops on pass 1 and `pass` runs away (hold check precedes the vamp wrap
+   in the mix loop). Nothing forbids hold-in-vamp in normalize or the panel.
+2. A skip / exit jump that crosses an un-fired hold lands in the hold.
+3. Advance during the 12 ms loop pre-roll drops the blend → click.
+4. Vamp starting at (or within 12 ms of) frame 0 gets no crossfade → a hard
+   splice every pass. Pre-roll can also read audio before trim-in.
+5. Cue fade-out ignores vamps: a vamp inside the fade-out tail pumps.
+6. Vamp end past trim-out / decoded length ends the track instead of looping.
+7. Vamp end (or start) inside a cut: wrong loop length.
+8. Seek while holding is undone; a jump in flight survives a seek; `done`
+   holds don't re-arm after seeking back (rehearsal "go back 8 bars").
+9. Holds fire once per voice, so with cue Loop on they only stop the first time.
+10. Re-GO of a vamping cue orphans the old voice (Advance only knows
+    `currentVoiceId`) — check whether fireSound should stop the old voice.
+11. Devamp / `/quewi/cue/N/advance` aimed at a **video** cue never matches
+    (the registered cue is its soundtrack AudioCue); Devamp at a Group or
+    before the vamp is reached is silently dropped; by-number OSC only looks
+    in the active list and replies nothing.
+12. Safe key blocks Advance while ADVANCE still looks enabled (OSC/Devamp
+    bypass it).
+13. Small: lane right-click can't turn an event into a Hold/Marker; vamps.md
+    says "playhead" where the code moves the edit cursor; build_show.py
+    doesn't clamp count to 999 and writes `exit` on repeats; SKILL.md never
+    mentions vamps; no tests for GoEngine advance/Devamp/OSC advance.
+Clean: no allocation/lock/log added on the audio thread, no data race on
+Advance, licensing can't block Advance or Devamp.
+
+**Low-end PC check (this PC, release build):** exe 4.3 MB, idle 152 MB
+working set / 96 MB private, 0.4 % of one core idle, `--selftest` 1.5–2.1 s
+start-to-exit. Decoded audio lives in RAM (float32; budget
+`audio/memoryBudgetMB`, default 512) — that, not CPU, is the limit on a
+4–8 GB machine. Not measured on a real slow machine.
 
 ### 0a9. Trial licensing (2026-10-28) — ON from 1.3.0 (released 2026-10-28)
 **Update 2026-10-28:** Matthew chose to keep the source **public** (AGPL);
@@ -708,6 +768,9 @@ offered or deleted. Stray locks with no journal are tidied if stale.
 ---
 
 ## Release history (what each shipped)
+
+- **1.3.1** (2026-11-15) — vamp edits reach a playing song (phantom-vamp
+  fix); Tools → Relink missing files. See 0a10.
 
 - **1.0.0** (2026-07-17) — shipped "as is, patch as we go" (Matthew's call),
   with the updater and a live console run knowingly unverified.

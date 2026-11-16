@@ -116,6 +116,8 @@ const Alias kAliases[] = {
     { "Inspector panel",           "View",   "Hide the Inspector",         "Show the Inspector", nullptr },
     { "Pre-flight…",               "Show",   nullptr, nullptr,
       "Check the show before doors: missing files, levels, outputs, memory." },
+    { "Relink missing files…",     "Show",   nullptr, nullptr,
+      "Show moved to another computer? Point the cues at the tracks in a folder you pick." },
     { "OSC Monitor…",              "Show",   nullptr, nullptr, "Watch OSC traffic in and out." },
     { "Script follower…",          "Show",   nullptr, nullptr, "The script window, following the running cue." },
     { "Check for updates…",        "File",   nullptr, nullptr, "Look for a newer quewi and offer to install it." },

@@ -41,6 +41,10 @@ Double-click an audio cue to open its editor. Under the LIGHTING lane is the
 
 Every change is one undo step. Vamps can't overlap each other.
 
+You can edit while the song plays *(1.3.1)*: delete a vamp or a hold the
+song is in and it lets go at once — the music plays on from where it is —
+and one you move or add ahead of the playhead happens where it now is.
+
 ### Exit: when a vamp lets go
 
 Each vamp says how it leaves when you press Advance:

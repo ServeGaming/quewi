@@ -216,6 +216,71 @@ private slots:
         QCOMPARE(state(r).playState, ActiveVoice::PlayState::Vamping);
     }
 
+    // Matthew, 2026-11-15: "if I delete a vamp in the editor while the main
+    // track is playing it is phantom ... I can't bypass it and have to
+    // panic out of the track". Edits now reach the playing voice.
+    void aVampDeletedWhilePlayingLetsGo()
+    {
+        OfflineRenderer r(kSr, 2);
+        VoiceParams p;
+        const auto marker = ev(PlayEvent::Kind::Marker, 0.5);
+        const auto v = vamp(1.0, 2.0);
+        const auto later = vamp(4.0, 5.0);
+        p.playEvents = {marker, v, later};
+        const auto id = r.fire(ramp(), p);
+        play(r, 2.5);                                     // 1.5 passes in
+        QCOMPARE(state(r).playState, ActiveVoice::PlayState::Vamping);
+        QCOMPARE(state(r).playEventIndex, 1);
+
+        QVERIFY(r.setPlayEvents(id, {marker, later}));    // the vamp is deleted
+        QCOMPARE(state(r).playState, ActiveVoice::PlayState::Normal);
+        const auto out = play(r, 1.0);                    // on through 2.0, no loop back
+        QVERIFY2(std::abs(pos(r) - 2.5) < 0.02, qPrintable(QString::number(pos(r))));
+        for (size_t i = 1; i < out.size(); ++i)
+            QVERIFY2(out[i] >= out[i - 1] - 1e-6f, "plays straight on once the vamp is gone");
+        // The vamp further on still happens, under its new index.
+        play(r, 2.0);
+        QCOMPARE(state(r).playState, ActiveVoice::PlayState::Vamping);
+        QCOMPARE(state(r).playEventIndex, 1);
+        QVERIFY(r.advance(id));
+        play(r, 1.2);
+        QCOMPARE(state(r).playState, ActiveVoice::PlayState::Normal);
+    }
+
+    void editsWhilePlayingKeepWhatTheVoiceIsIn()
+    {
+        OfflineRenderer r(kSr, 2);
+        VoiceParams p;
+        const auto v = vamp(1.0, 2.0);
+        p.playEvents = {v};
+        const auto id = r.fire(ramp(), p);
+        play(r, 3.5);
+        const int pass = state(r).playPass;
+        QVERIFY(pass >= 2);
+        // An event added before it shifts its index; the vamp carries on.
+        QVERIFY(r.setPlayEvents(id, {ev(PlayEvent::Kind::Marker, 0.2), v, ev(PlayEvent::Kind::Hold, 3.0)}));
+        QCOMPARE(state(r).playState, ActiveVoice::PlayState::Vamping);
+        QCOMPARE(state(r).playEventIndex, 1);
+        QCOMPARE(state(r).playPass, pass);
+        play(r, 1.0);
+        QCOMPARE(state(r).playState, ActiveVoice::PlayState::Vamping);
+        QVERIFY(r.advance(id));
+        play(r, 1.0);                                     // out at 2.0, on to the new hold at 3.0
+        play(r, 1.0);
+        QCOMPARE(state(r).playState, ActiveVoice::PlayState::Holding);
+        QCOMPARE(state(r).playEventIndex, 2);
+        // A hold deleted while the song is stopped at it lets go too.
+        QVERIFY(r.setPlayEvents(id, {v}));
+        QCOMPARE(state(r).playState, ActiveVoice::PlayState::Normal);
+        play(r, 0.5);
+        QVERIFY2(std::abs(pos(r) - 3.5) < 0.02, qPrintable(QString::number(pos(r))));
+        // Everything deleted: plain playback, nothing reported.
+        QVERIFY(r.setPlayEvents(id, {}));
+        play(r, 0.2);
+        QCOMPARE(state(r).playState, ActiveVoice::PlayState::Normal);
+        QCOMPARE(state(r).playEventIndex, -1);
+    }
+
     void savedAndTidied()
     {
         PlayEvents in = {vamp(2.0, 3.0, 4, PlayEvent::Exit::NextBar), vamp(1.0, 2.5),

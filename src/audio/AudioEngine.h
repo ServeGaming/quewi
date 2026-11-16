@@ -168,6 +168,11 @@ public:
     // Returns true if the voice was found (the mixer acts on its next
     // buffer; activeVoices() then shows the new state).
     bool advance(VoiceId id);
+    // The cue's vamps / holds / skips were edited while it plays: give the
+    // voice the new set (and bar lines, seconds). What it's in carries over
+    // by event id; a deleted vamp or hold lets go at once and plays on.
+    bool setVoicePlayEvents(VoiceId id, const PlayEvents &events,
+                            const std::vector<double> &barTimes);
 
     // Real-time live changes — applied immediately, no fade. Used by the
     // inspector when the user nudges a slider on a playing cue.
@@ -342,6 +347,7 @@ public:
     bool pause(VoiceId id);
     bool resume(VoiceId id);
     bool advance(VoiceId id);
+    bool setPlayEvents(VoiceId id, const PlayEvents &events, const std::vector<double> &barTimes = {});
     int  activeCount() const;
     QList<ActiveVoice> activeVoices() const;
     int  channels() const { return m_channels; }

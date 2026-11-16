@@ -98,6 +98,7 @@ private slots:
     // GO from this computer (not OSC): checks the safe key first.
     void requestLocalGo();
     void showPreflight();
+    void relinkMedia();
     void showCommandPalette();
     // The command menu. keys=false: the search view (Ctrl+K); keys=true: the
     // key menu (leader tap), with `typed` letters applied — a leader chord.

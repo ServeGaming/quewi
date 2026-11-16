@@ -260,6 +260,12 @@ private:
     std::vector<TriggerRun> m_triggerRuns;
     // Audio cues fired with vamps / holds / skips, so Advance can find them.
     std::vector<QPointer<audio::AudioCue>> m_withPlayEvents;
+    void notePlayEventsCue(audio::AudioCue *c);
+    static std::vector<double> barTimesOf(const audio::AudioCue *c);
+    // Live edits: what was last pushed to a playing voice (by voice id), so
+    // an unrelated change to the cue doesn't push again.
+    QHash<quint64, std::pair<audio::PlayEvents, std::vector<double>>> m_sentPlayEvents;
+    void onPlayingSoundChanged();
     QTimer *m_triggerTimer = nullptr;
     bool    m_triggersArmed = true;
     void startTriggers(audio::AudioCue *sound, cues::Cue *owner,

@@ -23,6 +23,7 @@
 #include "core/CartGrid.h"
 #include "core/CueList.h"
 #include "core/CueListModel.h"
+#include "core/MediaRelink.h"
 #include "core/UndoCommands.h"
 #include "core/Workspace.h"
 #include "cues/FadeCue.h"
@@ -838,6 +839,7 @@ void MainWindow::buildMenus()
     toolsMenu->addAction(tr("&Pre-flight…"),
                          QKeySequence(QStringLiteral("Ctrl+P")),
                          this, &MainWindow::showPreflight);
+    toolsMenu->addAction(tr("&Relink missing files…"), this, &MainWindow::relinkMedia);
     toolsMenu->addAction(tr("&OSC Monitor…"),
                          QKeySequence(QStringLiteral("Ctrl+1")),
                          this, &MainWindow::showOscMonitor);
@@ -1221,7 +1223,12 @@ bool MainWindow::loadShowFromPath(const QString &path)
     noteRecentFile(path);
     prewarmAudioCues();
     wireOscNotifications();
-    statusBar()->showMessage(tr("Opened %1").arg(path), 3000);
+    if (const auto missing = core::missingMedia(m_workspace.get()); missing.count > 0)
+        statusBar()->showMessage(tr("Opened %1 — %n file(s) can't be found on this computer. "
+                                    "Tools → Relink missing files… finds them in a folder.", nullptr,
+                                    int(missing.paths.size())).arg(path), 15000);
+    else
+        statusBar()->showMessage(tr("Opened %1").arg(path), 3000);
 
     // Preferences → Show Mode → "Enter Show Mode automatically when
     // opening a show". Honoured here (previously written but never
@@ -2020,6 +2027,42 @@ void MainWindow::showPreflight()
 {
     ui::PreflightDialog dlg(m_workspace.get(), this);
     dlg.exec();
+}
+
+// The show came from another computer (or the tracks moved): point every
+// cue whose file isn't there at the same-named file in a folder you pick.
+void MainWindow::relinkMedia()
+{
+    if (!m_workspace) return;
+    const auto missing = core::missingMedia(m_workspace.get());
+    if (missing.count == 0) {
+        QMessageBox::information(this, tr("Relink missing files"),
+            tr("Every cue's file is where the show says it is. Nothing to relink."));
+        return;
+    }
+    const QString start = m_currentPath.isEmpty() ? QString() : QFileInfo(m_currentPath).absolutePath();
+    const QString folder = QFileDialog::getExistingDirectory(this,
+        tr("%n file(s) can't be found. Choose the folder they're in on this computer", nullptr,
+           int(missing.paths.size())), start);
+    if (folder.isEmpty()) return;
+    const auto r = core::relinkMissingMedia(m_workspace.get(), folder);
+    prewarmAudioCues();   // decode what was found, so the next GO plays
+    QString text = r.stillMissing.isEmpty()
+        ? tr("Found all of them: %n cue(s) relinked.", nullptr, r.relinked)
+        : tr("%1 cue(s) relinked. %n file(s) weren't in that folder — run this again and pick "
+             "the folder they're in.", nullptr, int(r.stillMissing.size())).arg(r.relinked);
+    QMessageBox box(QMessageBox::Information, tr("Relink missing files"), text, QMessageBox::Ok, this);
+    QString detail;
+    if (!r.stillMissing.isEmpty())
+        detail += tr("Still missing:") + QLatin1Char('\n') + r.stillMissing.join(QLatin1Char('\n'));
+    if (!r.ambiguous.isEmpty()) {
+        if (!detail.isEmpty()) detail += QStringLiteral("\n\n");
+        detail += tr("Found more than once in that folder (the closest match was used):")
+                + QLatin1Char('\n') + r.ambiguous.join(QLatin1Char('\n'));
+    }
+    if (!detail.isEmpty()) box.setDetailedText(detail);
+    if (r.relinked > 0) box.setInformativeText(tr("Edit → Undo puts the old locations back. Save the show to keep the new ones."));
+    box.exec();
 }
 
 void MainWindow::showCommandPalette()

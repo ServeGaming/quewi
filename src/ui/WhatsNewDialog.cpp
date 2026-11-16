@@ -20,9 +20,18 @@ struct Highlight { const char *title; const char *body; };
 // Curated highlights for this release. Written to read like a person wrote
 // them — specific, second-person, no filler. Update this list each release.
 //
-// 1.3.0: vamps and Advance; trial keys. Then 1.2.0, 1.1.0, 1.0.3, 1.0.2 and
-// 1.0.1, for anyone installing this by hand from an older version.
+// 1.3.1: vamp edits reach a playing song; relink missing files. Then 1.3.0
+// (vamps and Advance; trial keys), 1.2.0, 1.1.0, 1.0.3, 1.0.2 and 1.0.1, for
+// anyone installing this by hand from an older version.
 const Highlight kHighlights[] = {
+    { "Change vamps while the song plays",
+      "Delete, move or add a vamp, hold or skip in the editor while its song "
+      "is playing and the song follows: a deleted vamp stops looping and the "
+      "music plays on. (Before, it kept looping and Advance couldn't reach it.)" },
+    { "Show on a new computer? Relink the tracks",
+      "Tools → Relink missing files… finds every cue's track by name in a "
+      "folder you pick (and the folders inside it), in one go." },
+    // ── 1.3.0 ──
     { "Vamps, the way performance tracks do them",
       "Mark vamps, repeats, holds and skips on a song (its editor's new VAMPS "
       "lane). In the show a vamp loops until you press Advance (→), then goes "

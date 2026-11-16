@@ -76,29 +76,8 @@ public:
         v.srcSampleRate = srcSr;
         for (const auto &c : params.cuts)
             v.cutFrames.emplace_back(c.start * srcSr, c.end * srcSr);
-        for (size_t i = 0; i < params.playEvents.size(); ++i) {
-            const auto &e = params.playEvents[i];
-            const int idx = static_cast<int>(i);
-            switch (e.kind) {
-            case PlayEvent::Kind::Vamp:
-                if (e.length() >= kMinPlayEventLength)
-                    v.play.vamps.push_back({e.start * srcSr, e.end * srcSr, e.count, e.exit, idx});
-                break;
-            case PlayEvent::Kind::Skip:
-                if (e.length() >= kMinPlayEventLength)
-                    v.play.skips.push_back({e.start * srcSr, e.end * srcSr, idx});
-                break;
-            case PlayEvent::Kind::Hold:
-                // A hold behind where playback starts has already gone by.
-                v.play.holds.push_back({e.start * srcSr, idx,
-                                        e.start * srcSr < static_cast<double>(v.readPos)});
-                break;
-            case PlayEvent::Kind::Marker:
-                break;
-            }
-        }
-        for (const double b : params.barTimes) v.play.bars.push_back(b * srcSr);
-        std::sort(v.play.bars.begin(), v.play.bars.end());
+        fillPlayLists(v.play, params.playEvents, params.barTimes, srcSr,
+                      static_cast<double>(v.readPos));
         v.channelGains  = params.channelGains;
         v.outputGains   = params.outputGains;
         v.peakPerChannel.fill(0.0f, m_outputChannels);
@@ -242,6 +221,117 @@ public:
             }
         }
         return false;
+    }
+
+    // The vamp / skip / hold lists of a voice, in source frames, from a
+    // cue's events. Allocates: GUI / fire thread only.
+    template <typename PlayT>
+    static void fillPlayLists(PlayT &play, const PlayEvents &events,
+                              const std::vector<double> &barTimes, double srcSr, double posFrames)
+    {
+        for (size_t i = 0; i < events.size(); ++i) {
+            const auto &e = events[i];
+            const int idx = static_cast<int>(i);
+            switch (e.kind) {
+            case PlayEvent::Kind::Vamp:
+                if (e.length() >= kMinPlayEventLength)
+                    play.vamps.push_back({e.start * srcSr, e.end * srcSr, e.count, e.exit, idx, e.id});
+                break;
+            case PlayEvent::Kind::Skip:
+                if (e.length() >= kMinPlayEventLength)
+                    play.skips.push_back({e.start * srcSr, e.end * srcSr, idx, e.id});
+                break;
+            case PlayEvent::Kind::Hold:
+                // A hold behind where playback is has already gone by.
+                play.holds.push_back({e.start * srcSr, idx, e.start * srcSr < posFrames, e.id});
+                break;
+            case PlayEvent::Kind::Marker:
+                break;
+            }
+        }
+        for (const double b : barTimes) play.bars.push_back(b * srcSr);
+        std::sort(play.bars.begin(), play.bars.end());
+    }
+
+    // The cue's vamps / holds / skips were edited while it plays: the voice
+    // takes the new set. What it is in the middle of carries over by the
+    // event's id; a vamp or hold that was deleted lets go at once (the
+    // music plays on from where it is), so nothing the operator can no
+    // longer see can keep a track looping or stopped.
+    bool setVoicePlayEvents(VoiceId id, const PlayEvents &events,
+                            const std::vector<double> &barTimes)
+    {
+        double srcSr = 0.0;
+        {
+            std::lock_guard<std::mutex> lock(m_mutex);
+            for (const auto &v : m_voices)
+                if (v.id == id && !v.finished) { srcSr = v.srcSampleRate; break; }
+        }
+        if (srcSr <= 0.0) return false;
+        // Built (and the old lists freed) off the audio lock.
+        decltype(Voice::play) next;
+        fillPlayLists(next, events, barTimes, srcSr, 0.0);
+        bool found = false;
+        {
+            std::lock_guard<std::mutex> lock(m_mutex);
+            for (auto &v : m_voices) {
+                if (v.id != id || v.finished) continue;
+                auto &P = v.play;
+                const double pos = static_cast<double>(v.readPos) + v.readFrac;
+                const QUuid vampId = P.inVamp >= 0 ? P.vamps[static_cast<size_t>(P.inVamp)].id : QUuid();
+                const QUuid holdId = P.holding >= 0 ? P.holds[static_cast<size_t>(P.holding)].id : QUuid();
+                for (auto &H : next.holds) {
+                    H.done = H.at < pos;
+                    for (const auto &O : P.holds)
+                        if (O.id == H.id && std::abs(O.at - H.at) < 1.0) { H.done = O.done; break; }
+                }
+                int inVamp = -1, holding = -1;
+                if (!vampId.isNull())
+                    for (size_t k = 0; k < next.vamps.size(); ++k)
+                        if (next.vamps[k].id == vampId) { inVamp = static_cast<int>(k); break; }
+                if (!holdId.isNull())
+                    for (size_t h = 0; h < next.holds.size(); ++h)
+                        if (next.holds[h].id == holdId) {
+                            holding = static_cast<int>(h);
+                            next.holds[h].done = false;
+                            break;
+                        }
+                const bool holdGone = P.holding >= 0 && holding < 0;
+                // A jump in flight (a skip taken, a vamp being left) stands
+                // only if what it was heading for the end of is still there.
+                bool keepJump = false;
+                if (P.jumpFrom >= 0.0) {
+                    for (const auto &L : next.vamps) if (std::abs(L.e - P.jumpTo) < 1.0) keepJump = true;
+                    for (const auto &S : next.skips) if (std::abs(S.e - P.jumpTo) < 1.0) keepJump = true;
+                }
+                std::swap(P.vamps, next.vamps);
+                std::swap(P.skips, next.skips);
+                std::swap(P.holds, next.holds);
+                std::swap(P.bars,  next.bars);
+                P.inVamp = inVamp;
+                if (inVamp < 0) { P.pass = 0; P.leaving = false; }
+                P.holding = holding;
+                if (holdGone) {
+                    v.resumeFadeSamples = std::max<qint64>(1, static_cast<qint64>(0.005 * m_outputSampleRate));
+                    v.resumeFadeCounter = 0;
+                }
+                if (!keepJump) P.jumpFrom = P.jumpTo = -1.0;
+                using PS = ActiveVoice::PlayState;
+                P.state = PS::Normal;
+                P.stateIndex = -1;
+                if (P.holding >= 0) {
+                    P.state = PS::Holding;
+                    P.stateIndex = P.holds[static_cast<size_t>(P.holding)].index;
+                } else if (P.inVamp >= 0) {
+                    const auto &L = P.vamps[static_cast<size_t>(P.inVamp)];
+                    P.state = L.count > 0 ? PS::Repeating : (P.leaving ? PS::Leaving : PS::Vamping);
+                    P.stateIndex = L.index;
+                }
+                found = true;
+                break;
+            }
+        }
+        return found;
     }
 
     bool advanceVoice(VoiceId id)
@@ -568,11 +658,13 @@ private:
         std::vector<std::pair<double, double>> cutFrames;
         // Vamps / repeats / holds / skips in source frames, and where the
         // voice is among them. Set up at fire; the GUI only bumps
-        // advanceReq (under m_mutex); everything else is the audio thread's.
+        // advanceReq or swaps the lists in after an edit
+        // (setVoicePlayEvents), both under m_mutex; everything else is
+        // the audio thread's.
         struct Play {
-            struct Loop { double s, e; int count; PlayEvent::Exit exit; int index; };
-            struct Span { double s, e; int index; };
-            struct Hold { double at; int index; bool done; };
+            struct Loop { double s, e; int count; PlayEvent::Exit exit; int index; QUuid id; };
+            struct Span { double s, e; int index; QUuid id; };
+            struct Hold { double at; int index; bool done; QUuid id; };
             std::vector<Loop>   vamps;
             std::vector<Span>   skips;
             std::vector<Hold>   holds;
@@ -2167,6 +2259,18 @@ bool AudioEngine::advance(VoiceId id)
     return false;
 }
 
+bool AudioEngine::setVoicePlayEvents(VoiceId id, const PlayEvents &events,
+                                     const std::vector<double> &barTimes)
+{
+    bool found = false;
+    for (const VoiceId v : { id, mirrorOf(id) }) {
+        if (!v) continue;
+        for (auto &ctx : m_contexts)
+            if (ctx->mixer && ctx->mixer->setVoicePlayEvents(v, events, barTimes)) { found = true; break; }
+    }
+    return found;
+}
+
 bool AudioEngine::seek(VoiceId id, double seconds)
 {
     if (const VoiceId m = mirrorOf(id))
@@ -2221,6 +2325,10 @@ bool OfflineRenderer::pause(VoiceId id)                          { return m_mixe
 bool OfflineRenderer::resume(VoiceId id)                         { return m_mixer->resumeVoice(id); }
 int  OfflineRenderer::activeCount() const                        { return m_mixer->activeCount(); }
 bool OfflineRenderer::advance(VoiceId id)                        { return m_mixer->advanceVoice(id); }
+bool OfflineRenderer::setPlayEvents(VoiceId id, const PlayEvents &events, const std::vector<double> &barTimes)
+{
+    return m_mixer->setVoicePlayEvents(id, events, barTimes);
+}
 
 QList<ActiveVoice> OfflineRenderer::activeVoices() const
 {

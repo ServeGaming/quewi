@@ -297,13 +297,7 @@ quint64 GoEngine::fireSound(audio::AudioCue *audioCue, const AudioRoute &route,
         p.loop           = audioCue->loop();
         p.cuts           = audioCue->cuts();
         p.playEvents     = audioCue->playEvents();
-        // A vamp that exits "at the next bar" needs the bar lines.
-        if (const auto &g = audioCue->beatGrid(); g.isSet() && !p.playEvents.empty()) {
-            const double bar = g.beatLength() * g.beatsPerBar;
-            const auto f = audioCue->audioFile();
-            const double to = (f && f->durationSeconds() > 0.0) ? f->durationSeconds() : 3600.0;
-            for (double t = g.firstBeat; t <= to && bar > 0.0; t += bar) p.barTimes.push_back(t);
-        }
+        p.barTimes       = barTimesOf(audioCue);
         // Per-cue effects chain (EQ/comp/reverb/delay) built fresh
         // for this voice from the cue's saved editor rack. Empty =
         // dry. Applied as a stereo insert in the mixer.
@@ -362,13 +356,15 @@ quint64 GoEngine::fireSound(audio::AudioCue *audioCue, const AudioRoute &route,
 
         vid = m_audio->fire(file, p);
         audioCue->setCurrentVoiceId(vid);
-        if (!p.playEvents.empty()) {
-            m_withPlayEvents.erase(std::remove_if(m_withPlayEvents.begin(), m_withPlayEvents.end(),
-                                                  [audioCue](const QPointer<audio::AudioCue> &c) {
-                                                      return !c || c == audioCue;
-                                                  }), m_withPlayEvents.end());
-            m_withPlayEvents.push_back(audioCue);
+        if (!p.playEvents.empty()) notePlayEventsCue(audioCue);
+        if (vid != 0) {
+            if (m_sentPlayEvents.size() > 64) m_sentPlayEvents.clear();
+            m_sentPlayEvents.insert(vid, { p.playEvents, p.barTimes });
         }
+        // Vamps edited (added, moved, deleted, undone) while the song plays
+        // go to its voice: see onPlayingSoundChanged.
+        connect(audioCue, &cues::Cue::changed, this, &GoEngine::onPlayingSoundChanged,
+                Qt::UniqueConnection);
         if (vid != 0 && !audioCue->lightTriggers().empty())
             startTriggers(audioCue, owner, vid, 0);
         if (vid != 0
@@ -1066,6 +1062,49 @@ QString GoEngine::PlayingEvent::describe() const
             .arg(QString::number(std::max(0.0, inSeconds), 'f', 0));
     }
     return {};
+}
+
+// Bar lines of a song (seconds), for a vamp that exits "at the next bar".
+std::vector<double> GoEngine::barTimesOf(const audio::AudioCue *c)
+{
+    std::vector<double> out;
+    if (!c || c->playEvents().empty()) return out;
+    const auto &g = c->beatGrid();
+    if (!g.isSet()) return out;
+    const double bar = g.beatLength() * g.beatsPerBar;
+    const auto f = c->audioFile();
+    const double to = (f && f->durationSeconds() > 0.0) ? f->durationSeconds() : 3600.0;
+    for (double t = g.firstBeat; t <= to && bar > 0.0; t += bar) out.push_back(t);
+    return out;
+}
+
+void GoEngine::notePlayEventsCue(audio::AudioCue *c)
+{
+    m_withPlayEvents.erase(std::remove_if(m_withPlayEvents.begin(), m_withPlayEvents.end(),
+                                          [c](const QPointer<audio::AudioCue> &o) {
+                                              return !o || o == c;
+                                          }), m_withPlayEvents.end());
+    m_withPlayEvents.push_back(c);
+}
+
+// A song that has been fired changed. If it's playing and its vamps / holds
+// / skips (or its bar lines) are no longer what its voice has, the voice
+// takes the new ones — so a vamp deleted in the editor stops looping, one
+// added ahead of the playhead will happen, and Advance always acts on what
+// the operator sees. (The voice used to keep the set it started with: a
+// deleted vamp went on looping with nothing left to Advance.)
+void GoEngine::onPlayingSoundChanged()
+{
+    auto *c = qobject_cast<audio::AudioCue *>(sender());
+    if (!c || !m_audio || c->currentVoiceId() == 0) return;
+    const auto bars = barTimesOf(c);
+    const auto sent = m_sentPlayEvents.constFind(c->currentVoiceId());
+    if (sent != m_sentPlayEvents.constEnd()
+        && sent->first == c->playEvents() && sent->second == bars) return;
+    if (!m_audio->setVoicePlayEvents(c->currentVoiceId(), c->playEvents(), bars)) return;
+    if (m_sentPlayEvents.size() > 64) m_sentPlayEvents.clear();
+    m_sentPlayEvents.insert(c->currentVoiceId(), { c->playEvents(), bars });
+    if (!c->playEvents().empty()) notePlayEventsCue(c);
 }
 
 std::vector<GoEngine::PlayingEvent> GoEngine::playingEvents() const

@@ -140,6 +140,8 @@ target_sources(test_show_mode_view PRIVATE
 
 # Reading cue lists off an Eos desk (osc::EosCueLists) against a fake desk.
 quewi_add_test(eos_cue_lists Qt6::Test Qt6::Network quewi_osc)
+# Finding a show's tracks again after it moves to another computer.
+quewi_add_test(media_relink Qt6::Test quewi_core quewi_audio)
 # The Matrix List's intermeshing rules — pure logic, no UI.
 quewi_add_test(matrix_model Qt6::Test quewi_core)
 # A Matrix List through a real show file; old show files still open.

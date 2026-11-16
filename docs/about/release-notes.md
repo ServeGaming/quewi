@@ -1,5 +1,29 @@
 # Release notes
 
+## 1.3.1 (2026-11-15)
+
+A rehearsal fix for vamps, and a way to find a show's tracks on another
+computer.
+
+### Fixed
+
+- **A vamp deleted while its song was playing kept looping, and Advance
+  couldn't release it** (you had to stop the track). Edits to a song's
+  vamps, holds and skips now reach the song while it plays: a deleted vamp
+  or hold lets go at once and the music plays on from where it is; one you
+  move, or add ahead of the playhead, happens where it now is; and Advance
+  always acts on what the editor shows. Undo and redo count as edits too.
+
+### New
+
+- **Relink missing files.** Open a show on another computer and its cues
+  still point at where the tracks were on the old one. **Tools → Relink
+  missing files…** asks for the folder the tracks are in on this computer
+  and points every cue with a missing file at the file of the same name
+  there (folders inside it are searched too). It's one undo step, and it
+  tells you what it couldn't find. When you open a show with missing files,
+  the status bar says so. [Pre-flight →](../using-quewi/preflight.md)
+
 ## 1.3.0 (2026-10-28)
 
 Vamps, repeats, holds and skips for performance tracks, run with one
