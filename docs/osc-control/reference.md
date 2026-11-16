@@ -227,6 +227,7 @@ so `/quewi/cart/fire` always targets the layer currently shown. Use
 | `/quewi/workspace/new` | — | Start a new empty show. **If the current show has unsaved changes, quewi shows a Save / Discard / Cancel prompt on the quewi machine** and waits for someone there to answer it; a remote can't answer it. To stay promptless, check `dirty` with `/quewi/query/workspace` and `/quewi/workspace/save` first. |
 | `/quewi/workspace/open` | optional `s` path | If a path is given, load that .quewi file — if the current show has unsaved changes, quewi first shows its Save / Discard / Cancel prompt on the quewi machine (since 1.1.0; before, they were lost silently). With no args, asks about unsaved changes and then opens the file picker, both on the quewi machine. |
 | `/quewi/workspace/save` | — | Save to the current path (or open Save-As if untitled) |
+| `/quewi/workspace/relink` | `s` folder | *(1.3.2)* Relink missing files: every cue whose file isn't on the quewi machine is pointed at the file of the same name in that folder (folders inside it are searched too). One undo step, no dialogs. Replies `/quewi/reply/workspace/relink` `s` JSON `{relinked, stillMissing: [...], ambiguous: [...]}` |
 
 ### Undo / redo
 

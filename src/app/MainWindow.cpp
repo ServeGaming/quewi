@@ -4828,6 +4828,27 @@ void MainWindow::registerOscRemoteHandlers()
         QMetaObject::invokeMethod(this, [this]{ saveShow(); },
                                   Qt::QueuedConnection);
     });
+    // Relink missing files (Tools menu) from a remote: every cue whose file
+    // isn't on this computer is pointed at the same-named file in `folder`
+    // (and the folders inside it). No dialogs; one undo step; the reply
+    // says what was found and what wasn't.
+    sub("/quewi/workspace/relink", [this, replyToSender](const osc::Message &m) {
+        if (m.args.empty() || m.args.front().tag != osc::Argument::Tag::String) return;
+        const QString folder = std::get<QString>(m.args.front().value);
+        QMetaObject::invokeMethod(this, [this, folder, replyToSender]{
+            if (!m_workspace) return;
+            const auto r = core::relinkMissingMedia(m_workspace.get(), folder);
+            if (r.relinked > 0) prewarmAudioCues();
+            statusBar()->showMessage(tr("Relink: %1 cue(s) relinked, %2 file(s) still missing")
+                                         .arg(r.relinked).arg(r.stillMissing.size()), 6000);
+            QJsonObject o;
+            o.insert(QStringLiteral("relinked"), r.relinked);
+            o.insert(QStringLiteral("stillMissing"), QJsonArray::fromStringList(r.stillMissing));
+            o.insert(QStringLiteral("ambiguous"), QJsonArray::fromStringList(r.ambiguous));
+            replyToSender(QStringLiteral("/quewi/reply/workspace/relink"),
+                { osc::Argument::s(QString::fromUtf8(QJsonDocument(o).toJson(QJsonDocument::Compact))) });
+        }, Qt::QueuedConnection);
+    });
 
     // Undo / redo. The undo stack is workspace-owned, so the address
     // implicitly targets whatever workspace is currently loaded.

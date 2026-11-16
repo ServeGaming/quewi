@@ -4,6 +4,11 @@
 
 Fixes from a full check of vamps, holds and skips.
 
+### New
+
+- `/quewi/workspace/relink <folder>` does **Relink missing files** from a
+  remote and replies with what it found.
+
 ### Fixed
 
 - **A hold at the end of a vamp** (or inside one) stopped the music on the

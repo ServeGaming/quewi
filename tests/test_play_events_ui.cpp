@@ -2,12 +2,15 @@
 #include <QApplication>
 #include <QComboBox>
 #include <QDoubleSpinBox>
+#include <QContextMenuEvent>
 #include <QLineEdit>
+#include <QMenu>
 #include <QPushButton>
 #include <QSignalSpy>
 #include <QSpinBox>
 #include <QTabWidget>
 #include <QTableWidget>
+#include <QTimer>
 #include <QUndoStack>
 
 #include <cmath>
@@ -277,6 +280,46 @@ private slots:
         // The vamps lane's header cell is just a label.
         QTest::mouseClick(&r.canvas, Qt::LeftButton, {}, QPoint(40, vampY()));
         QCOMPARE(track.count(), 1);
+    }
+
+    // The lane's own right-click menu, opened for real: it can turn a vamp
+    // into a Hold or a Marker (1.3.2; it only offered vamp / repeat / skip).
+    void theLaneMenuMakesAHoldOrAMarker()
+    {
+        Rig r;
+        r.canvas.show();
+        QVERIFY(QTest::qWaitForWindowExposed(&r.canvas));
+        r.panel.addEvent(QStringLiteral("vamp"), 2.0, 4.0);
+        QCOMPARE(r.cue.playEvents().size(), size_t(1));
+
+        auto choose = [&](const QString &text) {
+            bool found = false;
+            QTimer::singleShot(300, &r.canvas, [&] {
+                auto *menu = qobject_cast<QMenu *>(QApplication::activePopupWidget());
+                if (!menu) return;
+                for (QAction *a : menu->actions())
+                    if (a->text() == text) {
+                        found = true;
+                        menu->setActiveAction(a);
+                        QTest::keyClick(menu, Qt::Key_Return);
+                        return;
+                    }
+                menu->close();
+            });
+            const QPoint at(x0 + 300, vampY());           // 3.0 s: inside the vamp
+            QContextMenuEvent ev(QContextMenuEvent::Mouse, at, r.canvas.mapToGlobal(at));
+            QApplication::sendEvent(&r.canvas, &ev);      // returns when the menu closes
+            return found;
+        };
+
+        QVERIFY(choose(QStringLiteral("Make it a Hold")));
+        QCOMPARE(r.cue.playEvents()[0].kind, PlayEvent::Kind::Hold);
+        QCOMPARE(r.cue.playEvents()[0].end, r.cue.playEvents()[0].start);
+        r.undo.undo();
+        QCOMPARE(r.cue.playEvents()[0].kind, PlayEvent::Kind::Vamp);
+
+        QVERIFY(choose(QStringLiteral("Make it a Marker")));
+        QCOMPARE(r.cue.playEvents()[0].kind, PlayEvent::Kind::Marker);
     }
 
     void contextActionsChangeKindAndExit()

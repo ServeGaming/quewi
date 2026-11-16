@@ -133,6 +133,18 @@ Hold/Marker items, the Relink dialog. **This PC's test key
 (QW-MKCN-…) expired 2026-11-10:** the licensed build exits 3 here, so
 official 1.3.x asks for a key on this PC until he enters a master key.
 
+**Night pass, 2026-11-16 (Matthew: "Test and run everything tonight"):**
+the three leftovers are covered. Devamp → **video cue** driven over OSC
+(`sound.playEvents` on the video cue; soundtrack left the vamp). Lane menu
+Hold / Marker: new `theLaneMenuMakesAHoldOrAMarker` opens the real QMenu.
+Relink: Matthew **declined screen control** (computer-use request denied),
+so instead of clicking the dialog there is now
+`/quewi/workspace/relink <folder>` (same `core::relinkMissingMedia` +
+prewarm, JSON reply), driven in a test copy: found 1, reported 1 missing,
+the relinked track played, undo restored. The Tools-menu dialog's two stock
+dialogs (folder picker, result box) are still unclicked. Both builds 46/46
++ selftest after that. Then 1.3.2 was tagged.
+
 **CI / macOS (2026-11-15/16):** GitHub refused `macos-14` ("configuration
 'macos-14-arm64-us-default' is not supported"), so 1.3.1 has **no DMG**.
 ci.yml and release.yml now use `macos-15` (still not `macos-latest`: AGL).
