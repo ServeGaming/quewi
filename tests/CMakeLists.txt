@@ -197,3 +197,11 @@ quewi_add_test(inspector_layout Qt6::Test Qt6::Widgets quewi_ui)
 target_sources(test_inspector_layout PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/../src/app/GoEngine.cpp
 )
+
+# GO on a track that hasn't finished loading waits and plays it (it used to
+# say "audio still decoding" and skip the cue).
+quewi_add_test(go_loading Qt6::Test Qt6::Widgets Qt6::Multimedia quewi_ui)
+target_sources(test_go_loading PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/../src/app/GoEngine.cpp
+)
+target_include_directories(test_go_loading PRIVATE ${CMAKE_SOURCE_DIR}/src/app)

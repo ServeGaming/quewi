@@ -11,7 +11,8 @@ session on any computer (or a fresh conversation) continues with no gaps.
 > right now, the next one would lose nothing. *Update protocol* (last section)
 > says how.
 
-Last updated: **2026-11-16**. Latest release: **v1.3.2** (2026-11-16, `c569dac`; audit fixes; see
+Last updated: **2026-11-16**. Latest release: **v1.3.3** (2026-11-16; GO waits for a loading track, TheatreMix import,
+Inspector squash fix, key box; Matthew OK'd the bump: "push and upload that as the next version") on top of **v1.3.2** (2026-11-16, `c569dac`; audit fixes; see
 0a10; all 4 assets up; the DMG job hit a GitHub Mac-runner capacity cancel, re-run passed — first macos-15 DMG, smoke-tested by CI, not yet opened on a real Mac) on top of **v1.3.1** (2026-11-15; no DMG
 ) and **v1.3.0** (2026-10-28, `c782a65`) — vamps/Advance, Devamp, and the **first licensed release**
 (trial keys; see 0a9). All 4 assets attached and smoke-tested by the release
@@ -815,8 +816,17 @@ offered or deleted. Stray locks with no journal are tidied if stale.
 
 ## Release history (what each shipped)
 
-- **Unreleased on main** (2026-11-16, no version bump — Matthew decides when):
-  **TheatreMix import** — Mix grid button "Import TheatreMix file…"; `src/mix/TmixImport.*`
+- **1.3.3** (2026-11-16) — **GO on a track still loading now plays it** (Matthew: "when I
+  press go it will still say audio still decoding and skip past that cue… I can't have that
+  happen mid show"). `GoEngine::fireSound` used to give up when the file had no snapshot yet;
+  now it shows "GO: loading <name>…" and `waitThenFireSound` polls every 5 ms through
+  `after()` (so Panic cancels, Pause freezes) and fires the moment the first snapshot is
+  published; `m_soundWaiting` dedups double-GOs and a Stop cue / stopCue drops the wait;
+  gives up after 15 s with a status message. test_go_loading (silent WAV; fails on the old
+  code, passes now). Not changed: prewarm still skips cues past the memory budget (512 MB,
+  8x size estimate) — those now load on GO and start a split second late instead of not at
+  all; a video's soundtrack that has to wait starts late against the picture. Also in 1.3.3:
+  key box, and **TheatreMix import** — Mix grid button "Import TheatreMix file…"; `src/mix/TmixImport.*`
   reads the .tmix (SQLite: `cues` number/point/name/dcaNNChannels/dcaNNLabel, any number of
   dcaNN columns; `profiles` default rows = channel names, "Channel N" ignored; `actors`;
   `ensembles`; `config` targetConsole/channels). Applies: missing strips/names/actors/ensembles
@@ -829,7 +839,7 @@ offered or deleted. Stray locks with no journal are tidied if stale.
   target combo's sizeHint 1518 px (panel asked 1736 vs 462). test_inspector_layout.
   **Open: Matthew says DCAs don't reach the console from the Mac** although it connects —
   not diagnosed yet (need: which desk, X32 or DM7; channels registered; banner text).
-- **Unreleased on main** (2026-11-16) — key box auto-caps + dashes (`license::formatTypedKey`, test_license 10); no version bump (Matthew: "No need to make a whole new version for that" — small changes ride with the next release). Matthew made a master key; this PC still holds the expired test key under HKCU/Software/ServeGaming/quewi/license, so the master key went in on another machine.
+- (in 1.3.3) key box auto-caps + dashes (`license::formatTypedKey`, test_license 10); no version bump (Matthew: "No need to make a whole new version for that" — small changes ride with the next release). Matthew made a master key; this PC still holds the expired test key under HKCU/Software/ServeGaming/quewi/license, so the master key went in on another machine.
 - **1.3.2** (2026-11-16) — vamps audit fixes, remote relink. See 0a10.
 - **1.3.1** (2026-11-15) — vamp edits reach a playing song (phantom-vamp
   fix); Tools → Relink missing files. See 0a10.

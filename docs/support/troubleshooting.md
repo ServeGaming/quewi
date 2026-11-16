@@ -79,12 +79,16 @@ enough.
   on a slow disk or network mount, the first GO is the one that
   pays the decode cost. Move show audio to a local SSD.
 
-### "Audio still decoding" warning on GO
+### "Loading…" on GO
 
-Decode hasn't caught up. Either the file is very long (full-show
-multitrack masters) or the source is on a slow disk. Quewi will
-still play once decode catches up — usually a fraction of a
-second. If it persists, copy the audio to a local SSD.
+The file hadn't been read in yet when you pressed GO (a very long
+file, a slow disk, or a GO straight after opening the show). Since
+1.3.3 the GO still counts: the track starts the moment its first
+audio is in, usually a split second later. (Before 1.3.3 this showed
+"audio still decoding" and the cue didn't play at all.)
+
+If the status line says a track **didn't load in 15 s**, the file is
+unreadable or the disk is far too slow: copy the audio to a local SSD.
 
 ---
 

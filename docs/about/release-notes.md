@@ -1,6 +1,17 @@
 # Release notes
 
-## Unreleased (next version)
+## 1.3.3 (2026-11-16)
+
+### Fixed
+
+- **GO always plays the track, even if it hasn't finished loading.** Pressing
+  GO on a sound whose file hadn't decoded yet (a big file, a slow disk, or a
+  GO straight after opening the show) used to show *audio still decoding*,
+  play nothing, and move on, so the cue was lost. Now the GO stands: the
+  status line says *loading…* and the track starts the moment its first audio
+  is in, normally a split second. Panic, Pause and a Stop cue still apply
+  while it waits. If a file really won't load within 15 seconds, the status
+  line says so.
 
 ### New
 
@@ -8,7 +19,7 @@
   file…** button: pick a `.tmix` and its cues, DCA assignments, channel names
   and ensembles come in. See [quewi Mix](../using-quewi/mix.md).
 
-### Fixed
+### Also fixed
 
 - **A long file name no longer squashes the Inspector.** The cue pickers
   (fade target, link, group) asked to be as wide as the longest cue name,

@@ -173,6 +173,11 @@ private:
     // Play an audio cue's sound (an AudioCue, or a VideoCue's soundtrack;
     // owner is the cue named in the status line). Returns the voice id.
     quint64 fireSound(audio::AudioCue *audioCue, const AudioRoute &route, cues::Cue *owner);
+    // GO on a track that hasn't decoded its first audio yet: keep checking
+    // and play it the moment it can (instead of giving up). Panic cancels
+    // the wait, Pause freezes it, a Stop cue aimed at the track drops it.
+    void waitThenFireSound(audio::AudioCue *audioCue, const AudioRoute &route,
+                           cues::Cue *owner, int waitedMs);
     void doFire(cues::Cue *cue, const AudioRoute &route = {});
     void scheduleContinue(cues::Cue *cue, double delaySeconds);
     cues::Cue *nextCueAfter(cues::Cue *cue) const;
@@ -204,6 +209,8 @@ private:
     void onAudioVoiceFinishedNatural(quint64 voiceId);
     void onVideoVoiceFinishedNatural(quint64 voiceId);
     QSet<cues::Cue *> m_followPending;
+    // Tracks GO'd while still loading, waiting to start (waitThenFireSound).
+    QSet<audio::AudioCue *> m_soundWaiting;
 
     // Raw pointers — MainWindow owns both us and the engines and outlives us.
     core::Workspace              *m_workspace = nullptr;

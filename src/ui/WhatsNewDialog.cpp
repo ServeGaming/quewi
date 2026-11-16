@@ -20,11 +20,17 @@ struct Highlight { const char *title; const char *body; };
 // Curated highlights for this release. Written to read like a person wrote
 // them — specific, second-person, no filler. Update this list each release.
 //
-// Next release: the key box formats as it's typed. 1.3.2: the vamps audit fixes. 1.3.1: vamp edits reach a playing song;
+// 1.3.3: GO waits for a loading track; TheatreMix import; key box. 1.3.2: the vamps audit fixes. 1.3.1: vamp edits reach a playing song;
 // relink missing files. Then 1.3.0
 // (vamps and Advance; trial keys), 1.2.0, 1.1.0, 1.0.3, 1.0.2 and 1.0.1, for
 // anyone installing this by hand from an older version.
 const Highlight kHighlights[] = {
+    { "GO never skips a track",
+      "Press GO on a sound that's still loading and it now plays the moment it's "
+      "ready, instead of saying \"still decoding\" and moving on." },
+    { "Import a TheatreMix show",
+      "The Mix grid's Import TheatreMix file button brings in a .tmix's cues, "
+      "DCA assignments, channel names and ensembles." },
     { "Easier key entry",
       "The license key box now types in capitals and adds the dashes for you. "
       "Paste a key with or without the QW, dashes or spaces and it comes out right." },

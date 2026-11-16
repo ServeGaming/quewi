@@ -249,6 +249,7 @@ void GoEngine::stopTarget(cues::Cue *target, int depth)
     if (!target || depth > 32) return;
     // A stopped cue must never advance an auto-follow chain.
     m_followPending.remove(target);
+    if (auto *snd = video::VideoCue::audioOf(target)) m_soundWaiting.remove(snd);
     if (auto *ac = qobject_cast<audio::AudioCue *>(target)) {
         if (m_audio && ac->currentVoiceId() != 0) m_audio->stop(ac->currentVoiceId(), 0.1);
     } else if (auto *vc = qobject_cast<video::VisualCue *>(target)) {
@@ -279,13 +280,16 @@ quint64 GoEngine::fireSound(audio::AudioCue *audioCue, const AudioRoute &route,
         status(tr("GO: decode failed — %1").arg(file->errorString()));
     } else if (file->state() == audio::AudioFile::State::Empty
                || !file->snapshot()) {
-        // No published snapshot yet — the QAudioDecoder hasn't
-        // delivered the first buffer. This is brief (< 200 ms
-        // typically) and only happens if GO arrives faster
-        // than the first decoded chunk. With progressive
-        // snapshots from v0.9.4 onward, Loading-with-snapshot
-        // is now a valid play state.
-        status(tr("GO: audio still decoding"));
+        // No audio decoded yet (a track GO'd before its file had loaded:
+        // cold, or a decoder slow to start). This used to report "still
+        // decoding" and play nothing, so the cue was silently skipped. Now
+        // the GO stands: the track starts as soon as its first audio is in.
+        status(tr("GO: loading %1…").arg(nameOf(owner)));
+        // A second GO while it's still loading doesn't queue a second copy.
+        if (!m_soundWaiting.contains(audioCue)) {
+            m_soundWaiting.insert(audioCue);
+            waitThenFireSound(audioCue, route, owner, 0);
+        }
     } else {
         audio::VoiceParams p;
         p.gainDb         = audioCue->gainDb();
@@ -391,6 +395,39 @@ quint64 GoEngine::fireSound(audio::AudioCue *audioCue, const AudioRoute &route,
         else status(tr("GO: ▶ %1").arg(nameOf(owner)));
     }
     return vid;
+}
+
+void GoEngine::waitThenFireSound(audio::AudioCue *audioCue, const AudioRoute &route,
+                                 cues::Cue *owner, int waitedMs)
+{
+    // Check often: decoding delivers its first buffer in tens of ms, and the
+    // sooner the voice starts the less late the cue sounds.
+    constexpr int kStepMs = 5;
+    // Long enough for a slow disk or a big file's decoder to get going; past
+    // it something is wrong with the file and the operator needs to know.
+    constexpr int kGiveUpMs = 15000;
+    QPointer<audio::AudioCue> cue(audioCue);
+    QPointer<cues::Cue> who(owner);
+    after(kStepMs, [this, cue, who, route, waitedMs] {
+        if (!cue || !m_soundWaiting.contains(cue.data())) return;   // stopped / panicked
+        auto file = cue->audioFile();
+        const bool ready = file && file->snapshot();
+        const bool failed = !file || file->state() == audio::AudioFile::State::Failed;
+        if (ready || failed) {
+            m_soundWaiting.remove(cue.data());
+            fireSound(cue, route, who ? who.data() : cue.data());   // plays, or says why not
+            return;
+        }
+        const int waited = waitedMs + kStepMs;
+        if (waited >= kGiveUpMs) {
+            m_soundWaiting.remove(cue.data());
+            emit statusMessage(tr("GO: %1 didn't load in %2 s — check the file")
+                                   .arg(nameOf(who ? who.data() : cue.data()))
+                                   .arg(kGiveUpMs / 1000));
+            return;
+        }
+        waitThenFireSound(cue, route, who, waited);
+    });
 }
 
 void GoEngine::doFire(cues::Cue *cue, const AudioRoute &route)
@@ -778,6 +815,7 @@ void GoEngine::cancelScheduling()
     // voiceFinishedNatural arriving after the cancel can't advance.
     m_followPending.clear();
     m_groupRemaining.clear();
+    m_soundWaiting.clear();
 }
 
 void GoEngine::clearPauseState()
