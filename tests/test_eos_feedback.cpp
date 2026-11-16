@@ -41,6 +41,20 @@ class EosFeedbackTests : public QObject {
         return 0;
     }
 
+    // Some CI machines (GitHub's macos-15, 2026-11) sit behind something
+    // that ACCEPTS a connection to a local port nothing listens on, so a
+    // refusal can't be seen there at all. Checked with a plain socket.
+    static bool closedPortsAccept(quint16 port)
+    {
+        QTcpSocket s;
+        s.connectToHost(QHostAddress(QHostAddress::LocalHost), port);
+        const bool connected = s.waitForConnected(1500);
+        qInfo("closed-port probe on %d: %s (%s)", int(port), connected ? "CONNECTED" : "not connected",
+              qPrintable(s.errorString()));
+        s.abort();
+        return connected;
+    }
+
 private slots:
     void parsesCueText()
     {
@@ -170,6 +184,8 @@ private slots:
     {
         const quint16 port = closedPort();
         QVERIFY(port != 0);
+        if (closedPortsAccept(port))
+            QSKIP("this machine accepts connections to a port nothing listens on (a filtering proxy)");
         osc::EosFeedback fb;
         fb.setTimings(200, 1000, 5000);
         fb.start(QStringLiteral("127.0.0.1"), port);
@@ -190,6 +206,8 @@ private slots:
     {
         const quint16 port = closedPort();              // nothing's there
         QVERIFY(port != 0);
+        if (closedPortsAccept(port))
+            QSKIP("this machine accepts connections to a port nothing listens on (a filtering proxy)");
         osc::EosFeedback fb;
         fb.setTimings(5000, 1000, 5000);
         fb.start(QStringLiteral("127.0.0.1"), port);
