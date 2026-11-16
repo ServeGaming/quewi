@@ -122,6 +122,18 @@ CI build. Batch the local test pass for when he says. 1.3.2's version bump
 + notes were committed WITHOUT a local rebuild after the bump (code was
 built and fully tested just before it); CI covers it.
 
+**CI / macOS (2026-11-15/16):** GitHub refused `macos-14` ("configuration
+'macos-14-arm64-us-default' is not supported"), so 1.3.1 has **no DMG**.
+ci.yml and release.yml now use `macos-15` (still not `macos-latest`: AGL).
+On macos-15 `eos_feedback`'s two refused-connection cases never saw
+`Failed` (cause not established — two guesses were wrong); they now probe
+with a plain socket and QSKIP if a closed local port accepts. CI is green
+on all 8 jobs at `126fb3e`, but ctest hides per-case output, so whether
+those two ran or skipped on the Mac is unknown. `EosFeedback` also got a
+2.5 s connect watchdog (no answer at all → Failed + retry). The macos-15
+**release** job (DMG, macdeployqt, smoke test) has not run yet — the 1.3.2
+tag is its first try.
+
 **Low-end PC check (this PC, release build):** exe 4.3 MB, idle 152 MB
 working set / 96 MB private, 0.4 % of one core idle, `--selftest` 1.5–2.1 s
 start-to-exit. Decoded audio lives in RAM (float32; budget
