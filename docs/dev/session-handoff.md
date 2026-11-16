@@ -11,7 +11,7 @@ session on any computer (or a fresh conversation) continues with no gaps.
 > right now, the next one would lose nothing. *Update protocol* (last section)
 > says how.
 
-Last updated: **2026-11-16**. Latest release: **v1.3.3** (2026-11-16; GO waits for a loading track, TheatreMix import,
+Last updated: **2026-11-16**. Latest release: **v1.3.3** (2026-11-16, `44c7585`; all 4 assets up, release/perf/docs green; GO waits for a loading track, TheatreMix import,
 Inspector squash fix, key box; Matthew OK'd the bump: "push and upload that as the next version") on top of **v1.3.2** (2026-11-16, `c569dac`; audit fixes; see
 0a10; all 4 assets up; the DMG job hit a GitHub Mac-runner capacity cancel, re-run passed — first macos-15 DMG, smoke-tested by CI, not yet opened on a real Mac) on top of **v1.3.1** (2026-11-15; no DMG
 ) and **v1.3.0** (2026-10-28, `c782a65`) — vamps/Advance, Devamp, and the **first licensed release**
